@@ -5,7 +5,7 @@
  * source and a proposal; never a sentence for the customer.
  *
  * Two halves, on the Scoping pattern. The model reads the thread and returns what the newest
- * turn asks about dates (lead time, availability, the booked date, a change to it) and, for a
+ * turn asks about dates (when we could come, the booked date, a change to it) and, for a
  * change, the words they used. The tool server (scheduling-tools.ts) then decides everything
  * deterministically from the diary: a lead time when the diary has one, "dates come with your
  * quote" when it has none and the customer has no quote yet, whether none is on the file or the one
@@ -27,14 +27,15 @@ import { confirmBookedDate, dateChangeMatch, dateQuestionMatch, isTheirBooking, 
 
 /**
  * What the turn asks, and every value is load-bearing: `date_change` holds for Ben, `booked_date`
- * confirms the day they already have, and `lead_time` or `availability` reads the diary's lead time,
- * which answers whatever job they are asking about. Somebody with a visit booked who asks how soon a
+ * confirms the day they already have, and `availability` reads the diary's lead time, which answers
+ * whatever job they are asking about, whether they asked how soon we could come or what dates we have:
+ * every branch answers those two wordings alike, so they are one ask. Somebody with a visit booked who asks how soon a
  * new job could be done is asking about the new one, so the lead time answers it, and the day they
  * already have is confirmed beside it rather than instead of it: they booked on this quote's picker
  * already, so no link goes with it. The grid in contracts.md holds the cell for every ask against
  * every state the diary read can return, and this branching reads from it.
  */
-export const SCHEDULING_ASKS = ['lead_time', 'availability', 'booked_date', 'date_change'] as const;
+export const SCHEDULING_ASKS = ['availability', 'booked_date', 'date_change'] as const;
 export type SchedulingAsk = (typeof SCHEDULING_ASKS)[number];
 
 export const schedulingOutputSchema = z.object({
@@ -47,7 +48,7 @@ export type SchedulingOutput = z.infer<typeof schedulingOutputSchema>;
 
 const SYSTEM = [
     'You are the Scheduling specialist for a small handyman business\'s desk. You never write to the customer. You read the thread and classify what the newest turn asks about dates, with no prose.',
-    'asks: lead_time (how soon, how long until, when could you come, roughly when), availability (what dates or days do you have, any slots, can you do a given week), booked_date (what day is it booked for, when are you coming, confirming the date they have), date_change (move, change, push back, bring forward, reschedule, a different day for a booking they already have). A turn can ask more than one. A turn that only mentions timing in passing asks nothing: empty list.',
+    'asks: availability (when we could come, however it is worded: how soon, how long until, when could you come, roughly when, what dates or days do you have, any slots, can you do a given week), booked_date (what day is it booked for, when are you coming, confirming the date they have), date_change (move, change, push back, bring forward, reschedule, a different day for a booking they already have). A turn can ask more than one. A turn that only mentions timing in passing asks nothing: empty list.',
     'requestedChange: only for date_change, the day or time they want instead, in their own words ("the week after", "a Friday", "the 3rd"). Otherwise null. Never invent one.',
     'Never propose a date, a time, a slot or a lead time. You classify only.',
     'Reply with the JSON object only.',
@@ -104,7 +105,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
 
     // The customer's own booking, found by the phone and email the file records for them, is written onto
     // the job before anything reads it, so the confirmation below reads it on its own path. Looked up only
-    // for a date-change-shaped turn: a plain lead-time, availability or booked-date question never looks
+    // for a date-change-shaped turn: a plain availability or booked-date question never looks
     // up, and never writes, a booking by contact, so it can never be confused for a different job's.
     let partyBooked: PartyBookings = partyLookup ?? { state: 'unknown', reason: 'not looked up: not yet read as a date change' };
     if (shapedBeforeModel) ({ found: partyBooked } = await linkPartyBooking(file, deps, partyLookup));
@@ -227,7 +228,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         const dateSaid = confirming && standing.ok;
         // A turn can ask more than one thing and each is answered: the shelf runs beside a confirmation
         // when they also asked how soon or what dates, and on its own when there was no date to confirm.
-        if (confirming && !asks.some((a) => a === 'lead_time' || a === 'availability')) return { specialist: 'scheduling', factIds, proposal, brief, calls, error: erroring(), scheduling: findings };
+        if (confirming && !asks.includes('availability')) return { specialist: 'scheduling', factIds, proposal, brief, calls, error: erroring(), scheduling: findings };
         findings.leadTime = await typicalLeadTime(deps);
         if (!findings.leadTime.ok && findings.leadTime.detail) details.push(`${findings.leadTime.reason}: ${findings.leadTime.detail}`);
         // No link while the date is Ben's: one reply must not say he will come back on it and then send

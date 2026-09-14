@@ -34,7 +34,7 @@ beforeAll(async () => {
         // Quoting's two calls are scripted beside Scheduling's: the job and the postcode together
         // make a draft due on the first turn whatever the turn asks about dates.
         specialist: ({ system, user }) => system.includes('Scheduling specialist')
-            ? { asks: [/move it/i.test(user) ? 'date_change' : /dates/i.test(user) ? 'availability' : 'lead_time'], requestedChange: /move it/i.test(user) ? 'the week after' : null }
+            ? { asks: [/move it/i.test(user) ? 'date_change' : 'availability'], requestedChange: /move it/i.test(user) ? 'the week after' : null }
             : /lines of a quote/.test(system)
                 ? { lines: [{ title: 'Repair leaking tap', category: 'plumbing', qty: 1, detail: 'leaking at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
                 : /what it concerns/.test(system)
@@ -77,27 +77,27 @@ describe('the scheduling fixture on the door', () => {
         expect(r.status).toBe(409);
         expect(r.json.error).toMatch(/no sandbox thread/);
         // A refusal writes nothing: no orphan quote or booking is left on the branch.
-        expect(scheduling.diary.quotes).toHaveLength(0);
-        expect(scheduling.diary.bookings).toHaveLength(0);
+        expect(scheduling.diary.source.quotes).toHaveLength(0);
+        expect(scheduling.diary.source.bookings).toHaveLength(0);
         await post('/scheduling/fixture/reset');
     });
-    it('seeds completed bookings without a thread, and reports the diary mode', async () => {
+    it('seeds completed bookings without a thread, and reports that the diary is read', async () => {
         const r = await post('/scheduling/fixture', { completed: 6 });
         expect(r.status).toBe(200);
         expect(r.json.seeded).toMatchObject({ completedSeeded: 6, quoteRef: null, bookingRef: null });
         expect(r.json.linked).toBeNull();
-        expect(r.json.diaryMode).toBe('diary');
-        expect(scheduling.diary.bookings).toHaveLength(6);
+        expect(r.json.diary).toBe('diary');
+        expect(scheduling.diary.source.bookings).toHaveLength(6);
     });
-    it('a post that only flips the diary mode writes nothing and deletes nothing', async () => {
-        const rows = scheduling.diary.bookings.length;
+    it('a post that only empties the diary writes nothing and deletes nothing', async () => {
+        const rows = scheduling.diary.source.bookings.length;
         const flipped = await post('/scheduling/fixture', { diary: 'none' });
         expect(flipped.status).toBe(200);
         expect(flipped.json.seeded).toMatchObject({ completedSeeded: 0 });
-        expect(flipped.json.diaryMode).toBe('none');
-        expect(scheduling.diary.bookings).toHaveLength(rows);
+        expect(flipped.json.diary).toBe('none');
+        expect(scheduling.diary.source.bookings).toHaveLength(rows);
         const back = await post('/scheduling/fixture', { diary: 'diary' });
-        expect(back.json.diaryMode).toBe('diary');
+        expect(back.json.diary).toBe('diary');
     });
     it('2.6 replaced: a date question during scoping is answered with the lead time from the diary', async () => {
         const start = await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
@@ -116,7 +116,7 @@ describe('the scheduling fixture on the door', () => {
     it('2.6 replaced: with the diary emptied the reply says dates come with your quote and no lead time', async () => {
         await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
         const empty = await post('/scheduling/fixture', { diary: 'none' });
-        expect(empty.json.diaryMode).toBe('none');
+        expect(empty.json.diary).toBe('none');
         const r = await post('/message', { text: 'When can you come?', channel: 'whatsapp' });
         const ps = plannedSendOfResponse(r.json);
         expect(ps.bubbles[0]).toBe('Dates come with your quote.');
@@ -126,7 +126,7 @@ describe('the scheduling fixture on the door', () => {
     });
     it('a fresh thread starts from the real diary: /reset puts the emptied diary back', async () => {
         const empty = await post('/scheduling/fixture', { diary: 'none' });
-        expect(empty.json.diaryMode).toBe('none');
+        expect(empty.json.diary).toBe('none');
         expect((await post('/reset')).status).toBe(200);
         const start = await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
         expect(start.status).toBe(200);
@@ -192,8 +192,8 @@ describe('the scheduling fixture on the door', () => {
         const r = await post('/scheduling/fixture/reset');
         expect(r.status).toBe(200);
         expect(r.json.deleted.bookings).toBeGreaterThan(0);
-        expect(r.json.diaryMode).toBe('diary');
-        expect(scheduling.diary.bookings).toHaveLength(0);
+        expect(r.json.diary).toBe('diary');
+        expect(scheduling.diary.source.bookings).toHaveLength(0);
     });
     it('link: false seeds the rows and links nothing; a thread holding the quote Quoting drafted still holds a move for Ben, found by the customer\'s phone', async () => {
         expect((await post('/scheduling/fixture', { booked: true, link: 'no' })).status).toBe(400);
@@ -228,17 +228,20 @@ describe('the door\'s scheduling deps', () => {
         const mine = new MemoryDiary();
         mine.quotes.push({ id: 'q9', slug: 'callers', isDraft: false, supersededAt: null, revokedAt: null, expiresAt: null });
         const wired = withScheduling({ scheduling: { diary: mine } });
-        expect(wired.scheduling.diary).toBe(mine);
+        expect(wired.scheduling.diary.source).toBe(mine);
         expect(await wired.scheduling.diary.quote('q9')).toMatchObject({ slug: 'callers' });
-        expect(wired.scheduling.diaryMode).toEqual({ completed: 'diary' });
+        expect(wired.scheduling.diary.emptied).toBe(false);
         const both = memoryScheduling();
+        // One reader for the door and the desk, so emptying it on the door is what the desk reads.
+        expect(withScheduling({ scheduling: both }).scheduling.diary).toBe(both.diary);
         expect(withScheduling({ scheduling: both }).scheduling.fixture).toBe(both.fixture);
     });
 });
 
 describe('a scheduling fixture seed that fails', () => {
-    it('leaves the diary mode as it was, so a later lead-time read is not told the diary was emptied', async () => {
+    it('leaves the diary read as it was, so a later lead-time read is not given an emptied diary', async () => {
         const deps = memoryScheduling();
+        await deps.fixture.seed({ completed: 6, quote: false, booked: false }, new Date());
         const broken = { ...deps, fixture: { seed: async () => { throw new Error('the branch database is not the one in use'); }, reset: async () => ({ bookings: 0, quotes: 0 }) } };
         const app = express();
         app.use(express.json());
@@ -247,7 +250,8 @@ describe('a scheduling fixture seed that fails', () => {
         const url = `http://127.0.0.1:${(s.address() as { port: number }).port}/scheduling/fixture`;
         const failed = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ diary: 'none', completed: 6 }) });
         expect(failed.status).toBe(500);
-        expect(await typicalLeadTime(broken)).toMatchObject({ ok: false, mode: 'diary' });
+        expect(broken.diary.emptied).toBe(false);
+        expect(await typicalLeadTime(broken)).toMatchObject({ ok: true, sample: 6 });
         await new Promise<void>((done) => s.close(() => done()));
     });
 });

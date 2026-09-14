@@ -24,8 +24,8 @@
  *   party booking       on a date-change-shaped turn only, the customer's bookings, found by the phone
  *                       and email the case file records for them, and the one that plainly is the
  *                       file's job written onto it, so a real thread with no reference on it is still
- *                       known to be booked when asked to move it. A plain lead-time, availability or
- *                       booked-date turn never looks this up.
+ *                       known to be booked when asked to move it. A plain availability or booked-date
+ *                       turn never looks this up.
  *
  * Every date fact these return carries a diary source (`{ kind: 'diary', rowId }`), which the
  * date guard (desk/guards.ts checkDate) already recognises; nothing in the guard changes.
@@ -39,8 +39,6 @@ import { formatDiaryDate, isoDayOf, LEAD_TIME_SAMPLE_LIMIT, LEAD_TIME_WINDOW_DAY
 
 export interface SchedulingDeps {
     diary?: DiaryReader;
-    /** The door's fixture can tell the diary to hold no completed bookings, so the "dates come with your quote" path is drivable live. Visible in every result. */
-    diaryMode?: { completed: 'diary' | 'none' };
     /** The origin the picker link is built on; defaults to BASE_URL, else the production domain (server/url-utils.ts). */
     baseUrl?: string;
     now?: () => Date;
@@ -48,22 +46,20 @@ export interface SchedulingDeps {
 
 // ---------------------------------------------------------------- typical_lead_time
 
-export type LeadTimeResult = LeadTime & { mode: 'diary' | 'none'; detail?: string | null };
+export type LeadTimeResult = LeadTime & { detail?: string | null };
 
-/** Over recent completed bookings; nothing below the minimum sample, nothing when the fixture emptied the diary. Never a guess. */
+/** Over recent completed bookings; nothing below the minimum sample. Never a guess. */
 export async function typicalLeadTime(deps: SchedulingDeps = {}): Promise<LeadTimeResult> {
-    const mode = deps.diaryMode?.completed ?? 'diary';
-    if (mode === 'none') return { ok: false, reason: 'the diary holds no completed bookings', sample: 0, mode };
-    if (!deps.diary) return { ok: false, reason: 'no diary to read', sample: 0, mode };
+    if (!deps.diary) return { ok: false, reason: 'no diary to read', sample: 0 };
     const now = deps.now ?? (() => new Date());
     const since = new Date(now().getTime() - LEAD_TIME_WINDOW_DAYS * 86_400_000);
     let rows: DiaryBooking[];
     try {
         rows = await deps.diary.completedBookings({ since, limit: LEAD_TIME_SAMPLE_LIMIT });
     } catch (err: any) {
-        return { ok: false, reason: 'the diary could not be read', detail: String(err?.message ?? err), sample: 0, mode };
+        return { ok: false, reason: 'the diary could not be read', detail: String(err?.message ?? err), sample: 0 };
     }
-    return { ...typicalLeadTimeOf(rows), mode };
+    return typicalLeadTimeOf(rows);
 }
 
 // ---------------------------------------------------------------- confirm_booked_date

@@ -12,7 +12,8 @@
  * stands in for tests.
  */
 import { randomUUID } from 'node:crypto';
-import { branchInUse, MemoryDiary, type DiaryBooking, type DiaryQuote } from './diary';
+import type { CanonicalKey } from '../desk/identity';
+import { branchInUse, MemoryDiary, type DiaryBooking, type DiaryQuote, type DiaryReader } from './diary';
 
 /** The drama number the sandbox door types on (desk/sandbox-door.ts SANDBOX_PHONE_E164). */
 export const FIXTURE_PHONE_E164 = '+447700900942';
@@ -84,6 +85,29 @@ export function planFixture(input: FixtureInput, now: Date, newId: (prefix: stri
 function resultOf(plan: ReturnType<typeof planFixture>, input: FixtureInput): FixtureResult {
     const booked = plan.bookings.find((b) => b.status === 'accepted') ?? null;
     return { completedSeeded: input.completed, quoteRef: plan.quote?.id ?? null, quoteSlug: plan.quote?.slug ?? null, bookingRef: booked?.id ?? null, bookedDate: booked?.scheduledDate ?? null };
+}
+
+/**
+ * The diary the door hands the specialist: every read goes to the diary underneath, except that the
+ * fixture can empty its completed bookings, so the "dates come with your quote" path is drivable live
+ * against a branch that already has a diary. The tool server sees a reader whose completed bookings
+ * came back empty and nothing else, so it has one path and no fixture in it.
+ */
+export class FixtureDiary<D extends DiaryReader = DiaryReader> implements DiaryReader {
+    /** While true, completed bookings read as none. The fixture's post sets it; its reset and the door's /reset clear it. */
+    emptied = false;
+    constructor(readonly source: D) {}
+    /** The door's diary over `diary`, or `diary` itself when it already is one, so the door and the desk share one reader. */
+    static over(diary: DiaryReader): FixtureDiary {
+        return diary instanceof FixtureDiary ? diary : new FixtureDiary(diary);
+    }
+    async completedBookings(opts: { since: Date; limit: number }): Promise<DiaryBooking[]> {
+        return this.emptied ? [] : this.source.completedBookings(opts);
+    }
+    booking(bookingRef: string): Promise<DiaryBooking | null> { return this.source.booking(bookingRef); }
+    bookingForQuote(quoteRef: string, today: string): Promise<DiaryBooking | null> { return this.source.bookingForQuote(quoteRef, today); }
+    quote(quoteRef: string): Promise<DiaryQuote | null> { return this.source.quote(quoteRef); }
+    bookingsForContact(keys: CanonicalKey[], today: string): Promise<DiaryBooking[]> { return this.source.bookingsForContact(keys, today); }
 }
 
 /** Writes into a MemoryDiary, for the door's tests. */

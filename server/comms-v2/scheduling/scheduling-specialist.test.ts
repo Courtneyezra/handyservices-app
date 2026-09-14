@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { open, type CaseFile } from '../desk/case-file';
 import { FakeModelClient } from '../desk/models';
 import { MemoryDiary, type DiaryBooking } from './diary';
+import { FixtureDiary } from './fixture';
 import { schedule, schedulingOutputSchema, type SchedulingReturn } from './scheduling-specialist';
 
 const NOW = new Date('2026-09-11T10:00:00.000Z');
@@ -64,17 +65,19 @@ function assertNoProse(r: SchedulingReturn, file: CaseFile) {
 describe('the Scheduling specialist', () => {
     it('the model half has no free-text field for prose: a reply is refused by the schema', () => {
         expect(Object.keys(schedulingOutputSchema.shape).sort()).toEqual(['asks', 'requestedChange']);
-        expect(schedulingOutputSchema.safeParse({ asks: ['lead_time'], requestedChange: null, reply: 'We can come Tuesday' }).success).toBe(true);
-        expect(schedulingOutputSchema.parse({ asks: ['lead_time'], requestedChange: null, reply: 'x' })).not.toHaveProperty('reply');
+        expect(schedulingOutputSchema.safeParse({ asks: ['availability'], requestedChange: null, reply: 'We can come Tuesday' }).success).toBe(true);
+        expect(schedulingOutputSchema.parse({ asks: ['availability'], requestedChange: null, reply: 'x' })).not.toHaveProperty('reply');
         expect(schedulingOutputSchema.safeParse({ asks: ['tuesday'], requestedChange: null }).success).toBe(false);
+        // How soon and what dates are one ask, answered alike on every branch.
+        expect(schedulingOutputSchema.safeParse({ asks: ['lead_time'], requestedChange: null }).success).toBe(false);
     });
 
     it('during scoping, a date question gets the typical lead time from the diary as a diary fact, verbatim, and no fixed line', async () => {
         const file = fixture('When can you come?');
-        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6), now });
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary: diaryWith(6), now });
         assertNoProse(r, file);
-        expect(r.scheduling.asks).toEqual(['lead_time']);
-        expect(r.scheduling.leadTime).toMatchObject({ ok: true, phrase: 'about 3 days', sample: 6, mode: 'diary' });
+        expect(r.scheduling.asks).toEqual(['availability']);
+        expect(r.scheduling.leadTime).toMatchObject({ ok: true, phrase: 'about 3 days', sample: 6 });
         expect(r.scheduling.fixedLines).toEqual([]);
         const fact = file.facts.find((f) => f.key === 'lead_time')!;
         expect(fact.value).toBe('about 3 days');
@@ -88,7 +91,7 @@ describe('the Scheduling specialist', () => {
 
     it('with too few completed bookings the diary says nothing: the fixed line dates come with your quote, no lead time, never a guess', async () => {
         const file = fixture('When can you come?');
-        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(2), now });
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary: diaryWith(2), now });
         assertNoProse(r, file);
         expect(r.scheduling.leadTime).toMatchObject({ ok: false, reason: 'too few completed bookings to say', sample: 2 });
         expect(r.scheduling.fixedLines).toEqual(['dates_with_quote']);
@@ -98,10 +101,12 @@ describe('the Scheduling specialist', () => {
         expect(r.brief.join(' ')).not.toMatch(/\d/);
     });
 
-    it('the door fixture can empty the diary: the same fixed line, with the mode on the result', async () => {
+    it('a diary the door fixture emptied is a diary with no completed bookings: the same fixed line', async () => {
         const file = fixture('How soon could you do it?');
-        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6), diaryMode: { completed: 'none' }, now });
-        expect(r.scheduling.leadTime).toMatchObject({ ok: false, reason: 'the diary holds no completed bookings', mode: 'none' });
+        const emptied = new FixtureDiary(diaryWith(6));
+        emptied.emptied = true;
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary: emptied, now });
+        expect(r.scheduling.leadTime).toMatchObject({ ok: false, reason: 'too few completed bookings to say', sample: 0 });
         expect(r.scheduling.fixedLines).toEqual(['dates_with_quote']);
         expect(r.brief.join(' ')).not.toMatch(/fixture|door/i);
     });
@@ -347,7 +352,7 @@ describe('the Scheduling specialist', () => {
         expect(file.job.bookingRef).toBe('bk9');
     });
 
-    it('a lead_time or availability turn never looks up, and never writes, the customer\'s booking by contact', async () => {
+    it('an availability turn never looks up, and never writes, the customer\'s booking by contact', async () => {
         const file = fixture('How soon could you fit us in?');
         const diary = diaryWith(6);
         diary.bookings.push({ id: 'bk9', quoteRef: null, scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null });
@@ -355,8 +360,8 @@ describe('the Scheduling specialist', () => {
         let lookedUp = 0;
         const realBookingsForContact = diary.bookingsForContact.bind(diary);
         diary.bookingsForContact = async (keys, today) => { lookedUp++; return realBookingsForContact(keys, today); };
-        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary, now });
-        expect(r.scheduling.asks).toEqual(['lead_time']);
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary, now });
+        expect(r.scheduling.asks).toEqual(['availability']);
         expect(lookedUp).toBe(0);
         expect(file.job.bookingRef).toBeNull();
         expect(r.scheduling.bookedDate).toBeNull();
@@ -365,7 +370,7 @@ describe('the Scheduling specialist', () => {
     it('a booking resolved by contact with no quote on the file confirms beside the lead time, never "dates come with your quote"', async () => {
         const file = fixture('How soon could you fit us in?');
         file.job.bookingRef = 'bk1';
-        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6, true), now });
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary: diaryWith(6, true), now });
         expect(r.scheduling.bookedDate).toMatchObject({ ok: true, state: 'standing', bookingRef: 'bk1' });
         expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
         expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
@@ -376,7 +381,7 @@ describe('the Scheduling specialist', () => {
     it('the same booking resolved by contact, with too few completed bookings for a lead time, still confirms the date and never says dates come with the quote', async () => {
         const file = fixture('How soon could you fit us in?');
         file.job.bookingRef = 'bk1';
-        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(2, true), now });
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary: diaryWith(2, true), now });
         expect(r.scheduling.bookedDate).toMatchObject({ ok: true, state: 'standing', bookingRef: 'bk1' });
         expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
         expect(file.facts.filter((f) => f.key === 'lead_time')).toHaveLength(0);
@@ -517,7 +522,7 @@ describe('the Scheduling specialist', () => {
         pool.assignmentStatus = 'unassigned';
         const file = fixture('When are you coming? And how soon could you get to the fence panel?');
         file.job.bookingRef = 'bk1';
-        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'lead_time']), { diary, now });
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'availability']), { diary, now });
         assertNoProse(r, file);
         expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
         expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
@@ -616,7 +621,7 @@ describe('the Scheduling specialist', () => {
         const file = fixture("The tap's sorted, thanks. A fence panel came down though, how soon could you get to that?");
         file.job.quoteRef = 'q1';
         file.job.bookingRef = 'bk1';
-        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6, true), now, baseUrl: 'https://example.test' });
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary: diaryWith(6, true), now, baseUrl: 'https://example.test' });
         assertNoProse(r, file);
         expect(r.scheduling.leadTime).toMatchObject({ ok: true, phrase: 'about 3 days' });
         expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
@@ -655,7 +660,7 @@ describe('the Scheduling specialist', () => {
         const file = fixture('When are you coming? And how soon could you get to the fence panel?');
         file.job.quoteRef = 'q1';
         file.job.bookingRef = 'bk1';
-        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'lead_time']), { diary, now, baseUrl: 'https://example.test' });
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'availability']), { diary, now, baseUrl: 'https://example.test' });
         assertNoProse(r, file);
         expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
         expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
@@ -671,7 +676,7 @@ describe('the Scheduling specialist', () => {
     it('a turn that asks two things is answered on both: the booked date and how soon a new job could be done', async () => {
         const file = fixture("When are you coming? And how soon could you look at the fence panel while you're here?");
         file.job.bookingRef = 'bk1';
-        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'lead_time']), { diary: diaryWith(6, true), now });
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date', 'availability']), { diary: diaryWith(6, true), now });
         assertNoProse(r, file);
         expect(file.facts.find((f) => f.key === 'booked_date')?.value).toBe('25 September 2026');
         expect(file.facts.find((f) => f.key === 'lead_time')?.value).toBe('about 3 days');
@@ -750,7 +755,7 @@ describe('the Scheduling specialist', () => {
         const file = fixture('How soon could you get to the rest of it?');
         file.job.quoteRef = 'q1';
         file.job.bookingRef = 'bk1';
-        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(2, true), now });
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary: diaryWith(2, true), now });
         expect(r.scheduling.leadTime).toMatchObject({ ok: false, reason: 'too few completed bookings to say' });
         expect(r.scheduling.fixedLines).toEqual([]);
         expect(r.brief.join(' ')).not.toMatch(/dates come with/i);
@@ -776,12 +781,12 @@ describe('the Scheduling specialist', () => {
     it('a file pointing at a booking the diary does not hold reaches the run; a thread with nothing booked yet does not', async () => {
         const file = fixture('How soon could you come?');
         file.job.bookingRef = 'bk9';
-        const r = await schedule(file, file.turns[0], party(file), client(['lead_time']), { diary: diaryWith(6), now });
+        const r = await schedule(file, file.turns[0], party(file), client(['availability']), { diary: diaryWith(6), now });
         expect(r.error).toContain('the booking the file references is not in the diary');
         expect(r.brief.join(' ')).not.toMatch(/diary does not|not in the diary/i);
         const quoted = fixture('How soon could you come?');
         quoted.job.quoteRef = 'q1';
-        const q = await schedule(quoted, quoted.turns[0], party(quoted), client(['lead_time']), { diary: diaryWith(6), now, baseUrl: 'https://example.test' });
+        const q = await schedule(quoted, quoted.turns[0], party(quoted), client(['availability']), { diary: diaryWith(6), now, baseUrl: 'https://example.test' });
         expect(q.scheduling.bookedDate).toBeNull();
         expect(q.error).toBeNull();
     });

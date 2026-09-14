@@ -1,6 +1,6 @@
 /**
  * The Scheduling tool server: typical_lead_time over completed bookings and its refusals (too
- * few, the diary emptied by the fixture, no diary, a read that fails); confirm_booked_date from
+ * few, no diary, a read that fails); confirm_booked_date from
  * the one authoritative booked date and its refusals (the five quote-side preference columns,
  * nothing booked, a declined or cancelled booking, no date); picker_link for a sent quote and its
  * refusals (no quote, draft, superseded, revoked, expired); the date-change and date-question belts.
@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { open, type CaseFile } from '../desk/case-file';
 import { bookingRowToDiary, contactMatchValues, formatDiaryDate, leadDaysOf, leadTimePhrase, liveDiary, MemoryDiary, medianOf, MIN_COMPLETED_BOOKINGS, typicalLeadTimeOf, type DiaryBooking } from './diary';
-import { liveFixture } from './fixture';
+import { FixtureDiary, liveFixture } from './fixture';
 import { confirmBookedDate, contactKeysOf, dateChangeMatch, dateQuestionMatch, linkPartyBooking, partyBookings, pickerLink, typicalLeadTime } from './scheduling-tools';
 
 const NOW = new Date('2026-09-11T10:00:00.000Z');
@@ -77,14 +77,18 @@ describe('typical_lead_time', () => {
         expect(medianOf([])).toBeNull();
         expect(leadDaysOf(completed('x', 4, 2))).toBe(4);
     });
-    it('reads the diary within the window; refuses no diary, a read that fails, and the fixture\'s empty diary by name', async () => {
+    it('reads the diary within the window; refuses no diary and a read that fails; a diary the fixture emptied is too few to say, like any other', async () => {
         const diary = new MemoryDiary();
         for (let i = 0; i < 6; i++) diary.bookings.push(completed(`b${i}`, 2 + i, 3 + i * 2));
         diary.bookings.push(completed('old', 40, 300));
         const lt = await typicalLeadTime({ diary, now });
-        expect(lt).toMatchObject({ ok: true, sample: 6, mode: 'diary' });
-        expect(await typicalLeadTime({ now })).toMatchObject({ ok: false, reason: 'no diary to read', mode: 'diary' });
-        expect(await typicalLeadTime({ diary, diaryMode: { completed: 'none' }, now })).toMatchObject({ ok: false, sample: 0, mode: 'none' });
+        expect(lt).toMatchObject({ ok: true, sample: 6 });
+        expect(await typicalLeadTime({ now })).toMatchObject({ ok: false, reason: 'no diary to read' });
+        const emptied = new FixtureDiary(diary);
+        emptied.emptied = true;
+        expect(await typicalLeadTime({ diary: emptied, now })).toEqual({ ok: false, reason: 'too few completed bookings to say', sample: 0 });
+        emptied.emptied = false;
+        expect(await typicalLeadTime({ diary: emptied, now })).toMatchObject({ ok: true, sample: 6 });
         const broken = { ...diary, completedBookings: async () => { throw new Error('boom'); } } as unknown as MemoryDiary;
         // The reason is a stable category the composer may read; the machine text stays on `detail`, for the log and the run summary.
         expect(await typicalLeadTime({ diary: broken, now })).toMatchObject({ ok: false, reason: 'the diary could not be read', detail: 'boom' });
