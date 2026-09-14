@@ -1,8 +1,7 @@
 # Unit test gate (vitest, Node 20): a starting slice of the suite that is green on main today.
 #
 # vitest.config.ts defines three projects: `server` (the original node suite; docs/RUNBOOK.md
-# "Verification rule" documents 42+ pre-existing failures there, plus a pre-existing duplicate-
-# identifier bug in server/quotes.ts that breaks the whole file transform), `comms-v2`
+# "Verification rule" documents 42+ pre-existing failures there), `comms-v2`
 # (server/comms-v2/**, green), and `client` (jsdom; also has a pre-existing failure today, in
 # client/src/pages/admin/__tests__/CommsV2BoardPage.test.tsx). This gate runs only what is
 # actually green on main right now:
