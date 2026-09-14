@@ -78,4 +78,4 @@ if viewCount === 3 AND viewNudgeSentAt IS NULL AND bookedAt IS NULL:
    - Compact formatting, no clutter
 3. View a quote 3 times (different requests) — check server logs for nudge trigger
 4. Verify nudge respects: dedup (only once), 24h window check, already-booked skip
-5. Push schema with `npm run db:push`
+5. Apply schema changes with `npx tsx scripts/_apply-migration.ts migrations/<file>.sql` (see `docs/RUNBOOK.md`)

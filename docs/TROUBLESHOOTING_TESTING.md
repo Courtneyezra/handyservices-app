@@ -247,7 +247,7 @@ jobs:
       - run: npm ci
       - run: npx tsx scripts/test-troubleshooting-flows.ts
       # E2E tests need database
-      - run: npm run db:push
+      - run: npx tsx scripts/_apply-migration.ts migrations/<file>.sql
       - run: npx tsx scripts/test-troubleshooting-e2e.ts
 ```
 

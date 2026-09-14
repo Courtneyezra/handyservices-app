@@ -44,7 +44,7 @@ The Lead Funnel Kanban is a visual board that displays leads organized by their 
 
 ### Pre-requisites
 
-- [ ] Database schema is up to date: `npm run db:push`
+- [ ] Database schema is up to date: `npx tsx scripts/_apply-migration.ts migrations/<file>.sql` (see `docs/RUNBOOK.md`)
 - [ ] Server is running: `npm run dev`
 - [ ] Have at least 2-3 test leads in the database
 
