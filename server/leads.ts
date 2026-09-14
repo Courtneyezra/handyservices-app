@@ -32,6 +32,21 @@ leadsRouter.post('/api/leads', async (req, res) => {
         // Note: We perform loose validation first to handle diverse frontend payloads
         const inputData = req.body;
 
+        // Photo bytes are durably captured on disk by the comms-v2 intake path
+        // (writeVerifiedPhoto); duplicating them into transcriptJson.rawSubmission
+        // would bloat every admin lead-list/dashboard read of this row.
+        const rawSubmission = Array.isArray(inputData.photos)
+            ? {
+                ...inputData,
+                photos: inputData.photos.map((photo: any) => ({
+                    mime: photo?.mime ?? null,
+                    bytes: typeof photo?.contentBase64 === 'string'
+                        ? Buffer.byteLength(photo.contentBase64, 'base64')
+                        : null,
+                })),
+            }
+            : inputData;
+
         const leadData = {
             id: `lead_${nanoid()}`,
             customerName: inputData.customerName,
@@ -51,7 +66,7 @@ leadsRouter.post('/api/leads', async (req, res) => {
             transcriptJson: {
                 ...(inputData.analyzedJobData ? { analyzedData: inputData.analyzedJobData } : {}),
                 ...(inputData.bookingRequest ? { bookingRequest: inputData.bookingRequest } : {}),
-                rawSubmission: inputData,
+                rawSubmission,
             },
         };
 

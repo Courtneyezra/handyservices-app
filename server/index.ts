@@ -169,6 +169,7 @@ app.use('/api/whatsapp/webhook', express.json({
 app.use('/api/admin/dispatch/:id/media', express.json({ limit: '200mb' }));
 app.use('/api/contractor-job/:token/complete', express.json({ limit: '200mb' }));
 app.use('/api/contractor-job/:token/variation', express.json({ limit: '200mb' }));
+app.use('/api/leads', express.json({ limit: '40mb' }));
 
 app.use(express.json({ limit: '10mb' })); // Increased limit for large transcriptions
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
