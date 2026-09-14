@@ -12,6 +12,7 @@ import { CALL_OUTCOMES, callOutcomeOf, callOutcomeOnFile, fromDoorCall, fromFini
 import { emailThreadingFor, fromDoorEmail, fromInboundEmail, renderEmail, stripQuotedHistory } from './email-adapter';
 import { firstNameOf, truncateWords } from './envelope';
 import { fromDoorForm, fromWebForm } from './form-adapter';
+import { MAX_PHOTO_BYTES } from './media';
 import { fromDoorSms, fromTwilioSms, isTwilioSms, normaliseForSms, renderSms, smsSegmentCount } from './sms-adapter';
 import { templateChoiceFor } from './templates';
 
@@ -125,6 +126,32 @@ describe('the web form adapter', () => {
         expect(door.via).toBe('door');
         expect(door.media).toHaveLength(1);
         expect(fs.readdirSync(dir)).toHaveLength(2);
+    });
+    it('re-checks the form\'s photo limits on its own, never trusting the browser or the claimed mime', async () => {
+        // Over count: five submitted, only the first four are written.
+        const five = Array.from({ length: 5 }, () => ({ contentBase64: PNG.toString('base64'), mime: 'image/png' }));
+        const overCount = await fromWebForm({ phone: '+447700900942', jobDescription: 'x', photos: five }, { mediaDir: dir });
+        expect(overCount.media).toHaveLength(4);
+        expect(overCount.mediaFailures).toEqual([{ ref: '(photo)', reason: 'too many photos (5), kept the first 4' }]);
+
+        // Over size: real JPEG bytes padded past the 6MB cap are refused, whatever the claimed mime.
+        const bigJpeg = Buffer.concat([Buffer.from([0xFF, 0xD8, 0xFF]), Buffer.alloc(MAX_PHOTO_BYTES)]);
+        const overSize = await fromWebForm({ phone: '+447700900942', jobDescription: 'x', photos: [{ contentBase64: bigJpeg.toString('base64'), mime: 'image/jpeg' }] }, { mediaDir: dir });
+        expect(overSize.media).toHaveLength(0);
+        expect(overSize.mediaFailures[0].reason).toMatch(/too large/);
+
+        // A non-image labelled image/jpeg is refused by its bytes, not accepted on the label.
+        const notAnImage = Buffer.from('this is plainly not an image');
+        const mislabelled = await fromWebForm({ phone: '+447700900942', jobDescription: 'x', photos: [{ contentBase64: notAnImage.toString('base64'), mime: 'image/jpeg' }] }, { mediaDir: dir });
+        expect(mislabelled.media).toHaveLength(0);
+        expect(mislabelled.mediaFailures[0].reason).toMatch(/not a recognised image/);
+
+        // A valid photo is written and stored under the type its bytes actually are.
+        const realJpeg = Buffer.from([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]);
+        const valid = await fromWebForm({ phone: '+447700900942', jobDescription: 'x', photos: [{ contentBase64: realJpeg.toString('base64'), mime: 'application/octet-stream' }] }, { mediaDir: dir });
+        expect(valid.media).toHaveLength(1);
+        expect(valid.media[0].mime).toBe('image/jpeg');
+        expect(fs.readFileSync(valid.media[0].path)).toEqual(realJpeg);
     });
 });
 
