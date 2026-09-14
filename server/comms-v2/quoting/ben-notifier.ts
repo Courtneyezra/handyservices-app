@@ -4,10 +4,13 @@
  * (6.1). Ben is the approver, not a party on the file, so a notice never goes through the customer
  * sender.
  *
- * Nothing is dispatched: the notice is recorded on the case file as a fact and shown as "the
- * recorded push" (answer 42: nothing leaves). Dispatching it to where Ben's notifications already
- * go lands at cutover, against the switch that makes it reachable. The wording here is the desk's
- * own; the message names what is missing so Ben can request it from the price screen (4.4).
+ * Every notice is recorded on the case file as a fact (quoting-tools.ts `notifyBen`), whatever
+ * happens to the push, and that fact carries what the notifier did. The sandbox door's notifier only
+ * records ("the recorded push", answer 42: nothing leaves). The live intake's notifier
+ * (`liveBenNotifier`) dispatches the same notice to Ben's phone through server/pushover.ts, and only
+ * while the new desk is the live desk (server/comms-v2/switch.ts `commsV2Live`, asked at every
+ * notice, so a switch flipped back stops the next push). The wording here is the desk's own; the
+ * message names what is missing so Ben can request it from the price screen (4.4).
  */
 import { priceScreenUrlFor } from './quote-record';
 
@@ -23,9 +26,17 @@ export interface BenNotice {
     at: string;
 }
 
+/** Which file and quote a notice is about, for a push whose one tap should land on the work. */
+export interface BenNoticeContext {
+    caseId: string;
+    slug: string;
+    customerName: string | null;
+    phone: string | null;
+}
+
 export interface BenNotifier {
-    /** Record that the notice would have gone. Never throws. */
-    notify(notice: BenNotice): Promise<{ note: string }>;
+    /** Deliver the notice, or record that it would have gone, and say which in the note. Never throws. */
+    notify(notice: BenNotice, ctx?: BenNoticeContext): Promise<{ note: string }>;
 }
 
 const truncate = (s: string, n: number) => (s.length <= n ? s : `${s.slice(0, n - 1)}…`);
@@ -88,7 +99,51 @@ export function acceptedNotice(input: { customerName: string | null; phone: stri
     return { kind: 'accepted', title: 'Quote accepted', message: lines.join('\n'), link: null, at: input.at };
 }
 
-/** Records only: the desk's one notifier while it is sandbox-only. */
+/** Records only: the sandbox door's notifier, and what the live one does while the new desk is not live. */
 export const recordingNotifier: BenNotifier = {
     async notify(notice) { return { note: `recorded, not sent: ${notice.title}` }; },
 };
+
+/** The Pushover event each kind of notice goes under: the key the old desk's alert of the same kind uses, so it reaches the same people. */
+export const PUSHOVER_EVENT_FOR = { ready_to_price: 'quote_prep_ready', chase: 'chase', accepted: 'quote_accepted' } as const satisfies Record<BenNoticeKind, string>;
+
+const LINK_TITLE: Record<BenNoticeKind, string> = { ready_to_price: 'Price and send', chase: 'Open it', accepted: 'Open it' };
+
+export interface PushoverSink {
+    send(input: { event: (typeof PUSHOVER_EVENT_FOR)[BenNoticeKind]; title: string; message: string; linkUrl: string | null; linkUrlTitle: string; linkPhone: string | null }): Promise<{ sent: number; skipped: string | null }>;
+}
+
+/** server/pushover.ts, loaded on first use: it opens the notification settings. */
+export const pushoverSink: PushoverSink = {
+    async send(input) { return (await import('../../pushover')).notifyDeskNotice(input); },
+};
+
+export interface LiveNotifierDeps {
+    /** The switches, read at every notice (switch.ts). */
+    liveState?: () => Promise<{ live: boolean; off: string[] }>;
+    pushover?: PushoverSink;
+}
+
+/**
+ * The live intake's notifier: while the new desk is the live desk, each notice goes to Ben's phone
+ * under its event key with the desk's own title, message and link; otherwise it records only, exactly
+ * as `recordingNotifier` does. A switch read that fails is not live. A push Pushover skipped (no token,
+ * no recipient, quiet hours) or that failed is said so in the note, which the fact on the file carries.
+ */
+export function liveBenNotifier(deps: LiveNotifierDeps = {}): BenNotifier {
+    const readState = deps.liveState ?? (async () => (await import('../switch')).commsV2LiveState());
+    const sink = deps.pushover ?? pushoverSink;
+    return {
+        async notify(notice, ctx) {
+            const live = await readState().then((s) => s.live, () => false);
+            if (!live) return recordingNotifier.notify(notice, ctx);
+            try {
+                const r = await sink.send({ event: PUSHOVER_EVENT_FOR[notice.kind], title: notice.title, message: notice.message, linkUrl: notice.link, linkUrlTitle: LINK_TITLE[notice.kind], linkPhone: notice.kind === 'accepted' ? ctx?.phone ?? null : null });
+                if (r.sent > 0) return { note: `sent to Ben's phone: ${notice.title}` };
+                return { note: `recorded, not sent (Pushover skipped: ${r.skipped ?? 'no recipient'}): ${notice.title}` };
+            } catch (err: any) {
+                return { note: `recorded, not sent (Pushover failed: ${err?.message ?? err}): ${notice.title}` };
+            }
+        },
+    };
+}

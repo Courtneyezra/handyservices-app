@@ -51,7 +51,9 @@ test:
     figure, state.conversation.stage ready, state.quote.slug set and plannedSend.evidence.summary
     containing "quoting: drafted".
     4.3: state.quote.notifications has exactly one entry of kind ready_to_price whose link is
-    /admin/price/<slug>; GET /quote shows record.status draft with every pricePence null.
+    /admin/price/<slug>; GET /quote shows record.status draft with every pricePence null. The
+    notice's ben_notified fact reads "recorded, not sent": the door never pushes, and with every
+    switch-over switch off the live notifier pushes nothing either, so nothing reaches a phone.
     4.4: anything missing shows on the price screen for Ben to request. The screen reads that list
     off the desk's case file, which lives in the process the thread was driven in, so drive this one
     on the app's own comms-v2 door rather than the loopback one: as Ben in the logged-in tab, POST

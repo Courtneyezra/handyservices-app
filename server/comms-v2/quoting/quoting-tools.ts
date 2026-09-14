@@ -150,7 +150,8 @@ export async function notifyBen(file: CaseFile, notice: BenNotice, deps: Quoting
     if (notice.kind !== 'chase' && factsWithPrefix(file, key).some((f) => f.source.kind === 'quote_line' && f.source.quoteRef === slug)) {
         return { ok: false, reason: `Ben has already been notified (${notice.kind}) for quote ${slug}; one notification`, factId: null };
     }
-    const r = await d.notifier.notify(notice);
+    const party = file.parties[0];
+    const r = await d.notifier.notify(notice, { caseId: file.id, slug, customerName: party?.name ?? null, phone: party?.channels.find((c) => c.kind !== 'email')?.address ?? null });
     const value = `${notice.title}${notice.link ? ` | ${notice.link}` : ''} | ${r.note}`;
     const f = factOnce(file, { key, value, source: quoteSource(slug, notice.kind === 'chase' ? 'chase' : notice.kind === 'accepted' ? 'acceptance' : 'notification'), by: BY }, d.file);
     return { ok: true, factId: f?.id ?? null, note: r.note };

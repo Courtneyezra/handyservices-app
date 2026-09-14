@@ -121,6 +121,22 @@ async function dispatch(opts: DispatchOptions): Promise<{ sent: number; skipped:
     return result;
 }
 
+/**
+ * The new comms desk's own notice to Ben (server/comms-v2/quoting/ben-notifier.ts): its wording as
+ * the desk wrote it, under the existing event key for that kind of alert, so recipients, quiet hours
+ * and the activity log treat it exactly like the old desk's alert of the same kind. Never throws.
+ */
+export async function notifyDeskNotice(input: {
+    event: Extract<PushoverEventKey, 'quote_prep_ready' | 'chase' | 'quote_accepted'>;
+    title: string;
+    message: string;
+    linkUrl?: string | null;
+    linkUrlTitle?: string;
+    linkPhone?: string | null;
+}): Promise<{ sent: number; skipped: string | null }> {
+    return dispatch({ event: input.event, title: input.title, message: input.message, linkUrl: input.linkUrl ?? undefined, linkUrlTitle: input.linkUrlTitle, linkPhone: input.linkPhone ?? null });
+}
+
 async function dispatchInner(opts: DispatchOptions): Promise<{ sent: number; skipped: string | null }> {
     let config: PushoverConfig;
     try {

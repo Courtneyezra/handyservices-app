@@ -31,7 +31,9 @@ While it is live, at the same moment and on the same read:
   job-pack asks after a deposit, invoices, the price screen and every person's own send carry on;
 - the live clock runs every minute (`server/comms-v2/channels/live-clock.ts`): Ben's chase, the
   owner's escalation and the unpriced draft's chase;
-- Ben's board reads the live case files.
+- Ben's board reads the live case files;
+- Ben's quote notifications (ready to price, chase, accepted) reach his phone through Pushover
+  (`quoting/ben-notifier.ts` `liveBenNotifier`), asked at every notice rather than latched once.
 
 With any one of them off, none of that happens, and the old desk answers exactly as it does today.
 A switch read that fails counts as off: the old desk answers, and the new desk's delivery refuses on
@@ -58,12 +60,13 @@ Each of these is checked by hand; none is enforced by the code except where it s
       default line he has not reviewed is refused by the sender and the thread holds for him.
 - [ ] Production runs one service with `COMMS_WORKER=1` (docs/RUNBOOK.md). A process without it is
       never the live desk and logs so.
+- [ ] Pushover is set for Ben's quote notifications: `PUSHOVER_APP_TOKEN` on Railway, and Ben's
+      recipient enabled for the "To price", "Chase" and "Accepted" events on /admin/notifications. The
+      live desk sends them under those keys; a skipped push is recorded on the case file, never retried.
 - [ ] The captain has read ten real threads (behaviour.md answer 18).
 
 Also known before the flip, and landing as their own changes:
 
-- Ben's quote notifications are recorded on the case file only; dispatching them to his phone is its
-  own change.
 - A live email reply is refused: there is no outbound email path that checks the opt-out ledger.
 
 ## The flip
