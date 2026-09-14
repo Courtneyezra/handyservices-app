@@ -6,8 +6,8 @@ import { describe, it, expect } from 'vitest';
 import { scrubScalar, UNUSABLE_PASSWORD_HASH, type ValueContext } from '../values';
 import { Substitutions, residualsIn, isSweepableName } from '../detect';
 import { fakeProse, isSyntheticProse, fakePreview } from '../prose';
-import { scrubJson, toSnake } from '../json-walk';
-import { isSyntheticName, isSyntheticPhone, isSyntheticPostcode } from '../synthetic';
+import { scrubJson, toSnake, phoneLeavesIn } from '../json-walk';
+import { isSyntheticEmail, isSyntheticName, isSyntheticPhone, isSyntheticPostcode } from '../synthetic';
 
 const SEED = 'test-seed';
 
@@ -155,6 +155,46 @@ describe('running the scrub twice changes nothing the second time', () => {
         const { first, second } = twice(treatment, value, { column });
         expect(first).not.toBe(value);
         expect(second).toBe(first);
+    });
+});
+
+describe('contact values, a telephone number or an e-mail address', () => {
+    it('keeps a phone key a phone key and a channel address E.164', () => {
+        expect(scrubScalar('contact', 'phone:07812345678', ctx({ column: 'canonical' }))).toBe('phone:07700900123');
+        expect(scrubScalar('contact', '+447812345678', ctx({ column: 'address' }))).toBe('+447700900123');
+    });
+
+    it('keeps an e-mail key an e-mail key, and the same person as the e-mail columns', () => {
+        const key = scrubScalar('contact', 'email:m.wilkinson@gmail.com', ctx({ column: 'canonical' }))!;
+        const bare = scrubScalar('contact', 'm.wilkinson@gmail.com', ctx({ column: 'address' }))!;
+        expect(key.startsWith('email:')).toBe(true);
+        expect(isSyntheticEmail(bare)).toBe(true);
+        expect(key).toBe(`email:${bare}`);
+        expect(bare).toBe(scrubScalar('email', 'm.wilkinson@gmail.com', ctx({ column: 'email' })));
+    });
+
+    it.each(['phone:07812345678', '+447812345678', 'email:m.wilkinson@gmail.com'])(
+        '%s is a fixed point after the first rewrite',
+        (value) => {
+            const { first, second } = twice('contact', value, { column: 'canonical' });
+            expect(first).not.toBe(value);
+            expect(second).toBe(first);
+        },
+    );
+
+    it('finds the telephone numbers held only inside json, and leaves e-mail addresses out', () => {
+        const file = {
+            parties: [{
+                personId: 'person_1', name: 'Margaret Wilkinson', canonical: 'phone:07812345678',
+                channels: [
+                    { kind: 'whatsapp', address: '+447812345678' },
+                    { kind: 'email', address: 'm.wilkinson@gmail.com' },
+                ],
+            }],
+            turns: [{ body: 'ring me on 07934567123', partyId: 'person_1' }],
+        };
+        expect(phoneLeavesIn('comms_v2_case_files', file).sort())
+            .toEqual(['+447812345678', 'phone:07812345678']);
     });
 });
 

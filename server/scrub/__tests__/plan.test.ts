@@ -4,6 +4,9 @@
  * not must reach 'keep' rather than being rewritten into nonsense.
  */
 import { describe, it, expect } from 'vitest';
+import { is } from 'drizzle-orm';
+import { PgTable, getTableConfig, type AnyPgColumn } from 'drizzle-orm/pg-core';
+import * as schema from '../../../shared/schema';
 import { classify, TEXTUAL_TYPES, REGENERATING_TREATMENTS } from '../plan';
 import { needsClassification, type ColumnInfo } from '../introspect';
 
@@ -108,6 +111,98 @@ describe('the fail-closed rule', () => {
         }
         expect(needsClassification(column({ dataType: 'integer' }))).toBe(false);
         expect(needsClassification(column({ dataType: 'timestamp without time zone' }))).toBe(false);
+    });
+});
+
+/** The shape information_schema would report for a drizzle column, as introspect.ts reads it. */
+function asColumnInfo(table: string, c: AnyPgColumn): ColumnInfo {
+    const base = {
+        table, column: c.name, elementType: null, isEnum: false,
+        isPrimaryKey: c.primary, isForeignKey: false, maxLength: null,
+    };
+    switch (c.columnType) {
+        case 'PgText': return { ...base, dataType: 'text' };
+        case 'PgVarchar': return { ...base, dataType: 'character varying' };
+        case 'PgChar': return { ...base, dataType: 'character' };
+        case 'PgJson': return { ...base, dataType: 'json' };
+        case 'PgJsonb': return { ...base, dataType: 'jsonb' };
+        case 'PgArray': {
+            const inner = asColumnInfo(table, (c as unknown as { baseColumn: AnyPgColumn }).baseColumn);
+            return { ...base, dataType: 'ARRAY', elementType: inner.dataType };
+        }
+        case 'PgEnumColumn': return { ...base, dataType: 'USER-DEFINED', isEnum: true };
+        case 'PgVector':
+        case 'PgCustomColumn': return { ...base, dataType: 'USER-DEFINED' };
+        default: return { ...base, dataType: c.getSQLType() };
+    }
+}
+
+describe('shared/schema.ts', () => {
+    // The scrub refuses at run time against the live schema; this holds the same rule at test
+    // time, so a column added to shared/schema.ts without a decision in plan.ts fails here first.
+    const textual = Object.values(schema)
+        .filter((v) => is(v, PgTable))
+        .flatMap((t) => {
+            const config = getTableConfig(t as PgTable);
+            return config.columns.map((c) => asColumnInfo(config.name, c));
+        })
+        .filter(needsClassification);
+
+    it('has every textual column classified', () => {
+        expect(textual.length).toBeGreaterThan(1000);
+        const unclassified = textual
+            .filter((c) => classify(c.table, c.column) === null)
+            .map((c) => `${c.table}.${c.column}`);
+        expect(unclassified).toEqual([]);
+    });
+
+    it('includes the comms desk case files', () => {
+        expect(textual.filter((c) => c.table === 'comms_v2_case_files').map((c) => c.column).sort())
+            .toEqual(['file', 'id', 'person_ids', 'stage']);
+    });
+});
+
+describe('the comms desk case file', () => {
+    it.each([
+        ['id', 'keep'],
+        ['stage', 'keep'],
+        // Minted `person_<uuid>` ids, never a telephone number.
+        ['person_ids', 'keep'],
+        ['file', 'json_deep'],
+    ])('column %s is %s', (col, treatment) => {
+        expect(classify('comms_v2_case_files', col)).toBe(treatment);
+    });
+
+    // Leaves of the CaseFile record, by the snake_case key the json walker asks about.
+    it.each([
+        ['name', 'person_name'],
+        ['canonical', 'contact'],
+        ['address', 'contact'],
+        ['body', 'message_body'],
+        ['text', 'message_body'],
+        ['draft', 'message_body'],
+        ['words', 'note'],
+        ['value', 'note'],
+        ['note', 'note'],
+        ['description', 'narrative'],
+        ['location', 'postcode'],
+        ['url', 'url'],
+        ['path', 'url'],
+        ['approver', 'actor'],
+        ['by', 'actor'],
+        // The ask ledger's enumeration and the desk's own words: read back by the desk, so kept.
+        ['subject', null],
+        ['reason', 'keep'],
+        ['kind', 'keep'],
+        ['party_id', 'keep'],
+        ['run_id', 'keep'],
+    ])('leaf %s is %s', (key, treatment) => {
+        expect(classify('comms_v2_case_files', key)).toBe(treatment);
+    });
+
+    it('its leaf overrides do not leak into other tables', () => {
+        expect(classify('productized_services', 'name')).toBe('keep');
+        expect(classify('leads', 'address')).toBe('address');
     });
 });
 
