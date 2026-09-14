@@ -35,7 +35,7 @@
  * whose provider terms require 30-day data retention (answer 30, docs/comms-v2/behaviour.md).
  * Noted on the Anthropic bullet below so the notice does not need revisiting at cutover.
  */
-const UPDATED = '8 September 2026';
+const UPDATED = '14 September 2026';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
     return (

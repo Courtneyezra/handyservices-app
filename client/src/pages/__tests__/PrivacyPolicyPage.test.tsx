@@ -27,7 +27,7 @@ describe('the privacy notice renders', () => {
     it('has its heading and an updated date', () => {
         render(<PrivacyPolicyPage />);
         expect(screen.getByRole('heading', { name: 'Privacy Policy', level: 1 })).toBeInTheDocument();
-        expect(screen.getByText(/Last updated 8 September 2026/)).toBeInTheDocument();
+        expect(screen.getByText(/Last updated 14 September 2026/)).toBeInTheDocument();
     });
 
     it('keeps the sections a reader needs', () => {
