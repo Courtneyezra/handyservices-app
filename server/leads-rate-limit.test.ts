@@ -95,4 +95,28 @@ describe('POST /api/leads — per-sender rate limit', () => {
             expect((await post()).status).toBe(429); // no headers at all: keyed by the loopback socket
         });
     });
+
+    it('evicts the oldest tracked sender once the map exceeds its size cap, and never refuses a fresh sender', async () => {
+        await withServer(createLeadSubmitRateLimit({ max: 1, maxMapEntries: 5 }), async post => {
+            const header = (n: number) => ({ 'CF-Connecting-IP': `10.0.0.${n}` });
+
+            // Sender 1 fills its own limit straight away.
+            expect((await post(header(1))).status).toBe(201);
+            expect((await post(header(1))).status).toBe(429);
+
+            // Five more distinct senders (as forged CF-Connecting-IP traffic would produce) push
+            // the map past its 5-entry cap, which evicts the oldest tracked entry — sender 1 —
+            // by insertion order, rather than letting the map grow without bound.
+            for (let n = 2; n <= 6; n++) {
+                expect((await post(header(n))).status).toBe(201);
+            }
+
+            // Sender 1's entry was evicted, so it is treated as a fresh sender again — proof the
+            // map stayed bounded, and proof eviction only resets a count, never refuses a request.
+            expect((await post(header(1))).status).toBe(201);
+
+            // A genuinely new sender is still let through after eviction.
+            expect((await post(header(7))).status).toBe(201);
+        });
+    });
 });

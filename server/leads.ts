@@ -38,10 +38,14 @@ export const leadsRouter = Router();
 // blocks a real customer, so it is accepted rather than verifying Cloudflare's
 // IP ranges. 10 posts per 15 minutes leaves a genuine customer plenty of room to
 // retry a failed or double-tapped submit. In-memory is fine for the single
-// Railway instance; the map is pruned so it can't grow unbounded. Mounted in
-// index.ts ahead of the 40mb JSON parser so a refused request is never parsed.
+// Railway instance; expired entries are pruned, and if that isn't enough to stay
+// under the size cap (sustained spoofed CF-Connecting-IP traffic), the oldest
+// entries are evicted by insertion order — that only resets a key's count early,
+// it never refuses a request, so the map size stays bounded either way. Mounted
+// in index.ts ahead of the 40mb JSON parser so a refused request is never parsed.
 export const LEAD_SUBMIT_MAX = 10;
 export const LEAD_SUBMIT_WINDOW_MS = 15 * 60_000;
+export const LEAD_SUBMIT_MAP_MAX_ENTRIES = 5000;
 
 export function leadSubmitClientIp(req: Request): string {
     const cfIp = (req.headers['cf-connecting-ip'] as string | undefined)?.trim();
@@ -50,10 +54,11 @@ export function leadSubmitClientIp(req: Request): string {
     return hops?.[hops.length - 1] || req.socket.remoteAddress || 'unknown';
 }
 
-export function createLeadSubmitRateLimit(opts: { max?: number; windowMs?: number; now?: () => number } = {}) {
+export function createLeadSubmitRateLimit(opts: { max?: number; windowMs?: number; now?: () => number; maxMapEntries?: number } = {}) {
     const max = opts.max ?? LEAD_SUBMIT_MAX;
     const windowMs = opts.windowMs ?? LEAD_SUBMIT_WINDOW_MS;
     const now = opts.now ?? Date.now;
+    const maxMapEntries = opts.maxMapEntries ?? LEAD_SUBMIT_MAP_MAX_ENTRIES;
     const submits = new Map<string, { count: number; windowStart: number }>();
 
     return function leadSubmitRateLimit(req: Request, res: Response, next: NextFunction) {
@@ -63,8 +68,19 @@ export function createLeadSubmitRateLimit(opts: { max?: number; windowMs?: numbe
         if (!rec || t - rec.windowStart >= windowMs) rec = { count: 0, windowStart: t };
         rec.count += 1;
         submits.set(ip, rec);
-        if (submits.size > 5000) {
+        if (submits.size > maxMapEntries) {
             submits.forEach((v, k) => { if (t - v.windowStart >= windowMs) submits.delete(k); });
+            // Forged CF-Connecting-IP traffic never lets entries expire fast enough on its own
+            // (each request is a fresh key); evict the oldest by insertion order so the map stays
+            // bounded regardless. This only resets that key's count early — it never refuses a request.
+            if (submits.size > maxMapEntries) {
+                const excess = submits.size - maxMapEntries;
+                let evicted = 0;
+                for (const k of submits.keys()) {
+                    if (evicted++ >= excess) break;
+                    submits.delete(k);
+                }
+            }
         }
         if (rec.count <= max) return next();
 
