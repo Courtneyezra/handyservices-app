@@ -46,7 +46,7 @@ export type MetaTemplateCategory = 'UTILITY' | 'MARKETING';
 /** The named thing that fires a template send. 4.2 wires these; nothing here does. */
 export interface WindowTemplateTrigger {
     /** Stable id, so 4.2's send rule and the checklist can name the same thing. */
-    id: 'quote_ready' | 'question_unanswered' | 'webform_first_contact' | 'webform_first_contact_no_call' | 'post_call_followup' | 'missed_call' | 'enquiry_chase';
+    id: 'quote_ready' | 'question_unanswered' | 'webform_first_contact' | 'webform_first_contact_no_call' | 'post_call_followup' | 'missed_call' | 'enquiry_chase' | 'quote_accepted';
     /** When it fires, in one sentence a person can check against a thread. */
     when: string;
     /** The code that fires it (or, when `wired` is false, the code 4.2 will fire it from). */
@@ -93,7 +93,8 @@ export interface WindowTemplate {
 }
 
 /**
- * The rows. Order is the plan's order (4.1) and then the clean-sheet desk's two, not a priority.
+ * The rows. Order is the plan's order (4.1), then the clean-sheet desk's two, then the quote-accepted
+ * acknowledgement, not a priority.
  *
  * Every body is written to the house voice rules in `shared/chat-voice.ts` (no em dash, no spaced
  * hyphen, no scheduling ping-pong closer) and to pass `checkDraft` with its sample values filled
@@ -289,6 +290,38 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             + 'the closing line, and `purpose: marketing` so a plain STOP recorded from any source blocks it '
             + 'while service replies still reach that customer. It names the business because a marketing '
             + 'message to someone who has not written for weeks has to say who is messaging them.',
+    },
+    {
+        rungs: [{
+            name: 'quote_accepted_ack_v1',
+            body: 'Hi {{1}}, thanks for accepting your quote for {{2}}. It has come through to us and everything you agreed is on the quote page. If there is anything you want to ask or add, just reply to this message.',
+            variables: { '1': 'Jo', '2': 'the garden gate' },
+            variableMeanings: {
+                '1': "the customer's first name, or 'there'",
+                '2': 'a short noun phrase for the job on the accepted quote (the case file\'s job.type), never its price, its deposit or a date',
+            },
+        }],
+        category: 'UTILITY',
+        purpose: 'service_reply',
+        language: 'en_GB',
+        trigger: {
+            id: 'quote_accepted',
+            when: 'The customer accepts a quote on the quote page more than 24 hours after their last WhatsApp message, so the acceptance cannot be acknowledged in free text.',
+            source: 'server/comms-v2/desk/desk.ts, the portal_action branch of the shut-window path, which holds for Ben today; giving it a purpose in server/comms-v2/desk/sender.ts TRIGGERS_FOR_PURPOSE is a cutover item',
+            wired: false,
+        },
+        submission: 'new',
+        notes: 'AN ACKNOWLEDGEMENT OF AN ACCEPTANCE, NOT A RE-OPEN NUDGE AND NOT A BOOKING CONFIRMATION. A shut-window '
+            + 'acceptance holds for Ben today because the only service_reply wording the sender reaches is '
+            + 'answer_ready_reopen_v1, which tells the customer we have an answer to a question they never asked; '
+            + 'that must never stand in for this. The body thanks them, says the acceptance reached us and points at '
+            + 'the quote page, where every figure and the booking already live. It names no price, no deposit, no '
+            + 'date, no slot and nobody who will come, because whether a deposit was paid and when the work happens '
+            + 'differ per quote and a template body is fixed at approval. The closing line invites a reply, which '
+            + 're-opens the window so Ben\'s own word can follow freeform. {{2}} is the job phrase, never a figure. '
+            + 'NOT SUBMITTED: the captain reads the wording first, and a bare --submit would take this row with the '
+            + 'others, so use --only until he gives the word. If Meta rejects it as a near-duplicate of '
+            + 'quote_ready_link, the hold for Ben stands rather than a reworded twin.',
     },
 ];
 

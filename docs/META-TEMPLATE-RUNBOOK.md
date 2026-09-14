@@ -220,3 +220,4 @@ Fill this in as you go, so the next person can see what Meta actually did rather
 | `web_enquiry_ack_context` | UTILITY | 22 Aug 2026 | | | reused, not resubmitted |
 | `post_call_followup_v1` | UTILITY | | | | duplicate risk vs `post_call_continuation` |
 | `enquiry_followup_optin_v1` | MARKETING | | | | submitted as marketing on purpose |
+| `quote_accepted_ack_v1` | UTILITY | | | | not submitted: wording awaits the captain's word; use `--only` for the others until then |

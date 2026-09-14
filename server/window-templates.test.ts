@@ -30,11 +30,11 @@ const byTrigger = (id: WindowTemplate['trigger']['id']) => {
 const ALL_RUNGS = WINDOW_TEMPLATES.flatMap((t) => t.rungs.map((r) => ({ row: t, rung: r })));
 
 describe('the window-shut templates', () => {
-    it('is exactly the plan\'s five triggers and the clean-sheet desk\'s two, once each', () => {
-        expect(WINDOW_TEMPLATES).toHaveLength(7);
+    it('is exactly the plan\'s five triggers, the clean-sheet desk\'s two and the quote-accepted acknowledgement, once each', () => {
+        expect(WINDOW_TEMPLATES).toHaveLength(8);
         expect(WINDOW_TEMPLATES.map((t) => t.trigger.id)).toEqual([
             'quote_ready', 'question_unanswered', 'webform_first_contact', 'post_call_followup',
-            'webform_first_contact_no_call', 'missed_call', 'enquiry_chase',
+            'webform_first_contact_no_call', 'missed_call', 'enquiry_chase', 'quote_accepted',
         ]);
     });
 
@@ -87,6 +87,27 @@ describe('the window-shut templates', () => {
         // so sending under that name must never fill the first rung's two-variable body.
         expect(templatePlaceholders(t.rungs[1].body)).toEqual(['1']);
         expect(t.rungs[1].body).not.toBe(t.rungs[0].body);
+    });
+
+    it('the quote-accepted one acknowledges the acceptance, confirms nothing the quote page owns, and is not wired yet', () => {
+        const t = byTrigger('quote_accepted');
+        expect(templateNames(t)).toEqual(['quote_accepted_ack_v1']);
+        expect(t.category).toBe('UTILITY');
+        expect(t.purpose).toBe('service_reply');
+        expect(t.submission).toBe('new');
+        // Nothing reaches it until the sender gives it a purpose, which is a cutover item.
+        expect(t.trigger.wired).toBe(false);
+        const body = t.rungs[0].body;
+        expect(body).toMatch(/\baccept/i);
+        // Never the re-open nudge's words: the customer asked nothing, they accepted.
+        expect(body).not.toMatch(/\banswer\b/i);
+        expect(t.notes).toMatch(/not a re-?open nudge/i);
+        // Whether a deposit was paid and when the work happens differ per quote, and the body is fixed at approval.
+        expect(body).not.toMatch(/\b(book(ed|ing)?|confirm(ed|s)?|deposit|paid|payment|slot|visit)\b/i);
+        // {{2}} carries the job, never a figure: its sample renders with no digit anywhere.
+        expect(t.rungs[0].variableMeanings['2']).toMatch(/job/i);
+        expect(renderSample(t.rungs[0])).not.toMatch(/\d/);
+        expect(body).toMatch(/repl(y|ies)/i);
     });
 });
 

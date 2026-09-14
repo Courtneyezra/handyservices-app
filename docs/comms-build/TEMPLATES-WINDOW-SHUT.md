@@ -147,6 +147,35 @@ name: a plain STOP recorded from any source blocks `marketing` while `service_re
 that customer (`server/opt-out.ts` `blockedByOptOut`). It names the business because a message to
 someone who has not written for weeks has to say who is messaging them.
 
+## 6. `quote_accepted_ack_v1` — UTILITY — **new, not submitted**
+
+**Trigger.** The customer accepts a quote on the quote page more than 24 hours after their last
+WhatsApp message, so the acceptance cannot be acknowledged in free text. **Not wired.** Today the
+new desk holds that acceptance for Ben (`server/comms-v2/desk/desk.ts`, the `portal_action` branch
+of the shut-window path). Giving the row a purpose in `server/comms-v2/desk/sender.ts`
+`TRIGGERS_FOR_PURPOSE` is a cutover item.
+
+```
+Hi {{1}}, thanks for accepting your quote for {{2}}. It has come through to us and everything you agreed is on the quote page. If there is anything you want to ask or add, just reply to this message.
+```
+
+`{{1}}` first name, or `there` · `{{2}}` a short noun phrase for the job on the accepted quote (the
+case file's `job.type`), never its price, its deposit or a date. Samples: `Jo` · `the garden gate`.
+Language `en_GB`.
+
+**An acknowledgement, not a re-open nudge and not a booking confirmation.** The only `service_reply`
+wording the sender reaches today is `answer_ready_reopen_v1`, which tells the customer we have an
+answer to a question they never asked, so it must never stand in for this. The body thanks them,
+says the acceptance reached us and points at the quote page, where every figure and the booking
+already live. It names no price, deposit, date, slot or person, because whether a deposit was paid
+and when the work happens differ per quote. The closing line invites a reply, which re-opens the
+window so Ben's own word can follow freeform.
+
+**Not submitted.** The captain reads the wording before it goes to Meta. A bare `--submit` takes
+every new row, this one included, so submit the others with `--only` until he gives the word. If
+Meta rejects it as a near-duplicate of `quote_ready_link`, the hold for Ben stands rather than a
+reworded twin.
+
 ---
 
 ## What is never in any of these bodies
