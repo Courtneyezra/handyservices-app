@@ -73,9 +73,14 @@ test:
     tap"; the reply thanks for it once, state.caseFile.ledger shows media thankedAt set, and the
     photo joins the draft.
     A shut window at 5.1, which must never deliver a nudge with no quote link while recording the
-    figures as live: POST /age {"hours": 25}, then POST /price {}. Expect sent false, the planned
-    send held for ben with a reason naming the shut window and the missing quote-link template, no
-    bubbles, and GET /quote still record.status draft with no quote_line fact on the file. This is
+    figures as live: POST /age {"hours": 25}, then POST /price {}. Two shapes, both correct,
+    depending on whether the branch's template cache has quote_ready_link approved; record which.
+    Not approved: expect sent false, the planned send held for ben with a reason naming the shut
+    window and the missing quote-link template, no bubbles, and GET /quote still record.status draft
+    with no quote_line fact on the file. Approved: expect sent true, plannedSend.templateId
+    quote_ready_link on windowState shut, one bubble carrying the first name and /quote/<slug>,
+    approver human:ben, delivered to the drama number only, GET /quote reading sent, and drive 5.1
+    below on a fresh thread. Never price a quote whose thread is not the drama customer. This is
     the customer's own WhatsApp thread, which the delivery keeps: only a WhatsApp record nobody has
     written on is skipped for a channel that needs no template. Then
     POST /message "Any news on the quote?" to reopen the window before driving 5.1.

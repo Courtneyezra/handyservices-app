@@ -42,7 +42,7 @@ export const GAP_MAX_MS = 3000;
 /** The desk's own approver name for an unattended send: `agent.comms_v2` in server/sender-registry.ts, switch key `comms_v2`. */
 export const DESK_APPROVER: Approver = 'agent.comms_v2';
 
-export type ReplyPurpose = 'service_reply' | ChannelReplyPurpose;
+export type ReplyPurpose = 'service_reply' | 'quote_ready' | ChannelReplyPurpose;
 /** A desk-started send has one of these purposes; neither is a reply to a customer. */
 export type InitiatePurpose = 'approver_chase' | 'owner_escalation';
 /** What a delivery is for: a reply to a customer, or a send the desk started itself. */
@@ -239,10 +239,16 @@ export const noTemplateApproved: TemplateStatusSource = { async approved() { ret
 const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = {
     service_reply: ['question_unanswered'], web_form_ack: ['webform_first_contact'], web_form_ack_no_call: ['webform_first_contact_no_call'],
     post_call_followup: ['post_call_followup'], missed_call: ['missed_call'],
+    // Ben's priced quote on a shut window: `quote_ready_link`, whose {{2}} is the quote link (quoting/deliver-quote.ts).
+    quote_ready: ['quote_ready'],
 };
 
-/** What a template body is filled from: the party's name, the turn's topic, and the instant the reply goes. */
-export interface TemplateVars { name: string | null; topic: string; at: Date }
+/**
+ * What a template body is filled from: the party's name, the turn's topic, and the instant the reply
+ * goes. `link` is for a template whose second variable is a link rather than a topic (the quote
+ * delivery's `quote_ready_link`); it is copied whole, never cut.
+ */
+export interface TemplateVars { name: string | null; topic: string; at: Date; link?: string | null }
 
 /** The rows of the one registry (server/window-templates.ts) that carry a reply of this purpose. */
 export function templateRowsFor<T extends { purpose: string; trigger: { id: string } }>(purpose: ReplyPurpose, registry: readonly T[]): T[] {
@@ -261,7 +267,7 @@ export function templateVariables(body: string, vars: TemplateVars): Record<stri
     const out: Record<string, string> = {};
     const re = /\{\{\s*(\d+)\s*\}\}/g;
     let m: RegExpExecArray | null;
-    while ((m = re.exec(body)) !== null) out[m[1]] = m[1] === '1' ? first : m[1] === '2' ? vars.topic.slice(0, 120) : when;
+    while ((m = re.exec(body)) !== null) out[m[1]] = m[1] === '1' ? first : m[1] === '2' ? (vars.link ?? vars.topic.slice(0, 120)) : when;
     return out;
 }
 

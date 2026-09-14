@@ -62,9 +62,6 @@ Each of these is checked by hand; none is enforced by the code except where it s
 
 Also known before the flip, and landing as their own changes:
 
-- Ben's price screen still sends a quote the new desk drafted through the old send path, which does
-  not mark the case file quoted; re-pointing it at the new desk's sender, with `quote_ready_link` on a
-  shut window, is its own change.
 - Ben's quote notifications are recorded on the case file only; dispatching them to his phone is its
   own change.
 - A live email reply is refused: there is no outbound email path that checks the opt-out ledger.

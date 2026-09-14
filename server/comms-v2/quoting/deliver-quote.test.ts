@@ -1,0 +1,106 @@
+/**
+ * Delivering a priced quote through the new desk's sender, and Ben's live price screen handing a
+ * quote on a live case file to it:
+ *
+ *   on a shut WhatsApp window with `quote_ready_link` approved, the template carries the link (its
+ *   second variable) under the person who licensed the send, and the quote leaves draft;
+ *   with it not approved, the delivery holds for Ben and the quote stays a draft;
+ *   live, the template reaches the deliverer with its content SID and the link;
+ *   the price screen hands a quote to the new desk only while the new desk is live and a case file
+ *   carries the quote, and every other quote gets null back for the old path.
+ */
+import { describe, expect, it } from 'vitest';
+import { open } from '../desk/case-file';
+import { noFixedLineSource } from '../desk/fixed-lines';
+import { FakeModelClient } from '../desk/models';
+import { noTemplateApproved, type Deliverer } from '../desk/sender';
+import { MemoryCaseFileStore } from '../desk/store';
+import { deliverPricedQuote } from './deliver-quote';
+import { FakeDrafter } from './draft-quote';
+import { sendPricedQuoteThroughDesk } from './price-screen-send';
+import { MemoryQuoteStore } from './quote-store';
+import { priceQuote } from './quoting-tools';
+
+const NOW = new Date('2026-09-14T12:00:00.000Z');
+const now = () => NOW;
+const SHUT = '2026-09-13T08:00:00.000Z';
+const approved = { async approved(name: string) { return name === 'quote_ready_link' ? { contentSid: 'HX_quote_ready_link' } : null; } };
+const client = new FakeModelClient({
+    router: () => { throw new Error('no router on a delivery'); },
+    specialist: () => { throw new Error('no specialist on a delivery'); },
+    composer: () => { throw new Error('a shut window is never composed for'); },
+});
+const APPROVER = 'human:ben@example.com' as const;
+
+async function pricedThread(lastWrote = SHUT) {
+    const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
+    const r = open({
+        identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900942', propertyId: null, landlordId: null, name: 'Sam Jones' },
+        channel: 'whatsapp', address: '+447700900942',
+        firstTurn: { at: lastWrote, channel: 'whatsapp', kind: 'text', body: 'my kitchen tap is dripping, NG9 2AB', media: [] },
+    });
+    if (!r.ok) throw new Error(r.reason);
+    const file = r.value;
+    const drafted = await new FakeDrafter(store).draft({ file, party: file.parties[0], intake: { customerName: 'Sam Jones', postcode: 'NG9 2AB', customerType: 'homeowner', lines: [{ title: 'Replace kitchen tap', category: null, qty: 1, detail: null, assumptions: [], notIncluded: [] }], missing: [] }, now: NOW });
+    if (!drafted.ok) throw new Error(drafted.reason);
+    file.job.quoteRef = drafted.slug;
+    const priced = await priceQuote(file, {}, { store, now });
+    if (!priced.ok) throw new Error(priced.reason);
+    return { file, store, priced };
+}
+
+describe('deliverPricedQuote on a shut window', () => {
+    it('sends the approved quote_ready_link template carrying the link, under the person who licensed it, and the quote leaves draft', async () => {
+        const { file, store, priced } = await pricedThread();
+        const out = await deliverPricedQuote({ file, priced, approver: APPROVER, mode: 'dry_run', now, deps: { client, templates: approved, fixedLines: noFixedLineSource, quoting: { store } } });
+        expect(out).toMatchObject({ ok: true, sent: true });
+        if (!out.ok) return;
+        expect(out.result).toMatchObject({ decision: 'send', templateId: 'quote_ready_link', windowState: 'shut', approver: APPROVER, delivered: true, composerCalls: 0 });
+        expect(out.result.bubbles).toHaveLength(1);
+        expect(out.result.bubbles[0].text).toBe(`Hi Sam, your quote is ready. Everything is on the link, the itemised price and the booking: ${priced.quoteUrl}. Any questions, just reply here.`);
+        expect(file.sends.at(-1)).toMatchObject({ templateId: 'quote_ready_link', windowState: 'shut', approver: APPROVER, mode: 'dry_run' });
+        expect((await store.read(priced.record.slug))?.isDraft).toBe(false);
+    });
+
+    it('holds for Ben and leaves the quote a draft while no approved template carries a quote link', async () => {
+        const { file, store, priced } = await pricedThread();
+        const out = await deliverPricedQuote({ file, priced, approver: APPROVER, mode: 'dry_run', now, deps: { client, templates: noTemplateApproved, fixedLines: noFixedLineSource, quoting: { store } } });
+        expect(out).toMatchObject({ ok: true, sent: false });
+        if (!out.ok) return;
+        expect(file.hold?.reason).toMatch(/window is shut.*no approved template carries a quote link/);
+        expect(file.sends).toHaveLength(0);
+        expect((await store.read(priced.record.slug))?.isDraft).toBe(true);
+    });
+
+    it('live, hands the template to the deliverer with its content SID and the link as its second variable', async () => {
+        const { file, store, priced } = await pricedThread();
+        const seen: Array<Parameters<Deliverer['deliver']>[0]> = [];
+        const deliverer: Deliverer = { async deliver(i) { seen.push(i); return { ok: true, sid: 'SM1' }; } };
+        const out = await deliverPricedQuote({ file, priced, approver: APPROVER, mode: 'live', now, deps: { client, templates: approved, fixedLines: noFixedLineSource, quoting: { store }, sender: { deliverer } } });
+        expect(out).toMatchObject({ ok: true, sent: true });
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toMatchObject({ channel: 'whatsapp', to: '+447700900942', approver: APPROVER, purpose: 'service_reply', template: { name: 'quote_ready_link', contentSid: 'HX_quote_ready_link', variables: { '1': 'Sam', '2': priced.quoteUrl } } });
+    });
+});
+
+describe('the live price screen hands a quote to the new desk', () => {
+    it('only while the new desk is live and an open case file carries the quote; every other quote gets null for the old path', async () => {
+        const { file, store, priced } = await pricedThread();
+        const cases = new MemoryCaseFileStore();
+        const input = { slug: priced.record.slug, approver: APPROVER, quoteUrl: priced.quoteUrl, totals: priced.totals };
+        const deskDeps = { client, templates: approved, fixedLines: noFixedLineSource, quoting: { store }, sender: { deliverer: { async deliver() { return { ok: true as const, sid: 'SM1' }; } } } };
+
+        expect(await sendPricedQuoteThroughDesk(input, { liveState: async () => ({ live: false, off: ["spine.commsDesk = 'comms_v2'"] }), gateway: async () => { throw new Error('never built while not live'); }, deskDeps, now })).toBeNull();
+        expect(await sendPricedQuoteThroughDesk(input, { liveState: async () => ({ live: true, off: [] }), gateway: async () => ({ store: cases }), deskDeps, now })).toBeNull();
+
+        let puts = 0;
+        const put = cases.put.bind(cases);
+        cases.put = (f) => { puts++; put(f); };
+        cases.put(file);
+        puts = 0;
+        const sent = await sendPricedQuoteThroughDesk(input, { liveState: async () => ({ live: true, off: [] }), gateway: async () => ({ store: cases }), deskDeps, now });
+        expect(sent).toMatchObject({ status: 200, json: { ok: true, sent: true, desk: 'comms_v2', caseId: file.id, mode: 'template', templateName: 'quote_ready_link' } });
+        expect(file.sends.at(-1)).toMatchObject({ approver: APPROVER, mode: 'live' });
+        expect(puts).toBe(1);
+    });
+});

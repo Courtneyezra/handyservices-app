@@ -360,6 +360,16 @@ spineRouter.post('/price/:slug/send', async (req, res) => {
         const u = sessionUser(req);
         const c = await confirmPrices(slug, req.body, { id: u.id ?? null, email: u.email ?? null });
         if (!c.ok) return res.status(c.status).json({ ok: false, errors: c.errors, status: c.payload?.status ?? null, version: c.payload?.version ?? null });
+        // The switch-over: while the new desk is the live desk, a quote an open case file of the new
+        // desk carries is sent by the new desk's own sender under this approver, with the approved
+        // quote_ready_link template on a shut window (server/comms-v2/quoting/price-screen-send.ts).
+        // Every other quote, and every quote while any switch is off, takes the path below unchanged.
+        const { sendPricedQuoteThroughDesk } = await import('../comms-v2/quoting/price-screen-send');
+        const viaDesk = await sendPricedQuoteThroughDesk({ slug, approver: c.approver, quoteUrl: c.payload.quoteUrl, totals: c.totals });
+        if (viaDesk) {
+            const sentOk = viaDesk.status >= 200 && viaDesk.status < 300;
+            return res.status(viaDesk.status).json({ verdicts: c.verdicts, ...viaDesk.json, nextSteps: sentOk ? c.nextSteps(viaDesk.json.mode === 'template' ? 'template' : 'sent') : undefined, nextWaiting: c.payload.nextWaiting });
+        }
         const conversationId = c.payload.conversationId;
         if (!conversationId) {
             return res.status(422).json({ ok: false, priced: true, errors: ['Prices are saved on the quote, but no thread matches this customer, so the link could not be sent from here. Send it from the builder.'], quoteUrl: c.payload.quoteUrl });
