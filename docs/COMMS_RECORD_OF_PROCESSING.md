@@ -66,7 +66,7 @@ solely-automated decision producing a legal or similarly significant effect with
 | --- | --- | --- | --- |
 | **Twilio** | Phone number, message body, media, call audio | Delivers WhatsApp, SMS and voice; records calls | `server/twilio-realtime.ts`, `server/sms.ts` |
 | **Meta (WhatsApp Business Platform)** | Phone number, message body, media | Delivers WhatsApp on the Cloud API path | `server/meta-whatsapp.ts`, `server/whatsapp-api.ts` |
-| **Anthropic** | The rendered case file: name, phone, the thread's messages, call summary and transcript excerpt, quote lines, tags — and the reply it drafts | Triage, the Scoper, the quote clerk, the sampler/judge | `server/anthropic.ts`, `server/llm.ts`, `server/spine/` |
+| **Anthropic** | The rendered case file: name, phone, the thread's messages, call summary and transcript excerpt, quote lines, tags — and the reply it drafts | Triage, the Scoper, the quote clerk, the sampler/judge; the comms-v2 router, composer and specialists (sandbox-only until cutover) | `server/anthropic.ts`, `server/llm.ts`, `server/spine/`, `server/comms-v2` (sandbox-only until cutover) |
 | **Google (Gemini)** | The bytes of a customer's photo or video | Writes the description the desk quotes from | `server/spine/tools/describe-video.ts` |
 | **Google (Maps / Places)** | Address text typed on our forms; quote coordinates | Address look-up, the map on the quote page | `client/src/components/DesktopLeadForm.tsx`, `client/src/pages/PersonalizedQuotePage.tsx` |
 | **Deepgram** | Call audio | Written transcript of a recorded call | `server/deepgram.ts`, `server/call-batch-transcribe.ts` |
@@ -80,6 +80,10 @@ solely-automated decision producing a legal or similarly significant effect with
 | **PostHog** | Page events and session recordings on quote/booking pages, with text inputs masked | Product analytics | `client/src/lib/posthog.ts` |
 | **Our tradespeople** | Name, address, job details, job-pack photos | To carry out the work | `server/spine/job-pack*.ts`, contractor portal |
 | **Accountants / HMRC** | Invoices and payment records | Tax and accounting | — |
+
+Model retention: the comms-v2 composer runs on Anthropic's Fable 5.1, whose provider terms
+retain inputs for 30 days. This is a fact about that processor's own system, distinct from the
+business's own retention promises and the gap in enforcing them, which §6 covers.
 
 International transfers: several of the above are US-headquartered. We rely on each provider's
 standard data-protection terms and their approved transfer safeguards. **Confirming that a

@@ -30,6 +30,10 @@
  *
  * There is deliberately NO bot-disclosure line in the chat itself (owner decision, 7 Sep,
  * restated 8 Sep as answer 24). The transparency lives on this page.
+ *
+ * 14 Sep 2026: the comms-v2 composer (sandbox-only until cutover) runs on Anthropic's Fable 5.1,
+ * whose provider terms require 30-day data retention (answer 30, docs/comms-v2/behaviour.md).
+ * Noted on the Anthropic bullet below so the notice does not need revisiting at cutover.
  */
 const UPDATED = '8 September 2026';
 
@@ -111,7 +115,7 @@ export default function PrivacyPolicyPage() {
                 </p>
                 <ul className="list-disc space-y-1 pl-5">
                     <li><strong>Twilio and Meta</strong> — to deliver WhatsApp, SMS and calls</li>
-                    <li><strong>Anthropic</strong> — the assistant that reads our messages and drafts replies runs on Anthropic's Claude models. Your messages, your name and phone number, the job details, a summary of any call, and the description of any photo or video you send are sent to Anthropic so it can understand your enquiry and write a reply</li>
+                    <li><strong>Anthropic</strong> — the assistant that reads our messages and drafts replies runs on Anthropic's Claude models. Your messages, your name and phone number, the job details, a summary of any call, and the description of any photo or video you send are sent to Anthropic so it can understand your enquiry and write a reply. The model that writes the reply, Fable 5.1, keeps what it receives for up to 30 days under Anthropic's own terms.</li>
                     <li><strong>Google</strong> — photos and videos you send are sent to Google's Gemini service, which writes a short description of what they show so we can quote from them. Google Maps also powers address look-up on our forms and the map on your quote page</li>
                     <li><strong>Deepgram</strong> — to turn a recorded call into a written transcript</li>
                     <li><strong>OpenAI</strong> — used by some older parts of our system to draft the wording of a quote message, and to transcribe voice notes recorded by our own team</li>
