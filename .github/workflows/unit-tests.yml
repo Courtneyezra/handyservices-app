@@ -1,0 +1,41 @@
+# Unit test gate (vitest, Node 20): a starting slice of the suite that is green on main today.
+#
+# vitest.config.ts defines three projects: `server` (the original node suite; docs/RUNBOOK.md
+# "Verification rule" documents 42+ pre-existing failures there, plus a pre-existing duplicate-
+# identifier bug in server/quotes.ts that breaks the whole file transform), `comms-v2`
+# (server/comms-v2/**, green), and `client` (jsdom; also has a pre-existing failure today, in
+# client/src/pages/admin/__tests__/CommsV2BoardPage.test.tsx). This gate runs only what is
+# actually green on main right now:
+#   - the `comms-v2` project in full
+#   - server/scrub (part of the `server` project, run by path filter rather than the whole
+#     project, since the rest of `server` is red)
+#
+# Everything else is intentionally excluded for now - see the PR description for the full list
+# and reasons. Extending this gate to more of the suite is future work, not silent scope creep.
+#
+# DATABASE_URL below is a placeholder only, never a real connection: server/db.ts just needs the
+# variable present, and server/__tests__/setup.ts refuses a production host outright. Nothing here
+# opens a real database connection; a code path that actually tries to connect is expected to fail
+# loudly, not be quietly skipped.
+name: Unit tests
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://placeholder:placeholder@127.0.0.1:1/placeholder_do_not_connect
+      PHASE0_MERGED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: comms-v2 suite
+        run: npx vitest run --project comms-v2
+      - name: scrub suite
+        run: npx vitest run --project server server/scrub
