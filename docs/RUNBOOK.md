@@ -97,8 +97,8 @@ npx tsx scripts/_p19-replay-thread.ts <conversationId>   # read-only: no writes,
 | WhatsApp templates: status, submission, what Meta does next | `/admin/staff` → Templates; `docs/META-TEMPLATE-RUNBOOK.md`; definitions in `server/window-templates.ts` |
 
 ### Migrations
-Files in `migrations/` are idempotent SQL (`IF NOT EXISTS`). Apply with the targeted runner `npx tsx scripts/_apply-migration.ts migrations/<file>.sql` (statement by statement, comment-safe; never `db:push` against the shared production DB). psql works too
-against the target branch, never with `db:push`:
+Files in `migrations/` are idempotent SQL (`IF NOT EXISTS`). Apply with the targeted runner `npx tsx scripts/_apply-migration.ts migrations/<file>.sql` (statement by statement, comment-safe; the `db:push` script has been removed — schema changes go through migrations, never a schema push against the shared production DB). psql works too
+against the target branch, not a schema push:
 ```bash
 npx tsx scripts/_apply-migration.ts migrations/20260902_agent_runs_ledger.sql
 ```

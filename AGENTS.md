@@ -35,7 +35,7 @@ npm run comms-v2:door        # serve the new desk's sandbox door on a loopback p
 Operational utility before AI autonomy: invoicing and payments, dispatch and calendar, field app.
 
 ## Database
-Key tables: `users`, `leads`, `calls`, `messages`, `personalized_quotes`, `productized_services` (SKUs), `handyman_profiles`, `message_drafts`, `draft_verdicts`, `kb_entries`, `eval_runs`, `app_settings`. Never `db:push`; migrations are idempotent SQL applied with the runner above.
+Key tables: `users`, `leads`, `calls`, `messages`, `personalized_quotes`, `productized_services` (SKUs), `handyman_profiles`, `message_drafts`, `draft_verdicts`, `kb_entries`, `eval_runs`, `app_settings`. The `db:push` script has been removed; migrations are idempotent SQL applied with the runner above.
 **Nothing on a non-production database may identify a real person.** The pipeline drives the
 product live against the branch and attaches sandbox evidence to every PR, so the branch is
 synthetic: `server/scrub/` rewrites every identifying value and refuses to run against production
