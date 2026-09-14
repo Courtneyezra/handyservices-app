@@ -60,11 +60,39 @@ describe('POST /api/leads — per-sender rate limit', () => {
         });
     });
 
-    it('keys on the last X-Forwarded-For hop, so senders are counted apart and a spoofed first hop does not reset the count', async () => {
+    // Production is Cloudflare in front of Railway: every visitor arrives through a Cloudflare edge,
+    // so the last X-Forwarded-For hop is shared and CF-Connecting-IP is the real sender.
+    const CF_EDGE = '172.70.1.1';
+
+    it('counts two visitors behind the same Cloudflare edge separately by CF-Connecting-IP', async () => {
+        await withServer(createLeadSubmitRateLimit({ max: 1 }), async post => {
+            expect((await post({ 'X-Forwarded-For': `198.51.100.1, ${CF_EDGE}`, 'CF-Connecting-IP': '198.51.100.1' })).status).toBe(201);
+            expect((await post({ 'X-Forwarded-For': `203.0.113.7, ${CF_EDGE}`, 'CF-Connecting-IP': '203.0.113.7' })).status).toBe(201);
+            expect((await post({ 'X-Forwarded-For': `198.51.100.1, ${CF_EDGE}`, 'CF-Connecting-IP': '198.51.100.1' })).status).toBe(429);
+        });
+    });
+
+    it('refuses one CF-Connecting-IP over the limit with 429 and Retry-After', async () => {
+        await withServer(createLeadSubmitRateLimit({ max: 2 }), async post => {
+            const headers = { 'X-Forwarded-For': CF_EDGE, 'CF-Connecting-IP': '198.51.100.9' };
+            expect((await post(headers)).status).toBe(201);
+            expect((await post(headers)).status).toBe(201);
+            const refused = await post(headers);
+            expect(refused.status).toBe(429);
+            expect(Number(refused.retryAfter)).toBeGreaterThan(0);
+        });
+    });
+
+    it('without CF-Connecting-IP falls back to the last X-Forwarded-For hop, then the socket address', async () => {
         await withServer(createLeadSubmitRateLimit({ max: 1 }), async post => {
             expect((await post({ 'X-Forwarded-For': '203.0.113.7' })).status).toBe(201);
+            // a spoofed first hop does not reset the count for the same last hop
             expect((await post({ 'X-Forwarded-For': '198.51.100.1, 203.0.113.7' })).status).toBe(429);
             expect((await post({ 'X-Forwarded-For': '203.0.113.8' })).status).toBe(201);
+        });
+        await withServer(createLeadSubmitRateLimit({ max: 1 }), async post => {
+            expect((await post()).status).toBe(201);
+            expect((await post()).status).toBe(429); // no headers at all: keyed by the loopback socket
         });
     });
 });

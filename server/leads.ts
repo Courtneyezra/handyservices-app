@@ -29,9 +29,14 @@ export const leadsRouter = Router();
 // POST /api/leads is unauthenticated and parses bodies up to 40mb (photos), so
 // one origin posting in a loop could tie up the live app. Keyed by client IP:
 // the phone/email in the body is self-declared and free to vary, and reading it
-// would mean parsing the very body we want to refuse. Behind Railway's proxy the
-// LAST X-Forwarded-For hop is the one the proxy appended, so a client cannot
-// spoof it. 10 posts per 15 minutes leaves a genuine customer plenty of room to
+// would mean parsing the very body we want to refuse. Production is Cloudflare in
+// front of Railway, so the last X-Forwarded-For hop is a Cloudflare edge address
+// shared by many customers; CF-Connecting-IP carries the real visitor. Without it
+// (local dev, no Cloudflare) fall back to the last X-Forwarded-For hop, then the
+// socket. Known residual: a request sent straight to the Railway domain can forge
+// CF-Connecting-IP to dodge the limit. That only weakens abuse protection and never
+// blocks a real customer, so it is accepted rather than verifying Cloudflare's
+// IP ranges. 10 posts per 15 minutes leaves a genuine customer plenty of room to
 // retry a failed or double-tapped submit. In-memory is fine for the single
 // Railway instance; the map is pruned so it can't grow unbounded. Mounted in
 // index.ts ahead of the 40mb JSON parser so a refused request is never parsed.
@@ -39,6 +44,8 @@ export const LEAD_SUBMIT_MAX = 10;
 export const LEAD_SUBMIT_WINDOW_MS = 15 * 60_000;
 
 export function leadSubmitClientIp(req: Request): string {
+    const cfIp = (req.headers['cf-connecting-ip'] as string | undefined)?.trim();
+    if (cfIp) return cfIp;
     const hops = (req.headers['x-forwarded-for'] as string | undefined)?.split(',').map(h => h.trim()).filter(Boolean);
     return hops?.[hops.length - 1] || req.socket.remoteAddress || 'unknown';
 }
