@@ -6,8 +6,12 @@
 import { describe, expect, it } from 'vitest';
 import { PRODUCTION_DB_HOST_MARKER } from '../worker-gate';
 import { COMMS_V2_DATABASE_ENV } from './desk/door-host';
-import { CommsV2DatabaseRefused, IN_USE_DATABASE_ENV, assertCommsV2Database, commsV2DatabaseCheck } from './live-database';
-import { liveQuoteStore } from './quoting/quote-store';
+import { CommsV2DatabaseRefused, IN_USE_DATABASE_ENV, assertCommsV2Database, assertCommsV2DatabaseFor, commsV2DatabaseCheck, commsV2LiveDatabaseCheck } from './live-database';
+import { databaseQuoteStore, liveQuoteStore } from './quoting/quote-store';
+import { chainDrafter } from './quoting/draft-quote';
+import { caseFileRowsFor } from './desk/database-store';
+import { databaseDiary } from './scheduling/diary';
+import { useProcessLocalSpineConfig, _resetSpineConfigForTests } from '../spine/config';
 
 const BRANCH = 'postgres://user:secret@ep-branch-example.eu-west-2.aws.neon.tech/neondb?sslmode=require';
 const BRANCH_POOLED = 'postgres://user:secret@ep-branch-example-pooler.eu-west-2.aws.neon.tech/neondb';
@@ -94,6 +98,67 @@ describe('the live quote store', () => {
             const thrown = await onProduction(call);
             expect(thrown, `${name} opened the database instead of refusing`).toBeInstanceOf(CommsV2DatabaseRefused);
             expect(String((thrown as Error).message)).toContain(COMMS_V2_DATABASE_ENV);
+        }
+    });
+});
+
+describe('the live purpose: the database in use, only while the new desk is the live desk', () => {
+    const on = async () => ({ live: true, off: [] as string[] });
+    const off = async () => ({ live: false, off: ["spine.commsDesk = 'comms_v2'"] });
+
+    it('refuses while any switch is off, naming what is off and no value', async () => {
+        const r = await commsV2LiveDatabaseCheck({ env: env({ [IN_USE_DATABASE_ENV]: PROD }), liveState: off });
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+            expect(r.reason).toBe('not_live');
+            expect(r.message).toContain("spine.commsDesk = 'comms_v2'");
+            expect(r.message).not.toContain('secret');
+        }
+    });
+
+    it('refuses when the switches cannot be read, and when no database is in use', async () => {
+        expect(await commsV2LiveDatabaseCheck({ env: env({ [IN_USE_DATABASE_ENV]: PROD }), liveState: async () => { throw new Error('unreadable'); } })).toMatchObject({ ok: false, reason: 'not_live' });
+        expect(await commsV2LiveDatabaseCheck({ env: env({}), liveState: on })).toMatchObject({ ok: false, reason: 'missing' });
+    });
+
+    it('allows the production database once the new desk is the live desk, which is the switch-over', async () => {
+        expect(await commsV2LiveDatabaseCheck({ env: env({ [IN_USE_DATABASE_ENV]: PROD }), liveState: on })).toEqual({ ok: true });
+    });
+
+    it('never lets the sandbox purpose write production, whatever the switches say', async () => {
+        const thrown = await assertCommsV2DatabaseFor('the sandbox quote store', 'sandbox', { env: env({ [COMMS_V2_DATABASE_ENV]: BRANCH, [IN_USE_DATABASE_ENV]: PROD }), liveState: on }).then(() => null, (e) => e);
+        expect(thrown).toBeInstanceOf(CommsV2DatabaseRefused);
+        expect(String((thrown as Error).message)).toMatch(/production database/);
+    });
+
+    it('every live dependency refuses on production while the switches are at their defaults, before opening anything', async () => {
+        useProcessLocalSpineConfig({});
+        const before = { [COMMS_V2_DATABASE_ENV]: process.env[COMMS_V2_DATABASE_ENV], [IN_USE_DATABASE_ENV]: process.env[IN_USE_DATABASE_ENV], COMMS_V2_INTAKE: process.env.COMMS_V2_INTAKE, COMMS_WORKER: process.env.COMMS_WORKER };
+        process.env[IN_USE_DATABASE_ENV] = PROD;
+        process.env.COMMS_V2_INTAKE = '1';
+        process.env.COMMS_WORKER = '1';
+        try {
+            const quotes = databaseQuoteStore('live');
+            const rows = caseFileRowsFor('live');
+            const diary = databaseDiary('live');
+            const calls: Array<[string, () => Promise<unknown>]> = [
+                ['quote read', () => quotes.read('abc123')],
+                ['quote insertDraft', () => quotes.insertDraft({ id: 'q1', shortSlug: 'abc123' })],
+                ['quote price', () => quotes.price('abc123', { by: 'human:ben' })],
+                ['case file loadAll', () => rows.loadAll()],
+                ['case file upsert', () => rows.upsert({ id: 'case_1', parties: [], stage: 'first_contact', openedAt: new Date().toISOString() } as any)],
+                ['draft chain', () => chainDrafter(quotes, 'live').draft({ file: {} as any, party: {} as any, intake: {} as any, now: new Date() })],
+                ['diary completedBookings', () => diary.completedBookings({ since: new Date(), limit: 1 })],
+                ['diary bookingsForContact', () => diary.bookingsForContact(['phone:07700900942'], '2026-09-14')],
+            ];
+            for (const [name, call] of calls) {
+                const thrown = await call().then(() => null, (e) => e);
+                expect(thrown, `${name} opened the database instead of refusing`).toBeInstanceOf(CommsV2DatabaseRefused);
+                expect(String((thrown as Error).message)).toMatch(/not the live desk/);
+            }
+        } finally {
+            _resetSpineConfigForTests();
+            for (const [k, v] of Object.entries(before)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
         }
     });
 });

@@ -8,10 +8,12 @@
  * takes it there: `server/spine/price-screen.ts` asks through a lazy import, so nothing in the
  * spine depends on the new desk at load time and the screen still renders when it answers nothing.
  *
- * Read from the board's own door, which is the desk instance the app process runs
- * (`server/comms-v2/api/store.ts`); a slug drafted in another process has no case file here and
- * the screen simply shows no list. Never opens a door that is not already open: a quote no comms-v2
- * thread drafted has nothing to find, so asking must cost nothing.
+ * Read from the live intake's store while the new desk is the live desk and its gateway is already
+ * built (`server/comms-v2/channels/intake.ts`), then from the board's own door, which is the sandbox
+ * desk instance the app process runs (`server/comms-v2/api/store.ts`); a slug drafted in another
+ * process has no case file here and the screen simply shows no list. Never opens a door or builds a
+ * gateway that is not already there: a quote no comms-v2 thread drafted has nothing to find, so
+ * asking must cost nothing.
  */
 import type { CaseFile } from '../desk/case-file';
 import { QUOTE_FACT } from './quote-record';
@@ -52,7 +54,12 @@ export function benToRequestOn(files: readonly CaseFile[], slug: string): string
 }
 
 export async function benToRequestFor(slug: string): Promise<string[]> {
+    const files: CaseFile[] = [];
+    const { builtIntakeGateway } = await import('../channels/intake');
+    const built = builtIntakeGateway();
+    if (built?.purpose === 'live' && await (await import('../switch')).commsV2Live()) files.push(...built.gateway.store.all());
     const { commsV2BoardDoorIfOpen } = await import('../api/store');
     const door = commsV2BoardDoorIfOpen();
-    return door ? benToRequestOn(door.gateway.store.all(), slug) : [];
+    if (door) files.push(...door.gateway.store.all());
+    return benToRequestOn(files, slug);
 }

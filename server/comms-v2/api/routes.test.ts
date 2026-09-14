@@ -235,3 +235,73 @@ describe('Ben answers from the board', () => {
         expect(next.json.plannedSend.delivered).toBe(true);
     });
 });
+
+describe('the board over the live desk\'s store', () => {
+    /**
+     * While the new desk is the live desk the board reads the live intake's store, not the sandbox
+     * door's (api/store.ts). The source is injected: here a second door stands in for the live
+     * intake, so the test needs no switch, no database and no delivery.
+     */
+    it('reads and acts on the store the source names, puts what it changed back to it, answers in its mode, and is 503 when it cannot be opened', async () => {
+        const client = new FakeModelClient({
+            router: ({ user }) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: /how much/i.test(user.split('>>').pop() ?? '') ? 'money' : null, turnKind: 'enquiry' }),
+            specialist: () => ({ facts: [{ key: 'job_type', value: 'leaking tap' }], jobUnknowns: [], answeredSubjects: [] }),
+            composer: () => ({ reply: 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
+        });
+        const doorDeps = { client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb };
+        const sandbox = createSandboxDoor(doorDeps);
+        const liveIntake = createSandboxDoor(doorDeps);
+        const put: string[] = [];
+        let failing = false;
+        const modes: string[] = [];
+        const listed: ApproverAssignments = { ben: ['user_ben@handyservices.app'] };
+        const app = express();
+        app.use(express.json());
+        app.use((req, _res, next) => { const email = req.header('x-test-user'); if (email) (req as any).user = { id: `user_${email}`, email, role: 'admin' }; next(); });
+        app.use('/live-intake', liveIntake.router);
+        app.use('/api/comms-v2', createCommsV2ApiRouter(sandbox, async () => listed, async () => {
+            if (failing) throw new Error('the intake refuses to start');
+            const store = liveIntake.gateway.store;
+            const wrapped = Object.assign(Object.create(store), { put: (f: any) => { put.push(f.id); store.put(f); } });
+            modes.push('live');
+            return { store: wrapped, live: true, mode: 'dry_run' as const };
+        }));
+        const live = await new Promise<import('node:http').Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+        const root = `http://127.0.0.1:${(live.address() as { port: number }).port}`;
+        const req = async (method: string, route: string, body?: unknown, as?: string) => {
+            const headers: Record<string, string> = { 'content-type': 'application/json' };
+            if (as) headers['x-test-user'] = as;
+            const res = await fetch(`${root}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+            return { status: res.status, json: await res.json() as any };
+        };
+        try {
+            await req('POST', '/api/comms-v2/sandbox/start', { door: 'whatsapp', text: 'A sandbox thread', name: 'Sandy' });
+            const started = await req('POST', '/live-intake/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam' });
+            await req('POST', '/live-intake/message', { text: 'How much roughly?', channel: 'whatsapp' });
+            const id = started.json.state.conversation.id as string;
+
+            const board = await req('GET', '/api/comms-v2/board');
+            expect(board.status).toBe(200);
+            expect(cardsOn(board.json).map((c) => c.id)).toEqual([id]);
+            expect((await req('GET', `/api/comms-v2/case-files/${id}`)).status).toBe(200);
+
+            const released = await req('POST', `/api/comms-v2/case-files/${id}/release`, { words: 'Called them, sorted.' }, 'ben@handyservices.app');
+            expect(released.status).toBe(200);
+            expect(put).toContain(id);
+
+            put.length = 0;
+            const answered = await req('POST', `/api/comms-v2/case-files/${id}/answer`, { words: 'I will be round on Thursday.' }, 'ben@handyservices.app');
+            expect(answered.status).toBe(200);
+            expect(put).toEqual([id]);
+            expect(liveIntake.gateway.store.get(id)!.sends.at(-1)).toMatchObject({ approver: 'human:ben@handyservices.app', mode: 'dry_run' });
+
+            failing = true;
+            const refused = await req('GET', '/api/comms-v2/board');
+            expect(refused.status).toBe(503);
+            expect(refused.json.error).toMatch(/the intake refuses to start/);
+            expect(modes.length).toBeGreaterThan(0);
+        } finally {
+            await new Promise<void>((r) => live.close(() => r()));
+        }
+    });
+});

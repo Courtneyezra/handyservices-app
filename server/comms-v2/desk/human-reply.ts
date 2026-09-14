@@ -43,6 +43,8 @@ export interface HumanReplyInput {
     person: string;
     /** Ben's words, sent as typed: a blank line is a bubble break, and his line breaks inside one are kept. */
     words: string;
+    /** Dry run lands the words on the thread; live delivers them through the one outbound send. The board passes the mode of the store it reads (api/store.ts). */
+    mode?: 'dry_run' | 'live';
 }
 
 /** What went, for the board to show back: not a desk turn, so it carries no guards and no route. */
@@ -108,7 +110,7 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     if (window.state === 'shut') return refuse(`the ${choice.channel} window is shut (${window.reason}); a shut window never carries freeform words, so this reply cannot go until the customer writes again`);
 
     // The one sender, with Ben as approver and a fresh run id. No guards: a person's own words are his (answer 43).
-    const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: 'dry_run' }, fileDeps);
+    const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
     if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
 
     // What the business has now said: the ledger and callOffered, read tightly because these are his words, not a composed reply.

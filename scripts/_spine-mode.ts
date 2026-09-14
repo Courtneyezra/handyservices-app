@@ -17,7 +17,7 @@
  */
 import 'dotenv/config';
 import { parseSpineMode, setSpineMode, spineMode } from '../server/spine/switch';
-import { DEFAULT_SPINE_CONFIG, getSpineConfig } from '../server/spine/config';
+import { DEFAULT_SPINE_CONFIG, getSpineConfig, isCommsV2Desk } from '../server/spine/config';
 
 async function main() {
     const argv = process.argv.slice(2);
@@ -28,6 +28,8 @@ async function main() {
         // 0.5: the desk behaviour is a switch of its own — printed here so --status answers both
         // "is the spine running?" and "which desk is it running?" (build plan v2, 0.5).
         console.log(`desk behaviour: ${cfg.desk}${cfg.desk === DEFAULT_SPINE_CONFIG.desk ? ' (code default)' : ` (code default ${DEFAULT_SPINE_CONFIG.desk})`} — ${cfg.desk === 'v4' ? 'replies send by default' : 'replies wait for Ben'}`);
+        // The switch-over's desk switch: which desk answers a customer (server/comms-v2/switch.ts has the rest of the question).
+        console.log(`comms desk: ${cfg.commsDesk}${cfg.commsDesk === DEFAULT_SPINE_CONFIG.commsDesk ? ' (code default)' : ` (code default ${DEFAULT_SPINE_CONFIG.commsDesk})`} — ${isCommsV2Desk(cfg) ? 'the new desk answers, while COMMS_V2_INTAKE=1 and senders.comms_v2 are on too' : 'the old desk answers'}`);
         console.log(JSON.stringify({ enabled: cfg.enabled, shadow: cfg.shadow, mode: cfg.mode ?? '(derived)', desk: cfg.desk, debounceSeconds: cfg.debounceSeconds, autonomy: cfg.autonomy, sampler: cfg.sampler, agents: cfg.agents }, null, 2));
         if (!argv.includes('--status')) console.log('\nPass --off, --shadow or --live to change it.');
         process.exit(0);

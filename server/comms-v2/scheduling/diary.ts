@@ -12,13 +12,15 @@
  * completed ones. The read is allowed to return nothing: too few completed bookings and the
  * specialist says nothing about timing beyond "dates come with your quote".
  *
- * The live reader opens the database on first use through server/db.ts, which reads DATABASE_URL.
- * Before the cutover the desk reads the Neon branch and nothing else, so every live read refuses
- * unless COMMS_V2_DATABASE_URL names the database actually open (the door host puts it there,
- * door-host.ts). Mounted on the production server the reads therefore refuse rather than read a
- * real diary. A memory reader stands in for tests; nothing here prints a value.
+ * The database reader opens the database on first use through server/db.ts, which reads
+ * DATABASE_URL. The sandbox's reader (`liveDiary`) reads the Neon branch and nothing else, so every
+ * read refuses unless COMMS_V2_DATABASE_URL names the database actually open (the door host puts it
+ * there, door-host.ts); mounted on the production server it refuses rather than read a real diary.
+ * The live intake's reader reads the database in use only while the new desk is the live desk
+ * (live-database.ts). A memory reader stands in for tests; nothing here prints a value.
  */
 import { COMMS_V2_DATABASE_ENV, resolveCommsV2Database } from '../desk/door-host';
+import { assertCommsV2DatabaseFor, type DatabasePurpose } from '../live-database';
 import { canonical, type CanonicalKey } from '../desk/identity';
 import { expandSpanDates } from '../../../shared/schedule-composition';
 
@@ -264,10 +266,16 @@ export function branchInUse(): void {
     if (process.env.DATABASE_URL !== db.url) throw new Error(`${COMMS_V2_DATABASE_ENV} is not the database in use. The desk touches only the Neon branch it names, never the database this process is open on.`);
 }
 
-/** The branch database, opened on first use. Every call is a read, and every call refuses anything but the branch. */
-export const liveDiary: DiaryReader = {
+/** The sandbox asks the branch check above; the live intake asks whether the new desk is the live desk (live-database.ts). */
+async function diaryDatabase(purpose: DatabasePurpose): Promise<void> {
+    if (purpose === 'sandbox') branchInUse();
+    else await assertCommsV2DatabaseFor('the Scheduling diary', purpose);
+}
+
+/** The diary through the database, opened on first use, for a purpose. Every call is a read, and every call asks again. */
+export const databaseDiary = (purpose: DatabasePurpose): DiaryReader => ({
     async completedBookings({ since, limit }) {
-        branchInUse();
+        await diaryDatabase(purpose);
         const { db } = await import('../../db');
         const { contractorBookingRequests: t } = await import('../../../shared/schema');
         const { and, desc, gte, isNotNull } = await import('drizzle-orm');
@@ -279,7 +287,7 @@ export const liveDiary: DiaryReader = {
         return rows.map(bookingRowToDiary);
     },
     async booking(bookingRef) {
-        branchInUse();
+        await diaryDatabase(purpose);
         const { db } = await import('../../db');
         const { contractorBookingRequests: t } = await import('../../../shared/schema');
         const { eq } = await import('drizzle-orm');
@@ -288,18 +296,18 @@ export const liveDiary: DiaryReader = {
         return rows[0] ? bookingRowToDiary(rows[0]) : null;
     },
     async bookingForQuote(quoteRef, today) {
-        branchInUse();
+        await diaryDatabase(purpose);
         const { db } = await import('../../db');
         const { contractorBookingRequests: t } = await import('../../../shared/schema');
         const { desc, eq } = await import('drizzle-orm');
         // A booking row carries the quote's id, so a file naming its slug is resolved to one first.
-        const id = (await liveDiary.quote(quoteRef))?.id ?? quoteRef;
+        const id = (await databaseDiary(purpose).quote(quoteRef))?.id ?? quoteRef;
         const rows = await db.select({ id: t.id, quoteId: t.quoteId, scheduledDate: t.scheduledDate, scheduledDates: t.scheduledDates, durationDays: t.durationDays, status: t.status, assignmentStatus: t.assignmentStatus, dayOfStatus: t.dayOfStatus, createdAt: t.createdAt, completedAt: t.completedAt })
             .from(t).where(eq(t.quoteId, id)).orderBy(desc(t.createdAt)).limit(10);
         return newestFromQuote(rows.map(bookingRowToDiary), today);
     },
     async quote(quoteRef) {
-        branchInUse();
+        await diaryDatabase(purpose);
         const { db } = await import('../../db');
         const { personalizedQuotes: q } = await import('../../../shared/schema');
         const { eq, or } = await import('drizzle-orm');
@@ -311,7 +319,7 @@ export const liveDiary: DiaryReader = {
         return { id: r.id, slug: r.slug, isDraft: r.isDraft !== false, supersededAt: iso(r.supersededAt), revokedAt: iso(r.revokedAt), expiresAt: iso(r.expiresAt) };
     },
     async bookingsForContact(keys, today) {
-        branchInUse();
+        await diaryDatabase(purpose);
         const { phones, emails } = contactMatchValues(keys);
         if (!phones.length && !emails.length) return [];
         const { db } = await import('../../db');
@@ -334,4 +342,7 @@ export const liveDiary: DiaryReader = {
             .orderBy(desc(t.createdAt)).limit(CONTACT_BOOKINGS_LIMIT);
         return rows.map(bookingRowToDiary).filter((b) => stillExpected(b, today));
     },
-};
+});
+
+/** The sandbox door's diary: every read refuses anything but the branch COMMS_V2_DATABASE_URL names. */
+export const liveDiary: DiaryReader = databaseDiary('sandbox');
