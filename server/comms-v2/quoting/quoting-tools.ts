@@ -322,7 +322,14 @@ export async function markQuoteSent(file: CaseFile, deps: QuotingDeps = {}): Pro
 
 // ---------------------------------------------------------------- record_acceptance (human)
 
-export interface AcceptanceWitness { by: 'human'; via: string }
+/**
+ * The payment the Stripe webhook has already written on the row (server/stripe-routes.ts): what
+ * the customer paid, and whether it was the deposit or the whole job.
+ */
+export interface PaidWitness { amountPence: number; paymentType: 'deposit' | 'full' }
+
+/** `paid`: live, the webhook is the witness and the row already carries the payment, so it is confirmed rather than written again. */
+export interface AcceptanceWitness { by: 'human'; via: string; paid?: PaidWitness }
 
 export type AcceptanceOutcome =
     | { ok: true; depositPence: number; factIds: string[]; notice: BenNotice | null; turnBody: string }
@@ -333,17 +340,38 @@ export type AcceptanceOutcome =
  * pays the deposit (live, the Stripe webhook; in the sandbox, the door's own action). Recorded here:
  * the row, the stage (quoted -> accepted), one notification to Ben, the facts. Refuses any witness
  * that is not a human.
+ *
+ * With a `paid` witness (live, quoting/live-acceptance.ts) the webhook has already written the
+ * payment, so the row is read, never written: it must carry the payment, and nothing else about it
+ * refuses, because the money is taken whether or not the quote was still live when it was. The
+ * stage walks forward to accepted from wherever the file stands, for the same reason.
  */
 export async function recordAcceptance(file: CaseFile, party: Party, witness: AcceptanceWitness | { by: string; via?: string }, deps: QuotingDeps = {}): Promise<AcceptanceOutcome> {
     const d = resolveQuotingDeps(deps);
     if (witness.by !== 'human') return { ok: false, status: 403, reason: `acceptance is a human event; refused for witness "${witness.by}"` };
     if (!file.job.quoteRef) return { ok: false, status: 409, reason: 'no quote on the file to accept' };
     const now = d.now();
-    const r = await d.store.accept(file.job.quoteRef, now);
-    if (!r.ok) return r;
+    const paid = 'paid' in witness ? witness.paid : undefined;
+    let depositPence: number;
+    if (paid) {
+        const paidRow = await d.store.read(file.job.quoteRef);
+        if (!paidRow) return { ok: false, status: 404, reason: `no quote ${file.job.quoteRef}` };
+        if (!paidRow.depositPaidAt) return { ok: false, status: 409, reason: `quote ${file.job.quoteRef} does not carry the payment yet` };
+        depositPence = paid.amountPence;
+    } else {
+        const r = await d.store.accept(file.job.quoteRef, now);
+        if (!r.ok) return r;
+        depositPence = r.depositPence;
+    }
     const row = await d.store.read(file.job.quoteRef);
     const record = row ? quoteRecordOf(row, now) : null;
-    if (file.stage === 'quoted') setStage(file, 'accepted', `the customer accepted quote ${file.job.quoteRef} (${witness.via ?? 'quote page'})`, d.file);
+    const why = `the customer accepted quote ${file.job.quoteRef} (${witness.via ?? 'quote page'})`;
+    if (paid) {
+        for (const next of ['scoping', 'ready', 'quoted', 'accepted'] as const) {
+            if (STAGES.indexOf(file.stage) >= STAGES.indexOf(next)) continue;
+            if (!setStage(file, next, why, d.file).ok) break;
+        }
+    } else if (file.stage === 'quoted') setStage(file, 'accepted', why, d.file);
     const factIds: string[] = [];
     if (record) {
         const ids = recordQuoteFacts(file, record, deps);
@@ -352,10 +380,11 @@ export async function recordAcceptance(file: CaseFile, party: Party, witness: Ac
     // The number the file carries, whichever phone channel it is on: a thread the customer ran by
     // text still tells Ben who to ring about the job they have just paid a deposit on.
     const address = party.channels.find((c) => c.kind === 'whatsapp' || c.kind === 'sms')?.address ?? null;
-    const notice = acceptedNotice({ customerName: party.name, phone: address, jobSummary: record?.lines.map((l) => l.label).join('; ') ?? null, depositPence: r.depositPence, at: now.toISOString() });
+    const notice = acceptedNotice({ customerName: party.name, phone: address, jobSummary: record?.lines.map((l) => l.label).join('; ') ?? null, depositPence, paymentType: paid?.paymentType, at: now.toISOString() });
     const n = await notifyBen(file, notice, deps);
     if (n.ok && n.factId) factIds.push(n.factId);
-    return { ok: true, depositPence: r.depositPence, factIds, notice: n.ok ? notice : null, turnBody: `Accepted quote ${file.job.quoteRef} on the quote page${r.depositPence > 0 ? ` and paid the ${pounds(r.depositPence)} deposit` : ''}.` };
+    const paidWords = depositPence <= 0 ? '' : paid?.paymentType === 'full' ? ` and paid ${pounds(depositPence)} in full` : ` and paid the ${pounds(depositPence)} deposit`;
+    return { ok: true, depositPence, factIds, notice: n.ok ? notice : null, turnBody: `Accepted quote ${file.job.quoteRef} on the quote page${paidWords}.` };
 }
 
 /** A run id for a human action on the door. */
