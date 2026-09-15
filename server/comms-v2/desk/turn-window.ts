@@ -12,8 +12,8 @@
  *
  * The window is the old desk's inbound debounce default (server/spine/config.ts DEBOUNCE_SECONDS,
  * T35): eight seconds, long enough that "it's the tap in the kitchen" three seconds after "hi" is one
- * reply, short enough to read as a person typing back. No comms-v2 document settles a length, so the
- * number is an open decision, raised with the change that brought it.
+ * reply, short enough to read as a person typing back. No comms-v2 document set a length; the eight
+ * seconds were raised as a decision and approved on 15 Sep 2026 for consistency with the old desk.
  *
  * Only texts and photos on the two messaging channels wait. A form, an email, a call transcript and
  * a portal action go to the desk at once, after any messages still waiting from that party on that
