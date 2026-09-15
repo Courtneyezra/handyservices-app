@@ -199,9 +199,9 @@ of marketing.
 
 Written without credentials and without a database, so:
 
-- **No command here has been run against Twilio or Meta.** The dry run
-  (`npx tsx scripts/_submit-window-templates.ts`, no flags) is the only thing that has been
-  executed, and it makes no network calls.
+- **The seven rows dated 15 Sep 2026 in section 9 are the only submissions run against Twilio or
+  Meta so far.** Everything else in this runbook — including the dry run
+  (`npx tsx scripts/_submit-window-templates.ts`, no flags) — is still unexecuted.
 - **The console paths are described, not clicked.** Twilio's and Meta's UIs move; the paths in
   sections 5 and 6 are the shape of the journey, and the labels may differ.
 - **The live status of the two existing names is unknown here.** `quote_ready_link` and
