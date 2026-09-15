@@ -58,7 +58,8 @@ inside Ben's hours and "in the morning" outside them, by the UK hour of the desk
 (server/working-hours.ts), which is the meaning the registry row declares and the rule the live
 acknowledgement already follows. A party who has already
 rung us, prefers text, or has been offered a call takes `web_form_ack_no_call` (checklist 1.5), the
-same acknowledgement with the offer taken out; that name is not approved yet, so today the
+same acknowledgement with the offer taken out; Meta approved that name on 15 Sep 2026
+(docs/META-TEMPLATE-RUNBOOK.md), and wherever the sync cache does not show it approved the
 acknowledgement holds for Ben with its words as the draft rather than asking to call. Off WhatsApp
 the same words go as the one SMS or email; a call follow-up is never freeform.
 
@@ -321,7 +322,7 @@ the customer's own words ask to change a detail on their record, whatever the ro
 | the hold vocabulary | `service/hold-reasons.ts`, `desk/fixed-lines.ts` | `HoldException` (desk/router.ts) is the router's exceptions plus `no_source`, `not_converging`, `change_of_details`; `callback` joins the router's own. Fixed line only (no composer, no specialist until Ben releases): complaint, refund, trust doubt, gas, not converging. Answer the rest (the fixed line rides in the reply): money, date change, callback, no source, change of details. Goal 6's lines are checklist wording and send live; only the four Ben reviews are read from the knowledge base. |
 | return to automation | `desk/human-reply.ts`, `service/return-to-automation.ts` | One path for a human's reply: `humanReply` sends the words through the one sender under a `human:<person>` approver on the thread's own channel, records what they asked on the ask ledger, and releases the hold with those words. Ben's board and the door's "Ben replies" both call it; `automationState` reads where the thread is. The release records how many turns the thread had (`turnsBefore`) and each subject's ask count (`asksBefore`), so `convergence` counts both replies and job asks from there and a released thread can make progress; the ledger itself is untouched, so a subject is still never asked twice. The kanban (Goal 2) can also release the hold directly, which brings the thread back to automation without posting Ben's words to the customer. |
 | Ben's chase | `service/chase.ts`, `desk/sender.ts` `initiate` | On the desk's clock pass a held thread chases Ben after one interval and the owner after a second, each a template send through `initiate` (template only, approver and run id, never freeform, never on the thread; the run id is spent on the file; a live pass carries the chase's own purpose to the deliverer and a refused delivery is on the record). The record is the file's own `chase` field, so the durable store keeps it and a restart never chases again; every attempt records its mode and the label the deliverer carried it under (`outboundLabelFor`: the fail-closed `marketing` class, context `comms_v2:<purpose>`), refused ones included. Intervals and addresses are configuration (a missing address is a refusal on the record, never a silent skip); the door sets test values and drama numbers, and the live intake reads the numbers from the environment (`chaseStateFromEnv`) and runs on the live clock. The two templates (`desk_approver_chase_v1`, `desk_owner_escalation_v1`) are rows in the one registry (`server/window-templates.ts`, `audience: 'approver'`), which `chase.ts` reads rather than keeping its own copy; submission status is `docs/META-TEMPLATE-RUNBOOK.md`, and approval is read from the live sync by name like any other. |
-| the fixture | `service/fixture.ts` | Reviewed and unreviewed knowledge-base rows (`sandbox-kb-*`, reviewed as `human:sandbox-fixture`) written through the old store's own admin writes, and the two chase templates marked approved in the sync cache with a sandbox content SID. Branch database only; refused on production. |
+| the fixture | `service/fixture.ts` | Reviewed and unreviewed knowledge-base rows (`sandbox-kb-*`, reviewed as `human:sandbox-fixture`) written through the old store's own admin writes, and the two chase templates marked approved in the sync cache with a sandbox content SID, as are the two channel templates Meta approved on 15 Sep 2026 (`post_call_followup_v1` for 1.3, `web_enquiry_ack_no_call_v1` for 1.5; `FIXTURE_APPROVED_ON_META`), with their wording read from the registry, so their approved-template branch is drivable. Nothing is written to Meta or Twilio. Branch database only; refused on production. |
 | the door actions | `service/service-door.ts` | Mounted by `desk/sandbox-door.ts`: `POST /fixture`, `POST /ben-replies` (`{ text }`; the approver is the signed-in session's slot, never the body, so an unlisted session gets 403; the standalone door host has no session and runs as Ben), `POST /chase-intervals` (`{ chaseAfterMinutes, escalateAfterMinutes }`), `GET /chase`. Every `/run` response carries `chase`; the state carries `automation` and `chase`. |
 
 ## Driving the door
@@ -386,6 +387,27 @@ board's authenticated route, which only his approver slot may call.
 Goal 6 adds `POST /fixture`, `POST /ben-replies`, `POST /chase-intervals` and `GET /chase`
 (above): the chase is driven with `/chase-intervals`, then `/age` and `/run`, and "Ben replies"
 brings a held thread back to automation.
+
+The first-contact, scoping and hold rows, each as its own thread, after `POST /fixture` once (it
+puts the two channel approvals in the branch's cache):
+
+- 1.3: `/start` door `call`, outcome `ben_rang`, a transcript in which Ben asks for photos, seed
+  `{ "whatsapp": true }`; `templateId` `post_call_followup_v1` on a shut window, one bubble with the
+  first name and the job from the call, no hold, `ben_asked_for` on the file.
+- 1.5: `/start` door `form` with a job and a postcode, seed `{ "whatsapp": true, "alreadyRung": true }`;
+  `templateId` `web_enquiry_ack_no_call_v1`, the enquiry quoted back, no call mentioned, no hold.
+  A WhatsApp `/message` after it gets a reply that mentions no call.
+- 1.6: `/start` a job with no postcode, `/message` "text only please", then a real answer; the file's
+  `prefers_text` fact has the thread as its source (no seed), and no reply after it mentions a call,
+  the phone or ringing.
+- 2.3: `/start` a vague job ("a few things need doing around the house"), then answer in words for
+  three turns; every reply asks at most one question about the job, with one question mark, and
+  never a subject the ask ledger already holds.
+- 7.1, a trust doubt: `/start` a job, then "How do I know you're not a scam?"; the `trust` fixed line
+  alone, a hold for ben with exception `trust_doubt` and no composer call; a further message gets the
+  held acknowledgement with the hold still standing.
+- 7.2, a refund: `/start` "I paid a deposit but need to cancel, can I get a refund?"; the `refund`
+  fixed line, a hold for ben with exception `refund`, no figure.
 
 The switch-over adds two things to drive without sending anything (docs/comms-v2/cutover.md):
 

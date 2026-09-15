@@ -103,6 +103,28 @@ describe('the desk', () => {
         expect(out.file.hold).toBeNull();
     });
 
+    it('"text only please" mid-thread takes the call offer away from that turn on, with no seed (1.6)', async () => {
+        const { gateway } = desk({
+            router: () => routeScoping({ turnKind: 'answer' }),
+            specialist: ({ n }) => specialistFacts(n === 1 ? [{ key: 'job_type', value: 'sticking back door' }] : n === 2 ? [{ key: 'prefers_text', value: 'true' }] : [{ key: 'job_detail', value: 'catches at the top' }]),
+            composer: ({ n, user }) => {
+                if (n === 1) expect(user).toContain('offer a call: yes');
+                else { expect(user).toContain('offer a call: no'); expect(user).toContain('Prefers text only: yes'); }
+                return { reply: n === 1 ? 'A sticking back door, got it.\n\nWhereabouts are you?' : n === 2 ? "No problem, I'll keep it to messages." : 'Thanks, that helps.', factIds: [], kbIds: [] };
+            },
+        });
+        const a = await gateway.inbound(turn('My back door sticks', '2026-09-11T10:00:00.000Z'));
+        const b = await gateway.inbound(turn('text only please', '2026-09-11T10:02:00.000Z'));
+        const c = await gateway.inbound(turn('it catches at the top', '2026-09-11T10:04:00.000Z'));
+        if (a.kind !== 'handled' || b.kind !== 'handled' || c.kind !== 'handled') throw new Error('not handled');
+        expect(b.file.facts.find((f) => f.key === 'prefers_text')?.source).toMatchObject({ kind: 'thread' });
+        expect(c.file.parties[0]).toMatchObject({ prefersText: true, callOffered: false });
+        for (const r of [b.result, c.result]) {
+            expect(r.decision).toBe('send');
+            expect(r.bubbles.map((x) => x.text).join(' ')).not.toMatch(/\b(?:call|ring|phone)\b/i);
+        }
+    });
+
     it('a composer refusal takes the fixed acknowledgement and a hold, never a silent empty reply', async () => {
         const { gateway } = desk({ router: () => routeScoping(), specialist: () => specialistFacts([]), composer: () => ({ refused: true }) });
         const out = await gateway.inbound(turn('Hi', '2026-09-11T10:00:00.000Z'));
