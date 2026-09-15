@@ -31,7 +31,7 @@
 import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
 import { approverFor } from './guards';
-import { clauseAsks, offersCall, RE_ASKING } from './lexicon';
+import { clauseAsks, offersCall } from './lexicon';
 import { chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateStatusSource } from './sender';
 import { humanApprover, type Approver } from '../../approver';
 
@@ -168,12 +168,18 @@ function sentQuoteLink(file: CaseFile): string | null {
     return null;
 }
 
-/** The customer's own last word, unanswered: it is the newest turn on the file (nothing outbound since) and it reads as a question or a request (lexicon.ts RE_ASKING). */
+/**
+ * The customer's own last word, unanswered: it is the newest turn on the file (nothing outbound
+ * since) and it actually reads as a question, not merely a sentence that happens to contain an
+ * asking word (RE_ASKING alone matches plain vocabulary like "how" or "where" in a statement, e.g.
+ * "I don't know how you found us"). A literal question mark is the one unambiguous signal that the
+ * customer asked something, which is what this template's wording ("you asked us about...") claims.
+ */
 function unansweredQuestion(file: CaseFile, turn: Turn): boolean {
     const idx = file.turns.findIndex((t) => t.id === turn.id);
     if (idx === -1) return false;
     if (file.turns.slice(idx + 1).some((t) => t.direction === 'outbound')) return false;
-    return RE_ASKING.test(turn.body);
+    return turn.body.includes('?');
 }
 
 /**

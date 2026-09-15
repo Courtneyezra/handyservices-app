@@ -417,6 +417,25 @@ describe('a template send on a shut window: only when the wording is true for th
         expect(file.sends).toHaveLength(0);
     });
 
+    it('the customer\'s last word merely contains an asking word without being a question: no template is offered', async () => {
+        const r = open({
+            identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900942', propertyId: null, landlordId: null, name: 'Sam' },
+            channel: 'whatsapp', address: '+447700900942',
+            firstTurn: { at: AT, channel: 'whatsapp', kind: 'text', body: "I don't know how you found us but thanks anyway", media: [] },
+        }, { now: now(AT) });
+        if (!r.ok) throw new Error(r.reason);
+        const file = r.value;
+        setHold(file, { approver: BEN, reason: 'a complaint', exception: null }, { now: now('2026-09-11T10:00:01.000Z') });
+        const ch = file.parties[0].channels.find((c) => c.kind === 'whatsapp')!;
+        ch.lastInboundAt = '2026-09-09T10:00:00.000Z';
+
+        const out = await sendWindowTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, reopenApproved);
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/no template is true for this thread/);
+        expect(file.sends).toHaveLength(0);
+    });
+
     it('never reaches quote_accepted_ack_v1, enquiry_followup_optin_v1 or a marketing row: only the two service_reply purposes are ever picked', async () => {
         const everythingApproved: TemplateStatusSource = { async approved() { return { contentSid: 'HX_any' }; } };
         const { file: quoteFile } = await withSentQuoteLink();
