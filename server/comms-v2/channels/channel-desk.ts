@@ -166,7 +166,7 @@ export class ChannelDesk implements DeskLike {
             return this.result(file, party.personId, runId, calls, { decision: 'hold', channel: choice.channel, windowState: window.state, factIds, summary, note: why });
         }
         const guards = templateGuards();
-        const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards: { ok: true, guards, failures: [] }, factIds, kbIds: [], fixedLines: [], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
+        const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards: { ok: true, guards, failures: [] }, factIds, kbIds: [], fixedLines: [], calls, mode: this.deps.mode ?? 'dry_run', purpose }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) {
             setHold(file, { approver: BEN, reason: `${purpose}: send refused: ${sent.reason}`, draft: body }, deps);
             return this.result(file, party.personId, runId, calls, { decision: 'hold', channel: choice.channel, windowState: window.state, factIds, summary, note: `send refused: ${sent.reason}` });

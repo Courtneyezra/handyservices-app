@@ -32,6 +32,7 @@ import { renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2
 import type { ChannelReplyPurpose } from '../channels/templates';
 import type { OutboundPurpose } from '../../opt-out';
 import { isOutOfHours, ukHour } from '../../working-hours';
+import { WINDOW_TEMPLATES } from '../../window-templates';
 
 export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 300;
@@ -56,10 +57,14 @@ const INITIATE_PURPOSES: readonly DeliveryPurpose[] = ['approver_chase', 'owner_
  * is not one: server/outbound.ts keeps `service_reply` for a reply or a message the job requires and
  * never for something the system started on its own, so a chase or an escalation takes the
  * fail-closed `marketing` class at the opt-out ledger, where a plain STOP blocks it, and carries its
- * own purpose in the context the ledger and the logs record.
+ * own purpose in the context the ledger and the logs record. So does a reply whose template row the
+ * registry records as marketing (the missed-call acknowledgement, which Meta approved as MARKETING):
+ * the row's `purpose` decides, on every channel its words go out on, never the reply purpose's name.
  */
 export function outboundLabelFor(purpose: DeliveryPurpose): OutboundLabel {
-    return INITIATE_PURPOSES.includes(purpose) ? { purpose: 'marketing', context: `comms_v2:${purpose}` } : { purpose: 'service_reply', context: 'comms_v2' };
+    if (INITIATE_PURPOSES.includes(purpose)) return { purpose: 'marketing', context: `comms_v2:${purpose}` };
+    const marketingRow = templateRowsFor(purpose as ReplyPurpose, WINDOW_TEMPLATES).some((t) => t.purpose === 'marketing');
+    return marketingRow ? { purpose: 'marketing', context: `comms_v2:${purpose}` } : { purpose: 'service_reply', context: 'comms_v2' };
 }
 
 /** The class the opt-out ledger gates a send under, and the context the ledger and the logs record it with. */
@@ -250,9 +255,13 @@ const TRIGGERS_FOR_PURPOSE: Record<ReplyPurpose, readonly string[]> = {
  */
 export interface TemplateVars { name: string | null; topic: string; at: Date; link?: string | null }
 
-/** The rows of the one registry (server/window-templates.ts) that carry a reply of this purpose. */
-export function templateRowsFor<T extends { purpose: string; trigger: { id: string } }>(purpose: ReplyPurpose, registry: readonly T[]): T[] {
-    return registry.filter((t) => t.purpose === 'service_reply' && TRIGGERS_FOR_PURPOSE[purpose].includes(t.trigger.id));
+/**
+ * The customer-facing rows of the one registry (server/window-templates.ts) that carry a reply of
+ * this purpose. A row's own `purpose` does not filter it out: the missed-call row is marketing by
+ * Meta's decision and still the missed-call reply, gated as marketing by `outboundLabelFor`.
+ */
+export function templateRowsFor<T extends { purpose: string | null; audience: string; trigger: { id: string } }>(purpose: ReplyPurpose, registry: readonly T[]): T[] {
+    return registry.filter((t) => t.audience === 'customer' && (TRIGGERS_FOR_PURPOSE[purpose] ?? []).includes(t.trigger.id));
 }
 
 /**
@@ -390,6 +399,8 @@ export interface SendInput {
     fixedLines: FixedLine[];
     calls: ModelCallRecord[];
     mode: 'dry_run' | 'live';
+    /** What the reply is for, so the delivery is gated under its row's opt-out class (`outboundLabelFor`). Omitted: a service reply. */
+    purpose?: ReplyPurpose;
 }
 
 export type SendOutcome = { ok: true; record: SendRecord } | { ok: false; reason: string };
@@ -444,7 +455,7 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     };
 
     if (input.mode === 'live') {
-        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, purpose: 'service_reply' });
+        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, purpose: input.purpose ?? 'service_reply' });
         if (!delivered.ok) {
             if (delivered.delivered.length) land(delivered.delivered, true);
             return { ok: false, reason: delivered.reason };

@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import {
     WINDOW_TEMPLATES, windowTemplateFor, templatePlaceholders, renderSample, templateNames,
     expectedFromWindowTemplates, type WindowTemplate,
+    purposeForTemplateName,
 } from './window-templates';
 import { chatVoiceViolations } from '@shared/chat-voice';
 import { checkDraft } from './agents/draft-guards';
@@ -52,19 +53,33 @@ describe('the window-shut templates', () => {
         }
     });
 
-    it('the marketing one is distinguishable by a field, not by its name', () => {
+    it('the marketing ones are distinguishable by a field, not by their names', () => {
         const marketing = WINDOW_TEMPLATES.filter((t) => t.category === 'MARKETING');
-        expect(marketing).toHaveLength(1);
-        expect(marketing[0].trigger.id).toBe('enquiry_chase');
+        // The chase was submitted as marketing; the missed-call ack was approved as marketing by Meta.
+        expect(marketing.map((t) => t.trigger.id)).toEqual(['missed_call', 'enquiry_chase']);
         // purpose is the field a send path branches on: a plain STOP blocks 'marketing' only.
-        expect(marketing[0].purpose).toBe('marketing');
+        for (const t of marketing) expect(t.purpose).toBe('marketing');
         for (const t of WINDOW_TEMPLATES.filter((x) => x.category === 'UTILITY' && x.audience === 'customer')) {
             expect(t.purpose).toBe('service_reply');
         }
         // Naming is not the discriminator: strip the names and the categories still separate.
         const customerOnly = WINDOW_TEMPLATES.filter((t) => t.audience === 'customer');
         const withoutNames = customerOnly.map(({ purpose, category }) => ({ purpose, category }));
-        expect(withoutNames.filter((t) => t.purpose === 'marketing')).toEqual([{ purpose: 'marketing', category: 'MARKETING' }]);
+        expect(withoutNames.filter((t) => t.purpose === 'marketing')).toEqual([{ purpose: 'marketing', category: 'MARKETING' }, { purpose: 'marketing', category: 'MARKETING' }]);
+    });
+
+    it('missed_call_ack is recorded as the MARKETING template Meta approved, so a plain STOP blocks every send carrying it', () => {
+        const t = byTrigger('missed_call');
+        expect(templateNames(t)).toEqual(['missed_call_ack']);
+        expect(t.category).toBe('MARKETING');
+        expect(t.purpose).toBe('marketing');
+        expect(t.notes).toMatch(/HX0ae187172810e78213fcfecf536ca972/);
+        expect(purposeForTemplateName('missed_call_ack')).toBe('marketing');
+        expect(purposeForTemplateName('enquiry_followup_optin_v1')).toBe('marketing');
+        expect(purposeForTemplateName('web_enquiry_ack_context')).toBe('service_reply');
+        // An approver row is not the customer STOP gate's business, and an unknown name is not the registry's.
+        expect(purposeForTemplateName('desk_approver_chase_v1')).toBeNull();
+        expect(purposeForTemplateName('video_request')).toBeNull();
     });
 
     it('the desk\'s chase and escalation go to an approver, never a customer, and carry no OutboundPurpose', () => {
@@ -85,7 +100,7 @@ describe('the window-shut templates', () => {
         }
     });
 
-    it('the marketing one carries a way to stop, and no utility one does', () => {
+    it('the chase carries a way to stop, and no utility one does', () => {
         const chase = byTrigger('enquiry_chase');
         expect(chase.rungs[0].body).toMatch(/\bSTOP\b/);
         for (const { rung } of ALL_RUNGS.filter((x) => x.row.category === 'UTILITY')) {

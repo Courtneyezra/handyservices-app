@@ -52,10 +52,10 @@ Each of these is checked by hand; none is enforced by the code except where it s
 - [ ] The `comms_v2_approvers` app_settings row lists Ben's user id under `ben`
       (`server/comms-v2/api/approvers.ts` has the insert). With no row nobody can release or answer
       from the board.
-- [ ] **The two chase templates are submitted to Meta and approved:** `desk_approver_chase_v1` and
+- [x] **The two chase templates are submitted to Meta and approved:** `desk_approver_chase_v1` and
       `desk_owner_escalation_v1`, rows in `server/window-templates.ts` (`audience: 'approver'`).
-      Until then every live chase and escalation is refused and recorded on the file, and Ben is not
-      chased. Known go-live item: not yet submitted.
+      Approved 15 Sep 2026 — `docs/META-TEMPLATE-RUNBOOK.md` section 9. Until approved, every live
+      chase and escalation is refused and recorded on the file, and Ben is not chased.
 - [ ] Ben's four fixed lines are reviewed rows in the knowledge base (`/admin/knowledge`). Live, a
       default line he has not reviewed is refused by the sender and the thread holds for him.
 - [ ] Production runs one service with `COMMS_WORKER=1` (docs/RUNBOOK.md). A process without it is

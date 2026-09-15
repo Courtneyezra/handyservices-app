@@ -230,6 +230,14 @@ describe('send', () => {
         expect(file.sends[0].partial).toBe(false);
         expect(file.sentRunIds).toEqual(['r1']);
     });
+    it('live delivery carries the reply\'s own purpose to the deliverer, so the missed-call acknowledgement is gated under its row\'s class', async () => {
+        const { file, party } = fixture();
+        const seen: Parameters<NonNullable<Parameters<typeof send>[1]['deliverer']>['deliver']>[0][] = [];
+        const deliverer = { async deliver(i: (typeof seen)[number]) { seen.push(i); return { ok: true as const, sid: 'SM1' }; } };
+        expect((await send(input(file, party, { mode: 'live', runId: 'r_missed', purpose: 'missed_call' }), { now: at('2026-09-11T11:00:00.000Z'), deliverer })).ok).toBe(true);
+        expect((await send(input(file, party, { mode: 'live', runId: 'r_reply' }), { now: at('2026-09-11T11:00:02.000Z'), deliverer })).ok).toBe(true);
+        expect(seen.map((i) => i.purpose)).toEqual(['missed_call', 'service_reply']);
+    });
     it('live delivery goes through the deliverer with the template and the transport the customer wrote on, and a refused delivery lands nothing', async () => {
         const { file, party } = fixture();
         const seen: Parameters<NonNullable<Parameters<typeof send>[1]['deliverer']>['deliver']>[0][] = [];
@@ -353,6 +361,10 @@ describe('liveDeliverer', () => {
         ]);
         expect(calls[2].contentSid).toBe('HX1');
         expect(outboundLabelFor('approver_chase').purpose).not.toBe('service_reply');
+        // The missed-call acknowledgement's row is marketing (Meta approved missed_call_ack as MARKETING), so a plain STOP blocks it.
+        expect((await liveDeliverer.deliver({ ...common, template: null, runId: 'm1', purpose: 'missed_call' })).ok).toBe(true);
+        expect([calls[4].purpose, calls[4].context]).toEqual(['marketing', 'comms_v2:missed_call']);
+        expect(outboundLabelFor('post_call_followup')).toEqual({ purpose: 'service_reply', context: 'comms_v2' });
         vi.doUnmock('../../outbound');
         vi.doUnmock('../../spine/config');
     });

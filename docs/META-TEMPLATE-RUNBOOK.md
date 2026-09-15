@@ -3,7 +3,7 @@
 For the owner. Submitting a template is an external act on the business's own Meta and Twilio
 accounts, so nobody else can do it. Everything below is a command you type on a machine that has
 the project's `.env`, or a click in a console you own. Nothing in this repo has ever called Meta on
-its own, and the submission script (`scripts/_submit-window-templates.ts`) has never been run.
+its own. The submission results so far are in the log in section 9.
 
 What is being submitted and why: `docs/comms-build/TEMPLATES-WINDOW-SHUT.md`.
 The definitions themselves: `server/window-templates.ts`.
@@ -199,9 +199,9 @@ of marketing.
 
 Written without credentials and without a database, so:
 
-- **No command here has been run against Twilio or Meta.** The dry run
-  (`npx tsx scripts/_submit-window-templates.ts`, no flags) is the only thing that has been
-  executed, and it makes no network calls.
+- **The seven rows dated 15 Sep 2026 in section 9 are the only submissions run against Twilio or
+  Meta so far.** Everything else in this runbook — including the dry run
+  (`npx tsx scripts/_submit-window-templates.ts`, no flags) — is still unexecuted.
 - **The console paths are described, not clicked.** Twilio's and Meta's UIs move; the paths in
   sections 5 and 6 are the shape of the journey, and the labels may differ.
 - **The live status of the two existing names is unknown here.** `quote_ready_link` and
@@ -221,8 +221,12 @@ Fill this in as you go, so the next person can see what Meta actually did rather
 | Template | Category submitted | Date submitted | Outcome | Category Meta settled on | Notes |
 |---|---|---|---|---|---|
 | `quote_ready_link` | UTILITY | (already on the account) | | | check status only, not resubmitted |
-| `answer_ready_reopen_v1` | UTILITY | | | | |
+| `answer_ready_reopen_v1` | UTILITY | 15 Sep 2026 | approved (HXddd8effcd5aaae42aceb4df1320107ec) | UTILITY | |
 | `web_enquiry_ack_context` | UTILITY | 22 Aug 2026 | | | reused, not resubmitted |
-| `post_call_followup_v1` | UTILITY | | | | duplicate risk vs `post_call_continuation` |
-| `enquiry_followup_optin_v1` | MARKETING | | | | submitted as marketing on purpose |
-| `quote_accepted_ack_v1` | UTILITY | | | | not submitted: wording awaits the captain's word; use `--only` for the others until then |
+| `post_call_followup_v1` | UTILITY | 15 Sep 2026 | approved (HX46de2b9c0399f5bd227b0c3b9cd1f7bf) | UTILITY | duplicate risk vs `post_call_continuation` did not materialise |
+| `web_enquiry_ack_no_call_v1` | UTILITY | 15 Sep 2026 | approved (HXaefffe1e90087c478bb49baf5aa4b1ea) | UTILITY | |
+| `desk_approver_chase_v1` | UTILITY | 15 Sep 2026 | approved (HX322c9997d5ac1f4608f9c5e5915ded80) | UTILITY | to Ben, never a customer |
+| `desk_owner_escalation_v1` | UTILITY | 15 Sep 2026 | approved (HXce1c7543d53519d0b0fe71ec54389676) | UTILITY | to the owner, never a customer |
+| `enquiry_followup_optin_v1` | MARKETING | 15 Sep 2026 | approved (HX0211a553e6371e9d1bfed3ab477096a0) | MARKETING | submitted as marketing on purpose; stays unused by the captain's ruling |
+| `quote_accepted_ack_v1` | UTILITY | 15 Sep 2026 | approved (HXb3370b4b0e19ddc537f777b48ffb5cfb) | UTILITY | stays unused by the captain's ruling: no sender or trigger reaches it |
+| `missed_call_ack` | (already on the account) | | approved (HX0ae187172810e78213fcfecf536ca972) | **MARKETING** (live read 15 Sep 2026) | was recorded as UTILITY; the registry now records it as marketing, so a plain STOP blocks it on every send path |

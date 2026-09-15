@@ -35,11 +35,13 @@
  *
  * CATEGORY IS NOT DECORATION. Meta categorises every template and re-categorises on review; a
  * re-engagement message to a customer who went quiet is the shape it treats as MARKETING, which is
- * priced differently and needs recorded consent and a way to stop. The four service templates are
- * UTILITY. `purpose` carries the same fact into this codebase's own vocabulary
- * (`OutboundPurpose`), so the send gate can refuse the marketing one for a customer who wrote STOP
- * while a service reply still reaches them — a plain STOP blocks 'marketing' only
- * (server/opt-out.ts blockedByOptOut).
+ * priced differently and needs recorded consent and a way to stop. The service templates are
+ * UTILITY. The row records the category Meta SETTLED ON, not the one we asked for: missed_call_ack
+ * reads as a service message but Meta approved it as MARKETING, so it is recorded as marketing.
+ * `purpose` carries the same fact into this codebase's own vocabulary (`OutboundPurpose`), so the
+ * send gate can refuse a marketing template for a customer who wrote STOP while a service reply
+ * still reaches them — a plain STOP blocks 'marketing' only (server/opt-out.ts blockedByOptOut).
+ * Every send path reads `purpose` from here (`purposeForTemplateName`), never from its own list.
  */
 import type { OutboundPurpose } from './opt-out';
 
@@ -272,9 +274,9 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             variables: { '1': 'Sam' },
             variableMeanings: { '1': "the customer's first name, or 'there'" },
         }],
-        category: 'UTILITY',
+        category: 'MARKETING',
         audience: 'customer',
-        purpose: 'service_reply',
+        purpose: 'marketing',
         language: 'en_GB',
         trigger: {
             id: 'missed_call',
@@ -288,7 +290,14 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             + 'It is here because the clean-sheet desk sends it unattended on a missed call, and an unattended '
             + 'send has to be visible on the go-live surface like every other. It never asks whether we may '
             + 'call: they just rang us (checklist 1.5). It folds into the live missed-call ack row in '
-            + 'server/template-status.ts rather than adding a second row for the same name.',
+            + 'server/template-status.ts rather than adding a second row for the same name. '
+            + 'MARKETING BY META\'S DECISION, NOT OURS: it was meant as a service message, but Meta approved it as '
+            + 'MARKETING (Twilio HX0ae187172810e78213fcfecf536ca972, live read 15 Sep 2026). A plain STOP blocks '
+            + 'marketing, so `purpose: marketing` makes every path that sends this template refuse a customer '
+            + 'who wrote STOP: the new desk labels the missed-call reply from this row '
+            + '(server/comms-v2/desk/sender.ts outboundLabelFor), and the old desk\'s draft carrying it is gated '
+            + 'as marketing (server/message-drafts.ts purposeForDraft). The approved wording carries no STOP '
+            + 'line and cannot gain one without a new submission.',
     },
     {
         rungs: [{
@@ -405,6 +414,16 @@ export const WINDOW_TEMPLATES: WindowTemplate[] = [
             + 'submits.',
     },
 ];
+
+/**
+ * The opt-out purpose a send carrying this template name must be gated under: its customer row's
+ * `purpose`, or null when no customer row names it (an approver row, or a template this registry
+ * does not define). A send path with its own default keeps that default on null.
+ */
+export function purposeForTemplateName(name: string): OutboundPurpose | null {
+    const row = WINDOW_TEMPLATES.find((t) => t.audience === 'customer' && t.rungs.some((r) => r.name === name));
+    return row?.purpose ?? null;
+}
 
 /** Look one up by trigger id. Returns undefined rather than throwing: callers choose the fallback. */
 export function windowTemplateFor(trigger: WindowTemplateTrigger['id']): WindowTemplate | undefined {
