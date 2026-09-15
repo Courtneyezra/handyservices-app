@@ -80,8 +80,8 @@ export async function readStaffNames(emails: string[]): Promise<Record<string, s
     try {
         const { db } = await import('../../db');
         const { users } = await import('@shared/schema');
-        const { inArray } = await import('drizzle-orm');
-        const rows = await db.select({ email: users.email, firstName: users.firstName, lastName: users.lastName }).from(users).where(inArray(users.email, clean));
+        const { inArray, sql } = await import('drizzle-orm');
+        const rows = await db.select({ email: users.email, firstName: users.firstName, lastName: users.lastName }).from(users).where(inArray(sql`lower(${users.email})`, clean));
         const out: Record<string, string> = {};
         for (const row of rows) {
             const name = [row.firstName, row.lastName].filter(Boolean).join(' ').trim();
