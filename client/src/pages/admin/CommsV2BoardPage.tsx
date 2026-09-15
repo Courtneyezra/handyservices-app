@@ -1,20 +1,32 @@
 /**
  * Ben's desk, kanban style (Goal 2 of the clean-sheet comms desk rebuild). One column per
  * Contract 2 stage, read from GET /api/comms-v2/board. Held cards float to the top of their
- * column with the hold reason and approver visible; a tap opens the file read-only and, when
- * held, the release form (Contract 2's release: the signed-in approver and their words, enforced
- * by the case file itself, not here).
+ * column with the hold reason and approver visible; a tap opens the file as a live conversation
+ * (Firstmate decision hsa-comms-v2-board-conversation-view): thread first, customer turns on one
+ * side and the desk's or a staff member's (by name, not by raw approver) on the other, each
+ * turn's own media shown inline, with the release/answer actions docked beneath the newest turn,
+ * in a docked panel or a sheet depending on width (`useIsWideBoard`, below). While a file is open
+ * it re-reads every 15s, so a message arriving mid-conversation appears without closing and
+ * reopening it, and the pane scrolls to the newest turn once per open rather than on every
+ * refetch.
+ *
+ * When held, the release form (Contract 2's release: the signed-in approver and their words,
+ * enforced by the case file itself, not here) also offers one-tap send of the desk's own held-back
+ * draft exactly as it stands (POST /case-files/:id/send-held-draft).
  *
  * Beside release, the answer form: Ben writes to the customer in his own words and they go out
  * through the desk's one sender with him as approver (POST /case-files/:id/answer, over
  * server/comms-v2/desk/human-reply.ts). The desk never rewrites his words, his line breaks inside
- * a bubble included, and the guards never run over them; anything the sender refuses, a shut window or a reply over the bubble ceiling, comes
- * back here to be shown and fixed, never held silently.
+ * a bubble included, and the guards never run over them; anything the sender refuses, a shut
+ * window or a reply over the bubble ceiling, comes back here to be shown and fixed, never held
+ * silently. On a shut window the form instead offers a template send (POST
+ * /case-files/:id/send-template) only when one's wording is true for the thread; when none is,
+ * it says so rather than offering a retry.
  *
  * Not polished, just visible and operable: it doubles as the window onto the sandbox while the
  * rest of the desk is built, so the header carries a control that starts a sandbox thread and
- * sends the next customer message through the board's own sandbox door. Polls every fifteen
- * seconds; no websockets.
+ * sends the next customer message through the board's own sandbox door. The board itself polls
+ * every fifteen seconds; no websockets.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
