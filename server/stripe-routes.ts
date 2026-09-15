@@ -934,11 +934,12 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                 amountPaidPence: paymentIntent.amount,
                                 paymentType: metadataPaymentType === 'full' ? 'full' : 'deposit',
                             }).catch((e) => console.warn('[Stripe Webhook] notifyQuoteAccepted failed:', e));
-                            pushEvent('quote_accepted', {
+                            // The link is the old comms page, or Comms Desk v2 while the new desk is live (server/comms-v2/old-comms.ts).
+                            void import('./comms-v2/old-comms').then(({ staffThreadPath }) => staffThreadPath()).then((url) => pushEvent('quote_accepted', {
                                 title: '🎉 Quote accepted',
                                 body: `${quote.customerName} — £${(paymentIntent.amount / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} paid`,
-                                url: '/admin/comms',
-                            });
+                                url,
+                            }));
                         } });
 
                         // 2. Calculate total job price (single price model)

@@ -34,6 +34,8 @@ import { VerdictReasonChips, type VerdictReason } from '@/components/comms/Verdi
 import { dueLabel } from '@/lib/due-label';
 import { READINESS_UI, type IntakeReadiness } from '@shared/intake-readiness';
 import { useCommsEvents, useRecentBoardChange } from '@/hooks/useCommsEvents';
+import { useOldComms, oldCommsEntry, NEW_BOARD_PATH } from '@/hooks/useOldComms';
+import { Redirect } from 'wouter';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -1829,13 +1831,23 @@ export default function CommsPage() {
     // Server-push: SSE events invalidate the board/thread queries the moment comms state
     // changes, which is what let the aggressive polls below relax to a 5-min fallback.
     useCommsEvents();
+    // While the new desk is the live desk this page is retired for customers: they are answered on
+    // Comms Desk v2, and only the contractor lane the new desk never takes stays here, with no switch
+    // back to the customer lane (server/comms-v2/old-comms.ts refuses a customer send from here on the
+    // same read). A read that fails is not retired, so the page stays exactly as it was.
+    const oldComms = useOldComms();
+    const entry = oldComms.isLoading ? null : oldCommsEntry(oldComms.data?.retired === true, window.location.search);
+    const contractorsOnly = entry === 'contractors';
+    // Retired, a thread link that is not a contractor's goes to the new board's top.
+    const [deepLinkMissed, setDeepLinkMissed] = useState(false);
     const [activeId, setActiveId] = useState<string | null>(null);
     const [selected, setSelected] = useState<BoardCard | null>(null);
     const [search, setSearch] = useState('');
     const [onlyUnanswered, setOnlyUnanswered] = useState(false);
     // One comms section, two hard-separated lanes. Same threads, same machinery — different
     // board shape and different rules. Contractor traffic never mixes into the customer funnel.
-    const [lane, setLane] = useState<'customer' | 'contractor'>('customer');
+    const [laneChoice, setLane] = useState<'customer' | 'contractor'>('customer');
+    const lane = contractorsOnly ? 'contractor' : laneChoice;
     const boardKey = ['comms-board', lane];
     // Drag-to-bin close, with a grace period: the bin replaces the Closed column, and an
     // accidental drop must be one click to take back.
@@ -1854,6 +1866,7 @@ export default function CommsPage() {
 
     const { data, isLoading, error, isFetching } = useQuery<BoardResponse>({
         queryKey: boardKey,
+        enabled: entry === 'old' || entry === 'contractors',
         queryFn: async () => {
             const res = await fetch(`/api/inbox/board?limit=400&lane=${lane}`, { headers: getAuthHeaders() });
             if (!res.ok) throw new Error('Failed to load board');
@@ -1915,6 +1928,7 @@ export default function CommsPage() {
         }
         deepLinked.current = true;
         if (card) openThread(card);
+        else if (contractorsOnly) setDeepLinkMissed(true);
     }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // The undo window after a bin-drop: long enough to react, short enough to not linger.
@@ -2007,7 +2021,8 @@ export default function CommsPage() {
         }
     }
 
-    if (isLoading) {
+    if (entry === 'board' || deepLinkMissed) return <Redirect to={NEW_BOARD_PATH} replace />;
+    if (entry === null || isLoading) {
         return <div className="flex h-64 items-center justify-center text-slate-500">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading comms…
         </div>;
@@ -2023,10 +2038,14 @@ export default function CommsPage() {
             <div className="flex flex-wrap items-end justify-between gap-4 px-5 pb-3 pt-4">
                 <div>
                     <h1 className="flex items-center gap-2 text-xl font-bold text-slate-900">
-                        <MessageCircle className="h-5 w-5" /> Comms
+                        {contractorsOnly
+                            ? <><HardHat className="h-5 w-5" /> Contractor threads</>
+                            : <><MessageCircle className="h-5 w-5" /> Comms</>}
                     </h1>
                     <p className="text-xs text-slate-500">
-                        WhatsApp, SMS and web enquiries in one thread per person. SLA is {data.slaWorkingHours} working hours.
+                        {contractorsOnly
+                            ? 'Contractors only. Customers are answered on Comms Desk v2 while the new desk is live.'
+                            : `WhatsApp, SMS and web enquiries in one thread per person. SLA is ${data.slaWorkingHours} working hours.`}
                         <span className="ml-2 text-slate-400">
                             Updated {lastUpdated.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                         </span>
@@ -2041,13 +2060,16 @@ export default function CommsPage() {
                     >
                         <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
                     </button>
-                    <button
-                        onClick={() => setAutoReplyOpen(true)}
-                        className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:border-slate-400"
-                        title="Settings and log for the automatic reply to first-time enquiries"
-                    >
-                        <ShieldCheck className="h-4 w-4" /> Auto-reply
-                    </button>
+                    {/* The first-time enquiry auto-reply is a customer setting, so it goes with the customer lane. */}
+                    {!contractorsOnly && (
+                        <button
+                            onClick={() => setAutoReplyOpen(true)}
+                            className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:border-slate-400"
+                            title="Settings and log for the automatic reply to first-time enquiries"
+                        >
+                            <ShieldCheck className="h-4 w-4" /> Auto-reply
+                        </button>
+                    )}
                     <Stat label="Unanswered" value={data.totals.awaitingReply} tone={data.totals.awaitingReply > 0 ? 'red' : 'green'} big />
                     {(data.totals.pendingDrafts ?? 0) > 0 && (
                         <Stat label="To approve" value={data.totals.pendingDrafts!} tone="red" big />
@@ -2079,23 +2101,25 @@ export default function CommsPage() {
             )}
 
             <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
-                {/* The lane switch: one comms section, two rooms. Amber = contractor territory. */}
-                <div className="flex overflow-hidden rounded-md border border-slate-300">
-                    <button
-                        onClick={() => setLane('customer')}
-                        className={cn('px-3 py-1.5 text-sm font-medium transition-colors',
-                            lane === 'customer' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50')}
-                    >
-                        Customers
-                    </button>
-                    <button
-                        onClick={() => setLane('contractor')}
-                        className={cn('flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors',
-                            lane === 'contractor' ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 hover:bg-amber-50')}
-                    >
-                        <HardHat className="h-4 w-4" /> Contractors
-                    </button>
-                </div>
+                {/* The lane switch: one comms section, two rooms. Amber = contractor territory. Retired, only the contractor room is left. */}
+                {!contractorsOnly && (
+                    <div className="flex overflow-hidden rounded-md border border-slate-300">
+                        <button
+                            onClick={() => setLane('customer')}
+                            className={cn('px-3 py-1.5 text-sm font-medium transition-colors',
+                                lane === 'customer' ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-50')}
+                        >
+                            Customers
+                        </button>
+                        <button
+                            onClick={() => setLane('contractor')}
+                            className={cn('flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors',
+                                lane === 'contractor' ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 hover:bg-amber-50')}
+                        >
+                            <HardHat className="h-4 w-4" /> Contractors
+                        </button>
+                    </div>
+                )}
                 <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                     <input

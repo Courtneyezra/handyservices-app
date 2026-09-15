@@ -523,6 +523,11 @@ whatsappTemplatesRouter.post('/send', async (req, res) => {
         }
         if (!phone) return res.status(400).json({ error: "Missing 'conversationId' or 'phone'" });
 
+        // Live, a customer is answered on Comms Desk v2; only a contractor thread still sends from the old page.
+        const { OLD_COMMS_RETIRED, oldCommsSendRefusal } = await import('./comms-v2/old-comms');
+        const retiredRefusal = await oldCommsSendRefusal({ conversationId: conversationId ?? null, phone });
+        if (retiredRefusal) return res.status(409).json({ error: OLD_COMMS_RETIRED, message: retiredRefusal });
+
         const [template] = await db.select().from(whatsappTemplates)
             .where(eq(whatsappTemplates.contentSid, String(contentSid)));
         if (!template) return res.status(404).json({ error: 'Template not in the cache — run a sync first' });

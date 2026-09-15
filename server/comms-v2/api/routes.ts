@@ -1,6 +1,9 @@
 /**
  * Goal 2 - a thin read-and-act API over Contract 2's case file, for Ben's kanban board.
  *
+ * GET  /old-comms                 - is the old comms page retired for customers, because the new desk
+ *                                    is live (server/comms-v2/old-comms.ts)? The sidebar and
+ *                                    /admin/comms read it
  * GET  /board                     - every case file, grouped into the seven Contract 2 columns
  * GET  /case-files/:id            - one file's turns and facts, read-only
  * POST /case-files/:id/release    - releases a hold as the signed-in user; the case file's own
@@ -32,8 +35,9 @@ import { boardSourceFor, commsV2BoardDoor, type BoardSource, type BoardSourceFor
 import { release } from '../desk/case-file';
 import { humanReply } from '../desk/human-reply';
 import type { SandboxDoor } from '../desk/sandbox-door';
+import { oldCommsRetired } from '../old-comms';
 
-export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor): Router {
+export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired()): Router {
     const router = Router();
     /** The store this request reads (api/store.ts): the live desk's while it is live, else the sandbox door's. Null once a 503 has been sent. */
     const source = async (res: Response): Promise<BoardSource | null> => {
@@ -46,6 +50,10 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
     };
 
     router.use('/sandbox', door.router);
+
+    router.get('/old-comms', async (_req, res) => {
+        res.json({ retired: await retired() });
+    });
 
     router.get('/board', async (req, res) => {
         const held = req.query.held === 'true' ? true : undefined;

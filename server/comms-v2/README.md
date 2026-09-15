@@ -132,6 +132,13 @@ together, on the next read, with nothing written to any row:
   the lead automations) is refused at server/outbound.ts with a `send_refused` event; the spine's
   `spineMode()` and `isSpineEnabled()` read as off; the legacy agent's `getCommsAgentConfig()` reads
   as disabled with its inbound lane off (`setCommsAgentConfig` still merges over the stored row).
+- The old comms page is retired for customers (`old-comms.ts`). Its sends are the composer,
+  templates, quick replies, voice notes and draft approval, whichever screen calls them, and they
+  refuse any thread that is not a contractor's with `OLD_COMMS_RETIRED`. `staffThreadPath` sends staff
+  links and notifications for a customer thread to `/admin/comms-v2`, and `GET /api/comms-v2/old-comms`
+  tells the sidebar and `/admin/comms` to drop the customer lane. The contractor lane, its links and
+  its sends stay, since the new desk never takes contractors. A read that fails is not retired, and
+  a thread whose role cannot be read counts as a customer's.
   A read that fails is not live, so the old desk answers; the new desk's delivery refuses on it.
 - The live clock (`channels/live-clock.ts`, registered in server/cron.ts for the comms worker only)
   passes every held file, every file with a quote and every file with a chase record once a minute;

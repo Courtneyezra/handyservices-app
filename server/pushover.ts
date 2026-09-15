@@ -440,6 +440,15 @@ export async function notifyCallbackDue(alert: CallbackDueAlert): Promise<void> 
     });
 }
 
+/**
+ * Where a thread's link lands, asked when the alert is built: the old comms page, or Comms Desk v2
+ * for a customer thread while the new desk is the live desk (server/comms-v2/old-comms.ts).
+ */
+async function threadPath(conversationId?: string | null, phoneNumber?: string | null): Promise<string> {
+    const { staffThreadPath } = await import('./comms-v2/old-comms');
+    return staffThreadPath({ conversationId, phone: phoneNumber });
+}
+
 interface VaCallTaskAlert {
     customerName?: string | null;
     phoneNumber?: string | null;
@@ -464,13 +473,13 @@ interface VaCallTaskAlert {
  * The thread deep link rides in the message body (Pushover allows one supplementary URL), and
  * the number itself stays in the first line for anyone who wants to dial by eye.
  */
-export function buildVaCallTaskAlert(alert: VaCallTaskAlert): {
+export function buildVaCallTaskAlert(alert: VaCallTaskAlert, threadPath: string = `/admin/comms?conversation=${alert.conversationId}`): {
     title: string; message: string; url: string; urlTitle: string;
 } {
     const who = alert.customerName?.trim() || 'New enquiry';
     const number = alert.phoneNumber?.trim() || 'no number';
     const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-    const threadLink = `${baseUrl}/admin/comms?conversation=${alert.conversationId}`;
+    const threadLink = `${baseUrl}${threadPath}`;
 
     const lines = [`${who} — ${number} (${alert.channel})`];
     if (alert.enquiryPreview?.trim()) lines.push(truncate(alert.enquiryPreview.trim(), 200));
@@ -499,7 +508,7 @@ export function buildVaCallTaskAlert(alert: VaCallTaskAlert): {
  * guarantee neither can repeat. Payload shape and link rationale: buildVaCallTaskAlert above.
  */
 export async function notifyVaCallTask(alert: VaCallTaskAlert): Promise<void> {
-    const payload = buildVaCallTaskAlert(alert);
+    const payload = buildVaCallTaskAlert(alert, await threadPath(alert.conversationId, alert.phoneNumber));
     await dispatch({
         event: 'va_call_task',
         title: payload.title,
@@ -531,7 +540,7 @@ export async function notifyEscalation(alert: EscalationAlert): Promise<void> {
     const who = alert.customerName?.trim() || 'A customer';
     const number = alert.phoneNumber?.trim() || 'no number';
     const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-    const deepLink = `${baseUrl}/admin/comms?conversation=${alert.conversationId}`;
+    const deepLink = `${baseUrl}${await threadPath(alert.conversationId, alert.phoneNumber)}`;
 
     const lines = [`${who} — ${number}`];
     lines.push(truncate(alert.note.trim(), 400));
@@ -575,7 +584,7 @@ export async function notifyChase(alert: ChaseAlert): Promise<void> {
     const who = alert.customerName?.trim() || 'A customer';
     const number = alert.phoneNumber?.trim() || 'no number';
     const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-    const deepLink = alert.linkUrl ?? `${baseUrl}/admin/comms?conversation=${alert.conversationId}`;
+    const deepLink = alert.linkUrl ?? `${baseUrl}${await threadPath(alert.conversationId, alert.phoneNumber)}`;
 
     const lines = [`${who} — ${number}`];
     lines.push(truncate(alert.note.trim(), 500));
@@ -616,7 +625,7 @@ interface CommsBetaAlert {
 export async function notifyCommsBeta(alert: CommsBetaAlert): Promise<void> {
     const who = alert.customerName?.trim() || alert.phoneNumber?.trim() || 'Unknown';
     const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-    const deepLink = `${baseUrl}/admin/comms?conversation=${alert.conversationId}`;
+    const deepLink = `${baseUrl}${await threadPath(alert.conversationId, alert.phoneNumber)}`;
 
     const lines = [`${who}${alert.phoneNumber ? ` — ${alert.phoneNumber}` : ''}`];
     for (const d of alert.detail ?? []) lines.push(truncate(d, 300));
@@ -918,7 +927,7 @@ interface CommsDigestAlert {
  */
 export async function notifyCommsDigest(alert: CommsDigestAlert): Promise<void> {
     const baseUrl = process.env.BASE_URL || 'https://handyservices.app';
-    const link = `${baseUrl}/admin/comms`;
+    const link = `${baseUrl}${await threadPath()}`;
     await dispatch({
         event: 'escalation',
         title: alert.title,

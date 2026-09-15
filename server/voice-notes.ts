@@ -56,6 +56,11 @@ voiceNotesRouter.post('/voice-note', upload.single('audio'), async (req, res) =>
         if (!req.file || !tmpPath) return res.status(400).json({ error: "Missing 'audio' file" });
         if (!phone) return res.status(400).json({ error: `Unparseable phone: ${to}` });
 
+        // Live, a customer is answered on Comms Desk v2; only a contractor thread still sends from the old page.
+        const { OLD_COMMS_RETIRED, oldCommsSendRefusal } = await import('./comms-v2/old-comms');
+        const retiredRefusal = await oldCommsSendRefusal({ phone });
+        if (retiredRefusal) return res.status(409).json({ error: OLD_COMMS_RETIRED, message: retiredRefusal });
+
         // A voice note is a human speaking to this person, so it is a service reply and a plain
         // STOP does not block it. "Do not contact me" does. The sendCustomerMessage choke point
         // now handles opt-out enforcement, but we keep this early check to return a clean error
