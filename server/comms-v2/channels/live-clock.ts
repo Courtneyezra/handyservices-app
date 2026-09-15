@@ -12,7 +12,7 @@
  * off a tick does nothing at all. Ticks never overlap: one still running when the next is due is
  * skipped. A pass that throws on one file is logged and the rest still run.
  */
-import type { CaseFile } from '../desk/case-file';
+import { customerWroteSinceLastReply, type CaseFile } from '../desk/case-file';
 import type { DeskResult } from '../desk/desk-types';
 
 export const LIVE_CLOCK_CRON = '* * * * *';
@@ -31,9 +31,14 @@ export interface LiveClockDeps {
 
 export interface LiveClockTick { ran: boolean; off: string[]; files: number; chased: number; refused: number; errors: number }
 
-/** A file a clock pass can do something for: held (Ben's chase), carrying a quote (the unpriced draft's chase), or holding a chase record to clear. Never a finished job. */
+/**
+ * A file a clock pass can do something for: held (Ben's chase), carrying a quote (the unpriced
+ * draft's chase), holding a chase record to clear, or carrying a customer turn nobody has replied
+ * to yet - ordinarily still timing out its quiet window (gateway.ts), but past it this is how a
+ * burst lost to a restart reaches the desk. Never a finished job.
+ */
 export function clockDue(file: CaseFile): boolean {
-    return file.stage !== 'done' && (!!file.hold || !!file.job.quoteRef || !!file.chase);
+    return file.stage !== 'done' && (!!file.hold || !!file.job.quoteRef || !!file.chase || (file.parties ?? []).some((p) => customerWroteSinceLastReply(file, p.personId)));
 }
 
 export async function liveClockTick(deps: LiveClockDeps = {}): Promise<LiveClockTick> {

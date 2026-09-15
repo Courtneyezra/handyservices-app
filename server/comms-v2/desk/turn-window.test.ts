@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { Gateway } from './gateway';
 import type { DeskLike, DeskResult } from './desk-types';
 import type { CaseFile, Turn } from './case-file';
-import { isTurnOf } from './case-file';
+import { appendTurn, isTurnOf } from './case-file';
+import { MemoryCaseFileStore } from './store';
 import { customerTurnOf, waitsForQuiet } from './turn-window';
 import type { InboundTurn } from './whatsapp-adapter';
 
@@ -117,6 +118,40 @@ describe('the gateway\'s quiet window', () => {
         log.length = 0;
         await Promise.all([g.inbound(msg('one')), g.inbound(msg('two')), g.clock(a.file.id)]);
         expect(log).toEqual(['start one', 'end one', 'start two', 'end two', 'clock']);
+    });
+
+    it('a burst this process lost to a restart still gets exactly one reply on the next clock pass, and a second pass sends nothing more', async () => {
+        const calls: Turn[] = [];
+        const desk: DeskLike = {
+            async handleTurn(file, turn) {
+                calls.push(turn);
+                appendTurn(file, { at: turn.at, channel: turn.channel, direction: 'outbound', partyId: turn.partyId, kind: 'text', body: 'ok', media: [], runId: `run_${calls.length}`, approver: 'agent.comms_v2' });
+                return result(file, turn);
+            },
+            async clockPass(file) { return result(file, null); },
+        };
+        const store = new MemoryCaseFileStore();
+        const g1 = new Gateway({ desk, quietMs: 8_000, store });
+        // Both messages land on the file at once (synchronous up to the quiet-window timer); g1's
+        // in-memory burst is left to time out for real, exactly as it would if the process died here.
+        void g1.inbound(msg('hi'));
+        void g1.inbound(msg('my tap drips'));
+        const file = store.all()[0];
+        expect(file.turns).toHaveLength(2);
+        expect(calls).toHaveLength(0);
+        // The process dies here: nothing left to fire g1's real timer, exactly as a restart leaves it.
+        const waiting = (g1 as unknown as { waiting: Map<string, { timer: ReturnType<typeof setTimeout> | null }> }).waiting;
+        for (const b of waiting.values()) if (b.timer) clearTimeout(b.timer);
+        // The restart: a fresh gateway over the same durable store, past the window, has no timer for it.
+        const dueAt = Date.parse(file.turns[1].at) + 8_000;
+        const g2 = new Gateway({ desk, quietMs: 8_000, store, now: () => new Date(dueAt + 1) });
+        const first = await g2.clock(file.id);
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toMatchObject({ body: 'hi\nmy tap drips', burst: [file.turns[0].id, file.turns[1].id] });
+        expect(first?.decision).toBe('send');
+        const second = await g2.clock(file.id);
+        expect(calls).toHaveLength(1);
+        expect(second?.runId).toBe('run_clock');
     });
 
     it('a desk that throws rejects every message of its burst, and the next pass on the file still runs', async () => {
