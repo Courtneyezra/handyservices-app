@@ -108,6 +108,8 @@ describe('<CommsV2BoardPage>', () => {
         await user.click(screen.getByTestId('board-card-case_held'));
         await waitFor(() => expect(screen.getByText('Can you do it for less?')).toBeTruthy());
         expect(screen.getByTestId('hold-draft').textContent).toBe('Hi, I can knock a little off for you.');
+        // The held draft also shows as a pending bubble in the thread itself, not only in the hold panel.
+        expect(screen.getByTestId('pending-draft-bubble').textContent).toContain('Hi, I can knock a little off for you.');
         expect(screen.getByText(/Held for ben: a complaint/)).toBeTruthy();
         expect(screen.queryByLabelText(/releasing as/i)).toBeNull();
 

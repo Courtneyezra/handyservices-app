@@ -512,6 +512,14 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId:
                             </div>
                         </li>
                     ))}
+                    {data.hold?.draft && (
+                        <li className="flex justify-end">
+                            <div data-testid="pending-draft-bubble" className="max-w-[85%] rounded-2xl border border-dashed px-3 py-2 text-sm text-muted-foreground opacity-70">
+                                <p className="mb-0.5 text-[10px] font-semibold uppercase">Desk (waiting for Ben)</p>
+                                <p className="whitespace-pre-wrap">{data.hold.draft}</p>
+                            </div>
+                        </li>
+                    )}
                 </ul>
                 <div ref={threadEndRef} />
 
