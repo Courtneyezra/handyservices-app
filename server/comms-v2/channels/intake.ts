@@ -129,7 +129,8 @@ async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
     const notifier = purpose === 'live' ? (await import('../quoting/ben-notifier')).liveBenNotifier() : undefined;
     const desk = new Desk({ mode, log, quoting: { store: quotes, drafter: chainDrafter(quotes, purpose), ...(notifier ? { notifier } : {}) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
     log(`gateway built for the ${purpose} desk (${mode === 'live' ? 'live delivery' : 'dry run'})`);
-    return new ChannelGateway({ desk: new ChannelDesk(desk, { mode, log }), identity, store, presence: messagesPresence, log });
+    const { CUSTOMER_TURN_QUIET_MS } = await import('../desk/turn-window');
+    return new ChannelGateway({ desk: new ChannelDesk(desk, { mode, log }), identity, store, presence: messagesPresence, log, quietMs: CUSTOMER_TURN_QUIET_MS });
 }
 
 /** The intake gateway where one is already built, with the purpose it was built for; never builds one. */

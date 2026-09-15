@@ -12,7 +12,7 @@
  * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
  */
 import { z } from 'zod/v4';
-import { ASK_SUBJECTS, customerVisibleFacts, type CaseFile, type Party, type ReplyChannel, type Turn } from './case-file';
+import { ASK_SUBJECTS, customerVisibleFacts, type CaseFile, type Party, type ReplyChannel, type Turn, isTurnOf } from './case-file';
 import type { FixedLine } from './fixed-lines';
 import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
@@ -93,7 +93,7 @@ export const COMPOSER_SYSTEM = [
 function threadFor(file: CaseFile, turn: Turn): string {
     return file.turns.slice(-16).map((t) => {
         const media = t.media.length ? ` [${t.media.length} ${t.media[0].kind}${t.media.length > 1 ? 's' : ''}${t.media.map((m) => m.description ? `: ${m.description.description}` : '').join('')}]` : '';
-        return `${t.id === turn.id ? '>> ' : ''}${t.direction === 'inbound' ? (file.parties.find((p) => p.personId === t.partyId)?.name ?? 'customer') : 'you'}: ${t.body}${media}`;
+        return `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? (file.parties.find((p) => p.personId === t.partyId)?.name ?? 'customer') : 'you'}: ${t.body}${media}`;
     }).join('\n');
 }
 

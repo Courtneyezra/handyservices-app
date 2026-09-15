@@ -50,7 +50,7 @@ Written 8 Sep 2026 against `941f467` plus PRs 17, 19 and 20 pending.
 | 2.5 | A real promise ("I'll send photos tomorrow") gets **one acknowledgement, then quiet** until the customer writes. Not silence. **[C]** | Send that and expect one reply, then nothing until you write again |
 | 2.6 | A date question during scoping is answered with the **typical lead time read from the diary** when one exists, and with "dates come with your quote" when it does not; never a guess. Once a date is booked it is confirmed from the diary. Scoping continues. **[C]** (answers 12 and 22; Goal 5 replaced the old "dates come with your quote" only line) | Ask "when can you come?" during scoping; on the new desk's door, `/scheduling/fixture` with `diary: "none"` for the empty diary |
 | 2.7 | Anything about money or price goes to Ben, not answered **[O]** (§8, under review) | Ask "how much roughly?" |
-| 2.8 | It never sends a second **reply** without the customer writing in between. One reply per customer turn, however many bubbles. **[C]** (answer 27) | Watch after any reply |
+| 2.8 | It never sends a second **reply** without the customer writing in between. One reply per customer turn, however many bubbles. **[C]** (answer 27) | Watch after any reply; send three messages together and expect one reply |
 
 ## Stage 3 - The call
 

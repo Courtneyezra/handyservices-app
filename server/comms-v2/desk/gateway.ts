@@ -1,14 +1,17 @@
 /**
  * The channel gateway and the Desk API: one entry per customer turn. A normalised inbound turn
  * passes through Identity, lands on the person's one open case file (opened if none), and is
- * handed to the desk. A clock pass and time passing enter here too, so the desk has one door.
+ * handed to the desk. A quick run of messages from one party is handed over as one turn once they
+ * go quiet (turn-window.ts), and the desk runs on one file one pass at a time. A clock pass and
+ * time passing enter here too, so the desk has one door.
  */
 import { randomUUID } from 'node:crypto';
 import { appendTurn, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type CaseFileDeps } from './case-file';
 import { Identity, e164Of, type ResolveResult } from './identity';
 import { MemoryCaseFileStore, type CaseFileStore } from './store';
 import type { InboundTurn } from './whatsapp-adapter';
-import type { DeskResult, DeskLike } from './desk-types';
+import type { DeskResult, DeskLike, GuardName, GuardVerdict } from './desk-types';
+import { customerTurnOf, waitsForQuiet } from './turn-window';
 
 export interface GatewayDeps {
     identity?: Identity;
@@ -17,10 +20,28 @@ export interface GatewayDeps {
     now?: () => Date;
     newId?: (prefix: string) => string;
     log?: (line: string) => void;
+    /**
+     * How long a party must be quiet on WhatsApp or SMS before their messages go to the desk as one
+     * turn (turn-window.ts). The sandbox door and the live intake pass CUSTOMER_TURN_QUIET_MS; unset
+     * is 0, every message its own turn, which is what a test's scripted gateway wants.
+     */
+    quietMs?: number;
+}
+
+/** What one message came to: the desk's result, and the ids of the messages the desk read as the one turn this message was part of. */
+export interface HandedTurn { result: DeskResult; burst: string[] }
+
+/** Messages from one party on one channel of one file, waiting out the quiet window. */
+interface Burst {
+    key: string;
+    file: CaseFile;
+    turns: Turn[];
+    timer: ReturnType<typeof setTimeout> | null;
+    waiters: Array<{ turnId: string; resolve: (h: HandedTurn) => void; reject: (e: unknown) => void }>;
 }
 
 export type InboundOutcome =
-    | { kind: 'handled'; file: CaseFile; turn: Turn; result: DeskResult }
+    | { kind: 'handled'; file: CaseFile; turn: Turn; result: DeskResult; burst: string[] }
     /** Identity returned candidates: nothing is sent until a person picks one. */
     | { kind: 'candidates'; candidates: number; address: string }
     | { kind: 'refused'; reason: string };
@@ -40,6 +61,10 @@ export class Gateway {
     protected readonly now: () => Date;
     protected readonly newId: (prefix: string) => string;
     protected readonly log: (line: string) => void;
+    private readonly quietMs: number;
+    private readonly waiting = new Map<string, Burst>();
+    /** The tail of each file's desk passes, so a pass starts only once the one before it on that file has finished. */
+    private readonly passes = new Map<string, Promise<unknown>>();
 
     constructor(deps: GatewayDeps) {
         this.identity = deps.identity ?? new Identity();
@@ -48,6 +73,7 @@ export class Gateway {
         this.now = deps.now ?? (() => new Date());
         this.newId = deps.newId ?? ((prefix) => `${prefix}_${randomUUID()}`);
         this.log = deps.log ?? (() => undefined);
+        this.quietMs = Math.max(0, deps.quietMs ?? 0);
     }
 
     protected fileDeps(): CaseFileDeps { return { now: this.now, newId: this.newId }; }
@@ -82,33 +108,73 @@ export class Gateway {
             const ch = partyOf(file, resolved.personId)!.channels.find((c) => c.kind === 'whatsapp');
             if (ch) ch.transport = turn.via;
         }
-        const result = await this.handTurn(file, landed);
-        return { kind: 'handled', file, turn: landed, result };
+        const { result, burst } = await this.handTurn(file, landed);
+        return { kind: 'handled', file, turn: landed, result, burst };
     }
 
     /**
      * The landed turn to the desk. The file is put once the turn has landed and again once the desk
      * has done with it, even when the desk throws, so a durable store holds the customer's words
      * whatever the run does.
+     *
+     * A message that waits for quiet (turn-window.ts) joins its party's burst and resolves when the
+     * burst has been answered: the newest message with the desk's result, each earlier one with a
+     * result saying the same run answered it and nothing went on it alone. Anything else goes to the
+     * desk now, after whatever that party still had waiting on the file.
      */
-    protected async handTurn(file: CaseFile, landed: Turn): Promise<DeskResult> {
+    protected async handTurn(file: CaseFile, landed: Turn): Promise<HandedTurn> {
         this.store.put(file);
-        try {
-            return await this.desk.handleTurn(file, landed);
-        } finally {
-            this.store.put(file);
-        }
+        if (this.quietMs > 0 && waitsForQuiet(landed)) return this.joinBurst(file, landed);
+        for (const b of Array.from(this.waiting.values())) if (b.file.id === file.id && b.turns[0].partyId === landed.partyId) this.flush(b);
+        return { result: await this.deskPass(file, (f) => this.desk.handleTurn(f, landed)), burst: [landed.id] };
+    }
+
+    private joinBurst(file: CaseFile, landed: Turn): Promise<HandedTurn> {
+        const key = `${file.id}|${landed.partyId}|${landed.channel}`;
+        const burst = this.waiting.get(key) ?? { key, file, turns: [], timer: null, waiters: [] };
+        this.waiting.set(key, burst);
+        burst.turns.push(landed);
+        if (burst.timer) clearTimeout(burst.timer);
+        burst.timer = setTimeout(() => this.flush(burst), this.quietMs);
+        return new Promise((resolve, reject) => burst.waiters.push({ turnId: landed.id, resolve, reject }));
+    }
+
+    /** The burst to the desk as one turn. A new message from the party after this starts the next burst. */
+    private flush(burst: Burst): void {
+        if (this.waiting.get(burst.key) !== burst) return;
+        this.waiting.delete(burst.key);
+        if (burst.timer) clearTimeout(burst.timer);
+        const ids = burst.turns.map((t) => t.id);
+        const newest = ids[ids.length - 1];
+        const turn = customerTurnOf(burst.turns);
+        if (ids.length > 1) this.log(`one customer turn from ${ids.length} messages on case ${burst.file.id}`);
+        this.deskPass(burst.file, (f) => this.desk.handleTurn(f, turn)).then(
+            (result) => { for (const w of burst.waiters) w.resolve({ result: w.turnId === newest ? result : answeredWith(result, ids.length, this.quietMs), burst: ids }); },
+            (err) => { for (const w of burst.waiters) w.reject(err); },
+        );
+    }
+
+    /** One desk pass on a file, after any pass already running or queued on it; the file is put when the pass is done, even when it throws. */
+    private deskPass(file: CaseFile, pass: (file: CaseFile) => Promise<DeskResult>): Promise<DeskResult> {
+        const run = async () => {
+            try {
+                return await pass(file);
+            } finally {
+                this.store.put(file);
+            }
+        };
+        const next = (this.passes.get(file.id) ?? Promise.resolve()).then(run);
+        const tail = next.catch(() => undefined);
+        this.passes.set(file.id, tail);
+        void tail.then(() => { if (this.passes.get(file.id) === tail) this.passes.delete(file.id); });
+        return next;
     }
 
     /** A clock pass with no new message. The desk never chases, so this is where "then quiet" is proven. */
     async clock(fileId: string): Promise<DeskResult | null> {
         const file = this.store.get(fileId);
         if (!file) return null;
-        try {
-            return await this.desk.clockPass(file);
-        } finally {
-            this.store.put(file);
-        }
+        return this.deskPass(file, (f) => this.desk.clockPass(f));
     }
 
     /** Time passes: every timestamp on the file moves back by N hours, which shuts the window past 24. */
@@ -147,4 +213,14 @@ export class Gateway {
         const f = this.store.get(fileId);
         return f ? snapshot(f) : null;
     }
+}
+
+/** An earlier message of a burst: the run that answered the burst, with nothing sent on this message itself. */
+function answeredWith(answer: DeskResult, messages: number, quietMs: number): DeskResult {
+    const note = 'no reply went on this message alone; the run that answered the turn carries the guards';
+    const guards = Object.fromEntries(Object.keys(answer.guards).map((g) => [g, { result: 'pass', note }])) as Record<GuardName, GuardVerdict>;
+    return {
+        ...answer, decision: 'none', templateId: null, bubbles: [], factIds: [], kbIds: [], guards, approver: null, delivered: false, calls: [], error: null, landedTurnId: null, composerCalls: 0, chase: null,
+        note: `one customer turn: ${messages} messages from the same party inside the ${quietMs / 1000}s quiet window went to the desk together, and run ${answer.runId} answered them once`,
+    };
 }

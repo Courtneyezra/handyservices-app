@@ -43,7 +43,7 @@ function doorApp(liveRunGate?: () => Promise<string | null>) {
         composer: () => ({ reply: 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
     });
     const store = new MemoryQuoteStore();
-    const { router } = createSandboxDoor({
+    const { router } = createSandboxDoor({ quietMs: 0,
         client, fixedLines: noFixedLineSource, templates: approved, kb: emptyKb, mediaDir: dir,
         scoping: { describe: async () => ({ ok: true, description: 'a dripping tap', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) },
         quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier },

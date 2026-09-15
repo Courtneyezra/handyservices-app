@@ -102,6 +102,13 @@ export interface Turn {
     /** Outbound only. */
     runId: string | null;
     approver: string | null;
+    /** Only on the desk's reading of a burst (desk/turn-window.ts): the ids of the messages it carries, oldest first. Never on a turn stored on the file. */
+    burst?: string[];
+}
+
+/** Whether a turn on the file is part of the turn the desk is answering: that turn itself, or one message of a burst read as one turn. */
+export function isTurnOf(t: Turn, turn: Turn): boolean {
+    return turn.burst ? turn.burst.includes(t.id) : t.id === turn.id;
 }
 
 export type FactSource =

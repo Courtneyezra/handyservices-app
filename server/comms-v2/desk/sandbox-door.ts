@@ -24,6 +24,7 @@ import { snapshot, type CaseFile } from './case-file';
 import { Desk, type DeskDeps } from './desk';
 import type { DeskResult } from './desk-types';
 import { Gateway, type SeedInput } from './gateway';
+import { CUSTOMER_TURN_QUIET_MS } from './turn-window';
 import { windowOf } from './sender';
 import { fromDoor } from './whatsapp-adapter';
 import type { PlannedSend } from './planned-send';
@@ -53,6 +54,8 @@ export interface DoorDeps extends DeskDeps {
     approver?: ApproverForRequest;
     /** Why `POST /run { live: true }` may not run here, or null. Left unset, `doorLiveRunRefusal`. */
     liveRunGate?: (chase: ChaseState) => Promise<string | null>;
+    /** The quiet window a burst of messages waits out before the desk reads it as one turn (turn-window.ts). Left unset, CUSTOMER_TURN_QUIET_MS, the live intake's. */
+    quietMs?: number;
 }
 
 /**
@@ -115,11 +118,12 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
     const deskDeps: DeskDeps = { ...deps, service: { ...deps.service, chase }, mode: 'dry_run' };
     const desk = () => new ChannelDesk(new Desk(deskDeps), { client: deps.client, templates: deps.templates, sender: deps.sender, now, newId: deps.newId, mode: 'dry_run', log: deps.log });
     const registerInternal = (g: Gateway) => { g.identity.registerInternal('phone:07700900901', 'Ben'); g.identity.registerInternal('phone:07700900902', 'the owner'); };
-    let gateway: Gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
+    const quietMs = deps.quietMs ?? CUSTOMER_TURN_QUIET_MS;
+    let gateway: Gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId, quietMs });
     registerInternal(gateway);
     const reset = () => {
         deps.scheduling.diary.emptied = false;
-        gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId });
+        gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId, quietMs });
         registerInternal(gateway);
     };
     const router = Router();
@@ -202,7 +206,7 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
             const turn = fromDoor({ address: SANDBOX_PHONE_E164, name: existing?.parties[0]?.name ?? null, text, media: files, at: now().toISOString() }, { mediaDir: deps.mediaDir });
             const out = await gateway.inbound(turn);
             if (out.kind !== 'handled') { res.status(409).json({ error: out.kind === 'candidates' ? 'identity returned candidates' : out.reason }); return; }
-            respond(res, out.file, out.result, { messageId: out.turn.id, channel: 'whatsapp', media: turn.media.map((m) => ({ id: m.id, kind: m.kind })) });
+            respond(res, out.file, out.result, { messageId: out.turn.id, channel: 'whatsapp', media: turn.media.map((m) => ({ id: m.id, kind: m.kind })), burst: { turnIds: out.burst } });
         } catch (error: any) {
             res.status(500).json({ error: error?.message ?? 'sandbox message failed' });
         }

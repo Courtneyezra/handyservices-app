@@ -21,7 +21,7 @@
  * composer's brief. The specialist never sees the customer and holds no send tool.
  */
 import { z } from 'zod/v4';
-import { recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn } from '../desk/case-file';
+import { recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn, isTurnOf } from '../desk/case-file';
 import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import { reviewedKb, type KbReader } from '../desk/scoping-tools';
@@ -94,7 +94,7 @@ function rawValueFor(field: string, turn: Turn): string | null {
 }
 
 function threadFor(file: CaseFile, turn: Turn): string {
-    return file.turns.slice(-12).map((t) => `${t.id === turn.id ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${withheldFromModel(t.body)}`).join('\n');
+    return file.turns.slice(-12).map((t) => `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${withheldFromModel(t.body)}`).join('\n');
 }
 
 export interface ServiceSpecialistDeps {

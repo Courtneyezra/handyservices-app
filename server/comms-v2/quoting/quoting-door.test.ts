@@ -66,7 +66,7 @@ beforeAll(async () => {
         },
     });
     mediaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-quoting-door-'));
-    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir, scoping: { describe: async () => ({ ok: true, description: 'a dripping mixer tap', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) }, quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
+    const { router } = createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir, scoping: { describe: async () => ({ ok: true, description: 'a dripping mixer tap', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) }, quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
     const app = express();
     app.use(express.json());
     app.use('/api/comms-v2-sandbox', router);
@@ -280,7 +280,7 @@ describe('the price route and the holds around it', () => {
             },
         });
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-price-hold-'));
-        const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir: dir, now: start.now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store: own, drafter: new FakeDrafter(own, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
+        const { router } = createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir: dir, now: start.now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store: own, drafter: new FakeDrafter(own, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
         const app = express();
         app.use(express.json());
         app.use('/door', router);

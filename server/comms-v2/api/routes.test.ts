@@ -35,7 +35,7 @@ beforeAll(async () => {
         specialist: () => ({ facts: [{ key: 'job_type', value: 'leaking tap' }], jobUnknowns: [], answeredSubjects: [] }),
         composer: () => ({ reply: 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
     });
-    const door = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, approver: sessionApprover(async () => assignments) });
+    const door = createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, approver: sessionApprover(async () => assignments) });
     const app = express();
     app.use(express.json());
     app.use((req, _res, next) => {
@@ -258,8 +258,8 @@ describe('the board over the live desk\'s store', () => {
             composer: () => ({ reply: 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
         });
         const doorDeps = { client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb };
-        const sandbox = createSandboxDoor(doorDeps);
-        const liveIntake = createSandboxDoor(doorDeps);
+        const sandbox = createSandboxDoor({ ...doorDeps, quietMs: 0 });
+        const liveIntake = createSandboxDoor({ ...doorDeps, quietMs: 0 });
         const put: string[] = [];
         let failing = false;
         const modes: string[] = [];
@@ -351,7 +351,7 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         const app = express();
         app.use(express.json());
         app.use((req, _res, next) => { const email = req.header('x-test-user'); if (email) (req as any).user = { id: `user_${email}`, email, role: 'admin' }; next(); });
-        const door = createSandboxDoor({
+        const door = createSandboxDoor({ quietMs: 0,
             client: new FakeModelClient({ router: () => ({ subjects: [], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry' }), specialist: () => ({ facts: [], jobUnknowns: [], answeredSubjects: [] }), composer: () => ({ reply: 'ignored', factIds: [], kbIds: [] }) }),
             fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb,
         });
