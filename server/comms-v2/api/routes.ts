@@ -4,7 +4,12 @@
  * GET  /old-comms                 - is the old comms page retired for customers, because the new desk
  *                                    is live (server/comms-v2/old-comms.ts)? The sidebar and
  *                                    /admin/comms read it
- * GET  /board                     - every case file, grouped into the seven Contract 2 columns
+ * GET  /board                     - every case file, grouped into the seven Contract 2 columns, plus
+ *                                    `sandboxAvailable`: whether the sandbox door could write on
+ *                                    this process's database (live-database.ts's
+ *                                    commsV2DatabaseCheck) - false on production, so the board page
+ *                                    hides its sandbox-only controls and mode badges there without a
+ *                                    hostname check, failing towards hidden on any refusal reason
  * GET  /case-files/:id            - one file's turns and facts, read-only
  * POST /case-files/:id/release    - releases a hold as the signed-in user; the case file's own
  *                                    `release` enforces the approver-and-words invariant, this
@@ -46,8 +51,9 @@ import { release } from '../desk/case-file';
 import { humanReply, sendHeldDraft, sendWindowTemplate } from '../desk/human-reply';
 import type { SandboxDoor } from '../desk/sandbox-door';
 import { oldCommsRetired } from '../old-comms';
+import { commsV2DatabaseCheck } from '../live-database';
 
-export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames): Router {
+export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames, sandboxAvailable: () => boolean = () => commsV2DatabaseCheck(process.env).ok): Router {
     const router = Router();
     /** The store this request reads (api/store.ts): the live desk's while it is live, else the sandbox door's. Null once a 503 has been sent. */
     const source = async (res: Response): Promise<BoardSource | null> => {
@@ -70,7 +76,7 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const mode = req.query.mode === 'sandbox' || req.query.mode === 'live' ? (req.query.mode as BoardMode) : undefined;
         const src = await source(res);
         if (!src) return;
-        res.json(boardOf(src.store.all(), { held, mode }, await approvers()));
+        res.json({ ...boardOf(src.store.all(), { held, mode }, await approvers()), sandboxAvailable: sandboxAvailable() });
     });
 
     router.get('/case-files/:id', async (req, res) => {

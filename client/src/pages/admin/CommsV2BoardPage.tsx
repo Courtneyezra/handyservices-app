@@ -108,6 +108,14 @@ export interface BoardCard {
 export interface Board {
     stages: readonly Stage[];
     columns: Record<Stage, BoardCard[]>;
+    /**
+     * Whether the sandbox door could write on the server answering this request (GET
+     * /api/comms-v2/board, server/comms-v2/live-database.ts's commsV2DatabaseCheck): true only on a
+     * branch database the sandbox is allowed to touch, never on production. Missing or falsy hides
+     * every sandbox-only control - the pipeline's live test runs against the branch database, where
+     * this is true, so the control it drives stays available there.
+     */
+    sandboxAvailable?: boolean;
 }
 
 export interface TurnMedia {
@@ -211,7 +219,7 @@ const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS'
 
 // ---------------------------------------------------------------- board card
 
-export function BoardCardView({ card, onOpen }: { card: BoardCard; onOpen: () => void }) {
+export function BoardCardView({ card, onOpen, showMode = false }: { card: BoardCard; onOpen: () => void; showMode?: boolean }) {
     return (
         <button
             type="button"
@@ -232,7 +240,7 @@ export function BoardCardView({ card, onOpen }: { card: BoardCard; onOpen: () =>
             )}
             <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-semibold">{card.customerName || card.customerAddress || 'Unknown'}</span>
-                <Badge variant={card.mode === 'live' ? 'default' : 'secondary'} className="shrink-0 text-[10px] uppercase">{card.mode}</Badge>
+                {showMode && <Badge variant={card.mode === 'live' ? 'default' : 'secondary'} className="shrink-0 text-[10px] uppercase">{card.mode}</Badge>}
             </div>
             {(card.jobType || card.location) && (
                 <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -257,7 +265,7 @@ export function BoardCardView({ card, onOpen }: { card: BoardCard; onOpen: () =>
 
 // ---------------------------------------------------------------- column
 
-export function BoardColumn({ stage, cards, onOpenCard }: { stage: Stage; cards: BoardCard[]; onOpenCard: (id: string) => void }) {
+export function BoardColumn({ stage, cards, onOpenCard, showMode = false }: { stage: Stage; cards: BoardCard[]; onOpenCard: (id: string) => void; showMode?: boolean }) {
     return (
         <div
             data-testid={`board-column-${stage}`}
@@ -269,9 +277,9 @@ export function BoardColumn({ stage, cards, onOpenCard }: { stage: Stage; cards:
             </div>
             <div className="flex-1 space-y-2 overflow-y-auto pr-1">
                 {cards.length === 0 ? (
-                    <p className="py-6 text-center text-xs text-muted-foreground/60">No case files</p>
+                    <p className="py-6 text-center text-xs text-muted-foreground/60">No conversations</p>
                 ) : (
-                    cards.map((card) => <BoardCardView key={card.id} card={card} onOpen={() => onOpenCard(card.id)} />)
+                    cards.map((card) => <BoardCardView key={card.id} card={card} onOpen={() => onOpenCard(card.id)} showMode={showMode} />)
                 )}
             </div>
         </div>
@@ -496,12 +504,12 @@ export function AnswerForm({ fileId, held, onAnswered, lastInboundTurnId }: {
 
 // ---------------------------------------------------------------- case file detail
 
-export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId: string; onReleased: () => void; onAnswered: () => void }) {
+export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = false }: { fileId: string; onReleased: () => void; onAnswered: () => void; showMode?: boolean }) {
     const { data, isLoading, error } = useQuery<CaseFileDetail>({
         queryKey: ['comms-v2-case-file', fileId],
         queryFn: async () => {
             const res = await fetch(`/api/comms-v2/case-files/${fileId}`, { headers: getAuthHeaders() });
-            if (!res.ok) throw new Error(`Failed to load case file (${res.status})`);
+            if (!res.ok) throw new Error(`Failed to load conversation (${res.status})`);
             return res.json();
         },
         refetchInterval: CASE_FILE_REFETCH_MS,
@@ -517,7 +525,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId:
     }, [data, fileId]);
 
     if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
-    if (error || !data) return <p className="text-sm text-red-600">Could not load this case file.</p>;
+    if (error || !data) return <p className="text-sm text-red-600">Could not load this conversation.</p>;
 
     const customerName = data.party?.name || data.party?.address || null;
     const lastInboundTurnId = [...data.turns].reverse().find((t) => t.direction === 'inbound')?.id ?? null;
@@ -526,7 +534,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId:
         <div className="flex h-full flex-col">
             <div className="shrink-0 border-b pb-3">
                 <p className="text-sm font-semibold">{data.party?.name || data.party?.address || 'Unknown'}</p>
-                <p className="text-xs text-muted-foreground">{data.party?.role} · {STAGE_LABELS[data.stage]} · {data.mode}</p>
+                <p className="text-xs text-muted-foreground">{STAGE_LABELS[data.stage]}{showMode ? ` · ${data.mode}` : ''}</p>
                 {(data.job.type || data.job.location) && (
                     <p className="mt-1 text-xs text-muted-foreground">{data.job.type ?? 'job unknown'}{data.job.location ? ` · ${data.job.location}` : ''}</p>
                 )}
@@ -663,7 +671,7 @@ export function SandboxThreadControl({ onChanged }: { onChanged: () => void }) {
 
 // ---------------------------------------------------------------- filter bar
 
-export function FilterBar({ filters, onChange }: { filters: BoardFilters; onChange: (f: BoardFilters) => void }) {
+export function FilterBar({ filters, onChange, showModeFilter = false }: { filters: BoardFilters; onChange: (f: BoardFilters) => void; showModeFilter?: boolean }) {
     return (
         <div className="flex items-center gap-2">
             <Button
@@ -673,7 +681,7 @@ export function FilterBar({ filters, onChange }: { filters: BoardFilters; onChan
             >
                 Held only
             </Button>
-            {(['all', 'sandbox', 'live'] as const).map((m) => (
+            {showModeFilter && (['all', 'sandbox', 'live'] as const).map((m) => (
                 <Button
                     key={m}
                     size="sm"
@@ -706,6 +714,9 @@ export default function CommsV2BoardPage() {
     });
 
     const total = useMemo(() => Object.values(data?.columns ?? {}).reduce((n, c) => n + c.length, 0), [data]);
+    // Fails towards hiding: only a confirmed `true` from the server (live-database.ts's
+    // commsV2DatabaseCheck) shows sandbox-only controls; missing, loading or errored data hides them.
+    const sandboxAvailable = data?.sandboxAvailable === true;
 
     const refresh = () => {
         queryClient.invalidateQueries({ queryKey: ['comms-v2-board'] });
@@ -720,13 +731,15 @@ export default function CommsV2BoardPage() {
         <div className="flex h-[calc(100vh-64px)] flex-col overflow-hidden">
             <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-background px-4 py-3">
                 <div>
-                    <h1 className="text-xl font-bold tracking-tight">Comms Desk v2 - Board</h1>
-                    <p className="text-xs text-muted-foreground">{total} case file{total === 1 ? '' : 's'} · sandbox window onto the clean-sheet desk</p>
+                    <h1 className="text-xl font-bold tracking-tight">Customer conversations</h1>
+                    <p className="text-xs text-muted-foreground">{total} conversation{total === 1 ? '' : 's'}</p>
                 </div>
-                <FilterBar filters={filters} onChange={setFilters} />
-                <div className="w-full border-t pt-3">
-                    <SandboxThreadControl onChanged={refresh} />
-                </div>
+                <FilterBar filters={filters} onChange={setFilters} showModeFilter={sandboxAvailable} />
+                {sandboxAvailable && (
+                    <div className="w-full border-t pt-3">
+                        <SandboxThreadControl onChanged={refresh} />
+                    </div>
+                )}
             </div>
 
             <div className="flex min-h-0 flex-1">
@@ -745,6 +758,7 @@ export default function CommsV2BoardPage() {
                                     stage={stage}
                                     cards={data?.columns[stage] ?? []}
                                     onOpenCard={setOpenCardId}
+                                    showMode={sandboxAvailable}
                                 />
                             ))}
                         </div>
@@ -754,11 +768,11 @@ export default function CommsV2BoardPage() {
                 {wide && (
                     <aside data-testid="docked-case-file-panel" className="flex w-[420px] shrink-0 flex-col overflow-hidden border-l bg-background p-4">
                         {openCardId ? (
-                            <CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} />
+                            <CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} showMode={sandboxAvailable} />
                         ) : (
                             <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center text-sm text-muted-foreground">
                                 <MessageSquare className="h-5 w-5 opacity-60" />
-                                <p>Select a case file to see the conversation.</p>
+                                <p>Select a conversation to see it.</p>
                             </div>
                         )}
                     </aside>
@@ -769,10 +783,10 @@ export default function CommsV2BoardPage() {
                 <Sheet open={!!openCardId} onOpenChange={(open) => !open && setOpenCardId(null)}>
                     <SheetContent className="flex w-full flex-col overflow-hidden sm:max-w-lg">
                         <SheetHeader className="shrink-0">
-                            <SheetTitle>Case file</SheetTitle>
+                            <SheetTitle>Conversation</SheetTitle>
                             <SheetDescription>The conversation, with the release and answer actions docked below it.</SheetDescription>
                         </SheetHeader>
-                        {openCardId && <div className="mt-4 min-h-0 flex-1"><CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} /></div>}
+                        {openCardId && <div className="mt-4 min-h-0 flex-1"><CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} showMode={sandboxAvailable} /></div>}
                     </SheetContent>
                 </Sheet>
             )}
