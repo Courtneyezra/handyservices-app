@@ -48,12 +48,18 @@ export function benToRequest(file: CaseFile): string[] {
     return out;
 }
 
+/** The case file carrying this quote, the one the price screen reads for it. */
+export function quoteFileOn(files: readonly CaseFile[], slug: string): CaseFile | null {
+    return files.find((f) => f.job.quoteRef === slug) ?? null;
+}
+
 export function benToRequestOn(files: readonly CaseFile[], slug: string): string[] {
-    const file = files.find((f) => f.job.quoteRef === slug);
+    const file = quoteFileOn(files, slug);
     return file ? benToRequest(file) : [];
 }
 
-export async function benToRequestFor(slug: string): Promise<string[]> {
+/** Every case file the price screen may read in this process: the live intake's while the new desk is live, then the board's door. */
+export async function priceScreenCaseFiles(): Promise<CaseFile[]> {
     const files: CaseFile[] = [];
     const { builtIntakeGateway } = await import('../channels/intake');
     const built = builtIntakeGateway();
@@ -61,5 +67,9 @@ export async function benToRequestFor(slug: string): Promise<string[]> {
     const { commsV2BoardDoorIfOpen } = await import('../api/store');
     const door = commsV2BoardDoorIfOpen();
     if (door) files.push(...door.gateway.store.all());
-    return benToRequestOn(files, slug);
+    return files;
+}
+
+export async function benToRequestFor(slug: string): Promise<string[]> {
+    return benToRequestOn(await priceScreenCaseFiles(), slug);
 }
