@@ -1,7 +1,8 @@
 /**
  * The sandbox fixture for Goal 6, on the branch database only: reviewed and unreviewed
- * knowledge-base rows the Service specialist can be driven against, and the two desk chase
- * templates marked approved so Ben's chase can be driven end to end in dry run.
+ * knowledge-base rows the Service specialist can be driven against, the two desk chase templates
+ * marked approved so Ben's chase can be driven end to end in dry run, and the two channel
+ * templates Meta has approved that the branch's sync cache does not show.
  *
  * The knowledge-base rows are written through the store's own admin writes
  * (server/spine/knowledge-base.ts: the seed's insert, Ben's review, the status reset), never by
@@ -12,9 +13,12 @@
  *
  * The template approvals are rows in the sync cache (whatsapp_templates) with a sandbox content
  * SID, inserted only when absent: the desk's chase templates have not been submitted to Meta,
- * and on the branch the cache is a test fixture. A production database is refused before anything
- * is written (the door host already refuses it; this checks again).
+ * the channel templates were approved on the live account (docs/META-TEMPLATE-RUNBOOK.md) and are
+ * only mirrored here, and on the branch the cache is a test fixture. Nothing here writes to Meta
+ * or Twilio. A production database is refused before anything is written (the door host already
+ * refuses it; this checks again).
  */
+import { WINDOW_TEMPLATES } from '../../window-templates';
 import { CHASE_TEMPLATES } from './chase';
 
 export const FIXTURE_REVIEWER = 'human:sandbox-fixture';
@@ -30,10 +34,33 @@ export const FIXTURE_KB_ROWS: FixtureKbRow[] = [
     { id: 'sandbox-kb-weekends', topic: 'Do you work weekends?', approvedWords: 'We do the odd Saturday by arrangement.', reviewed: false, sourceNote: 'Goal 6 sandbox fixture (unreviewed on purpose: a question we have no source for)' },
 ];
 
+/**
+ * The channel templates Meta approved on 15 Sep 2026: the post-call follow-up (checklist 1.3) and
+ * the web form acknowledgement without the call offer (1.5). Their approved-template branch is
+ * what the door drives once these are in the branch's cache.
+ */
+export const FIXTURE_APPROVED_ON_META = ['post_call_followup_v1', 'web_enquiry_ack_no_call_v1'] as const;
+
 export const FIXTURE_TEMPLATE_SIDS: Record<string, string> = {
     [CHASE_TEMPLATES.approver_chase.name]: 'HXsandbox0000000000000000000chase01',
     [CHASE_TEMPLATES.owner_escalation.name]: 'HXsandbox0000000000000000000owner01',
+    post_call_followup_v1: 'HXsandbox0000000000000000postcall01',
+    web_enquiry_ack_no_call_v1: 'HXsandbox000000000000000000nocall01',
 };
+
+export interface FixtureTemplateRow { name: string; contentSid: string; category: string; language: string; body: string; variables: Record<string, string> }
+
+/** Every template the fixture marks approved, with the wording and language the one registry gives it. */
+export function fixtureTemplateRows(): FixtureTemplateRow[] {
+    const chase = Object.values(CHASE_TEMPLATES).map((t) => ({ name: t.name, category: 'UTILITY', language: t.language, body: t.body, variables: t.variables }));
+    const channel = FIXTURE_APPROVED_ON_META.map((name) => {
+        const row = WINDOW_TEMPLATES.find((t) => t.rungs.some((r) => r.name === name));
+        const rung = row?.rungs.find((r) => r.name === name);
+        if (!row || !rung) throw new Error(`fixture: ${name} has no row in server/window-templates.ts`);
+        return { name, category: row.category, language: row.language, body: rung.body, variables: rung.variables };
+    });
+    return [...chase, ...channel].map((t) => ({ ...t, contentSid: FIXTURE_TEMPLATE_SIDS[t.name] }));
+}
 
 export interface FixtureOutcome {
     kb: Array<{ id: string; status: 'reviewed' | 'unreviewed'; action: string }>;
@@ -74,14 +101,13 @@ export async function applySandboxFixture(): Promise<FixtureOutcome> {
     const { db } = await import('../../db');
     const { whatsappTemplates } = await import('@shared/schema');
     const { eq } = await import('drizzle-orm');
-    for (const t of Object.values(CHASE_TEMPLATES)) {
-        const sid = FIXTURE_TEMPLATE_SIDS[t.name];
-        const [existing] = await db.select({ status: whatsappTemplates.status }).from(whatsappTemplates).where(eq(whatsappTemplates.contentSid, sid)).limit(1);
+    for (const t of fixtureTemplateRows()) {
+        const [existing] = await db.select({ status: whatsappTemplates.status }).from(whatsappTemplates).where(eq(whatsappTemplates.contentSid, t.contentSid)).limit(1);
         if (!existing) {
-            await db.insert(whatsappTemplates).values({ contentSid: sid, name: t.name, status: 'approved', category: 'UTILITY', language: t.language, body: t.body, variables: t.variables, approvedAt: new Date(), statusChangedAt: new Date() }).onConflictDoNothing();
+            await db.insert(whatsappTemplates).values({ contentSid: t.contentSid, name: t.name, status: 'approved', category: t.category, language: t.language, body: t.body, variables: t.variables, approvedAt: new Date(), statusChangedAt: new Date() }).onConflictDoNothing();
             out.templates.push({ name: t.name, status: 'approved', action: 'inserted (sandbox content SID)' });
         } else if (existing.status !== 'approved') {
-            await db.update(whatsappTemplates).set({ status: 'approved', approvedAt: new Date(), statusChangedAt: new Date() }).where(eq(whatsappTemplates.contentSid, sid));
+            await db.update(whatsappTemplates).set({ status: 'approved', approvedAt: new Date(), statusChangedAt: new Date() }).where(eq(whatsappTemplates.contentSid, t.contentSid));
             out.templates.push({ name: t.name, status: 'approved', action: 'status reset to approved' });
         } else out.templates.push({ name: t.name, status: 'approved', action: 'kept' });
     }

@@ -3,7 +3,7 @@
  * "Ben replies" (return to automation, checklist 7.4), the chase intervals (7.5), and the chase
  * record. Everything here goes through the same case file and desk the customer's turns do.
  *
- *   POST /fixture           write the knowledge-base rows and chase template approvals on the branch
+ *   POST /fixture           write the knowledge-base rows and the template approvals on the branch
  *   POST /ben-replies       { text } Ben's reply goes out through desk/human-reply.ts and releases the hold
  *   POST /chase-intervals   { chaseAfterMinutes, escalateAfterMinutes } test values; then /age and /run
  *   GET  /chase             the chase record for the current thread
