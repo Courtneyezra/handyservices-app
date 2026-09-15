@@ -11,7 +11,7 @@
  */
 import { Router } from 'express';
 import { db } from './db';
-import { messageDrafts, conversations, personalizedQuotes, messages } from '@shared/schema';
+import { messageDrafts, conversations, personalizedQuotes, messages, whatsappTemplates } from '@shared/schema';
 import { eq, and, desc, gte, inArray, sql } from 'drizzle-orm';
 import { canSendFreeform } from './meta-whatsapp';
 import { normalizePhoneNumber, isNonMobileUkNumber } from './phone-utils';
@@ -21,6 +21,7 @@ import { type Approver, isAutomatedApprover, isAgentApprover, approverLabel, hum
 import { ledgerDraftCreated, ledgerDraftApproved, ledgerDraftEdited, ledgerDraftRejected, ledgerDraftFailed } from './ledger';
 import { agentOutcomes } from '@shared/schema';
 import { blockedByOptOut, optOutRefusalMessage, type OutboundPurpose } from './opt-out';
+import { purposeForTemplateName } from './window-templates';
 import { recordDraftProposal, recordDraftVerdict, safely } from './agent-outcomes';
 import { recordVerdict, approvalVerdict, runIdOfDraft, isVerdictReason } from './verdicts';
 import { VERDICT_REASONS } from '@shared/schema';
@@ -71,6 +72,35 @@ const SERVICE_DRAFT_SOURCES = new Set<DraftSource>(['webform_ack', 'first_contac
 
 export function purposeForDraftSource(source: DraftSource): OutboundPurpose {
     return SERVICE_DRAFT_SOURCES.has(source) ? 'service_reply' : 'marketing';
+}
+
+/** The cached template name behind a Twilio content SID, or null when the cache has no such row. */
+async function cachedTemplateName(contentSid: string): Promise<string | null> {
+    const [row] = await db.select({ name: whatsappTemplates.name }).from(whatsappTemplates)
+        .where(eq(whatsappTemplates.contentSid, contentSid)).limit(1);
+    return row?.name ?? null;
+}
+
+/**
+ * The purpose a draft is gated and sent under: its source's, unless it carries a template the
+ * registry records as marketing (server/window-templates.ts purposeForTemplateName), which is
+ * marketing whichever lane queued it. missed_call_ack is a first-contact acknowledgement by source,
+ * but Meta approved it as MARKETING, so a plain STOP must block it. A template SID that cannot be
+ * looked up fails closed to marketing; one the cache does not know keeps the source's purpose.
+ */
+export async function purposeForDraft(
+    draft: { source: string; contentSid?: string | null },
+    nameForSid: (contentSid: string) => Promise<string | null> = cachedTemplateName,
+): Promise<OutboundPurpose> {
+    const bySource = purposeForDraftSource(draft.source as DraftSource);
+    if (!draft.contentSid || bySource === 'marketing') return bySource;
+    try {
+        const name = await nameForSid(draft.contentSid);
+        return (name && purposeForTemplateName(name)) === 'marketing' ? 'marketing' : bySource;
+    } catch (error: any) {
+        console.warn(`[Drafts] Could not name template ${draft.contentSid}; gating the draft as marketing:`, error?.message);
+        return 'marketing';
+    }
 }
 
 /**
@@ -128,7 +158,7 @@ export async function queueDraft(input: {
     // draft is a send waiting for one distracted click, and "Ben approved it" is not a defence
     // against a PECR complaint. Checked again at approve time, because a customer can opt out in
     // the hours between a draft being written and someone reading it.
-    const purpose = input.purpose ?? purposeForDraftSource(input.source);
+    const purpose = input.purpose ?? await purposeForDraft({ source: input.source, contentSid: input.contentSid });
     const suppression = await blockedByOptOut(phone, purpose);
     if (suppression) {
         console.warn(
@@ -478,7 +508,8 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
     // window in which a campaign reply arrives. sendCustomerMessage would refuse anyway; catching
     // it here gives the approver a real reason instead of a generic send failure, and kills the
     // draft rather than leaving it to be retried.
-    const suppression = await blockedByOptOut(draft.phone, purposeForDraftSource(draft.source as DraftSource));
+    const draftPurpose = await purposeForDraft(draft);
+    const suppression = await blockedByOptOut(draft.phone, draftPurpose);
     if (suppression) {
         await db.update(messageDrafts)
             .set({ status: 'rejected', error: `opted out (${suppression.scope}) on ${suppression.at.toISOString()}` })
@@ -579,9 +610,9 @@ export async function approveAndSendDraft(draftId: string, approver: Approver, r
         };
     }
 
-    // Every send below carries the draft source's purpose, so the choke point in outbound.ts
+    // Every send below carries the draft's purpose (purposeForDraft), so the choke point in outbound.ts
     // reaches the same verdict this function just did rather than second-guessing it.
-    const purpose = purposeForDraftSource(draft.source as DraftSource);
+    const purpose = draftPurpose;
 
     try {
         let result: Awaited<ReturnType<typeof sendCustomerMessage>>;

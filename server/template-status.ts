@@ -40,7 +40,7 @@ export interface ExpectedTemplate {
  */
 const LIVE_TEMPLATES: ExpectedTemplate[] = [
     { purpose: 'holding line (silence / flag / draft expiry)', usedBy: 'server/rules-layer.ts HOLDING_TEMPLATE_PREFERENCE', names: ['holding_line_v1', 'holding_line'], required: true },
-    { purpose: 'missed-call ack', usedBy: 'server/first-contact-ack.ts MISSED_CALL_TEMPLATE_PREFERENCE', names: ['missed_call_ack'], required: true },
+    { purpose: 'missed-call ack (marketing)', usedBy: 'server/first-contact-ack.ts MISSED_CALL_TEMPLATE_PREFERENCE', names: ['missed_call_ack'], required: true },
     { purpose: 'ask for a photo / video', usedBy: 'server/rules-layer.ts ASK_TEMPLATE_PREFERENCE', names: ['video_request', 'job_video_request'], required: true },
     { purpose: 'ask for a postcode', usedBy: 'server/rules-layer.ts ASK_TEMPLATE_PREFERENCE', names: ['postcode_request'], required: true },
     { purpose: 'ask permission to call', usedBy: 'server/first-contact-ack.ts (call_request)', names: ['call_request'], required: true },

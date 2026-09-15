@@ -129,14 +129,14 @@ export const PREFERS_TEXT_TEMPLATE_PREFERENCE = FIRST_CONTACT_TEMPLATE_PREFERENC
  * wrong here. A phone call almost never leaves the WhatsApp window open (only an inbound WhatsApp
  * message does), so a missed-call ack is a template send nearly every time.
  *
- * 'missed_call_ack' does not exist yet: it is the honest wording ("sorry we missed you, we'll ring
- * back") and belongs in the next template submission. Until it is approved, 'video_request' is the
- * closest approved UTILITY template that is still TRUE of a missed call (they did get in touch,
- * and a video is what we need next) — and anything not approved is skipped, so if none of these
- * are live the acknowledgement is queued for Ben rather than dropped.
+ * 'missed_call_ack' is the honest wording ("sorry we missed you, we'll ring back"). Anything not
+ * approved is skipped, so if none of these are live the acknowledgement goes by SMS or is queued for
+ * Ben rather than dropped. Meta approved missed_call_ack as MARKETING, not utility, so a draft
+ * carrying it is gated as marketing and a plain STOP blocks it (server/message-drafts.ts
+ * purposeForDraft, reading server/window-templates.ts).
  */
 export const MISSED_CALL_TEMPLATE_PREFERENCE = [
-    'missed_call_ack',     // APPROVED (HX0ae187172810e78213fcfecf536ca972): "sorry we missed your
+    'missed_call_ack',     // APPROVED as MARKETING (HX0ae187172810e78213fcfecf536ca972): "sorry we missed your
                            // call. Tell us what needs doing and we will price it up for you, or we
                            // will try you again shortly." One variable ({{1}} = first name).
     // 'video_request' removed 24 Aug 2026 (owner decision, Switchboard Atlas step 2): a missed
