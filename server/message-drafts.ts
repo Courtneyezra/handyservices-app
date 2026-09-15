@@ -843,6 +843,15 @@ messageDraftsRouter.post('/:id/approve', async (req, res) => {
         if (!isVerdictReason(reasonRaw)) {
             return res.status(400).json({ error: `Invalid 'reason' — expected one of ${VERDICT_REASONS.join(', ')}` });
         }
+        // Live, an old-desk draft to a customer does not go past the case file, whichever screen approves
+        // it; a contractor's still does (server/comms-v2/old-comms.ts). Refused before the claim, so it stays pending.
+        const [target] = await db.select({ conversationId: messageDrafts.conversationId, phone: messageDrafts.phone })
+            .from(messageDrafts).where(eq(messageDrafts.id, req.params.id)).limit(1);
+        if (target) {
+            const { OLD_COMMS_RETIRED, oldCommsSendRefusal } = await import('./comms-v2/old-comms');
+            const retiredRefusal = await oldCommsSendRefusal({ conversationId: target.conversationId, phone: target.phone });
+            if (retiredRefusal) return res.status(409).json({ error: OLD_COMMS_RETIRED, message: retiredRefusal });
+        }
         const result = await approveAndSendDraft(req.params.id, approver);
 
         // The human decided, whatever the wire did next: every claim that succeeded is a verdict.

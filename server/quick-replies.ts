@@ -194,6 +194,11 @@ quickRepliesRouter.post('/:id/send', async (req, res) => {
         const { phone, via, channel } = req.body || {};
         if (!phone) return res.status(400).json({ error: "Missing 'phone'" });
 
+        // Live, a customer is answered on Comms Desk v2; only a contractor thread still sends from the old page.
+        const { OLD_COMMS_RETIRED, oldCommsSendRefusal } = await import('./comms-v2/old-comms');
+        const retiredRefusal = await oldCommsSendRefusal({ phone });
+        if (retiredRefusal) return res.status(409).json({ error: OLD_COMMS_RETIRED, message: retiredRefusal });
+
         const [reply] = await db.select().from(quickReplies).where(eq(quickReplies.id, req.params.id));
         if (!reply) return res.status(404).json({ error: 'Quick reply not found' });
 

@@ -7,6 +7,7 @@ import { pushEvent } from "./web-push";
 import { resolveCallerName } from "./caller-lookup";
 import { requireAdmin } from "./auth";
 import { forwardToCommsV2 } from './comms-v2/channels/intake';
+import { OLD_COMMS_RETIRED, oldCommsSendRefusal, staffThreadPath } from './comms-v2/old-comms';
 
 export const whatsappRouter = Router();
 
@@ -36,7 +37,8 @@ whatsappRouter.post('/incoming', async (req, res) => {
                 pushEvent('whatsapp_inbound', {
                     title: '📱 New WhatsApp',
                     body: `${senderName} — ${phone}: "${String(Body || '').slice(0, 80)}"`,
-                    url: '/admin/comms',
+                    // The old comms page, or Comms Desk v2 while the new desk is live (server/comms-v2/old-comms.ts).
+                    url: await staffThreadPath({ phone }),
                 });
                 await notifyIncomingWhatsApp({ senderName, phoneNumber: phone, body: Body });
             } else {
@@ -74,6 +76,11 @@ whatsappRouter.post('/send', requireAdmin, async (req, res) => {
         if (!to || !body) {
             return res.status(400).json({ error: "Missing 'to' or 'body'" });
         }
+
+        // While the new desk is the live desk a customer is answered on Comms Desk v2, where the reply
+        // lands on the case file; only a contractor thread still sends from here (server/comms-v2/old-comms.ts).
+        const retiredRefusal = await oldCommsSendRefusal({ phone: to });
+        if (retiredRefusal) return res.status(409).json({ error: OLD_COMMS_RETIRED, message: retiredRefusal });
 
         // Opt-out gate. This endpoint is the comms composer: a human typed these words at a
         // specific person, which is the sanctioned 'service_reply' exception, so a plain STOP does

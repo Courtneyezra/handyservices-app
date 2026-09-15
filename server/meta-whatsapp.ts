@@ -281,11 +281,12 @@ async function handleIncomingMessage(message: any, contact: any, phoneNumberId: 
                 phoneNumber: from,
                 body: content,
             }).catch((e) => console.warn('[Meta WhatsApp] Pushover notification failed:', e));
-            pushEvent('whatsapp_inbound', {
+            // The link is the old comms page, or Comms Desk v2 while the new desk is live (server/comms-v2/old-comms.ts).
+            void import('./comms-v2/old-comms').then(({ staffThreadPath }) => staffThreadPath({ phone: from })).then((url) => pushEvent('whatsapp_inbound', {
                 title: '📱 New WhatsApp',
                 body: `${profileName} — ${from}: "${String(content || '').slice(0, 80)}"`,
-                url: '/admin/comms',
-            });
+                url,
+            }));
         }
 
         // Tenant/landlord AI fork removed 24 Aug 2026 (Switchboard Atlas step 4): ungoverned

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { usePriceQueue, hasAdminToken } from "@/hooks/usePriceQueue";
 import { useVisionHealth, visionBadge } from "@/hooks/useVisionHealth";
 import { useKnowledgeBase } from "@/hooks/useKnowledgeBase";
+import { useOldComms, NEW_BOARD_PATH, CONTRACTOR_LANE_PATH } from "@/hooks/useOldComms";
 
 import InstallPrompt from "@/components/InstallPrompt";
 import OpsDock from "@/components/ops/OpsDock";
@@ -88,6 +89,11 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const { data: knowledgeBase } = useKnowledgeBase({ enabled: hasAdminToken() });
     const kbWaiting = knowledgeBase?.counts.unreviewed ?? 0;
 
+    // While the new desk is the live desk the old comms page is retired for customers: its Comms
+    // item leaves the menu (a VA's becomes Comms Desk v2) and only its contractor lane stays.
+    const { data: oldComms } = useOldComms({ enabled: hasAdminToken() });
+    const commsRetired = oldComms?.retired === true;
+
     // Persist collapse state
     useEffect(() => {
         localStorage.setItem('sidebar-collapsed', String(isCollapsed));
@@ -142,7 +148,9 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             title: "YOUR TOOLS",
                             items: [
                                 { icon: ListTodo, label: "Desk", href: "/admin/desk", badge: "NEW" },
-                                { icon: Inbox, label: "Comms", href: "/admin/comms", badge: null },
+                                commsRetired
+                                    ? { icon: Kanban, label: "Comms Desk v2", href: NEW_BOARD_PATH, badge: null }
+                                    : { icon: Inbox, label: "Comms", href: "/admin/comms", badge: null },
                                 { icon: ClipboardList, label: "Pipeline", href: "/admin/work", badge: null },
                             ]
                         },
@@ -182,7 +190,9 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 { icon: LayoutDashboard, label: "Operating System", href: "/admin/os", badge: "NEW" },
                                 { icon: Home, label: "Pipeline Home", href: "/admin/pipeline-home" },
                                 { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
-                                { icon: Inbox, label: "Comms", href: "/admin/comms", badge: "NEW" },
+                                commsRetired
+                                    ? { icon: HardHat, label: "Contractor threads", href: CONTRACTOR_LANE_PATH, badge: null }
+                                    : { icon: Inbox, label: "Comms", href: "/admin/comms", badge: "NEW" },
                                 { icon: PoundSterling, label: "Price queue", href: "/admin/price", badge: priceQueueCount > 0 ? String(priceQueueCount) : null },
                                 { icon: FlaskConical, label: "Sandbox", href: "/admin/sandbox", badge: "NEW" },
                                 { icon: Kanban, label: "Comms Desk v2", href: "/admin/comms-v2", badge: "NEW" },
@@ -314,7 +324,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     })}
 
                     {/* Access to Legacy Comms (Collapsed/Hidden or just less prominent) */}
-                    {!isCollapsed && !isVA && (
+                    {!isCollapsed && !isVA && !commsRetired && (
                         <div className="mt-4 px-4 pt-4 border-t border-border/50">
                             <p className="text-[10px] text-muted-foreground mb-2 font-mono uppercase">LEGACY VIEWS</p>
                             {/* The old WhatsApp-only CRM is retired; this now lands on unified Comms. */}

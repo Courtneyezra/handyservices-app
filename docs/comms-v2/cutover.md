@@ -33,7 +33,22 @@ While it is live, at the same moment and on the same read:
   owner's escalation and the unpriced draft's chase;
 - Ben's board reads the live case files;
 - Ben's quote notifications (ready to price, chase, accepted) reach his phone through Pushover
-  (`quoting/ben-notifier.ts` `liveBenNotifier`), asked at every notice rather than latched once.
+  (`quoting/ben-notifier.ts` `liveBenNotifier`), asked at every notice rather than latched once;
+- the old comms page (`/admin/comms`) is retired for customers (`server/comms-v2/old-comms.ts`),
+  because it would show a customer's messages without the new desk's replies and send past the case
+  file. Its Comms item leaves the sidebar (a VA's becomes Comms Desk v2, the admin's becomes
+  Contractor threads) and so does the Legacy Views link. The page and its aliases (`/admin/inbox`,
+  `/admin/inbox-board`) open `/admin/comms-v2` instead, and a bookmarked `?conversation=` link to a
+  customer thread lands on the board's top. Its sends (the composer, templates, quick replies, voice
+  notes and draft approval) are refused with `OLD_COMMS_RETIRED` for any thread that is not a
+  contractor's, and that covers the portal thread page's composer, which uses the same route. The
+  staff links that pointed at the page open the new board instead: the web pushes for a new
+  WhatsApp and an accepted quote, the Pushover thread links and Ben's desk at `/admin/desk`. Each
+  link is checked when it is built. Links inside other admin pages still name the old page and are
+  caught by its redirect;
+- the old page's contractor lane stays, labelled contractors only, at `/admin/comms?lane=contractor`
+  and from a contractor thread's own link, and its sends to contractors carry on. The new desk
+  never takes contractors, so this is still the one place staff message them.
 
 With any one of them off, none of that happens, and the old desk answers exactly as it does today.
 A switch read that fails counts as off: the old desk answers, and the new desk's delivery refuses on
@@ -90,6 +105,8 @@ Also known before the flip, and landing as their own changes:
 Check it took: `npx tsx scripts/_spine-mode.ts --status` prints `comms desk: comms_v2`; the next
 forward logs `[comms-v2 intake] gateway built for the live desk (live delivery)`; an old automatic
 send shows as a `send_refused` event with `oldDeskStoodDown`; `/admin/comms-v2` shows live threads.
+Within a minute, or on a reload, the sidebar has no Comms item and `/admin/comms` opens the new board;
+`GET /api/comms-v2/old-comms` answers `{ "retired": true }`.
 
 ## Roll-back
 
@@ -117,6 +134,10 @@ What happens:
   read the case file on the board (or the table) before answering anyone the new desk was talking to.
 - Pending drafts in the old desk's queue from before the flip are still there; nothing was sent or
   cancelled by either flip.
+- The old comms page comes back whole within a minute, or on a reload: the Comms item and the Legacy
+  Views link return to the sidebar, `/admin/comms` serves the customer lane, its lane switch and its
+  composer again, its sends to customers go, and every link and notification opens it as before.
+  Nothing about the page was deleted or written while it was retired.
 
 ## Known limitations
 

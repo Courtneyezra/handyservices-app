@@ -34,6 +34,7 @@ import { loadBoardCards } from './inbox-board';
 import { listVaCallTasks } from './agents/va-call-tasks';
 import { detectSlaLane, getSlaSweepConfig, laneDueAt, slaCandidateConditions } from './agents/sla-sweep';
 import { isTestNumber } from './phone-utils';
+import { oldCommsRetired, staffThreadPathFrom } from './comms-v2/old-comms';
 
 export const deskRouter = Router();
 
@@ -96,6 +97,9 @@ function mergeItem(map: Map<string, DeskItem>, key: string, item: DeskItem): voi
 export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]> {
     const now = opts?.now ?? new Date();
     const byKey = new Map<string, DeskItem>();
+    // While the new desk is the live desk a customer thread opens on Comms Desk v2, not the old
+    // comms page; a contractor thread keeps its old link (server/comms-v2/old-comms.ts).
+    const oldCommsGone = await oldCommsRetired();
 
     // ---- 1) reply — board cards sitting on Ben's desk. The card's own wait
     // state is comms-sla's workingHoursBetween, so it is used verbatim.
@@ -123,7 +127,8 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
             title: 'Reply needed',
             preview: clip(card.lastMessagePreview),
             waitingWorkingHours: card.wait?.waitingWorkingHours ?? 0,
-            href: `/admin/comms?conversation=${card.id}`,
+            // The board cards are the customer lane (loadBoardCards' default).
+            href: staffThreadPathFrom(oldCommsGone, { conversationId: card.id, contractor: false }),
             badges,
             intakeReadiness: card.intakeReadiness ?? null,
         });
@@ -140,12 +145,13 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
             .map((d) => d.conversationId)
             .filter((id): id is string => !!id && !cards.some((c) => c.id === id)),
     ));
-    const convById = new Map<string, { contactName: string | null; phoneNumber: string }>();
+    const convById = new Map<string, { contactName: string | null; phoneNumber: string; roleProfile: string | null }>();
     if (missingConvIds.length) {
         const rows = await db.select({
             id: conversations.id,
             contactName: conversations.contactName,
             phoneNumber: conversations.phoneNumber,
+            roleProfile: conversations.roleProfile,
         }).from(conversations).where(inArray(conversations.id, missingConvIds));
         for (const r of rows) convById.set(r.id, r);
     }
@@ -165,7 +171,7 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
             preview: clip(draft.body),
             waitingWorkingHours: workingHoursBetween(new Date(draft.createdAt), now),
             // Drafts are approved in the comms thread view (draft_delta targets it).
-            href: conversationId ? `/admin/comms?conversation=${conversationId}` : '/admin/comms',
+            href: staffThreadPathFrom(oldCommsGone, { conversationId, contractor: conv?.roleProfile === 'contractor' }),
             badges,
             draftId: draft.id,
         });
@@ -200,6 +206,7 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
             contactName: conversations.contactName,
             tags: conversations.tags,
             metadata: conversations.metadata,
+            roleProfile: conversations.roleProfile,
         }).from(conversations)
             // T17: the sweep's own candidate rule, so the desk and the phone read the same threads.
             .where(and(...slaCandidateConditions()))
@@ -223,7 +230,7 @@ export async function buildDeskItems(opts?: { now?: Date }): Promise<DeskItem[]>
                 title: `SLA breach: ${det.lane.replace(/_/g, ' ')}`,
                 preview: clip(det.detail),
                 waitingWorkingHours: workingHoursBetween(det.enteredAt, now),
-                href: `/admin/comms?conversation=${conv.id}`,
+                href: staffThreadPathFrom(oldCommsGone, { conversationId: conv.id, contractor: conv.roleProfile === 'contractor' }),
                 badges: [det.lane, 'over SLA'],
             });
         }
