@@ -3,7 +3,7 @@
  * which must assign nobody rather than someone.
  */
 import { describe, expect, it } from 'vitest';
-import { parseApproverAssignments, slotAssigned, slotOf } from './approvers';
+import { parseApproverAssignments, readStaffNames, slotAssigned, slotOf } from './approvers';
 
 describe('parseApproverAssignments', () => {
     it('keeps slot -> user ids, trimming and dropping blanks', () => {
@@ -39,5 +39,12 @@ describe('slotOf and slotAssigned', () => {
         expect(slotOf(null, a)).toBeNull();
         expect(slotOf(undefined, a)).toBeNull();
         expect(slotOf({ id: '' }, a)).toBeNull();
+    });
+});
+
+describe('readStaffNames', () => {
+    it('resolves no names for no emails, without opening a store', async () => {
+        expect(await readStaffNames([])).toEqual({});
+        expect(await readStaffNames(['  ', ''])).toEqual({});
     });
 });

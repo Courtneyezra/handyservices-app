@@ -15,6 +15,16 @@
  *                                    guards never run over a person's own words (behaviour.md
  *                                    answer 43), and whatever the sender refuses comes back for
  *                                    the board to show him
+ * POST /case-files/:id/send-held-draft - one tap: send the reply the desk held back exactly as it
+ *                                    stands, through desk/human-reply.ts sendHeldDraft, the same
+ *                                    pipeline as /answer with the held draft as the words
+ * POST /case-files/:id/send-template   - a template send on a shut window, through
+ *                                    desk/human-reply.ts sendWindowTemplate: offers a template only
+ *                                    when its wording is true for the thread (quote_ready_link with
+ *                                    the quote link the file shows was sent, or
+ *                                    answer_ready_reopen_v1 only over an unanswered question),
+ *                                    never quote_accepted_ack_v1, enquiry_followup_optin_v1 or a
+ *                                    marketing row
  *
  * /sandbox/* mounts the Goal 1 sandbox door unmodified (server/comms-v2/desk/sandbox-door.ts),
  * so the board has sandbox threads to show without duplicating that door's logic here.
@@ -29,15 +39,15 @@
  * no slot lists cannot release.
  */
 import { Router, type Response } from 'express';
-import { readApproverAssignments, slotOf, type ReadApproverAssignments } from './approvers';
+import { readApproverAssignments, readStaffNames, slotOf, type ReadApproverAssignments, type ReadStaffNames } from './approvers';
 import { boardOf, cardOf, detailOf, type BoardMode } from './board';
 import { boardSourceFor, commsV2BoardDoor, type BoardSource, type BoardSourceFor } from './store';
 import { release } from '../desk/case-file';
-import { humanReply } from '../desk/human-reply';
+import { humanReply, sendHeldDraft, sendWindowTemplate } from '../desk/human-reply';
 import type { SandboxDoor } from '../desk/sandbox-door';
 import { oldCommsRetired } from '../old-comms';
 
-export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired()): Router {
+export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames): Router {
     const router = Router();
     /** The store this request reads (api/store.ts): the live desk's while it is live, else the sandbox door's. Null once a 503 has been sent. */
     const source = async (res: Response): Promise<BoardSource | null> => {
@@ -68,7 +78,13 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         if (!src) return;
         const file = src.store.get(req.params.id);
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
-        res.json(detailOf(file, await approvers()));
+        const detail = detailOf(file, await approvers());
+        const humanEmails = detail.turns
+            .map((t) => t.approver)
+            .filter((a): a is string => !!a && a.startsWith('human:'))
+            .map((a) => a.slice('human:'.length));
+        const speakerNames = await names(humanEmails);
+        res.json({ ...detail, speakerNames });
     });
 
     router.post('/case-files/:id/release', async (req, res) => {
@@ -107,6 +123,48 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const words = String(req.body?.words ?? '').trim();
         if (!words) { res.status(400).json({ error: 'an answer needs words' }); return; }
         const outcome = await humanReply({ file, approver, person: user.email ?? user.id, words, mode: src.mode });
+        if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
+        src.store.put(file);
+        res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.turnId }, release: outcome.release });
+    });
+
+    /**
+     * One tap: send the reply the desk held back exactly as it stands, through desk/human-reply.ts
+     * sendHeldDraft. Same approver-slot check as release and answer above (Firstmate decision
+     * hsa-comms-v2-board-conversation-view): only the slot this file's hold answers to may send it.
+     */
+    router.post('/case-files/:id/send-held-draft', async (req, res) => {
+        const user = (req as any).user;
+        if (!user) { res.status(401).json({ error: 'a signed-in user is required to send' }); return; }
+        const assignments = await approvers();
+        const approver = slotOf(user, assignments);
+        if (!approver) { res.status(403).json({ error: 'no approver slot is assigned to this user' }); return; }
+        const src = await source(res);
+        if (!src) return;
+        const file = src.store.get(req.params.id);
+        if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
+        const outcome = await sendHeldDraft({ file, approver, person: user.email ?? user.id, mode: src.mode });
+        if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
+        src.store.put(file);
+        res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.turnId }, release: outcome.release });
+    });
+
+    /**
+     * A template send on a shut window, through desk/human-reply.ts sendWindowTemplate: offers a
+     * template only when its wording is true for the thread, per the captain's ruling. Same
+     * approver-slot check as every other board action.
+     */
+    router.post('/case-files/:id/send-template', async (req, res) => {
+        const user = (req as any).user;
+        if (!user) { res.status(401).json({ error: 'a signed-in user is required to send' }); return; }
+        const assignments = await approvers();
+        const approver = slotOf(user, assignments);
+        if (!approver) { res.status(403).json({ error: 'no approver slot is assigned to this user' }); return; }
+        const src = await source(res);
+        if (!src) return;
+        const file = src.store.get(req.params.id);
+        if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
+        const outcome = await sendWindowTemplate({ file, approver, person: user.email ?? user.id, mode: src.mode });
         if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
         src.store.put(file);
         res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.turnId }, release: outcome.release });

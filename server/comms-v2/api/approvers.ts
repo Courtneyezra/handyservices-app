@@ -65,3 +65,31 @@ export async function readApproverAssignments(): Promise<ApproverAssignments> {
         return {};
     }
 }
+
+export type ReadStaffNames = (emails: string[]) => Promise<Record<string, string>>;
+
+/**
+ * The staff `users` row's name for each of the given emails, keyed by lowercase email, for the
+ * board to label a human turn by name rather than by the raw `human:<login>` approver it is
+ * recorded under. Fail closed: a read that throws or a login with no match resolves no name, and
+ * the board falls back to the login's own local part rather than nothing.
+ */
+export async function readStaffNames(emails: string[]): Promise<Record<string, string>> {
+    const clean = Array.from(new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean)));
+    if (!clean.length) return {};
+    try {
+        const { db } = await import('../../db');
+        const { users } = await import('@shared/schema');
+        const { inArray, sql } = await import('drizzle-orm');
+        const rows = await db.select({ email: users.email, firstName: users.firstName, lastName: users.lastName }).from(users).where(inArray(sql`lower(${users.email})`, clean));
+        const out: Record<string, string> = {};
+        for (const row of rows) {
+            const name = [row.firstName, row.lastName].filter(Boolean).join(' ').trim();
+            if (name) out[row.email.toLowerCase()] = name;
+        }
+        return out;
+    } catch (error: any) {
+        console.error('[CommsV2] Could not read staff names, falling back to raw approver:', error?.message ?? error);
+        return {};
+    }
+}

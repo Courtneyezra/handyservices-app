@@ -32,8 +32,9 @@ import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
 import { approverFor } from './guards';
 import { clauseAsks, offersCall } from './lexicon';
-import { chooseChannel, render, send, shortenBriefFor, windowOf } from './sender';
+import { chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateStatusSource } from './sender';
 import { humanApprover, type Approver } from '../../approver';
+import { truncateWords } from '../channels/envelope';
 
 export interface HumanReplyInput {
     file: CaseFile;
@@ -125,4 +126,124 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     }
 
     return { ok: true, result: { runId, approver: approverName, channel: choice.channel, bubbles: rendered.bubbles, turnId: sent.record.turnId }, release };
+}
+
+/**
+ * One tap send of the reply the desk held back, exactly as it stands. Firstmate decision
+ * hsa-comms-v2-board-conversation-view: this is the same pipeline as Ben typing the words himself
+ * (`humanReply` above), because a person choosing to release the desk's own draft carries the same
+ * authority as a person typing his own — no separate render, window or approver check is invented
+ * for it. Refuses first when there is no draft to send, then everything `humanReply` refuses.
+ */
+export async function sendHeldDraft(input: Omit<HumanReplyInput, 'words'>, deps: CaseFileDeps = {}): Promise<HumanReplyOutcome> {
+    const draft = input.file.hold?.draft;
+    if (!draft) return { ok: false, reason: 'there is no held draft to send' };
+    return humanReply({ ...input, words: draft }, deps);
+}
+
+export interface SendWindowTemplateInput {
+    file: CaseFile;
+    /** The slot the signed-in session occupies, exactly as `HumanReplyInput.approver`. */
+    approver: ApproverSlot;
+    person: string;
+    mode?: 'dry_run' | 'live';
+}
+
+/**
+ * The exact quote link the customer was already sent on this thread, read off the file's own send
+ * records — never re-derived from the quote store and never re-guessed, because a link this
+ * function invented could be stale or belong to a different quote. Null when no send on the file
+ * ever carried the current job's quote link, which is also true of a quote that is still only a
+ * draft: nothing has gone out for it yet.
+ */
+function sentQuoteLink(file: CaseFile): string | null {
+    const slug = file.job.quoteRef;
+    if (!slug) return null;
+    const re = new RegExp(`https?://\\S+/quote/${slug}\\b`);
+    for (let i = file.sends.length - 1; i >= 0; i--) {
+        for (const b of file.sends[i].bubbles) {
+            const m = re.exec(b.text);
+            if (m) return m[0];
+        }
+    }
+    return null;
+}
+
+/**
+ * The customer's own last word, unanswered: it is the newest turn on the file (nothing outbound
+ * since) and it actually reads as a question, not merely a sentence that happens to contain an
+ * asking word (RE_ASKING alone matches plain vocabulary like "how" or "where" in a statement, e.g.
+ * "I don't know how you found us"). A literal question mark is the one unambiguous signal that the
+ * customer asked something, which is what this template's wording ("you asked us about...") claims.
+ */
+function unansweredQuestion(file: CaseFile, turn: Turn): boolean {
+    const idx = file.turns.findIndex((t) => t.id === turn.id);
+    if (idx === -1) return false;
+    if (file.turns.slice(idx + 1).some((t) => t.direction === 'outbound')) return false;
+    return turn.body.includes('?');
+}
+
+/**
+ * A template send on a shut window, from the board. Captain's ruling (Firstmate decision
+ * hsa-comms-v2-board-conversation-view, superseding the earlier "always answer_ready_reopen_v1"
+ * call): offer a template only when its wording is true for this thread, read off the case file
+ * itself —
+ *   - `quote_ready_link`, with the exact link the file already shows was sent, once a quote has
+ *     gone out on the thread (`sentQuoteLink`);
+ *   - `answer_ready_reopen_v1` only when the customer's latest message is a question nothing has
+ *     answered since (`unansweredQuestion`) — its wording ("you asked us about... and we have an
+ *     answer") is false on any other thread;
+ *   - otherwise no template applies: refuses rather than sending or offering a word that is not
+ *     true, and the board shows this as "the customer needs to write again" rather than a retry.
+ * `quote_accepted_ack_v1` and `enquiry_followup_optin_v1` are never reached here (behaviour.md
+ * answer 54: unused), and neither is any marketing-category row — only the two `service_reply`
+ * purposes above are ever picked.
+ *
+ * Refuses on everything `humanReply` refuses (no owner match, no customer turn to answer), plus: the
+ * window is open (a freeform reply is what applies there, not a template), no template true for the
+ * thread, and no approved rung for the template that is true (the customer stays held for Ben, same
+ * as the desk's own composed path).
+ */
+export async function sendWindowTemplate(input: SendWindowTemplateInput, deps: CaseFileDeps = {}, templates: TemplateStatusSource = liveTemplateStatus): Promise<HumanReplyOutcome> {
+    const now = deps.now ?? (() => new Date());
+    const runId = `run_${randomUUID()}`;
+    const { file, approver } = input;
+    const party: Party = file.parties.find((p) => p.role !== 'internal') ?? file.parties[0];
+    const fileDeps: CaseFileDeps = { now, newId: deps.newId };
+    const refuse = (reason: string): HumanReplyOutcome => ({ ok: false, reason });
+
+    if (approver.kind !== 'human') return refuse('only a person answers from the board; a rule-based approver has no words');
+    const owner = file.hold?.approver ?? approverFor(file, null);
+    if (!sameApprover(owner, approver)) return refuse(`only ${approverLabel(owner)} may answer this file`);
+    const turn = lastCustomerTurn(file, party.personId);
+    if (!turn) return refuse('no customer turn to answer');
+    const approverName = humanApprover(input.person);
+
+    const choice = chooseChannel(party, turn.channel, now());
+    if (!choice.ok) return refuse(choice.reason);
+    const window = windowOf(party, choice.channel, now());
+    if (window.state !== 'shut') return refuse(`the ${choice.channel} window is open; send a freeform reply instead of a template`);
+
+    const link = sentQuoteLink(file);
+    let pick: Awaited<ReturnType<typeof pickTemplate>>;
+    if (link) {
+        pick = await pickTemplate('quote_ready', { name: party.name, topic: link, link, at: now() }, templates);
+    } else if (unansweredQuestion(file, turn)) {
+        pick = await pickTemplate('service_reply', { name: party.name, topic: file.job.type ?? truncateWords(turn.body, 60), at: now() }, templates);
+    } else {
+        return refuse('no template is true for this thread: the customer needs to write again before a reply can go');
+    }
+    if (!pick.ok) return refuse(`window shut and ${pick.reason}`);
+    const bubbles: RenderedBubble[] = [{ text: pick.body, gapMs: 0 }];
+
+    const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles, template: pick.template, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
+    if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
+
+    let release: HoldRelease | null = null;
+    if (file.hold) {
+        const rel = releaseHold(file, approver, `sent the ${pick.template.name} template`, fileDeps);
+        if (rel.ok) release = rel.value;
+    }
+
+    return { ok: true, result: { runId, approver: approverName, channel: choice.channel, bubbles, turnId: sent.record.turnId }, release };
 }
