@@ -70,7 +70,7 @@ writes to a customer.
 | `route` - Haiku 4.5, low | the case file and the new turn | the subjects the turn touches in order of primacy (scoping, quoting, scheduling, service), a proposed stage, the party addressed, and an exception if one applies: money beyond a quote line, complaint, refund, trust doubt, regulated work, a date change to a booked job | Never invents a subject. An unclassifiable turn goes to Scoping before ready and to Service after. Structured output, no prose. |
 | `gather` | each routed specialist, with the case file and the turn | from each: facts with sources, a proposal (next question, offer a call, ready, thank for media, hold with reason), and from a specialist other than Scoping the notes the composer is given: which fact to copy verbatim and what not to say | Specialists return no prose, ever. A specialist that returns a sentence is a contract failure. |
 | `compose` - Fable 5.1, medium | the case file, every specialist's return, the party, and any exception | one reply, the ids of the facts it was written from, and for each business claim the knowledge-base row it cites | One reply per customer turn that answers everything the turn asked. Written from facts on the file only. No figure, date, duration or commitment unless it is a sourced fact. No disclosure line. Mirrors the customer's language and register. Never silent, with two exceptions: identity returned candidates, or a promise of more, which gets one acknowledgement then quiet. |
-| on exception | the exception from `route` | a hold on the file for the approver, and a reply that still answers what it can | Money, callbacks and date changes: answer the rest and say Ben will come back on that. Complaints, refunds, trust doubts and gas: one fixed line in Ben's words, then nothing until Ben. |
+| on exception | the exception from `route` | a hold on the file for the approver, and a reply that still answers what it can | Money, callbacks and date changes: answer the rest and say, in Ben's first person, that he will come back on that. Complaints, refunds, trust doubts and gas: one fixed line in Ben's words, then nothing until Ben. |
 
 **Invariants.** Exactly one composer call per customer turn. Every sentence the composer writes
 that asserts a figure, a date or a business fact carries a fact id or a knowledge-base id, and the
@@ -135,7 +135,7 @@ them like any other reply (`quoting/quoting-door.ts`).
 |---|---|
 | pass | to the sender, with the fact ids attached to the send record |
 | fail, first time | back to the composer once, with the failures named |
-| fail, second time | hold for the approver with the draft and the failures. The customer still gets an acknowledgement that Ben will come back, written from a fixed line. |
+| fail, second time | hold for the approver with the draft and the failures. The customer still gets an acknowledgement, in Ben's first person, that he will come back, written from a fixed line. |
 
 **The approver slot.** `approver_for(file, exception)` returns who may release a held job: Ben for
 a homeowner; for a tenant issue, later, the landlord's rules, then the landlord, then Ben.

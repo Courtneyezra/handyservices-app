@@ -182,7 +182,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
                 expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
                 const date = /say exactly "([^"]+)" and cite fact (fact_[\w-]+)/.exec(user)!;
-                return { reply: `No problem. Right now you're booked in for ${date[1]}.\n\nBen will come back to you on the date.\n\nAnd yes, bring the old tap out if you can.`, factIds: [date[2]], kbIds: [] };
+                return { reply: `No problem. Right now you're booked in for ${date[1]}.\n\n${DEFAULT_FIXED_LINES.date_change_to_ben}\n\nAnd yes, bring the old tap out if you can.`, factIds: [date[2]], kbIds: [] };
             },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -220,7 +220,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
                 expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
                 expect(user).not.toMatch(/about 3 days|usually booking|quote page/);
                 expect(user).not.toContain(DEFAULT_FIXED_LINES.dates_with_quote);
-                return { reply: 'Ben will come back to you on the date.\n\nAnd yes, bring the old tap out if you can.', factIds: [], kbIds: [] };
+                return { reply: `${DEFAULT_FIXED_LINES.date_change_to_ben}\n\nAnd yes, bring the old tap out if you can.`, factIds: [], kbIds: [] };
             },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -345,7 +345,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
                 expect(user).toContain(DEFAULT_FIXED_LINES.money_to_ben);
                 expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
-                return { reply: 'Ben will come back to you on the price. Ben will come back to you on the date.', factIds: [], kbIds: [] };
+                return { reply: `${DEFAULT_FIXED_LINES.money_to_ben} ${DEFAULT_FIXED_LINES.date_change_to_ben}`, factIds: [], kbIds: [] };
             },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -372,7 +372,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
                 expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
                 const lead = /say exactly "about 3 days" and cite fact (fact_[\w-]+)/.exec(user)!;
-                return { reply: `Ben will come back to you on the date.\n\nOn the fence panel, we're usually booking in about 3 days.`, factIds: [lead[1]], kbIds: [] };
+                return { reply: `${DEFAULT_FIXED_LINES.date_change_to_ben}\n\nOn the fence panel, we're usually booking in about 3 days.`, factIds: [lead[1]], kbIds: [] };
             },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -424,7 +424,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
             // The opening enquiry is scoped; only the turn under test is the one the router sent to service (Goal 6 leaves a service-only turn unscoped).
             router: ({ n }: { n: number }) => n === 1 ? scoping() : scoping({ turnKind: 'question', subjects: ['service'] }),
             specialist: specialists([]),
-            composer: ({ n }) => n === 1 ? { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] } : { reply: 'Ben will come back to you on the date.', factIds: [], kbIds: [] },
+            composer: ({ n }) => n === 1 ? { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] } : { reply: DEFAULT_FIXED_LINES.date_change_to_ben, factIds: [], kbIds: [] },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
         if (first.kind !== 'handled') throw new Error(first.kind);

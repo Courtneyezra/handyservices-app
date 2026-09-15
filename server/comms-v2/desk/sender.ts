@@ -168,6 +168,10 @@ export interface RenderOptions {
     asTyped?: boolean;
 }
 
+/** Ben's two-line sign-off, which closes the four knowledge-base fixed lines (desk/fixed-lines.ts). */
+export const SIGN_OFF_LINES = 'Thanks\nBen';
+export const RE_SIGN_OFF_PARAGRAPH = /^\s*thanks\s*\n\s*ben\s*$/i;
+
 /**
  * WhatsApp: the one reply split into bubbles at the breaks a person would use: the composer's
  * blank lines first, then sentence boundaries for anything over about three hundred characters.
@@ -177,7 +181,8 @@ export interface RenderOptions {
  */
 export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderResult {
     const paragraphs = reply.replace(/\r\n/g, '\n').split(/\n\s*\n+/)
-        .map((p) => opts.asTyped ? p.split('\n').map((l) => l.trimEnd()).join('\n').trim() : p.replace(/\s*\n\s*/g, ' ').trim())
+        // Ben's "Thanks / Ben" keeps its line break: folded, it reads as the customer thanking Ben.
+        .map((p) => opts.asTyped ? p.split('\n').map((l) => l.trimEnd()).join('\n').trim() : RE_SIGN_OFF_PARAGRAPH.test(p) ? SIGN_OFF_LINES : p.replace(/\s*\n\s*/g, ' ').trim())
         .filter(Boolean);
     const texts = opts.asTyped ? paragraphs : paragraphs.flatMap(splitLong);
     const bubbles = texts.map((text) => ({ text, gapMs: typingGap(text) }));

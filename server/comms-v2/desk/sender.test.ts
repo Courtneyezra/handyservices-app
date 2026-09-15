@@ -102,6 +102,11 @@ describe('renderWhatsApp', () => {
         expect(typed.ok).toBe(true);
         expect(typed.bubbles.map((b) => b.text)).toEqual(['Morning Sam, two things:\n- replace the washer\n- check the isolator valve', 'I will bring both.']);
     });
+    it('keeps Ben\'s "Thanks / Ben" sign-off on two lines, so it never reads as the customer thanking Ben', () => {
+        const line = "I'm sorry to hear that.\n\nThanks\nBen";
+        expect(renderWhatsApp(line).bubbles.map((b) => b.text)).toEqual(["I'm sorry to hear that.", 'Thanks\nBen']);
+        expect(renderSms(line).bubbles[0].text).toBe("I'm sorry to hear that.\nThanks\nBen");
+    });
     it('renders per channel: WhatsApp bubbles, SMS one message, email one letter with a greeting and a sign-off', () => {
         expect(render('whatsapp', 'Hi Sam.').ok).toBe(true);
         const sms = render('sms', 'Hi Sam.\n\nWhereabouts are you?');

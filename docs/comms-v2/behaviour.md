@@ -93,7 +93,8 @@ quote's picker. This narrows the old "dates come with your quote" rule to bookin
 Three or four Meta templates; the desk picks one; freeform resumes on the customer's reply.
 
 **14. While a thread sits with Ben.** "Answer what it can, hand the rest to Ben." The assistant
-keeps replying to anything outside the exception and says Ben will come back on the rest.
+keeps replying to anything outside the exception and says, in Ben's first person, that he will
+come back on the rest.
 
 **15. Ben's handset replies.** "No, Ben replies through the admin only." Nothing to build;
 a handset reply still leaves the thread with Ben. Training, not code.

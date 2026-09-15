@@ -35,10 +35,10 @@ function fixture(): { file: CaseFile; party: Party } {
     return { file: r.value, party: r.value.parties[0] };
 }
 
-/** The desk's own reply to that turn: the money line that promises Ben will come back, and the hold behind it. */
+/** The desk's own reply to that turn: the money line that promises he will come back, and the hold behind it. */
 function deskRepliedAndHeld(file: CaseFile): void {
     setHold(file, { approver: BEN, reason: 'money: How much', exception: 'money' }, { now: now('2026-09-11T10:00:01.000Z') });
-    const t = appendTurn(file, { at: '2026-09-11T10:00:02.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'Ben will come back to you on the price.', media: [], runId: 'run_desk', approver: DESK_APPROVER }, { now: now('2026-09-11T10:00:02.000Z') });
+    const t = appendTurn(file, { at: '2026-09-11T10:00:02.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'Let me check on the price and come straight back to you.', media: [], runId: 'run_desk', approver: DESK_APPROVER }, { now: now('2026-09-11T10:00:02.000Z') });
     if (!t.ok) throw new Error(t.reason);
 }
 

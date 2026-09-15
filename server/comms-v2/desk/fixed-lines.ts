@@ -18,24 +18,30 @@
  * have no source for, scoping that is not converging, a requested change of details, and a
  * customer asking for a call (checklist 7.1, 7.2). Those are the checklist's own wording and send
  * live; the knowledge base is not read for them.
+ *
+ * Every line is Ben's own voice, because the desk is Ben (brand-voice/whatsapp-comms.md, "Who you
+ * are"): none names Ben, the office or the team in the third person, and a line that needs an
+ * answer the desk does not have says so in the first person. The four knowledge-base defaults close
+ * with his "Thanks / Ben" sign-off; the short lines are woven into a reply and carry none.
+ * `first_contact_ack` introduces him in the first person ("Ben here"), which is not the third person.
  */
 export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp' | 'first_contact_ack' | 'no_source' | 'not_converging' | 'change_of_details' | 'callback_to_ben';
 
 export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
-    gas: "Thanks for getting in touch. Gas work isn't something we take on ourselves, so I've passed this to Ben and he'll come back to you.",
-    complaint: "I'm sorry to hear that. I've passed this straight to Ben and he'll come back to you personally.",
-    refund: "I've passed this straight to Ben and he'll come back to you on it personally.",
-    trust: "That's a fair question. I've passed it to Ben and he'll come back to you himself.",
-    money_to_ben: 'Ben will come back to you on the price.',
+    gas: "Thanks for getting in touch. We don't take on gas work, so a Gas Safe registered engineer is the one to call for this.\n\nThanks\nBen",
+    complaint: "I'm sorry to hear that. Leave it with me, I'll look into it properly and come back to you personally.\n\nThanks\nBen",
+    refund: "Understood. Let me go through the job and the payment, and I'll come back to you on it personally.\n\nThanks\nBen",
+    trust: "That's a fair question. Let me get you a proper answer rather than a quick one, and I'll come back to you.\n\nThanks\nBen",
+    money_to_ben: 'Let me check on the price and come straight back to you.',
     dates_with_quote: 'Dates come with your quote.',
-    date_change_to_ben: 'Ben will come back to you on the date.',
-    held_ack: "Thanks, I've passed this to Ben and he'll come back to you.",
+    date_change_to_ben: 'Let me check on the date and come straight back to you.',
+    held_ack: "Thanks, leave it with me and I'll come back to you.",
     move_to_whatsapp: "If it's easier, you can message us on WhatsApp on this same number.",
     first_contact_ack: 'Thanks for your enquiry - Ben here from Handy Services.',
-    no_source: "I've passed that one to Ben and he'll come back to you on it.",
-    not_converging: "I've passed this over to Ben so he can pick it up with you directly.",
-    change_of_details: "I've noted that and passed it to Ben to update your details.",
-    callback_to_ben: "I've passed that on to Ben and he'll call you back.",
+    no_source: 'Let me check on that one and come straight back to you.',
+    not_converging: 'Let me look at this properly and come back to you.',
+    change_of_details: "Thanks, I've noted that and I'll update your details.",
+    callback_to_ben: "No problem, I'll give you a call back.",
 };
 
 /** The four whose words are Ben's to review; a default for one of these sends in dry run only. The other kinds are Goal 1 wording and send live. */

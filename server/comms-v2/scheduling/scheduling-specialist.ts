@@ -168,7 +168,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     if (!changePossible && asks.includes('date_change')) {
         // Nothing is booked for them to move, so nothing holds for Ben: a promise that he will come back on
         // it would be one nobody keeps (the commitment guard refuses it). It is answered as when we could come.
-        brief.push('They asked to move a date, but nothing is booked for them to move: answer it as a question about when we could come. Never say Ben will come back to them on moving it or on the date, and never talk about moving or changing a booking.');
+        brief.push('They asked to move a date, but nothing is booked for them to move: answer it as a question about when we could come. Never say you will come back to them on moving it or on the date, and never talk about moving or changing a booking.');
         asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('availability') ? [] : ['availability']);
     }
     // A classification that never came back is not a turn that asked nothing: a date question the belt matched is still answered, because an unanswered date question is the one thing the desk may not do. A model that read no ask is taken at its word. The guess is the safer one rather than `theirs`: anything the diary did not plainly call `none`, a visit cancelled off them included, holds for Ben, because sending them to the picker with nothing reaching him is the worse way to be wrong.
@@ -198,11 +198,11 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             // second question they asked is the shelf's to give, and sits beside this without contradicting it.
             findings.fixedLines.push('date_change_to_ben');
             proposal.hold = { reason: 'date_unconfirmed', match: standing.reason };
-            brief.push('There is no date to confirm and they may be expecting one: include the fixed line that Ben will come back on the date, never say they are booked in, say nothing about why, and never name a day or a time of your own. Answer anything else they asked.');
+            brief.push('There is no date to confirm and they may be expecting one: include the fixed line that you will come back on the date, never say they are booked in, say nothing about why, and never name a day or a time of your own. Answer anything else they asked.');
             return;
         }
         // Why there is no date is Ben's to give, in his own words: a cancellation a customer reads from the desk is how a thread becomes a complaint.
-        brief.push('The diary has no booked date to confirm: say Ben will confirm the date, say nothing about why, and give no day, time or lead time.');
+        brief.push('The diary has no booked date to confirm: say you will confirm the date, say nothing about why, and give no day, time or lead time.');
     };
 
     // A date change is Ben's, and nothing about how soon we could come belongs beside it: the job they
@@ -217,7 +217,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         }
         findings.fixedLines.push('date_change_to_ben');
         proposal.hold = { reason: 'date_change', match: findings.dateChange };
-        brief.push('They want to change the date of a job they already have: that is Ben\'s to do. Include the fixed line that Ben will come back on the date, confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day, time or slot. Say nothing about how soon we could come, no typical lead time, and give no link for picking a date. Answer anything else they asked.');
+        brief.push('They want to change the date of a job they already have: that is not settled in this reply. Include the fixed line that you will come back on the date, confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day, time or slot. Say nothing about how soon we could come, no typical lead time, and give no link for picking a date. Answer anything else they asked.');
     } else {
         // The confirmation decides first, and everything else reads from it. It runs when they asked for
         // the day, and whenever the picker would otherwise have gone to somebody who booked on it already:
@@ -261,7 +261,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             // A date question answered with silence is the one thing the desk may not do, so Ben answers it.
             findings.fixedLines.push('date_change_to_ben');
             proposal.hold = { reason: 'date_unconfirmed', match: findings.picker && !findings.picker.ok ? findings.picker.reason : 'nothing to say about dates' };
-            brief.push('There is nothing to say about dates: include the fixed line that Ben will come back on the date, say nothing about why, and never name a day, a time or a lead time of your own. Answer anything else they asked.');
+            brief.push('There is nothing to say about dates: include the fixed line that you will come back on the date, say nothing about why, and never name a day, a time or a lead time of your own. Answer anything else they asked.');
         }
         if (!findings.picker?.ok && file.job.quoteRef && findings.picker) brief.push('There is no link to give for picking a date: give none, and say nothing about why.');
     }

@@ -146,10 +146,10 @@ export function briefLines(p: QuotingProposal): string[] {
     if (p.phase === 'draft') {
         if (p.drafted) {
             out.push(`quoting: drafted ${p.quoteRef} for Ben to price`);
-            out.push('the quote is with Ben to price: nothing about a price exists yet, so no figure; if this turn is a wrap-up, Ben will put the quote together and send it over, no timing');
+            out.push('the quote is with Ben to price: nothing about a price exists yet, so no figure; if this turn is a wrap-up, you will put the quote together and send it over, no timing');
         } else {
             out.push(`quoting: draft failed (${p.draftError ?? 'unknown'})`);
-            out.push('nothing has been built for this job and Ben has the thread now: promise nothing about a price, a document or when anything happens, and give no figure; acknowledge what they said in one line and say Ben will come back to them himself');
+            out.push('nothing has been built for this job and Ben has the thread now: promise nothing about a price, a document or when anything happens, and give no figure; acknowledge what they said in one line and say you will come back to them yourself');
         }
     } else if (p.phase === 'with_ben') {
         out.push(`quoting: ${p.quoteRef} with Ben to price`);
@@ -158,11 +158,11 @@ export function briefLines(p: QuotingProposal): string[] {
         } else out.push(`if they ask about the quote: it is with Ben and on its way (fact ${ids.status ?? 'none'}); no figure, no timing`);
     } else if (p.phase === 'stale') {
         out.push(`quoting: ${p.quoteRef} is ${p.status}`);
-        out.push(`the quote is ${p.status} (fact ${ids.status ?? 'none'}): no figure may be read from it; say Ben will come back to them on the quote`);
+        out.push(`the quote is ${p.status} (fact ${ids.status ?? 'none'}): no figure may be read from it; say you will come back to them on the quote`);
     } else {
         out.push(`quoting: ${p.quoteRef} ${p.status}; ${ids.figures.length} figures on the file`);
         if (p.acceptedNow) {
-            out.push(`they accepted the quote on the quote page (fact ${ids.status ?? 'none'}) and Ben has been told: thank them, say Ben has been told and will be in touch about the day; no date, no time, no other promise, no question`);
+            out.push(`they accepted the quote on the quote page (fact ${ids.status ?? 'none'}) and Ben has been told: thank them, say you have it and will be in touch about the day; no date, no time, no other promise, no question`);
         } else if (p.acceptanceInChat || p.beyondQuoteLine) {
             // One turn can do both - "yes, go ahead, any chance of a discount for cash?" - and each
             // is owed its own instruction: the card carries the money question to Ben, and the yes
@@ -174,11 +174,11 @@ export function briefLines(p: QuotingProposal): string[] {
             out.push(`answer from the quote only. Figures on it, each copied exactly as written on its fact and its fact id cited: ${figureList || 'none'}${asked.length ? `; they asked about: ${asked.join(', ')}` : ''}`);
             for (const title of sharedTitles) {
                 const facts = ids.figures.filter((f) => f.shared && f.label === title).map((f) => `fact ${f.factId}`);
-                out.push(`"${title}" is the title of ${facts.length} lines on the quote: the title is shared, so no figure may be read for it; give none of ${facts.join(', ')} and say Ben will come back to them on it`);
+                out.push(`"${title}" is the title of ${facts.length} lines on the quote: the title is shared, so no figure may be read for it; give none of ${facts.join(', ')} and say you will come back to them on it`);
             }
             if (ids.scope.length) out.push(`what each line covers: facts ${ids.scope.join(', ')}${ids.notIncluded.length ? `; not included: ${ids.notIncluded.join(', ')}` : ''}${ids.assumptions.length ? `; what happens on the day (the quote's assumptions): ${ids.assumptions.join(', ')}` : ''}`);
             if (ids.link) out.push(`the quote link is fact ${ids.link}; dates are picked on it`);
-            out.push('anything about money beyond these figures: say Ben will come back to them on it');
+            out.push('anything about money beyond these figures: say you will come back to them on it');
         }
     }
     if (p.beyondQuoteLine && p.phase !== 'sent' && p.phase !== 'accepted') out.push('their money question is beyond a line of the quote: give no figure and do not answer it, Ben\'s fixed line in this reply covers it');

@@ -75,10 +75,12 @@ export function ordinalDays(text: string): string[] {
 }
 
 /**
- * A promise that Ben will come back to the customer. Allowed wherever a hold reaches Ben to keep it;
- * the commitment guard refuses it on a request to move a date when no hold does (guards.ts).
+ * A promise that Ben will come back to the customer, in the third person or in his own first person
+ * ("I'll come back to you", "let me check and come straight back to you"). Allowed wherever a hold
+ * reaches Ben to keep it; the commitment guard refuses it on a request to move a date when no hold
+ * does (guards.ts).
  */
-export const RE_BEN_COMES_BACK = /\b(?:ben|he|she|someone|one of (?:us|the team)|the team|we)\b[^.?!\n]{0,40}\b(?:will|['’]ll|can|is going to)\b[^.?!\n]{0,40}\b(?:be in touch|come back|get back|let you know|confirm|call|ring|phone)\b/i;
+export const RE_BEN_COMES_BACK = /\b(?:ben|he|she|i|someone|one of (?:us|the team)|the team|we)\b[^.?!\n]{0,40}\b(?:will|['’]ll|can|is going to)\b[^.?!\n]{0,40}\b(?:be in touch|come back|get back|let you know|confirm|call|ring|phone)\b|\blet me\b[^.?!\n]{0,40}\b(?:come (?:straight )?back|get back|confirm)\b/i;
 
 /**
  * A promise to do, fix or guarantee something, a claim that a change to the customer's details is

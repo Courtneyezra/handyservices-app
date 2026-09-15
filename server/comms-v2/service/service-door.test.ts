@@ -63,7 +63,8 @@ describe('Goal 6 on the door', () => {
     it('a complaint sits with Ben, the state says so, and the chase intervals take test values', async () => {
         const st = await call('GET', '/');
         expect(st.json.automation).toMatchObject({ state: 'with_approver', approver: 'ben' });
-        expect(st.json.messages.map((m: any) => m.content)).toEqual(['Your last job was rubbish', DEFAULT_FIXED_LINES.complaint]);
+        // The turn records the line's bubbles joined on a line break: the body, then the "Thanks / Ben" sign-off.
+        expect(st.json.messages.map((m: any) => m.content)).toEqual(['Your last job was rubbish', DEFAULT_FIXED_LINES.complaint.split('\n\n').join('\n')]);
         expect((await call('POST', '/chase-intervals', { chaseAfterMinutes: 0, escalateAfterMinutes: 5 })).status).toBe(400);
         const set = await call('POST', '/chase-intervals', { chaseAfterMinutes: 30, escalateAfterMinutes: 60 });
         expect(set.json).toMatchObject({ ok: true, intervals: { chaseAfterMinutes: 30, escalateAfterMinutes: 60 }, recipients: { ben: { address: '+447700900901' }, owner: { address: '+447700900902' } } });

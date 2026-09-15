@@ -60,11 +60,15 @@ export function normaliseForSms(text: string): string {
         .replace(/\r\n/g, '\n');
 }
 
+/** Ben's two-line "Thanks / Ben" sign-off (desk/fixed-lines.ts); kept here rather than imported, since the sender imports this adapter. */
+const RE_SIGN_OFF_PARAGRAPH = /^\s*thanks\s*\n\s*ben\s*$/i;
+
 /** One message: the composer's bubbles joined on single line breaks, or a person's words as typed; empty or over two segments is refused. */
 export function renderSms(reply: string, opts: RenderOptions = {}): RenderResult {
     const text = opts.asTyped
         ? reply.replace(/\r\n/g, '\n').split('\n').map((l) => l.trimEnd()).join('\n').trim()
-        : normaliseForSms(reply).split(/\n\s*\n+/).map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean).join('\n');
+        // The sign-off keeps its line break: folded, "Thanks Ben" reads as the customer thanking Ben.
+        : normaliseForSms(reply).split(/\n\s*\n+/).map((p) => RE_SIGN_OFF_PARAGRAPH.test(p) ? 'Thanks\nBen' : p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean).join('\n');
     if (!text) return { ok: false, reason: 'empty', bubbles: [] };
     const bubble: RenderedBubble = { text, gapMs: 0 };
     if (smsSegmentCount(text) > SMS_MAX_SEGMENTS) return { ok: false, reason: 'ceiling', bubbles: [bubble] };

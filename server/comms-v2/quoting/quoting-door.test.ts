@@ -61,8 +61,8 @@ beforeAll(async () => {
                 if (/failed these checks/.test(user)) return { reply: `Your quote is ready, Sam.\n\nEverything is on the link: ${link}\n\nJust reply here with any questions.`, factIds: [], kbIds: [] };
                 return { reply: `Your quote is ready, Sam, £120.00 all in.\n\nEverything is on the link: ${link}`, factIds: [], kbIds: [] };
             }
-            if (/beyond a line of the quote/.test(user)) return { reply: 'Ben will come back to you on the price.', factIds: [], kbIds: [] };
-            return { reply: 'Hi Sam, a leaking kitchen tap in NG9, got it.\n\nThat is everything needed for now, Ben will put the quote together and send it over.', factIds: [], kbIds: [] };
+            if (/beyond a line of the quote/.test(user)) return { reply: 'Let me check on the price and come straight back to you.', factIds: [], kbIds: [] };
+            return { reply: 'Hi Sam, a leaking kitchen tap in NG9, got it.\n\nThat is everything needed for now, I\'ll put the quote together and send it over.', factIds: [], kbIds: [] };
         },
     });
     mediaDir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-quoting-door-'));
