@@ -80,7 +80,7 @@ describe('<CommsV2BoardPage>', () => {
             id: 'case_held', stage: 'first_contact', mode: 'sandbox',
             party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
             job: { type: null, location: null, quoteRef: null, bookingRef: null },
-            turns: [{ id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?' }],
+            turns: [{ id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?', media: [] }],
             facts: [],
             hold: { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint', since: new Date().toISOString(), draft: 'Hi, I can knock a little off for you.' },
             holdApproverAssigned: true,
@@ -170,9 +170,9 @@ describe('<CommsV2BoardPage>', () => {
             party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
             job: { type: 'leaking tap', location: 'SW11', quoteRef: 'Q-1', bookingRef: null },
             turns: [
-                { id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?' },
-                { id: 't2', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Ben will come back to you on the price.', approver: 'agent.comms_v2' },
-                { id: 't3', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Morning Sam, let me look at that.', approver: 'human:ben@handyservices.app' },
+                { id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?', media: [] },
+                { id: 't2', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Ben will come back to you on the price.', approver: 'agent.comms_v2', media: [] },
+                { id: 't3', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Morning Sam, let me look at that.', approver: 'human:ben@handyservices.app', media: [] },
             ],
             facts: [],
             hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
@@ -193,10 +193,12 @@ describe('<CommsV2BoardPage>', () => {
         await user.click(screen.getByTestId('board-card-case_held'));
 
         await waitFor(() => expect(screen.getByTestId('answer-form')).toBeTruthy());
-        // Ben can tell his own turn from the desk's on the card itself.
-        expect(screen.getByTestId('turn-meta-t2').textContent).toContain('agent.comms_v2');
-        expect(screen.getByTestId('turn-meta-t3').textContent).toContain('human:ben@handyservices.app');
-        expect(screen.getByTestId('turn-meta-t1').textContent).not.toContain('human:ben@handyservices.app');
+        // Ben can tell his own turn from the desk's on the card itself, labelled by name rather than system identity.
+        expect(screen.getByTestId('turn-speaker-t2').textContent).toBe('Desk');
+        expect(screen.getByTestId('turn-speaker-t3').textContent).toBe('ben@handyservices.app');
+        expect(screen.getByTestId('turn-speaker-t1').textContent).toBe('Held Customer');
+        expect(screen.getByTestId('turn-meta-t2').textContent).not.toContain('agent.comms_v2');
+        expect(screen.getByTestId('turn-meta-t3').textContent).not.toContain('human:ben@handyservices.app');
 
         await user.type(screen.getByLabelText('Your reply to the customer'), 'That one is £120 fitted, as on your quote.');
         await user.click(screen.getByRole('button', { name: /send as me/i }));

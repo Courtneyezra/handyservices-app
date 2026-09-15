@@ -16,7 +16,7 @@
  * sends the next customer message through the board's own sandbox door. Polls every fifteen
  * seconds; no websockets.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Clock, Loader2, MessageSquare, Send } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +24,9 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+
+/** How often an open case file re-checks for new turns; matches the board query's own interval. */
+const CASE_FILE_REFETCH_MS = 15_000;
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -73,6 +76,13 @@ export interface Board {
     columns: Record<Stage, BoardCard[]>;
 }
 
+export interface TurnMedia {
+    id: string;
+    kind: 'image' | 'video';
+    mime: string;
+    url: string | null;
+}
+
 export interface Turn {
     id: string;
     at: string;
@@ -80,8 +90,29 @@ export interface Turn {
     direction: 'inbound' | 'outbound';
     kind: string;
     body: string;
+    media: TurnMedia[];
     /** Outbound only: who sent it, `human:<their email or user id>` for a person, `agent.comms_v2` for the desk. */
     approver?: string | null;
+}
+
+/** Who a turn reads as in the thread: the customer on one side, the desk or Ben on the other. */
+function speakerOf(turn: Turn, customerName: string | null): string {
+    if (turn.direction === 'inbound') return customerName || 'Customer';
+    if (!turn.approver || turn.approver === 'agent.comms_v2') return 'Desk';
+    if (turn.approver.startsWith('human:')) return turn.approver.slice('human:'.length) || 'Ben';
+    return turn.approver;
+}
+
+function TurnMediaView({ media }: { media: TurnMedia }) {
+    if (!media.url) return null;
+    if (media.kind === 'image') {
+        return (
+            <a href={media.url} target="_blank" rel="noreferrer">
+                <img src={media.url} alt="" className="mb-1 max-h-56 w-full max-w-[240px] rounded-md object-cover" loading="lazy" />
+            </a>
+        );
+    }
+    return <video src={media.url} controls preload="metadata" className="mb-1 max-h-56 w-full max-w-[280px] rounded-md bg-black" />;
 }
 
 export interface Fact {
@@ -345,14 +376,26 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId:
             if (!res.ok) throw new Error(`Failed to load case file (${res.status})`);
             return res.json();
         },
+        refetchInterval: CASE_FILE_REFETCH_MS,
     });
+
+    const threadEndRef = useRef<HTMLDivElement>(null);
+    const scrolledForFileRef = useRef<string | null>(null);
+    useEffect(() => {
+        // Scroll to the newest turn once per open sheet, not on every 15s refetch.
+        if (!data || scrolledForFileRef.current === fileId) return;
+        scrolledForFileRef.current = fileId;
+        threadEndRef.current?.scrollIntoView({ block: 'end' });
+    }, [data, fileId]);
 
     if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>;
     if (error || !data) return <p className="text-sm text-red-600">Could not load this case file.</p>;
 
+    const customerName = data.party?.name || data.party?.address || null;
+
     return (
-        <div className="space-y-4">
-            <div>
+        <div className="flex h-full flex-col">
+            <div className="shrink-0 border-b pb-3">
                 <p className="text-sm font-semibold">{data.party?.name || data.party?.address || 'Unknown'}</p>
                 <p className="text-xs text-muted-foreground">{data.party?.role} · {STAGE_LABELS[data.stage]} · {data.mode}</p>
                 {(data.job.type || data.job.location) && (
@@ -360,54 +403,60 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId:
                 )}
             </div>
 
-            {data.hold && (
-                <ReleaseForm
-                    fileId={data.id}
-                    holdReason={data.hold.reason}
-                    holdApprover={data.hold.approver.id}
-                    holdApproverAssigned={data.holdApproverAssigned}
-                    draft={data.hold.draft}
-                    onReleased={onReleased}
-                />
-            )}
-
-            <AnswerForm fileId={data.id} held={!!data.hold} onAnswered={onAnswered} />
-
-            <div>
-                <h4 className="mb-2 flex items-center gap-1 text-xs font-semibold uppercase text-muted-foreground">
+            <div className="flex-1 space-y-2 overflow-y-auto py-3">
+                <h4 className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase text-muted-foreground">
                     <MessageSquare className="h-3 w-3" /> Turns
                 </h4>
                 <ul className="space-y-2">
                     {data.turns.map((t) => (
-                        <li
-                            key={t.id}
-                            className={cn(
-                                'rounded-md border px-2 py-1.5 text-sm',
-                                t.direction === 'inbound' ? 'bg-background' : 'ml-6 bg-primary/5',
-                            )}
-                        >
-                            <p className="whitespace-pre-wrap">{t.body}</p>
-                            <p data-testid={`turn-meta-${t.id}`} className="mt-0.5 text-[10px] text-muted-foreground">
-                                {t.direction === 'outbound' ? `${t.approver ?? 'desk'} · ` : ''}{t.channel} · {relativeTime(t.at)}
-                            </p>
+                        <li key={t.id} className={cn('flex', t.direction === 'inbound' ? 'justify-start' : 'justify-end')}>
+                            <div
+                                data-testid={`turn-bubble-${t.id}`}
+                                className={cn(
+                                    'max-w-[85%] rounded-2xl px-3 py-2 text-sm',
+                                    t.direction === 'inbound' ? 'bg-muted' : 'bg-primary/10',
+                                )}
+                            >
+                                <p data-testid={`turn-speaker-${t.id}`} className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{speakerOf(t, customerName)}</p>
+                                {(t.media ?? []).map((m) => <TurnMediaView key={m.id} media={m} />)}
+                                {t.body && <p className="whitespace-pre-wrap">{t.body}</p>}
+                                <p data-testid={`turn-meta-${t.id}`} className="mt-0.5 text-[10px] text-muted-foreground">
+                                    {t.channel} · {relativeTime(t.at)}
+                                </p>
+                            </div>
                         </li>
                     ))}
                 </ul>
+                <div ref={threadEndRef} />
+
+                {data.facts.length > 0 && (
+                    <div className="pt-2">
+                        <h4 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Facts</h4>
+                        <ul className="space-y-1 text-xs">
+                            {data.facts.map((f) => (
+                                <li key={f.id} className="flex justify-between gap-2">
+                                    <span className="text-muted-foreground">{f.key}</span>
+                                    <span className="font-medium">{f.value}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
             </div>
 
-            {data.facts.length > 0 && (
-                <div>
-                    <h4 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">Facts</h4>
-                    <ul className="space-y-1 text-xs">
-                        {data.facts.map((f) => (
-                            <li key={f.id} className="flex justify-between gap-2">
-                                <span className="text-muted-foreground">{f.key}</span>
-                                <span className="font-medium">{f.value}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
+            <div className="shrink-0 space-y-3 border-t pt-3">
+                {data.hold && (
+                    <ReleaseForm
+                        fileId={data.id}
+                        holdReason={data.hold.reason}
+                        holdApprover={data.hold.approver.id}
+                        holdApproverAssigned={data.holdApproverAssigned}
+                        draft={data.hold.draft}
+                        onReleased={onReleased}
+                    />
+                )}
+                <AnswerForm fileId={data.id} held={!!data.hold} onAnswered={onAnswered} />
+            </div>
         </div>
     );
 }
@@ -564,12 +613,12 @@ export default function CommsV2BoardPage() {
             )}
 
             <Sheet open={!!openCardId} onOpenChange={(open) => !open && setOpenCardId(null)}>
-                <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
-                    <SheetHeader>
+                <SheetContent className="flex w-full flex-col overflow-hidden sm:max-w-lg">
+                    <SheetHeader className="shrink-0">
                         <SheetTitle>Case file</SheetTitle>
-                        <SheetDescription>Turns and facts, with the release and answer actions.</SheetDescription>
+                        <SheetDescription>The conversation, with the release and answer actions docked below it.</SheetDescription>
                     </SheetHeader>
-                    {openCardId && <div className="mt-4"><CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} /></div>}
+                    {openCardId && <div className="mt-4 min-h-0 flex-1"><CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} /></div>}
                 </SheetContent>
             </Sheet>
         </div>
