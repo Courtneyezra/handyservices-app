@@ -8,11 +8,21 @@
  * replies read apart from the desk's, and a refusal from the sender is shown inline with the sheet
  * still open and his words kept so he can fix them.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch } from '@test-utils';
 import CommsV2BoardPage, { type Board, type BoardCard, type CaseFileDetail, STAGES } from '@/pages/admin/CommsV2BoardPage';
+
+/** jsdom has no matchMedia; the docked-panel tests stub it wide, others leave it absent (narrow). */
+function stubViewport(wide: boolean) {
+    const mq = (query: string) => ({ matches: wide && query.includes('min-width'), media: query, onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false });
+    Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: vi.fn(mq) });
+}
+
+afterEach(() => {
+    delete (window as any).matchMedia;
+});
 
 function card(over: Partial<BoardCard> = {}): BoardCard {
     return {
@@ -240,5 +250,38 @@ describe('<CommsV2BoardPage>', () => {
         await waitFor(() => expect(screen.getByTestId('answer-error').textContent).toContain('window is shut'));
         expect(screen.queryByTestId('answer-sent')).toBeNull();
         expect((words as HTMLTextAreaElement).value).toBe('Morning Sam, I will take a look.');
+    });
+
+    it('on a wide screen the conversation docks in a permanent panel beside the board instead of a sheet', async () => {
+        stubViewport(true);
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        const detail: CaseFileDetail = {
+            id: 'case_held', stage: 'first_contact', mode: 'sandbox',
+            party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
+            job: { type: null, location: null, quoteRef: null, bookingRef: null },
+            turns: [{ id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?', media: [] }],
+            facts: [],
+            hold: { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint', since: new Date().toISOString(), draft: null },
+            holdApproverAssigned: true,
+        };
+        mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+        ]);
+
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+
+        // Before a card is opened, the docked panel is already there with a placeholder.
+        expect(screen.getByTestId('docked-case-file-panel')).toBeTruthy();
+        expect(screen.getByText(/Select a case file/)).toBeTruthy();
+
+        await user.click(screen.getByTestId('board-card-case_held'));
+        await waitFor(() => expect(screen.getByText('Can you do it for less?')).toBeTruthy());
+
+        // It docked, not overlaid: no sheet role, and the board columns are still in the document.
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.getByTestId('board-column-first_contact')).toBeTruthy();
     });
 });

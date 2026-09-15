@@ -28,6 +28,28 @@ import { cn } from '@/lib/utils';
 /** How often an open case file re-checks for new turns; matches the board query's own interval. */
 const CASE_FILE_REFETCH_MS = 15_000;
 
+/**
+ * Kanban + docked conversation panel (hsa-comms-v2-ben-board-layouts-s33, option 01): at this width
+ * and up the board and the open case file sit side by side, permanent rather than an overlay sheet.
+ * Below it, a full-screen sheet, chat-first, with a way back to the board. jsdom has no matchMedia:
+ * defaults to narrow, which is the existing sheet behaviour every current test exercises.
+ */
+const WIDE_BOARD_QUERY = '(min-width: 1024px)';
+
+export function useIsWideBoard(): boolean {
+    const [wide, setWide] = useState<boolean>(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(WIDE_BOARD_QUERY).matches : false);
+    useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+        const mq = window.matchMedia(WIDE_BOARD_QUERY);
+        const on = () => setWide(mq.matches);
+        on();
+        if (typeof mq.addEventListener === 'function') { mq.addEventListener('change', on); return () => mq.removeEventListener('change', on); }
+        mq.addListener?.(on);
+        return () => mq.removeListener?.(on);
+    }, []);
+    return wide;
+}
+
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -620,6 +642,7 @@ export default function CommsV2BoardPage() {
     const queryClient = useQueryClient();
     const [filters, setFilters] = useState<BoardFilters>({ heldOnly: false, mode: 'all' });
     const [openCardId, setOpenCardId] = useState<string | null>(null);
+    const wide = useIsWideBoard();
 
     const { data, isLoading, error } = useQuery<Board>({
         queryKey: ['comms-v2-board', filters],
@@ -655,36 +678,53 @@ export default function CommsV2BoardPage() {
                 </div>
             </div>
 
-            {error ? (
-                <div className="m-4 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-500">
-                    <AlertTriangle className="h-4 w-4" /> Could not load the board - retrying automatically.
-                </div>
-            ) : isLoading ? (
-                <div className="flex flex-1 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-            ) : (
-                <div className="flex-1 overflow-x-auto overflow-y-hidden p-4">
-                    <div className="flex h-full gap-3">
-                        {(data?.stages ?? STAGES).map((stage) => (
-                            <BoardColumn
-                                key={stage}
-                                stage={stage}
-                                cards={data?.columns[stage] ?? []}
-                                onOpenCard={setOpenCardId}
-                            />
-                        ))}
+            <div className="flex min-h-0 flex-1">
+                {error ? (
+                    <div className="m-4 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-500">
+                        <AlertTriangle className="h-4 w-4" /> Could not load the board - retrying automatically.
                     </div>
-                </div>
-            )}
+                ) : isLoading ? (
+                    <div className="flex flex-1 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+                ) : (
+                    <div className="flex-1 overflow-x-auto overflow-y-hidden p-4">
+                        <div className="flex h-full gap-3">
+                            {(data?.stages ?? STAGES).map((stage) => (
+                                <BoardColumn
+                                    key={stage}
+                                    stage={stage}
+                                    cards={data?.columns[stage] ?? []}
+                                    onOpenCard={setOpenCardId}
+                                />
+                            ))}
+                        </div>
+                    </div>
+                )}
 
-            <Sheet open={!!openCardId} onOpenChange={(open) => !open && setOpenCardId(null)}>
-                <SheetContent className="flex w-full flex-col overflow-hidden sm:max-w-lg">
-                    <SheetHeader className="shrink-0">
-                        <SheetTitle>Case file</SheetTitle>
-                        <SheetDescription>The conversation, with the release and answer actions docked below it.</SheetDescription>
-                    </SheetHeader>
-                    {openCardId && <div className="mt-4 min-h-0 flex-1"><CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} /></div>}
-                </SheetContent>
-            </Sheet>
+                {wide && (
+                    <aside data-testid="docked-case-file-panel" className="flex w-[420px] shrink-0 flex-col overflow-hidden border-l bg-background p-4">
+                        {openCardId ? (
+                            <CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} />
+                        ) : (
+                            <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center text-sm text-muted-foreground">
+                                <MessageSquare className="h-5 w-5 opacity-60" />
+                                <p>Select a case file to see the conversation.</p>
+                            </div>
+                        )}
+                    </aside>
+                )}
+            </div>
+
+            {!wide && (
+                <Sheet open={!!openCardId} onOpenChange={(open) => !open && setOpenCardId(null)}>
+                    <SheetContent className="flex w-full flex-col overflow-hidden sm:max-w-lg">
+                        <SheetHeader className="shrink-0">
+                            <SheetTitle>Case file</SheetTitle>
+                            <SheetDescription>The conversation, with the release and answer actions docked below it.</SheetDescription>
+                        </SheetHeader>
+                        {openCardId && <div className="mt-4 min-h-0 flex-1"><CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} /></div>}
+                    </SheetContent>
+                </Sheet>
+            )}
         </div>
     );
 }
