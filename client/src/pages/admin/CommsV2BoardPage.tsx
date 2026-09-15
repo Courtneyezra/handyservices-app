@@ -117,11 +117,19 @@ export interface Turn {
     approver?: string | null;
 }
 
-/** Who a turn reads as in the thread: the customer on one side, the desk or Ben on the other. */
-function speakerOf(turn: Turn, customerName: string | null): string {
+/**
+ * Who a turn reads as in the thread: the customer on one side, the desk or Ben's name on the
+ * other. A human turn is looked up by staff name (`speakerNames`, from the `users` table) rather
+ * than shown as its raw `human:<login>` approver; a login with no match falls back to its local
+ * part, still short of the full login.
+ */
+function speakerOf(turn: Turn, customerName: string | null, speakerNames: Record<string, string> = {}): string {
     if (turn.direction === 'inbound') return customerName || 'Customer';
     if (!turn.approver || turn.approver === 'agent.comms_v2') return 'Desk';
-    if (turn.approver.startsWith('human:')) return turn.approver.slice('human:'.length) || 'Ben';
+    if (turn.approver.startsWith('human:')) {
+        const login = turn.approver.slice('human:'.length);
+        return speakerNames[login.toLowerCase()] || login.split('@')[0] || 'Ben';
+    }
     return turn.approver;
 }
 
@@ -155,6 +163,8 @@ export interface CaseFileDetail {
     facts: Fact[];
     hold: { approver: { kind: string; id: string }; reason: string; since: string; draft: string | null } | null;
     holdApproverAssigned: boolean;
+    /** login (lowercased) -> staff name, for every human turn on the file. */
+    speakerNames?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------- filters
@@ -351,10 +361,12 @@ export function ReleaseForm({ fileId, holdReason, holdApprover, holdApproverAssi
  * words go as typed, so nothing here rewrites or checks them; a refusal from the sender comes back
  * named and is shown here for him to fix rather than held quietly.
  */
-export function AnswerForm({ fileId, held, onAnswered }: {
+export function AnswerForm({ fileId, held, onAnswered, lastInboundTurnId }: {
     fileId: string;
     held: boolean;
     onAnswered: () => void;
+    /** The newest inbound turn's id: a fresh customer message may have reopened the window, so a stale refusal is cleared rather than kept showing. */
+    lastInboundTurnId: string | null;
 }) {
     const [words, setWords] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -362,6 +374,11 @@ export function AnswerForm({ fileId, held, onAnswered }: {
     const [busy, setBusy] = useState(false);
     const [templateBusy, setTemplateBusy] = useState(false);
     const [templateError, setTemplateError] = useState<string | null>(null);
+
+    useEffect(() => {
+        setError(null);
+        setTemplateError(null);
+    }, [lastInboundTurnId]);
 
     const answer = async () => {
         setBusy(true);
@@ -491,6 +508,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId:
     if (error || !data) return <p className="text-sm text-red-600">Could not load this case file.</p>;
 
     const customerName = data.party?.name || data.party?.address || null;
+    const lastInboundTurnId = [...data.turns].reverse().find((t) => t.direction === 'inbound')?.id ?? null;
 
     return (
         <div className="flex h-full flex-col">
@@ -516,7 +534,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId:
                                     t.direction === 'inbound' ? 'bg-muted' : 'bg-primary/10',
                                 )}
                             >
-                                <p data-testid={`turn-speaker-${t.id}`} className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{speakerOf(t, customerName)}</p>
+                                <p data-testid={`turn-speaker-${t.id}`} className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{speakerOf(t, customerName, data.speakerNames)}</p>
                                 {(t.media ?? []).map((m) => <TurnMediaView key={m.id} media={m} />)}
                                 {t.body && <p className="whitespace-pre-wrap">{t.body}</p>}
                                 <p data-testid={`turn-meta-${t.id}`} className="mt-0.5 text-[10px] text-muted-foreground">
@@ -562,7 +580,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered }: { fileId:
                         onReleased={onReleased}
                     />
                 )}
-                <AnswerForm fileId={data.id} held={!!data.hold} onAnswered={onAnswered} />
+                <AnswerForm fileId={data.id} held={!!data.hold} onAnswered={onAnswered} lastInboundTurnId={lastInboundTurnId} />
             </div>
         </div>
     );

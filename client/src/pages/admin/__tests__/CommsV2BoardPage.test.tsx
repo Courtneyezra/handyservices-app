@@ -185,10 +185,12 @@ describe('<CommsV2BoardPage>', () => {
                 { id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?', media: [] },
                 { id: 't2', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Ben will come back to you on the price.', approver: 'agent.comms_v2', media: [] },
                 { id: 't3', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Morning Sam, let me look at that.', approver: 'human:ben@handyservices.app', media: [] },
+                { id: 't4', at: new Date().toISOString(), channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Cover for Ben today.', approver: 'human:unknown-cover@handyservices.app', media: [] },
             ],
             facts: [],
             hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
             holdApproverAssigned: true,
+            speakerNames: { 'ben@handyservices.app': 'Ben Real' },
         };
 
         const { calls } = mockFetch([
@@ -205,9 +207,11 @@ describe('<CommsV2BoardPage>', () => {
         await user.click(screen.getByTestId('board-card-case_held'));
 
         await waitFor(() => expect(screen.getByTestId('answer-form')).toBeTruthy());
-        // Ben can tell his own turn from the desk's on the card itself, labelled by name rather than system identity.
+        // Ben can tell his own turn from the desk's on the card itself, labelled by his resolved staff name rather than system identity.
         expect(screen.getByTestId('turn-speaker-t2').textContent).toBe('Desk');
-        expect(screen.getByTestId('turn-speaker-t3').textContent).toBe('ben@handyservices.app');
+        expect(screen.getByTestId('turn-speaker-t3').textContent).toBe('Ben Real');
+        // No staff row matched this login, so it falls back to the login's local part, still short of the full login.
+        expect(screen.getByTestId('turn-speaker-t4').textContent).toBe('unknown-cover');
         expect(screen.getByTestId('turn-speaker-t1').textContent).toBe('Held Customer');
         expect(screen.getByTestId('turn-meta-t2').textContent).not.toContain('agent.comms_v2');
         expect(screen.getByTestId('turn-meta-t3').textContent).not.toContain('human:ben@handyservices.app');
@@ -290,6 +294,45 @@ describe('<CommsV2BoardPage>', () => {
         expect(screen.getByTestId('send-template-unavailable').textContent).toContain('customer needs to write again');
         expect(screen.queryByRole('button', { name: /send a template reply/i })).toBeNull();
         expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/send-template'))).toHaveLength(1);
+    });
+
+    it('a fresh customer message that reopens the window, arriving through the live refresh, clears the stale shut-window prompt', async () => {
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        const staleDetail: CaseFileDetail = {
+            id: 'case_held', stage: 'first_contact', mode: 'sandbox', party: null,
+            job: { type: null, location: null, quoteRef: null, bookingRef: null },
+            turns: [], facts: [],
+            hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
+            holdApproverAssigned: true,
+        };
+        const reopenedDetail: CaseFileDetail = {
+            ...staleDetail,
+            turns: [{ id: 't5', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Still there?', media: [] }],
+        };
+        let detailCalls = 0;
+        mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detailCalls++ === 0 ? staleDetail : reopenedDetail }) },
+            {
+                method: 'POST', url: '/api/comms-v2/case-files/case_held/answer',
+                reply: () => ({ status: 409, json: { error: 'the whatsapp window is shut (no message in 24 hours); a shut window never carries freeform words' } }),
+            },
+        ]);
+
+        const { client } = renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await user.click(screen.getByTestId('board-card-case_held'));
+
+        await user.type(await screen.findByLabelText('Your reply to the customer'), 'Morning Sam.');
+        await user.click(screen.getByRole('button', { name: /send as me/i }));
+        await waitFor(() => expect(screen.getByTestId('send-template-option')).toBeTruthy());
+
+        // The customer writes again while the pane stays open (the live refresh this feature exists for); the stale "window is shut" prompt must not survive it.
+        await client.refetchQueries({ queryKey: ['comms-v2-case-file', 'case_held'] });
+        await waitFor(() => expect(screen.getByTestId('turn-bubble-t5')).toBeTruthy());
+        expect(screen.queryByTestId('send-template-option')).toBeNull();
+        expect(screen.queryByTestId('answer-error')).toBeNull();
     });
 
     it('a template that IS true for the thread sends on one tap', async () => {

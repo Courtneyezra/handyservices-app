@@ -34,6 +34,7 @@ import { approverFor } from './guards';
 import { clauseAsks, offersCall } from './lexicon';
 import { chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateStatusSource } from './sender';
 import { humanApprover, type Approver } from '../../approver';
+import { truncateWords } from '../channels/envelope';
 
 export interface HumanReplyInput {
     file: CaseFile;
@@ -228,7 +229,7 @@ export async function sendWindowTemplate(input: SendWindowTemplateInput, deps: C
     if (link) {
         pick = await pickTemplate('quote_ready', { name: party.name, topic: link, link, at: now() }, templates);
     } else if (unansweredQuestion(file, turn)) {
-        pick = await pickTemplate('service_reply', { name: party.name, topic: turn.body, at: now() }, templates);
+        pick = await pickTemplate('service_reply', { name: party.name, topic: file.job.type ?? truncateWords(turn.body, 60), at: now() }, templates);
     } else {
         return refuse('no template is true for this thread: the customer needs to write again before a reply can go');
     }

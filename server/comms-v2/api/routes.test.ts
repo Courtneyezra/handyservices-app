@@ -43,7 +43,10 @@ beforeAll(async () => {
         if (email) (req as any).user = { id: `user_${email}`, email, role: 'admin' };
         next();
     });
-    app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => assignments));
+    const staffNames = async (emails: string[]) => Object.fromEntries(
+        emails.filter((e) => e.toLowerCase() === 'ben.real@handyservices.app').map((e) => [e.toLowerCase(), 'Ben Real']),
+    );
+    app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => assignments, undefined, undefined, staffNames));
     server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/comms-v2`;
 });
@@ -229,6 +232,8 @@ describe('Ben answers from the board', () => {
         const last = detail.json.turns[detail.json.turns.length - 1];
         expect(last).toMatchObject({ direction: 'outbound', approver: 'human:Ben.Real@handyservices.app' });
         expect(last.body).toContain('come back to you myself');
+        // The board resolves the raw approver login to the staff member's name, for the thread to show.
+        expect(detail.json.speakerNames).toEqual({ 'ben.real@handyservices.app': 'Ben Real' });
         expect(cardsOn((await call('GET', '/board?held=true')).json)).toEqual([]);
     });
 

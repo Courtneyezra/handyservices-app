@@ -39,7 +39,7 @@
  * no slot lists cannot release.
  */
 import { Router, type Response } from 'express';
-import { readApproverAssignments, slotOf, type ReadApproverAssignments } from './approvers';
+import { readApproverAssignments, readStaffNames, slotOf, type ReadApproverAssignments, type ReadStaffNames } from './approvers';
 import { boardOf, cardOf, detailOf, type BoardMode } from './board';
 import { boardSourceFor, commsV2BoardDoor, type BoardSource, type BoardSourceFor } from './store';
 import { release } from '../desk/case-file';
@@ -47,7 +47,7 @@ import { humanReply, sendHeldDraft, sendWindowTemplate } from '../desk/human-rep
 import type { SandboxDoor } from '../desk/sandbox-door';
 import { oldCommsRetired } from '../old-comms';
 
-export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired()): Router {
+export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames): Router {
     const router = Router();
     /** The store this request reads (api/store.ts): the live desk's while it is live, else the sandbox door's. Null once a 503 has been sent. */
     const source = async (res: Response): Promise<BoardSource | null> => {
@@ -78,7 +78,13 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         if (!src) return;
         const file = src.store.get(req.params.id);
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
-        res.json(detailOf(file, await approvers()));
+        const detail = detailOf(file, await approvers());
+        const humanEmails = detail.turns
+            .map((t) => t.approver)
+            .filter((a): a is string => !!a && a.startsWith('human:'))
+            .map((a) => a.slice('human:'.length));
+        const speakerNames = await names(humanEmails);
+        res.json({ ...detail, speakerNames });
     });
 
     router.post('/case-files/:id/release', async (req, res) => {

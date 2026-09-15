@@ -9,6 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { appendTurn, everAsked, open, hold as setHold, type ApproverSlot, type CaseFile, type Party } from './case-file';
+import { truncateWords } from '../channels/envelope';
 import { BEN } from './guards';
 import { humanReply, sendHeldDraft, sendWindowTemplate } from './human-reply';
 import { DESK_APPROVER, send, type TemplateStatusSource } from './sender';
@@ -383,6 +384,30 @@ describe('a template send on a shut window: only when the wording is true for th
         expect(out.result.bubbles[0].text).toContain('we have an answer');
         expect(file.hold).toBeNull();
         expect(file.sends[file.sends.length - 1]).toMatchObject({ approver: BEN_APPROVER, templateId: 'answer_ready_reopen_v1' });
+    });
+
+    it('a long unanswered question: the template quotes a word-bounded excerpt, not a raw mid-word slice of the customer\'s message', async () => {
+        const longBody = 'Hi, I was wondering if you could possibly tell me roughly how much it would cost to replace a broken window pane in the back bedroom?';
+        const r = open({
+            identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900942', propertyId: null, landlordId: null, name: 'Sam' },
+            channel: 'whatsapp', address: '+447700900942',
+            firstTurn: { at: AT, channel: 'whatsapp', kind: 'text', body: longBody, media: [] },
+        }, { now: now(AT) });
+        if (!r.ok) throw new Error(r.reason);
+        const { file } = { file: r.value };
+        const party = file.parties[0];
+        setHold(file, { approver: BEN, reason: 'a complaint', exception: null }, { now: now('2026-09-11T10:00:01.000Z') });
+        const ch = party.channels.find((c) => c.kind === 'whatsapp')!;
+        ch.lastInboundAt = '2026-09-09T10:00:00.000Z';
+
+        const out = await sendWindowTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, reopenApproved);
+
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        const expectedTopic = truncateWords(longBody, 60);
+        expect(expectedTopic.length).toBeLessThan(longBody.length);
+        expect(out.result.bubbles[0].text).toContain(`you asked us about ${expectedTopic} and we have an answer`);
+        expect(out.result.bubbles[0].text).not.toContain(longBody);
     });
 
     it('a question the desk has already answered: no template is offered, even though the row exists', async () => {
