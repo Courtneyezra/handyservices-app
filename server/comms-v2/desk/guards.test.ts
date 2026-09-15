@@ -119,7 +119,7 @@ describe('guards', () => {
         // A change of details is Ben's to make: the reply may pass it on, never say it is done.
         expect(runGuards(input("Thanks, I've updated your address for you.")).guards.commitment_fault.result).toBe('fail');
         expect(runGuards(input('Your details have been updated.')).guards.commitment_fault.result).toBe('fail');
-        expect(runGuards(input("I've noted that and passed it to Ben to update your details.")).guards.commitment_fault.result).toBe('pass');
+        expect(runGuards(input("Thanks, I've noted that and I'll update your details.")).guards.commitment_fault.result).toBe('pass');
     });
     it('commitment: a promise that Ben will come back on a move nothing holds for him fails; with the hold on the file it passes', () => {
         const unheld = runGuards(input('No problem - Ben will come back to you on moving it to the week after.', {}, 'Can we move it to the week after?'));
@@ -131,12 +131,16 @@ describe('guards', () => {
         expect(runGuards(input('No worries, someone will get back to you on that.', {}, 'Can we move it to the week after?')).guards.commitment_fault.result).toBe('fail');
         expect(runGuards(input("Thanks, we'll be in touch about the new date.", {}, 'Can we move it to the week after?')).guards.commitment_fault.result).toBe('fail');
         expect(runGuards(input('Ben will confirm that for you.', {}, 'Can we move it to the week after?')).guards.commitment_fault.result).toBe('fail');
+        // The desk speaks as Ben, so the same promise in his first person is the same promise.
+        expect(runGuards(input('Let me check on the date and come straight back to you.', {}, 'Can we move it to the week after?')).guards.commitment_fault.result).toBe('fail');
+        expect(runGuards(input("No problem, I'll come back to you on moving it.", {}, 'Can we move it to the week after?')).guards.commitment_fault.result).toBe('fail');
+        expect(runGuards(input('Let me check on that one and come straight back to you.', {}, 'Do you do guttering?')).guards.commitment_fault.result).toBe('pass');
         // Not a move request: the promise is the composer's ordinary answer to a question it has no fact for.
         expect(runGuards(input('Ben will come back to you on that.', {}, 'Do you do guttering?')).guards.commitment_fault.result).toBe('pass');
         expect(runGuards(input('Someone will get back to you on that.', {}, 'Do you do guttering?')).guards.commitment_fault.result).toBe('pass');
         const f = fixture('Can we move it to the week after?');
         expect(hold(f.file, { approver: { kind: 'human', id: 'ben' }, reason: 'date_change: move it', exception: 'date_change' }).ok).toBe(true);
-        expect(runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'Ben will come back to you on the date.', factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs: new Set() }).guards.commitment_fault.result).toBe('pass');
+        expect(runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'Let me check on the date and come straight back to you.', factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs: new Set() }).guards.commitment_fault.result).toBe('pass');
         expect(runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'Ben will confirm the date once we hear back.', factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null, liveQuoteRefs: new Set() }).guards.commitment_fault.result).toBe('pass');
     });
     it('business claim: fails without a reviewed knowledge-base citation whose body supports it', () => {

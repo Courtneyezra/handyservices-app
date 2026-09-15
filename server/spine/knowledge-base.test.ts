@@ -239,7 +239,8 @@ describe('3.4: the seed', () => {
         }
     });
     it('no seeded ANSWER asserts one of the four forbidden claims', () => {
-        const forbidden = [/free quote/i, /quotes are free/i, /no call.?out charge/i, /gas safe registered/i, /at no charge/i, /fix it free/i];
+        // Gas Safe is forbidden as a claim about us; the gas line may still point them at a Gas Safe registered engineer elsewhere.
+        const forbidden = [/free quote/i, /quotes are free/i, /no call.?out charge/i, /\b(?:we are|we're|our|us)\b[^.]{0,20}gas safe registered/i, /at no charge/i, /fix it free/i];
         for (const a of [...SEED_ANSWERS, ...SEED_FIXED_LINES]) {
             for (const re of forbidden) expect(a.approvedWords ?? '', `${a.id} / ${re}`).not.toMatch(re);
         }

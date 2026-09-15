@@ -278,7 +278,7 @@ describe('the Scheduling specialist', () => {
         // Why there is nothing to give is never in the notes: a reason handed to a writer can end up in the reply.
         expect(said).not.toMatch(/could not be read/);
         // Neither read gave anything, so the cell holds for Ben rather than answering a date question with silence.
-        expect(said).toMatch(/Ben will come back on the date/);
+        expect(said).toMatch(/you will come back on the date/);
         expect(r.scheduling.fixedLines).toEqual(['date_change_to_ben']);
         expect(r.proposal.hold).toMatchObject({ reason: 'date_unconfirmed' });
         expect(said).toMatch(/no link to give/);
@@ -324,7 +324,7 @@ describe('the Scheduling specialist', () => {
         expect(file.facts.find((f) => f.key === 'date_change_requested')).toBeUndefined();
         expect(file.job.bookingRef).toBeNull();
         // Nothing holds for Ben, so the composer is told not to promise he will come back on the move.
-        expect(r.brief.join(' ')).toMatch(/nothing is booked for them to move: answer it as a question about when we could come\. Never say Ben will come back/);
+        expect(r.brief.join(' ')).toMatch(/nothing is booked for them to move: answer it as a question about when we could come\. Never say you will come back/);
     });
 
     it('a date change the router flagged where the diary could not say whether the customer has a booking still holds for Ben, and only the run hears why', async () => {
@@ -569,7 +569,7 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.leadTime).toMatchObject({ ok: true, phrase: 'about 3 days' });
         expect(r.proposal.hold).toBeNull();
         expect(r.scheduling.fixedLines).toEqual([]);
-        expect(r.brief.join(' ')).not.toMatch(/Ben will come back on the date|no date to confirm/);
+        expect(r.brief.join(' ')).not.toMatch(/you will come back on the date|no date to confirm/);
         // The read still failed, so the run carries it even though the customer's question was answered.
         expect(r.error).toContain('connection lost');
     });
@@ -835,7 +835,7 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.fixedLines).toEqual(['dates_with_quote']);
         expect(r.proposal.hold).toBeNull();
         expect(file.facts.filter((f) => f.key === 'picker_link' || f.key === 'lead_time')).toEqual([]);
-        expect(r.brief.join(' ')).not.toMatch(/draft|Ben will come back/);
+        expect(r.brief.join(' ')).not.toMatch(/draft|will come back/);
         // A refusal the desk meant, so the run stays clean.
         expect(r.error).toBeNull();
         // With a lead time to give, that answers and the line does not go.

@@ -141,7 +141,7 @@ describe('the desk', () => {
                 ? { lines: [{ title: 'Fit the new kitchen tap', category: 'plumbing', qty: 1, detail: 'the customer supplies the tap', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
                 : specialistFacts([{ key: 'job_type', value: 'fit a kitchen tap' }, { key: 'location', value: 'NG7 1AA' }])),
             composer: ({ user, n }) => {
-                if (n === 2) { expect(user).toContain(DEFAULT_FIXED_LINES.money_to_ben); return { reply: 'Ben will come back to you on the price.\n\nIs the old tap still connected?', factIds: [], kbIds: [] }; }
+                if (n === 2) { expect(user).toContain(DEFAULT_FIXED_LINES.money_to_ben); return { reply: `${DEFAULT_FIXED_LINES.money_to_ben}\n\nIs the old tap still connected?`, factIds: [], kbIds: [] }; }
                 return { reply: 'Hi Nina, fitting a tap you have already bought, lovely.\n\nWill someone be in?', factIds: [], kbIds: [] };
             },
         });
@@ -162,7 +162,8 @@ describe('the desk', () => {
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(0);
         expect(out.result.delivered).toBe(true);
-        expect(out.result.bubbles[0].text).toBe(DEFAULT_FIXED_LINES.gas);
+        // The line's closing "Thanks / Ben" follows a blank line, so it goes as its own bubble.
+        expect(out.result.bubbles.map((b) => b.text).join('\n\n')).toBe(DEFAULT_FIXED_LINES.gas);
         expect(out.file.hold?.reason).toMatch(/regulated/);
         expect(out.result.guards.regulated.result).toBe('pass');
         const clock = await gateway.clock(out.file.id);
@@ -179,7 +180,7 @@ describe('the desk', () => {
         });
         const a = await gateway.inbound(turn('Your last job was rubbish, I want it redone', '2026-09-11T10:00:00.000Z'));
         if (a.kind !== 'handled') throw new Error(a.kind);
-        expect(a.result.bubbles[0].text).toBe(DEFAULT_FIXED_LINES.complaint);
+        expect(a.result.bubbles.map((x) => x.text).join('\n\n')).toBe(DEFAULT_FIXED_LINES.complaint);
         expect(a.file.hold?.exception).toBe('complaint');
         const b = await gateway.inbound(turn('So what happens now?', '2026-09-11T10:05:00.000Z'));
         if (b.kind !== 'handled') throw new Error(b.kind);
@@ -456,11 +457,11 @@ describe('the desk', () => {
     }
 
     it('a question about an expired quote holds the thread for Ben, so the callback the reply promises is one he is asked for', async () => {
-        const { gateway, clock, slug, user } = await expiredQuote('Let me get Ben to come back to you on that.');
+        const { gateway, clock, slug, user } = await expiredQuote('Let me check on that and come straight back to you.');
         const out = await gateway.inbound(turn('what does that include again?', new Date(clock.t).toISOString()));
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(user()).toContain(`quoting: ${slug} is expired`);
-        expect(user()).toContain('say Ben will come back to them on the quote');
+        expect(user()).toContain('say you will come back to them on the quote');
         expect(out.file.hold?.reason).toContain(`the quote is no longer live (${slug} is expired)`);
         expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
         expect(out.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/£/);

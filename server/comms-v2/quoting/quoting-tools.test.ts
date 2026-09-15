@@ -267,7 +267,7 @@ describe('what the chase tells Ben about the customer', () => {
 
         const landed = appendTurn(file, {
             at: new Date(d.clock.t).toISOString(), channel: 'whatsapp', direction: 'outbound', partyId: file.parties[0].personId,
-            kind: 'text', body: 'Ben will put the quote together and send it over.', media: [], runId: 'run_ack', approver: 'agent.comms_v2',
+            kind: 'text', body: "I'll put the quote together and send it over.", media: [], runId: 'run_ack', approver: 'agent.comms_v2',
         });
         expect(landed.ok).toBe(true);
         d.clock.t += 24 * 3_600_000;

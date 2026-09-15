@@ -95,6 +95,8 @@ describe('the email adapter', () => {
         expect(r.bubbles).toEqual([{ text: 'Hi Sam,\n\nThanks for the detail.\n\nWhereabouts are you?\n\nThanks,\nBen\nHandy Services', gapMs: 0 }]);
         expect(renderEmail('x', {}).bubbles[0].text.startsWith('Hi there,')).toBe(true);
         expect(renderEmail('   ').ok).toBe(false);
+        // A reply that already closes with Ben's "Thanks / Ben", as the four fixed lines do, gets the letter's sign-off once.
+        expect(renderEmail("I'm sorry to hear that.\n\nThanks\nBen", { name: 'Sam Jones' }).bubbles[0].text).toBe("Hi Sam,\n\nI'm sorry to hear that.\n\nThanks,\nBen\nHandy Services");
         // A person's own words: the letter is his, so nothing is put around it and nothing is reflowed.
         const typed = renderEmail('Sam,\nThe part is £40 plus fitting.\nI can do Thursday.', { name: 'Sam Jones', asTyped: true });
         expect(typed.bubbles).toEqual([{ text: 'Sam,\nThe part is £40 plus fitting.\nI can do Thursday.', gapMs: 0 }]);

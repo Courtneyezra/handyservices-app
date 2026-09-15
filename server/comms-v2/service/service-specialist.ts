@@ -144,7 +144,7 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
     calls.push(res.record);
     if (!res.output) {
         // A failed or declined model call is no source: Ben gets the question rather than the customer getting silence.
-        return { specialist: 'service', factIds, proposal: emptyProposal(file, { reason: 'no_source', match: turn.body.slice(0, 80) }), calls, error: res.error, brief: ['For what they asked we have no source: say Ben will come back to them on it; do not answer it yourself.'], note: `service: model ${res.refused ? 'declined' : 'failed'}, no source` };
+        return { specialist: 'service', factIds, proposal: emptyProposal(file, { reason: 'no_source', match: turn.body.slice(0, 80) }), calls, error: res.error, brief: ['For what they asked we have no source: say you will check on it and come back to them; do not answer it yourself.'], note: `service: model ${res.refused ? 'declined' : 'failed'}, no source` };
     }
 
     let hold: ServiceHold | null = res.output.holdReason ? { reason: res.output.holdReason, match: turn.body.slice(0, 80) } : null;
@@ -166,7 +166,7 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
             const entry = record.find((e) => e.field === a.id);
             if (entry && MASKED_FIELDS.has(entry.field)) {
                 // A masked field is never read back by the desk: the customer hears we hold one, and Ben confirms it.
-                brief.push(`They asked "${a.asked}": we hold their ${entry.field} on file, but only Ben can read it back. Say we have it on file and Ben will confirm it; do not state or guess it.`);
+                brief.push(`They asked "${a.asked}": we hold their ${entry.field} on file, but it is not read back here. Say we have it on file and you will confirm it; do not state or guess it.`);
                 notes.push(`record ${entry.field} masked for "${a.asked}"`);
                 if (!hold) hold = { reason: 'no_source', match: `their ${entry.field} on file is masked from the desk; Ben to read it back` };
                 continue;
@@ -182,7 +182,7 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
             }
         }
         // No source (or a selection that did not check out): Ben, and the customer hears that.
-        brief.push(`They asked "${a.asked}": we have no source for it. Say Ben will come back to them on it; do not answer it yourself.`);
+        brief.push(`They asked "${a.asked}": we have no source for it. Say you will check on it and come back to them; do not answer it yourself.`);
         notes.push(`no source for "${a.asked}"`);
         if (!hold) hold = { reason: 'no_source', match: a.asked };
     }

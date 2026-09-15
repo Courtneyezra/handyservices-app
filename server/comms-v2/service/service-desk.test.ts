@@ -61,7 +61,7 @@ describe('the Service specialist on the desk', () => {
         const { client, gateway } = desk({
             router: () => route({ subjects: ['scoping'], turnKind: 'answer' }),
             specialist: ({ system }) => isService(system) ? serviceOut({ changeOfDetails: { field: 'address', value: '[address withheld]' } }) : scopingOut(),
-            composer: () => ({ reply: "Thanks for letting me know. I've noted that and passed it to Ben to update your details.", factIds: [], kbIds: [] }),
+            composer: () => ({ reply: DEFAULT_FIXED_LINES.change_of_details, factIds: [], kbIds: [] }),
         });
         const out = await gateway.inbound(turn('Please can you update my address to 44 Foxglove Rise, Beeston NG9 1AB', '2026-09-11T10:00:00.000Z'));
         if (out.kind !== 'handled') throw new Error(out.kind);
@@ -129,7 +129,7 @@ describe('the Service specialist on the desk', () => {
         expect(b.result.bubbles[0].text).toContain('parking');
         expect(b.file.hold?.exception).toBe('no_source');
     });
-    it('7.2: a customer asking for a call holds for Ben on the router\'s own reading, and the reply says Ben will call', async () => {
+    it('7.2: a customer asking for a call holds for Ben on the router\'s own reading, and the reply says he will call', async () => {
         const { gateway } = desk({
             router: () => route({ turnKind: 'question', exception: 'callback' }),
             specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut([{ key: 'job_type', value: 'fence panel' }]),
@@ -202,7 +202,7 @@ describe('the Service specialist on the desk', () => {
         });
         const a = await gateway.inbound(turn('Your last job was rubbish', '2026-09-11T10:00:00.000Z'));
         if (a.kind !== 'handled') throw new Error(a.kind);
-        expect(a.result.bubbles[0].text).toBe(DEFAULT_FIXED_LINES.complaint);
+        expect(a.result.bubbles.map((x) => x.text)).toEqual(DEFAULT_FIXED_LINES.complaint.split('\n\n'));
         expect(a.file.hold?.exception).toBe('complaint');
         const b = await gateway.inbound(turn('Hello? Anyone there?', '2026-09-11T10:10:00.000Z'));
         if (b.kind !== 'handled') throw new Error(b.kind);
@@ -290,7 +290,7 @@ describe('the Service specialist on the desk', () => {
         if (b.kind !== 'handled') throw new Error(b.kind);
         expect(b.result.guards.regulated.result).toBe('pass');
         expect(b.result.delivered).toBe(true);
-        expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.gas]);
+        expect(b.result.bubbles.map((x) => x.text)).toEqual(DEFAULT_FIXED_LINES.gas.split('\n\n'));
         expect(b.file.hold?.exception).toBe('complaint');
     });
     it('the guard retry is judged against its own citation: a first draft that cites nothing and a retry that cites the row sends the row\'s words', async () => {
@@ -315,7 +315,7 @@ describe('the Service specialist on the desk', () => {
             specialist: ({ system }) => isService(system) ? serviceOut({ answers: [{ asked: 'insured?', source: 'kb', id: 'kb-insured' }] }) : scopingOut(),
             composer: ({ n }) => n === 1
                 ? { reply: `${INSURED} A job like that is usually about £80.`, factIds: [], kbIds: ['kb-insured'] }
-                : { reply: 'Ben will come back to you on that.', factIds: [], kbIds: [] },
+                : { reply: DEFAULT_FIXED_LINES.no_source, factIds: [], kbIds: [] },
         });
         const out = await gateway.inbound(turn('Are you insured, and what would it cost?', '2026-09-11T10:00:00.000Z'));
         if (out.kind !== 'handled') throw new Error(out.kind);
@@ -359,7 +359,7 @@ describe('the Service specialist on the desk', () => {
         const heldSince = a.file.hold!.since;
         const b = await gateway.inbound(turn('Actually I want my money back for the last job', '2026-09-11T10:05:00.000Z'));
         if (b.kind !== 'handled') throw new Error(b.kind);
-        expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.refund]);
+        expect(b.result.bubbles.map((x) => x.text)).toEqual(DEFAULT_FIXED_LINES.refund.split('\n\n'));
         expect(b.file.hold?.exception).toBe('refund');
         expect(b.file.hold?.reason).toMatch(/^refund: /);
         expect(b.file.hold?.since).toBe(heldSince);

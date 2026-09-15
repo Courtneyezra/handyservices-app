@@ -19,6 +19,8 @@ import { firstNameOf } from './envelope';
 import { isRefused, writeInboundMedia, type MediaWriteDeps } from './media';
 
 export const EMAIL_SIGN_OFF = 'Thanks,\nBen\nHandy Services';
+/** A reply's own closing "Thanks / Ben", once its line break is folded into a paragraph. */
+const RE_REPLY_SIGN_OFF = /^thanks,?\s+ben\.?$/i;
 export const EMAIL_DEFAULT_SUBJECT = 'Your enquiry';
 
 // ---------------------------------------------------------------- the inbound shape
@@ -115,6 +117,8 @@ export function renderEmail(reply: string, opts: RenderOptions & { name?: string
         return { ok: true, bubbles: [{ text: typed, gapMs: 0 }] };
     }
     const paragraphs = reply.replace(/\r\n/g, '\n').split(/\n\s*\n+/).map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean);
+    // A fixed line already closes with Ben's "Thanks / Ben"; the letter's own sign-off replaces it rather than doubling it.
+    if (paragraphs.length > 1 && RE_REPLY_SIGN_OFF.test(paragraphs[paragraphs.length - 1])) paragraphs.pop();
     if (!paragraphs.length) return { ok: false, reason: 'empty', bubbles: [] };
     const first = firstNameOf(opts.name);
     const text = [`Hi ${first ?? 'there'},`, ...paragraphs, EMAIL_SIGN_OFF].join('\n\n');
