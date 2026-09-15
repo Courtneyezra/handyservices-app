@@ -31,7 +31,7 @@
 import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
 import { approverFor } from './guards';
-import { clauseAsks, offersCall } from './lexicon';
+import { clauseAsks, offersCall, RE_ASKING } from './lexicon';
 import { chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateStatusSource } from './sender';
 import { humanApprover, type Approver } from '../../approver';
 
@@ -140,7 +140,7 @@ export async function sendHeldDraft(input: Omit<HumanReplyInput, 'words'>, deps:
     return humanReply({ ...input, words: draft }, deps);
 }
 
-export interface SendReopenTemplateInput {
+export interface SendWindowTemplateInput {
     file: CaseFile;
     /** The slot the signed-in session occupies, exactly as `HumanReplyInput.approver`. */
     approver: ApproverSlot;
@@ -149,19 +149,55 @@ export interface SendReopenTemplateInput {
 }
 
 /**
- * A template send on a shut window, from the board. Firstmate decision
- * hsa-comms-v2-board-conversation-view: always the registry's `service_reply` row
- * (`answer_ready_reopen_v1`, server/window-templates.ts) — a generic "we have an answer, reply and
- * we will send it" nudge, regardless of the case file's stage. No stage-to-template map and no
- * picker: the smallest change that gives Ben a one-tap way to reach a customer whose window has
- * shut, without inventing a new mapping nobody has asked for. If a stage-aware pick turns out to
- * matter once this is in use, that is follow-up work, not something this function guesses at.
+ * The exact quote link the customer was already sent on this thread, read off the file's own send
+ * records — never re-derived from the quote store and never re-guessed, because a link this
+ * function invented could be stale or belong to a different quote. Null when no send on the file
+ * ever carried the current job's quote link, which is also true of a quote that is still only a
+ * draft: nothing has gone out for it yet.
+ */
+function sentQuoteLink(file: CaseFile): string | null {
+    const slug = file.job.quoteRef;
+    if (!slug) return null;
+    const re = new RegExp(`https?://\\S+/quote/${slug}\\b`);
+    for (let i = file.sends.length - 1; i >= 0; i--) {
+        for (const b of file.sends[i].bubbles) {
+            const m = re.exec(b.text);
+            if (m) return m[0];
+        }
+    }
+    return null;
+}
+
+/** The customer's own last word, unanswered: it is the newest turn on the file (nothing outbound since) and it reads as a question or a request (lexicon.ts RE_ASKING). */
+function unansweredQuestion(file: CaseFile, turn: Turn): boolean {
+    const idx = file.turns.findIndex((t) => t.id === turn.id);
+    if (idx === -1) return false;
+    if (file.turns.slice(idx + 1).some((t) => t.direction === 'outbound')) return false;
+    return RE_ASKING.test(turn.body);
+}
+
+/**
+ * A template send on a shut window, from the board. Captain's ruling (Firstmate decision
+ * hsa-comms-v2-board-conversation-view, superseding the earlier "always answer_ready_reopen_v1"
+ * call): offer a template only when its wording is true for this thread, read off the case file
+ * itself —
+ *   - `quote_ready_link`, with the exact link the file already shows was sent, once a quote has
+ *     gone out on the thread (`sentQuoteLink`);
+ *   - `answer_ready_reopen_v1` only when the customer's latest message is a question nothing has
+ *     answered since (`unansweredQuestion`) — its wording ("you asked us about... and we have an
+ *     answer") is false on any other thread;
+ *   - otherwise no template applies: refuses rather than sending or offering a word that is not
+ *     true, and the board shows this as "the customer needs to write again" rather than a retry.
+ * `quote_accepted_ack_v1` and `enquiry_followup_optin_v1` are never reached here (behaviour.md
+ * answer 54: unused), and neither is any marketing-category row — only the two `service_reply`
+ * purposes above are ever picked.
  *
  * Refuses on everything `humanReply` refuses (no owner match, no customer turn to answer), plus: the
- * window is open (a freeform reply is what applies there, not a template), and no approved template
- * for the purpose (the customer stays held for Ben, same as the desk's own composed path).
+ * window is open (a freeform reply is what applies there, not a template), no template true for the
+ * thread, and no approved rung for the template that is true (the customer stays held for Ben, same
+ * as the desk's own composed path).
  */
-export async function sendReopenTemplate(input: SendReopenTemplateInput, deps: CaseFileDeps = {}, templates: TemplateStatusSource = liveTemplateStatus): Promise<HumanReplyOutcome> {
+export async function sendWindowTemplate(input: SendWindowTemplateInput, deps: CaseFileDeps = {}, templates: TemplateStatusSource = liveTemplateStatus): Promise<HumanReplyOutcome> {
     const now = deps.now ?? (() => new Date());
     const runId = `run_${randomUUID()}`;
     const { file, approver } = input;
@@ -181,7 +217,15 @@ export async function sendReopenTemplate(input: SendReopenTemplateInput, deps: C
     const window = windowOf(party, choice.channel, now());
     if (window.state !== 'shut') return refuse(`the ${choice.channel} window is open; send a freeform reply instead of a template`);
 
-    const pick = await pickTemplate('service_reply', { name: party.name, topic: turn.body, at: now() }, templates);
+    const link = sentQuoteLink(file);
+    let pick: Awaited<ReturnType<typeof pickTemplate>>;
+    if (link) {
+        pick = await pickTemplate('quote_ready', { name: party.name, topic: link, link, at: now() }, templates);
+    } else if (unansweredQuestion(file, turn)) {
+        pick = await pickTemplate('service_reply', { name: party.name, topic: turn.body, at: now() }, templates);
+    } else {
+        return refuse('no template is true for this thread: the customer needs to write again before a reply can go');
+    }
     if (!pick.ok) return refuse(`window shut and ${pick.reason}`);
     const bubbles: RenderedBubble[] = [{ text: pick.body, gapMs: 0 }];
 

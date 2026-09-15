@@ -254,6 +254,80 @@ describe('<CommsV2BoardPage>', () => {
         expect((words as HTMLTextAreaElement).value).toBe('Morning Sam, I will take a look.');
     });
 
+    it('a shut-window refusal offers a template send; a truthful one sends, an untruthful one swaps the button for an explanation', async () => {
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        const detail: CaseFileDetail = {
+            id: 'case_held', stage: 'first_contact', mode: 'sandbox', party: null,
+            job: { type: null, location: null, quoteRef: null, bookingRef: null },
+            turns: [], facts: [],
+            hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
+            holdApproverAssigned: true,
+        };
+        const { calls } = mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+            {
+                method: 'POST', url: '/api/comms-v2/case-files/case_held/answer',
+                reply: () => ({ status: 409, json: { error: 'the whatsapp window is shut (no message in 24 hours); a shut window never carries freeform words' } }),
+            },
+            {
+                method: 'POST', url: '/api/comms-v2/case-files/case_held/send-template',
+                reply: () => ({ status: 409, json: { error: 'no template is true for this thread: the customer needs to write again before a reply can go' } }),
+            },
+        ]);
+
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await user.click(screen.getByTestId('board-card-case_held'));
+
+        await user.type(await screen.findByLabelText('Your reply to the customer'), 'Morning Sam.');
+        await user.click(screen.getByRole('button', { name: /send as me/i }));
+        await waitFor(() => expect(screen.getByTestId('send-template-option')).toBeTruthy());
+
+        await user.click(screen.getByRole('button', { name: /send a template reply/i }));
+        await waitFor(() => expect(screen.getByTestId('send-template-unavailable')).toBeTruthy());
+        expect(screen.getByTestId('send-template-unavailable').textContent).toContain('customer needs to write again');
+        expect(screen.queryByRole('button', { name: /send a template reply/i })).toBeNull();
+        expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/send-template'))).toHaveLength(1);
+    });
+
+    it('a template that IS true for the thread sends on one tap', async () => {
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        const detail: CaseFileDetail = {
+            id: 'case_held', stage: 'quoted', mode: 'sandbox', party: null,
+            job: { type: null, location: null, quoteRef: null, bookingRef: null },
+            turns: [], facts: [],
+            hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: for less', since: new Date().toISOString(), draft: null },
+            holdApproverAssigned: true,
+        };
+        mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+            {
+                method: 'POST', url: '/api/comms-v2/case-files/case_held/answer',
+                reply: () => ({ status: 409, json: { error: 'the whatsapp window is shut (no message in 24 hours); a shut window never carries freeform words' } }),
+            },
+            {
+                method: 'POST', url: '/api/comms-v2/case-files/case_held/send-template',
+                reply: () => ({ json: { ok: true, sent: { approver: 'human:Ben.Real@handyservices.app', bubbles: ['Hi Sam, your quote is ready. Everything is on the link: https://handyservices.app/quote/q123'] }, release: { words: 'x' } } }),
+            },
+        ]);
+
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await user.click(screen.getByTestId('board-card-case_held'));
+
+        await user.type(await screen.findByLabelText('Your reply to the customer'), 'Morning Sam.');
+        await user.click(screen.getByRole('button', { name: /send as me/i }));
+        await waitFor(() => expect(screen.getByTestId('send-template-option')).toBeTruthy());
+
+        await user.click(screen.getByRole('button', { name: /send a template reply/i }));
+        await waitFor(() => expect(screen.getByTestId('answer-sent')).toBeTruthy());
+        expect(screen.getByTestId('answer-sent').textContent).toContain('quote/q123');
+    });
+
     it('on a wide screen the conversation docks in a permanent panel beside the board instead of a sheet', async () => {
         stubViewport(true);
         const user = userEvent.setup();

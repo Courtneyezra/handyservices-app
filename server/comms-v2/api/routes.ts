@@ -19,8 +19,12 @@
  *                                    stands, through desk/human-reply.ts sendHeldDraft, the same
  *                                    pipeline as /answer with the held draft as the words
  * POST /case-files/:id/send-template   - a template send on a shut window, through
- *                                    desk/human-reply.ts sendReopenTemplate: always the registry's
- *                                    service_reply row (answer_ready_reopen_v1)
+ *                                    desk/human-reply.ts sendWindowTemplate: offers a template only
+ *                                    when its wording is true for the thread (quote_ready_link with
+ *                                    the quote link the file shows was sent, or
+ *                                    answer_ready_reopen_v1 only over an unanswered question),
+ *                                    never quote_accepted_ack_v1, enquiry_followup_optin_v1 or a
+ *                                    marketing row
  *
  * /sandbox/* mounts the Goal 1 sandbox door unmodified (server/comms-v2/desk/sandbox-door.ts),
  * so the board has sandbox threads to show without duplicating that door's logic here.
@@ -39,7 +43,7 @@ import { readApproverAssignments, slotOf, type ReadApproverAssignments } from '.
 import { boardOf, cardOf, detailOf, type BoardMode } from './board';
 import { boardSourceFor, commsV2BoardDoor, type BoardSource, type BoardSourceFor } from './store';
 import { release } from '../desk/case-file';
-import { humanReply, sendHeldDraft, sendReopenTemplate } from '../desk/human-reply';
+import { humanReply, sendHeldDraft, sendWindowTemplate } from '../desk/human-reply';
 import type { SandboxDoor } from '../desk/sandbox-door';
 import { oldCommsRetired } from '../old-comms';
 
@@ -140,8 +144,8 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
     });
 
     /**
-     * A template send on a shut window, through desk/human-reply.ts sendReopenTemplate: always the
-     * registry's service_reply row (answer_ready_reopen_v1), per the same Firstmate decision. Same
+     * A template send on a shut window, through desk/human-reply.ts sendWindowTemplate: offers a
+     * template only when its wording is true for the thread, per the captain's ruling. Same
      * approver-slot check as every other board action.
      */
     router.post('/case-files/:id/send-template', async (req, res) => {
@@ -154,7 +158,7 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         if (!src) return;
         const file = src.store.get(req.params.id);
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
-        const outcome = await sendReopenTemplate({ file, approver, person: user.email ?? user.id, mode: src.mode });
+        const outcome = await sendWindowTemplate({ file, approver, person: user.email ?? user.id, mode: src.mode });
         if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
         src.store.put(file);
         res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.turnId }, release: outcome.release });
