@@ -91,11 +91,12 @@ export function chaseNotice(input: { customerName: string | null; slug: string; 
     };
 }
 
-export function acceptedNotice(input: { customerName: string | null; phone: string | null; jobSummary: string | null; depositPence: number; at: string }): BenNotice {
+/** `paymentType` full: the customer paid for the whole job, said so as the old alert says it. */
+export function acceptedNotice(input: { customerName: string | null; phone: string | null; jobSummary: string | null; depositPence: number; paymentType?: 'deposit' | 'full'; at: string }): BenNotice {
     const who = input.customerName?.trim() || 'A customer';
     const lines = [`${who} - ${input.phone ?? 'no number'}`];
     if (input.jobSummary?.trim()) lines.push(truncate(input.jobSummary.trim(), 140));
-    if (input.depositPence > 0) lines.push(`£${(input.depositPence / 100).toFixed(2)} deposit paid`);
+    if (input.depositPence > 0) lines.push(`£${(input.depositPence / 100).toFixed(2)} ${input.paymentType === 'full' ? 'paid in full' : 'deposit paid'}`);
     return { kind: 'accepted', title: 'Quote accepted', message: lines.join('\n'), link: null, at: input.at };
 }
 

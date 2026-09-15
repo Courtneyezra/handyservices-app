@@ -913,25 +913,33 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                         // board bookkeeping never fails the payment webhook.
                         await markConversationWonByPhone(quote.phone);
 
-                        // Phone push alert (Pushover) — quote accepted / deposit paid
-                        notifyQuoteAccepted({
-                            customerName: quote.customerName,
-                            phoneNumber: quote.phone,
-                            jobSummary: quote.jobDescription,
-                            schedule: describeSchedule({
-                                selectedDate: quote.selectedDate,
-                                timeSlotType: quote.timeSlotType,
-                                flexBookingWithinDays: quote.flexBookingWithinDays ?? (isNaN(metadataFlexDays) ? null : metadataFlexDays),
-                                schedulingTier: quote.schedulingTier ?? metadataSchedulingTier,
-                            }),
-                            amountPaidPence: paymentIntent.amount,
-                            paymentType: metadataPaymentType === 'full' ? 'full' : 'deposit',
-                        }).catch((e) => console.warn('[Stripe Webhook] notifyQuoteAccepted failed:', e));
-                        pushEvent('quote_accepted', {
-                            title: '🎉 Quote accepted',
-                            body: `${quote.customerName} — £${(paymentIntent.amount / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} paid`,
-                            url: '/admin/comms',
-                        });
+                        // The switch-over: while the new desk is the live desk and an open case file of its
+                        // own carries this quote, the new desk records the acceptance on it, tells Ben, and
+                        // acknowledges the customer once this response has closed; a repeat delivery of the
+                        // event does nothing (server/comms-v2/quoting/live-acceptance.ts). Every other quote,
+                        // and every quote while any switch is off, gets the old alerts below.
+                        const { announcePaidAcceptance } = await import('./comms-v2/quoting/live-acceptance');
+                        await announcePaidAcceptance({ slug: quote.shortSlug, intent: paymentIntent, response: res, oldAlerts: () => {
+                            // Phone push alert (Pushover) — quote accepted / deposit paid
+                            notifyQuoteAccepted({
+                                customerName: quote.customerName,
+                                phoneNumber: quote.phone,
+                                jobSummary: quote.jobDescription,
+                                schedule: describeSchedule({
+                                    selectedDate: quote.selectedDate,
+                                    timeSlotType: quote.timeSlotType,
+                                    flexBookingWithinDays: quote.flexBookingWithinDays ?? (isNaN(metadataFlexDays) ? null : metadataFlexDays),
+                                    schedulingTier: quote.schedulingTier ?? metadataSchedulingTier,
+                                }),
+                                amountPaidPence: paymentIntent.amount,
+                                paymentType: metadataPaymentType === 'full' ? 'full' : 'deposit',
+                            }).catch((e) => console.warn('[Stripe Webhook] notifyQuoteAccepted failed:', e));
+                            pushEvent('quote_accepted', {
+                                title: '🎉 Quote accepted',
+                                body: `${quote.customerName} — £${(paymentIntent.amount / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} paid`,
+                                url: '/admin/comms',
+                            });
+                        } });
 
                         // 2. Calculate total job price (single price model)
                         // Re-derive the SAME lane-adjusted base the charge used, from THIS
