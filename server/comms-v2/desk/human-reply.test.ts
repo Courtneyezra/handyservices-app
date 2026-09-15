@@ -10,8 +10,11 @@
 import { describe, expect, it } from 'vitest';
 import { appendTurn, everAsked, open, hold as setHold, type ApproverSlot, type CaseFile, type Party } from './case-file';
 import { BEN } from './guards';
-import { humanReply } from './human-reply';
-import { DESK_APPROVER } from './sender';
+import { humanReply, sendHeldDraft, sendReopenTemplate } from './human-reply';
+import { DESK_APPROVER, type TemplateStatusSource } from './sender';
+
+/** answer_ready_reopen_v1 approved, nothing else - the one row sendReopenTemplate ever reaches. */
+const reopenApproved: TemplateStatusSource = { async approved(name) { return name === 'answer_ready_reopen_v1' ? { contentSid: 'HX_reopen' } : null; } };
 
 const AT = '2026-09-11T10:00:00.000Z';
 /** Who the signed-in session is, which is what the send records: the person, not the slot they hold. */
@@ -290,5 +293,101 @@ describe('a person answers from the board', () => {
         if (!out.ok) return;
         expect(out.result.channel).toBe('whatsapp');
         expect(file.turns[file.turns.length - 1].channel).toBe('whatsapp');
+    });
+});
+
+describe('one tap: sending the reply the desk held back as-is', () => {
+    it('sends the hold\'s draft through the same pipeline as a typed answer, and clears the hold', async () => {
+        const { file } = fixture();
+        setHold(file, { approver: BEN, reason: 'money: How much', exception: 'money', draft: 'Hi Sam, that one is usually around £80 fitted.' }, { now: now('2026-09-11T10:00:01.000Z') });
+
+        const out = await sendHeldDraft({ file, approver: BEN, person: BEN_PERSON }, { now: now() });
+
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.result.bubbles.map((b) => b.text)).toEqual(['Hi Sam, that one is usually around £80 fitted.']);
+        expect(out.result.approver).toBe(BEN_APPROVER);
+        expect(file.hold).toBeNull();
+        expect(file.turns[file.turns.length - 1]).toMatchObject({ approver: BEN_APPROVER, body: 'Hi Sam, that one is usually around £80 fitted.' });
+    });
+
+    it('refuses when the hold carries no draft', async () => {
+        const { file } = fixture();
+        setHold(file, { approver: BEN, reason: 'a complaint', exception: null }, { now: now('2026-09-11T10:00:01.000Z') });
+
+        const out = await sendHeldDraft({ file, approver: BEN, person: BEN_PERSON }, { now: now() });
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/no held draft/);
+        expect(file.sends).toHaveLength(0);
+    });
+
+    it('refuses a slot that is not the file\'s owner, same as answering', async () => {
+        const { file } = fixture();
+        const landlord: ApproverSlot = { kind: 'human', id: 'landlord' };
+        setHold(file, { approver: BEN, reason: 'money: How much', exception: 'money', draft: 'Hi Sam, around £80.' }, { now: now('2026-09-11T10:00:01.000Z') });
+
+        const out = await sendHeldDraft({ file, approver: landlord, person: BEN_PERSON }, { now: now() });
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/only ben may answer/);
+    });
+});
+
+describe('a template send on a shut window', () => {
+    it('sends the registry\'s service_reply template (answer_ready_reopen_v1) and clears the hold', async () => {
+        const { file, party } = fixture();
+        deskRepliedAndHeld(file);
+        const ch = party.channels.find((c) => c.kind === 'whatsapp')!;
+        ch.lastInboundAt = '2026-09-09T10:00:00.000Z';
+
+        const out = await sendReopenTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, reopenApproved);
+
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.result.approver).toBe(BEN_APPROVER);
+        expect(out.result.channel).toBe('whatsapp');
+        expect(out.result.bubbles).toHaveLength(1);
+        expect(out.result.bubbles[0].text).toContain('we have an answer');
+        expect(file.hold).toBeNull();
+        expect(file.sends[file.sends.length - 1]).toMatchObject({ approver: BEN_APPROVER, templateId: 'answer_ready_reopen_v1' });
+    });
+
+    it('refuses when the window is open: a template is not what applies there', async () => {
+        const { file } = fixture();
+        deskRepliedAndHeld(file);
+
+        const out = await sendReopenTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, reopenApproved);
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/window is open/);
+        expect(file.sends).toHaveLength(0);
+    });
+
+    it('refuses when no rung of the row is approved yet, and sends nothing', async () => {
+        const { file, party } = fixture();
+        deskRepliedAndHeld(file);
+        const ch = party.channels.find((c) => c.kind === 'whatsapp')!;
+        ch.lastInboundAt = '2026-09-09T10:00:00.000Z';
+
+        const out = await sendReopenTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, { async approved() { return null; } });
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/no approved template/);
+        expect(file.sends).toHaveLength(0);
+        expect(file.hold).not.toBeNull();
+    });
+
+    it('refuses a slot that is not the file\'s owner, same as answering', async () => {
+        const { file, party } = fixture();
+        deskRepliedAndHeld(file);
+        const ch = party.channels.find((c) => c.kind === 'whatsapp')!;
+        ch.lastInboundAt = '2026-09-09T10:00:00.000Z';
+        const landlord: ApproverSlot = { kind: 'human', id: 'landlord' };
+
+        const out = await sendReopenTemplate({ file, approver: landlord, person: BEN_PERSON }, { now: now() }, reopenApproved);
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/only ben may answer/);
     });
 });

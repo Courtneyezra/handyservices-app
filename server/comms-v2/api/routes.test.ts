@@ -13,11 +13,15 @@
  */
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { open, hold as setHold, type CaseFile } from '../desk/case-file';
 import { noFixedLineSource } from '../desk/fixed-lines';
+import { BEN } from '../desk/guards';
 import { FakeModelClient } from '../desk/models';
 import { createSandboxDoor } from '../desk/sandbox-door';
 import { emptyKb } from '../desk/scoping-tools';
+import type { TemplateStatusSource } from '../desk/sender';
 import { noTemplateApproved } from '../desk/sender';
+import { MemoryCaseFileStore } from '../desk/store';
 import { sessionApprover, type ApproverAssignments } from './approvers';
 import { createCommsV2ApiRouter } from './routes';
 
@@ -302,6 +306,124 @@ describe('the board over the live desk\'s store', () => {
             expect(modes.length).toBeGreaterThan(0);
         } finally {
             await new Promise<void>((r) => live.close(() => r()));
+        }
+    });
+});
+
+describe('one tap: send the held draft, and a template send on a shut window', () => {
+    // The route calls sendHeldDraft/sendReopenTemplate with no clock override, so the window rule
+    // reads the real wall clock: the open fixture's turn has to be recent by it, not by a fixed date.
+    const OPEN_AT = new Date().toISOString();
+    const STALE_AT = '2020-01-01T10:00:00.000Z';
+
+    function fileWithDraftHold(): CaseFile {
+        const r = open({
+            identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900943', propertyId: null, landlordId: null, name: 'Priya' },
+            channel: 'whatsapp', address: '+447700900943',
+            firstTurn: { at: OPEN_AT, channel: 'whatsapp', kind: 'text', body: 'How much would a new tap be?', media: [] },
+        }, { now: () => new Date(OPEN_AT) });
+        if (!r.ok) throw new Error(r.reason);
+        const file = r.value;
+        setHold(file, { approver: BEN, reason: 'money: How much', exception: 'money', draft: 'Hi Priya, that is usually around £80 fitted.' }, { now: () => new Date(OPEN_AT) });
+        return file;
+    }
+
+    function fileWithShutWindow(): CaseFile {
+        const r = open({
+            identity: { ok: true, personId: 'p2', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900944', propertyId: null, landlordId: null, name: 'Dara' },
+            channel: 'whatsapp', address: '+447700900944',
+            firstTurn: { at: STALE_AT, channel: 'whatsapp', kind: 'text', body: 'Any update on my extractor fan?', media: [] },
+        }, { now: () => new Date(STALE_AT) });
+        if (!r.ok) throw new Error(r.reason);
+        const file = r.value;
+        setHold(file, { approver: BEN, reason: 'a complaint', exception: null }, { now: () => new Date(STALE_AT) });
+        return file;
+    }
+
+    async function harness() {
+        const store = new MemoryCaseFileStore();
+        const listed: ApproverAssignments = { ben: ['user_Ben.Real@handyservices.app'] };
+        const app = express();
+        app.use(express.json());
+        app.use((req, _res, next) => { const email = req.header('x-test-user'); if (email) (req as any).user = { id: `user_${email}`, email, role: 'admin' }; next(); });
+        const door = createSandboxDoor({
+            client: new FakeModelClient({ router: () => ({ subjects: [], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry' }), specialist: () => ({ facts: [], jobUnknowns: [], answeredSubjects: [] }), composer: () => ({ reply: 'ignored', factIds: [], kbIds: [] }) }),
+            fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb,
+        });
+        app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => listed, async () => ({ store, live: true, mode: 'dry_run' as const })));
+        const srv = await new Promise<import('node:http').Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+        const root = `http://127.0.0.1:${(srv.address() as { port: number }).port}/api/comms-v2`;
+        const call = async (method: string, route: string, as?: string) => {
+            const headers: Record<string, string> = { 'content-type': 'application/json' };
+            if (as) headers['x-test-user'] = as;
+            const res = await fetch(`${root}${route}`, { method, headers });
+            return { status: res.status, json: await res.json() as any };
+        };
+        return { store, call, close: () => new Promise<void>((r) => srv.close(() => r())) };
+    }
+
+    it('send-held-draft: gates on session and slot the same as release and answer, then sends the draft as-is and clears the hold', async () => {
+        const { store, call, close } = await harness();
+        try {
+            const file = fileWithDraftHold();
+            store.put(file);
+
+            expect((await call('POST', `/case-files/${file.id}/send-held-draft`)).status).toBe(401);
+            expect((await call('POST', `/case-files/${file.id}/send-held-draft`, 'ben@handyservices.app')).status).toBe(403);
+            expect((await call('POST', '/case-files/case_nope/send-held-draft', 'Ben.Real@handyservices.app')).status).toBe(404);
+
+            const sent = await call('POST', `/case-files/${file.id}/send-held-draft`, 'Ben.Real@handyservices.app');
+            expect(sent.status).toBe(200);
+            expect(sent.json.sent.bubbles).toEqual(['Hi Priya, that is usually around £80 fitted.']);
+            expect(sent.json.sent.approver).toBe('human:Ben.Real@handyservices.app');
+            expect(sent.json.card.held).toBe(false);
+
+            const detail = await call('GET', `/case-files/${file.id}`);
+            expect(detail.json.hold).toBeNull();
+            expect(detail.json.turns.at(-1)).toMatchObject({ approver: 'human:Ben.Real@handyservices.app', body: 'Hi Priya, that is usually around £80 fitted.' });
+        } finally {
+            await close();
+        }
+    });
+
+    it('send-held-draft: refuses a hold with no draft to send, and sends nothing', async () => {
+        const { store, call, close } = await harness();
+        try {
+            const file = fileWithShutWindow();
+            store.put(file);
+            const refused = await call('POST', `/case-files/${file.id}/send-held-draft`, 'Ben.Real@handyservices.app');
+            expect(refused.status).toBe(409);
+            expect(refused.json.error).toMatch(/no held draft/);
+            expect(store.get(file.id)!.hold).not.toBeNull();
+        } finally {
+            await close();
+        }
+    });
+
+    it('send-template: gates on session and slot the same as release and answer', async () => {
+        const { store, call, close } = await harness();
+        try {
+            const file = fileWithShutWindow();
+            store.put(file);
+            expect((await call('POST', `/case-files/${file.id}/send-template`)).status).toBe(401);
+            expect((await call('POST', `/case-files/${file.id}/send-template`, 'ben@handyservices.app')).status).toBe(403);
+            expect((await call('POST', '/case-files/case_nope/send-template', 'Ben.Real@handyservices.app')).status).toBe(404);
+        } finally {
+            await close();
+        }
+    });
+
+    it('send-template: with no template actually approved (the real live status, undriveable here without Meta/the database), the card stays held rather than sending an unapproved word', async () => {
+        const { store, call, close } = await harness();
+        try {
+            const file = fileWithShutWindow();
+            store.put(file);
+            const refused = await call('POST', `/case-files/${file.id}/send-template`, 'Ben.Real@handyservices.app');
+            expect(refused.status).toBe(409);
+            expect(refused.json.error).toMatch(/no approved template/);
+            expect(store.get(file.id)!.hold).not.toBeNull();
+        } finally {
+            await close();
         }
     });
 });

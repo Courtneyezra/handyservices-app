@@ -32,7 +32,7 @@ import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
 import { approverFor } from './guards';
 import { clauseAsks, offersCall } from './lexicon';
-import { chooseChannel, render, send, shortenBriefFor, windowOf } from './sender';
+import { chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateStatusSource } from './sender';
 import { humanApprover, type Approver } from '../../approver';
 
 export interface HumanReplyInput {
@@ -125,4 +125,74 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     }
 
     return { ok: true, result: { runId, approver: approverName, channel: choice.channel, bubbles: rendered.bubbles, turnId: sent.record.turnId }, release };
+}
+
+/**
+ * One tap send of the reply the desk held back, exactly as it stands. Firstmate decision
+ * hsa-comms-v2-board-conversation-view: this is the same pipeline as Ben typing the words himself
+ * (`humanReply` above), because a person choosing to release the desk's own draft carries the same
+ * authority as a person typing his own — no separate render, window or approver check is invented
+ * for it. Refuses first when there is no draft to send, then everything `humanReply` refuses.
+ */
+export async function sendHeldDraft(input: Omit<HumanReplyInput, 'words'>, deps: CaseFileDeps = {}): Promise<HumanReplyOutcome> {
+    const draft = input.file.hold?.draft;
+    if (!draft) return { ok: false, reason: 'there is no held draft to send' };
+    return humanReply({ ...input, words: draft }, deps);
+}
+
+export interface SendReopenTemplateInput {
+    file: CaseFile;
+    /** The slot the signed-in session occupies, exactly as `HumanReplyInput.approver`. */
+    approver: ApproverSlot;
+    person: string;
+    mode?: 'dry_run' | 'live';
+}
+
+/**
+ * A template send on a shut window, from the board. Firstmate decision
+ * hsa-comms-v2-board-conversation-view: always the registry's `service_reply` row
+ * (`answer_ready_reopen_v1`, server/window-templates.ts) — a generic "we have an answer, reply and
+ * we will send it" nudge, regardless of the case file's stage. No stage-to-template map and no
+ * picker: the smallest change that gives Ben a one-tap way to reach a customer whose window has
+ * shut, without inventing a new mapping nobody has asked for. If a stage-aware pick turns out to
+ * matter once this is in use, that is follow-up work, not something this function guesses at.
+ *
+ * Refuses on everything `humanReply` refuses (no owner match, no customer turn to answer), plus: the
+ * window is open (a freeform reply is what applies there, not a template), and no approved template
+ * for the purpose (the customer stays held for Ben, same as the desk's own composed path).
+ */
+export async function sendReopenTemplate(input: SendReopenTemplateInput, deps: CaseFileDeps = {}, templates: TemplateStatusSource = liveTemplateStatus): Promise<HumanReplyOutcome> {
+    const now = deps.now ?? (() => new Date());
+    const runId = `run_${randomUUID()}`;
+    const { file, approver } = input;
+    const party: Party = file.parties.find((p) => p.role !== 'internal') ?? file.parties[0];
+    const fileDeps: CaseFileDeps = { now, newId: deps.newId };
+    const refuse = (reason: string): HumanReplyOutcome => ({ ok: false, reason });
+
+    if (approver.kind !== 'human') return refuse('only a person answers from the board; a rule-based approver has no words');
+    const owner = file.hold?.approver ?? approverFor(file, null);
+    if (!sameApprover(owner, approver)) return refuse(`only ${approverLabel(owner)} may answer this file`);
+    const turn = lastCustomerTurn(file, party.personId);
+    if (!turn) return refuse('no customer turn to answer');
+    const approverName = humanApprover(input.person);
+
+    const choice = chooseChannel(party, turn.channel, now());
+    if (!choice.ok) return refuse(choice.reason);
+    const window = windowOf(party, choice.channel, now());
+    if (window.state !== 'shut') return refuse(`the ${choice.channel} window is open; send a freeform reply instead of a template`);
+
+    const pick = await pickTemplate('service_reply', { name: party.name, topic: turn.body, at: now() }, templates);
+    if (!pick.ok) return refuse(`window shut and ${pick.reason}`);
+    const bubbles: RenderedBubble[] = [{ text: pick.body, gapMs: 0 }];
+
+    const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles, template: pick.template, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
+    if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
+
+    let release: HoldRelease | null = null;
+    if (file.hold) {
+        const rel = releaseHold(file, approver, `sent the ${pick.template.name} template`, fileDeps);
+        if (rel.ok) release = rel.value;
+    }
+
+    return { ok: true, result: { runId, approver: approverName, channel: choice.channel, bubbles, turnId: sent.record.turnId }, release };
 }

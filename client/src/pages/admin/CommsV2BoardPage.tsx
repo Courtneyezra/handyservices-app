@@ -247,6 +247,8 @@ export function ReleaseForm({ fileId, holdReason, holdApprover, holdApproverAssi
     const [words, setWords] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
+    const [sendBusy, setSendBusy] = useState(false);
+    const [sendError, setSendError] = useState<string | null>(null);
 
     const release = async () => {
         setBusy(true);
@@ -267,6 +269,24 @@ export function ReleaseForm({ fileId, holdReason, holdApprover, holdApproverAssi
         }
     };
 
+    const sendDraft = async () => {
+        setSendBusy(true);
+        setSendError(null);
+        try {
+            const res = await fetch(`/api/comms-v2/case-files/${fileId}/send-held-draft`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || `Send failed (${res.status})`);
+            onReleased();
+        } catch (e: any) {
+            setSendError(e?.message || 'Send failed');
+        } finally {
+            setSendBusy(false);
+        }
+    };
+
     return (
         <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-3">
             <p className="flex items-center gap-1 text-sm font-semibold text-red-600"><AlertTriangle className="h-4 w-4" /> Held for {holdApprover}: {holdReason}</p>
@@ -277,6 +297,11 @@ export function ReleaseForm({ fileId, holdReason, holdApprover, holdApproverAssi
                 <div className="mt-3">
                     <p className="text-xs font-medium text-muted-foreground">The reply the desk held back</p>
                     <pre data-testid="hold-draft" className="mt-1 whitespace-pre-wrap rounded-md border bg-background px-2 py-1.5 font-sans text-sm">{draft}</pre>
+                    {sendError && <p data-testid="send-held-draft-error" className="mt-2 text-xs text-red-600">{sendError}</p>}
+                    <Button size="sm" variant="outline" className="mt-2" disabled={sendBusy || !holdApproverAssigned} onClick={sendDraft}>
+                        {sendBusy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
+                        Send as it stands
+                    </Button>
                 </div>
             )}
             <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="release-words">Your words, for the file</label>
@@ -313,11 +338,14 @@ export function AnswerForm({ fileId, held, onAnswered }: {
     const [error, setError] = useState<string | null>(null);
     const [sent, setSent] = useState<string[] | null>(null);
     const [busy, setBusy] = useState(false);
+    const [templateBusy, setTemplateBusy] = useState(false);
+    const [templateError, setTemplateError] = useState<string | null>(null);
 
     const answer = async () => {
         setBusy(true);
         setError(null);
         setSent(null);
+        setTemplateError(null);
         try {
             const res = await fetch(`/api/comms-v2/case-files/${fileId}/answer`, {
                 method: 'POST',
@@ -333,6 +361,32 @@ export function AnswerForm({ fileId, held, onAnswered }: {
             setError(e?.message || 'Answer failed');
         } finally {
             setBusy(false);
+        }
+    };
+
+    // A shut window refuses freeform words outright (desk/human-reply.ts); this is the one-tap
+    // fallback shown in place of retyping, so Ben can still reach the customer with an approved
+    // template (Firstmate decision hsa-comms-v2-board-conversation-view: always the registry's
+    // answer_ready_reopen_v1 row).
+    const windowShut = !!error && /window is shut/.test(error);
+
+    const sendTemplate = async () => {
+        setTemplateBusy(true);
+        setTemplateError(null);
+        try {
+            const res = await fetch(`/api/comms-v2/case-files/${fileId}/send-template`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || `Template send failed (${res.status})`);
+            setSent(Array.isArray(data?.sent?.bubbles) ? data.sent.bubbles : []);
+            setError(null);
+            onAnswered();
+        } catch (e: any) {
+            setTemplateError(e?.message || 'Template send failed');
+        } finally {
+            setTemplateBusy(false);
         }
     };
 
@@ -352,6 +406,16 @@ export function AnswerForm({ fileId, held, onAnswered }: {
                 rows={4}
             />
             {error && <p data-testid="answer-error" className="mt-2 text-xs text-red-600">{error}</p>}
+            {windowShut && (
+                <div className="mt-2" data-testid="send-template-option">
+                    <p className="text-xs text-muted-foreground">The window is shut, so only an approved template can go. This one asks the customer to reply, which reopens the window for your own words.</p>
+                    {templateError && <p data-testid="send-template-error" className="mt-1 text-xs text-red-600">{templateError}</p>}
+                    <Button size="sm" variant="outline" className="mt-2" disabled={templateBusy} onClick={sendTemplate}>
+                        {templateBusy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
+                        Send the reopen template
+                    </Button>
+                </div>
+            )}
             {sent && (
                 <div data-testid="answer-sent" className="mt-2 space-y-1">
                     <p className="text-xs text-muted-foreground">Sent as {sent.length} message{sent.length === 1 ? '' : 's'}</p>
