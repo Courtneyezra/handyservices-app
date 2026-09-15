@@ -20,11 +20,20 @@ function result(file: CaseFile, turn: Turn | null): DeskResult {
     return { runId: `run_${turn?.id ?? 'clock'}`, decision: 'send', partyId: file.parties[0].personId, channel: 'whatsapp', windowState: 'open', templateId: null, bubbles: [{ text: 'ok', gapMs: 0 }], factIds: [], kbIds: [], guards: { figure: { result: 'pass', note: null } } as any, approver: 'agent.comms_v2', hold: null, delivered: true, stageAfter: file.stage, calls: [], note: null, summary: null, error: null, landedTurnId: null, composerCalls: 1 };
 }
 
+// A reply is never dated before the turn it answers (sender.ts `land`), and it is what closes a
+// channel to `joinBurst`'s and `staleBurstsOf`'s "already answered" scan: recording it here, as a
+// real desk would, keeps that scan from reading an already-flushed message as still stranded.
 function recordingDesk(delayMs = 0) {
     const seen: Array<{ body: string; burst: string[] | undefined; turnsOnFile: number }> = [];
     const log: string[] = [];
     const desk: DeskLike = {
-        async handleTurn(file, turn) { log.push(`start ${turn.body}`); seen.push({ body: turn.body, burst: turn.burst, turnsOnFile: file.turns.length }); await sleep(delayMs); log.push(`end ${turn.body}`); return result(file, turn); },
+        async handleTurn(file, turn) {
+            log.push(`start ${turn.body}`); seen.push({ body: turn.body, burst: turn.burst, turnsOnFile: file.turns.length }); await sleep(delayMs); log.push(`end ${turn.body}`);
+            const last = file.turns[file.turns.length - 1];
+            const at = new Date(Math.max(Date.parse(turn.at), last ? Date.parse(last.at) + 1 : 0)).toISOString();
+            appendTurn(file, { at, channel: turn.channel, direction: 'outbound', partyId: turn.partyId, kind: 'text', body: 'ok', media: [], runId: `run_${turn.id}`, approver: 'agent.comms_v2' });
+            return result(file, turn);
+        },
         async clockPass(file) { log.push('clock'); return result(file, null); },
     };
     return { desk, seen, log };
@@ -230,6 +239,34 @@ describe('the gateway\'s quiet window', () => {
         expect(calls).toHaveLength(2);
         expect(again?.runId).toBe('run_clock');
         expect(clockDue(file)).toBe(false);
+    });
+
+    it('a restart strands a WhatsApp message; a live follow-up on the same channel before recovery still draws exactly one reply covering both, and a later clock pass sends nothing more', async () => {
+        const calls: Turn[] = [];
+        const desk = answeringDesk(calls);
+        const store = new MemoryCaseFileStore();
+        const g1 = new Gateway({ desk, quietMs: 30, store });
+        void g1.inbound(msg('hi'));
+        const file = store.all()[0];
+        const hiId = file.turns[0].id;
+        expect(file.turns).toHaveLength(1);
+        expect(calls).toHaveLength(0);
+        // The process dies here: nothing left to fire g1's real timer, exactly as a restart leaves it.
+        const waiting = (g1 as unknown as { waiting: Map<string, { timer: ReturnType<typeof setTimeout> | null }> }).waiting;
+        for (const b of waiting.values()) if (b.timer) clearTimeout(b.timer);
+        // The restart: a fresh gateway over the same durable store and identity directory (both
+        // survive a restart; only the gateway's in-memory burst timers do not) has no memory of the
+        // stranded burst.
+        const g2 = new Gateway({ desk, quietMs: 30, store, identity: g1.identity });
+        const again = await g2.inbound(msg('still there?'));
+        if (again.kind !== 'handled') throw new Error(again.kind);
+        expect(again.file.id).toBe(file.id);
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toMatchObject({ body: 'hi\nstill there?', burst: [hiId, again.turn.id] });
+        expect(again.result.decision).toBe('send');
+        const later = await g2.clock(file.id);
+        expect(calls).toHaveLength(1);
+        expect(later?.runId).toBe('run_clock');
     });
 
     it('a desk that throws rejects every message of its burst, and the next pass on the file still runs', async () => {

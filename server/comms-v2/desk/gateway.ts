@@ -131,12 +131,38 @@ export class Gateway {
 
     private joinBurst(file: CaseFile, landed: Turn): Promise<HandedTurn> {
         const key = `${file.id}|${landed.partyId}|${landed.channel}`;
-        const burst = this.waiting.get(key) ?? { key, file, turns: [], timer: null, waiters: [] };
+        // A fresh burst (nothing live in this process for the key) does not start empty: a restart
+        // can leave earlier, still-unanswered messages on this same party's channel already landed
+        // on the file with no reply and no timer left for them (gateway.ts staleBurstsOf recovers
+        // them once quiet, but this new message means the party is not quiet yet). Seeding the burst
+        // with those first means they go to the desk as one turn with this message, not answered
+        // separately or, worse, left permanently behind this message's own reply.
+        const burst = this.waiting.get(key) ?? { key, file, turns: this.unansweredOnChannel(file, landed.partyId, landed.channel, landed.id), timer: null, waiters: [] };
         this.waiting.set(key, burst);
         burst.turns.push(landed);
         if (burst.timer) clearTimeout(burst.timer);
         burst.timer = setTimeout(() => this.flush(burst), this.quietMs);
         return new Promise((resolve, reject) => burst.waiters.push({ turnId: landed.id, resolve, reject }));
+    }
+
+    /**
+     * A party's turns on one channel, newest first as found, walked back from the newest and
+     * stopped the moment a turn on that same channel closes it (an outbound reply, or a non-waiting
+     * turn already dispatched at once when it landed) - the same boundary `staleBurstsOf` finds,
+     * scoped to the one channel a fresh burst is about to open on. `excludeId` leaves out the
+     * message that is itself opening the burst: it is already the newest turn on the file by the
+     * time this runs, and is added back as the burst's newest message by the caller.
+     */
+    private unansweredOnChannel(file: CaseFile, partyId: string, channel: string, excludeId: string): Turn[] {
+        const turns: Turn[] = [];
+        for (let i = file.turns.length - 1; i >= 0; i--) {
+            const t = file.turns[i];
+            if (t.id === excludeId) continue;
+            if (t.partyId !== partyId || t.channel !== channel) continue;
+            if (t.direction === 'outbound' || !waitsForQuiet(t)) break;
+            turns.unshift(t);
+        }
+        return turns;
     }
 
     /** The burst to the desk as one turn. A new message from the party after this starts the next burst. */
