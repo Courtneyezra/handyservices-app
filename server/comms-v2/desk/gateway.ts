@@ -173,46 +173,59 @@ export class Gateway {
     /**
      * A clock pass with no new message. The desk never chases, so this is where "then quiet" is
      * proven - unless a burst this process lost to a restart is sitting on the file past its
-     * window, in which case that burst goes to the desk now, once, through the same turn path a
-     * live burst flushes on: a process restart mid-window never leaves an already-landed message
-     * unanswered.
+     * window, in which case every such burst (one party can lose more than one, across different
+     * channels) goes to the desk now, once each, through the same turn path a live burst flushes
+     * on: a process restart mid-window never leaves an already-landed message unanswered.
      */
     async clock(fileId: string): Promise<DeskResult | null> {
         const file = this.store.get(fileId);
         if (!file) return null;
-        const stale = this.staleBurstOf(file);
-        if (stale) {
-            this.log(`recovered ${stale.length === 1 ? 'a message' : `a burst of ${stale.length} messages`} lost to a restart on case ${file.id}`);
-            return this.deskPass(file, (f) => this.desk.handleTurn(f, customerTurnOf(stale)));
+        // Found once, from the file as it stands before any recovery reply lands: answering the
+        // first stale channel appends an outbound turn, and re-scanning after that would read that
+        // turn as "the party has been replied to" and hide a second, older channel's stale group
+        // behind it (the file has no per-channel record of what has been answered).
+        const stale = this.staleBurstsOf(file);
+        if (stale.length) {
+            let result: DeskResult | null = null;
+            for (const turns of stale) {
+                this.log(`recovered ${turns.length === 1 ? 'a message' : `a burst of ${turns.length} messages`} lost to a restart on case ${file.id}`);
+                result = await this.deskPass(file, (f) => this.desk.handleTurn(f, customerTurnOf(turns)));
+            }
+            return result;
         }
         return this.deskPass(file, (f) => this.desk.clockPass(f));
     }
 
     /**
-     * The trailing inbound messages of a party's channel, quiet past the window, that this process
+     * Every party-and-channel's trailing inbound messages, quiet past the window, that this process
      * has no live timer for: a burst `joinBurst` was holding in memory when the process restarted,
-     * so it landed on the file (turns are append-only) but was never handed to the desk. Null when
-     * nothing on the file is in that state, including a burst this process is still timing normally.
+     * so it landed on the file (turns are append-only) but was never handed to the desk. A party can
+     * lose a burst on more than one channel across the same restart (WhatsApp and SMS both pending),
+     * so every channel with turns since the party's last reply is checked on its own, not only the
+     * most recent one. Empty when nothing on the file is in that state, including a burst this
+     * process is still timing normally.
      */
-    private staleBurstOf(file: CaseFile): Turn[] | null {
-        if (this.quietMs <= 0) return null;
+    private staleBurstsOf(file: CaseFile): Turn[][] {
+        if (this.quietMs <= 0) return [];
+        const groups: Turn[][] = [];
         for (const party of file.parties) {
-            const trailing: Turn[] = [];
-            let channel: Turn['channel'] | null = null;
+            const byChannel = new Map<string, Turn[]>();
             for (let i = file.turns.length - 1; i >= 0; i--) {
                 const t = file.turns[i];
                 if (t.partyId !== party.personId) continue;
-                if (t.direction === 'outbound' || !waitsForQuiet(t) || (channel && t.channel !== channel)) break;
-                channel = t.channel;
-                trailing.unshift(t);
+                if (t.direction === 'outbound') break;
+                if (!waitsForQuiet(t)) break;
+                const list = byChannel.get(t.channel);
+                if (list) list.unshift(t); else byChannel.set(t.channel, [t]);
             }
-            if (!trailing.length) continue;
-            const newest = trailing[trailing.length - 1];
-            if (this.waiting.has(`${file.id}|${party.personId}|${channel}`)) continue;
-            if (this.now().getTime() - Date.parse(newest.at) < this.quietMs) continue;
-            return trailing;
+            for (const [channel, turns] of byChannel) {
+                const newest = turns[turns.length - 1];
+                if (this.waiting.has(`${file.id}|${party.personId}|${channel}`)) continue;
+                if (this.now().getTime() - Date.parse(newest.at) < this.quietMs) continue;
+                groups.push(turns);
+            }
         }
-        return null;
+        return groups;
     }
 
     /** Time passes: every timestamp on the file moves back by N hours, which shuts the window past 24. */

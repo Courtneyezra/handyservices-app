@@ -120,16 +120,25 @@ describe('the gateway\'s quiet window', () => {
         expect(log).toEqual(['start one', 'end one', 'start two', 'end two', 'clock']);
     });
 
-    it('a burst this process lost to a restart still gets exactly one reply on the next clock pass, and a second pass sends nothing more', async () => {
-        const calls: Turn[] = [];
-        const desk: DeskLike = {
+    // A reply is never dated before the turn it answers (sender.ts `land`): the fake desk below
+    // mirrors that so recovering more than one stale group in the same pass never trips the case
+    // file's out-of-order refusal, exactly as the real sender would not.
+    function answeringDesk(calls: Turn[]): DeskLike {
+        return {
             async handleTurn(file, turn) {
                 calls.push(turn);
-                appendTurn(file, { at: turn.at, channel: turn.channel, direction: 'outbound', partyId: turn.partyId, kind: 'text', body: 'ok', media: [], runId: `run_${calls.length}`, approver: 'agent.comms_v2' });
+                const last = file.turns[file.turns.length - 1];
+                const at = new Date(Math.max(Date.parse(turn.at), last ? Date.parse(last.at) + 1 : 0)).toISOString();
+                appendTurn(file, { at, channel: turn.channel, direction: 'outbound', partyId: turn.partyId, kind: 'text', body: 'ok', media: [], runId: `run_${calls.length}`, approver: 'agent.comms_v2' });
                 return result(file, turn);
             },
             async clockPass(file) { return result(file, null); },
         };
+    }
+
+    it('a burst this process lost to a restart still gets exactly one reply on the next clock pass, and a second pass sends nothing more', async () => {
+        const calls: Turn[] = [];
+        const desk = answeringDesk(calls);
         const store = new MemoryCaseFileStore();
         const g1 = new Gateway({ desk, quietMs: 8_000, store });
         // Both messages land on the file at once (synchronous up to the quiet-window timer); g1's
@@ -152,6 +161,37 @@ describe('the gateway\'s quiet window', () => {
         const second = await g2.clock(file.id);
         expect(calls).toHaveLength(1);
         expect(second?.runId).toBe('run_clock');
+    });
+
+    it('a party who lost a burst on two channels to the same restart gets each answered once; the newer channel\'s reply does not bury the older one', async () => {
+        const calls: Turn[] = [];
+        const desk = answeringDesk(calls);
+        const store = new MemoryCaseFileStore();
+        const g1 = new Gateway({ desk, quietMs: 8_000, store });
+        void g1.inbound(msg('hi on whatsapp'));
+        const file = store.all()[0];
+        const partyId = file.parties[0].personId;
+        // A second, independent burst for the same party on SMS, also never flushed before the restart:
+        // `joinBurst` keys a burst per party and channel, so the two time out (and get lost) on their own.
+        const smsAt = new Date(Date.parse(file.turns[0].at) + 2_000).toISOString();
+        const smsLanded = appendTurn(file, { at: smsAt, channel: 'sms', kind: 'text', body: 'and a text too', media: [], partyId, direction: 'inbound', runId: null, approver: null });
+        if (!smsLanded.ok) throw new Error(smsLanded.reason);
+        store.put(file);
+        expect(file.turns.map((t) => t.channel)).toEqual(['whatsapp', 'sms']);
+        expect(calls).toHaveLength(0);
+        const waiting = (g1 as unknown as { waiting: Map<string, { timer: ReturnType<typeof setTimeout> | null }> }).waiting;
+        for (const b of waiting.values()) if (b.timer) clearTimeout(b.timer);
+        const dueAt = Date.parse(smsAt) + 8_000;
+        const g2 = new Gateway({ desk, quietMs: 8_000, store, now: () => new Date(dueAt + 1) });
+        const result1 = await g2.clock(file.id);
+        expect(result1?.decision).toBe('send');
+        expect(calls).toHaveLength(2);
+        expect(calls.map((t) => t.channel).sort()).toEqual(['sms', 'whatsapp']);
+        expect(calls.find((t) => t.channel === 'whatsapp')).toMatchObject({ body: 'hi on whatsapp' });
+        expect(calls.find((t) => t.channel === 'sms')).toMatchObject({ body: 'and a text too' });
+        const result2 = await g2.clock(file.id);
+        expect(calls).toHaveLength(2);
+        expect(result2?.runId).toBe('run_clock');
     });
 
     it('a desk that throws rejects every message of its burst, and the next pass on the file still runs', async () => {

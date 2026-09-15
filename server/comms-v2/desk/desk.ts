@@ -20,7 +20,7 @@
  * ("no chasing", "one acknowledgement, then quiet"); it is where Ben is chased instead (7.5).
  */
 import { randomUUID } from 'node:crypto';
-import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, release as releaseHold, noteOnHold, supersede as supersedeHold, partyOf, setStage, isReady, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
+import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, release as releaseHold, noteOnHold, supersede as supersedeHold, partyOf, setStage, isReady, customerWroteSinceLastReply, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
 import { schedule } from '../scheduling/scheduling-specialist';
 import { dateChangeMatch, dateQuestionMatch, partyBookings, type PartyBookings, type SchedulingDeps } from '../scheduling/scheduling-tools';
 import { compose, type ComposeInput } from './composer';
@@ -86,7 +86,13 @@ export class Desk implements DeskLike {
     async clockPass(file: CaseFile): Promise<DeskResult> {
         const party = file.parties[0];
         const chased = await quotingClock(file, this.quotingDeps());
-        const base = this.nothing(file, party.personId, `run_${randomUUID()}`, [], `clock pass: no customer turn, nothing to reply to; the desk never chases the customer; ${chased.note}`);
+        // The gateway (gateway.ts staleBurstsOf) already answers a customer turn once it is due; a
+        // tick can still land here while one is waiting out its quiet window, so the note says that
+        // rather than claiming there is nothing to reply to.
+        const waitingNote = customerWroteSinceLastReply(file, party.personId)
+            ? 'a customer turn is waiting out its quiet window; the desk never chases, so it answers once quiet'
+            : 'no customer turn, nothing to reply to; the desk never chases the customer';
+        const base = this.nothing(file, party.personId, `run_${randomUUID()}`, [], `clock pass: ${waitingNote}; ${chased.note}`);
         const chase = this.deps.service?.chase;
         if (!chase) return { ...base, chase: null };
         // A release from any surface, the board included, leaves the old record behind: clear it here,
