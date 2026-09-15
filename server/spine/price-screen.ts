@@ -818,6 +818,29 @@ async function benToRequestFor(slug: string): Promise<string[]> {
     } catch { return []; }
 }
 
+/** The `source_channel` a draft the new desk wrote carries (server/comms-v2/quoting/quote-store.ts `SOURCE_CHANNEL`). */
+export const COMMS_V2_SOURCE_CHANNEL = 'comms_v2';
+
+export function isCommsV2Draft(row: Pick<DraftRowShape, 'source_channel'>): boolean {
+    return row.source_channel === COMMS_V2_SOURCE_CHANNEL;
+}
+
+/**
+ * Checklist 5.1: the thread pane. A draft the new desk wrote reads its case file, every channel's
+ * turns with their photos, because that thread writes nothing to the conversations and messages
+ * tables; every other draft reads those tables as before. Fails soft to an empty thread.
+ */
+async function threadFor(row: DraftRowShape, conversationId: string | null): Promise<PriceScreenThread> {
+    if (isCommsV2Draft(row)) {
+        try {
+            const { priceScreenThreadFor } = await import('../comms-v2/quoting/price-screen-thread');
+            return buildThread(await priceScreenThreadFor(row.short_slug));
+        } catch { return buildThread([]); }
+    }
+    const { loadThread } = await import('./price-brief');
+    return loadThread(conversationId).catch(() => buildThread([]));
+}
+
 async function readinessFor(conversationId: string | null): Promise<string | null> {
     if (!conversationId) return null;
     try {
@@ -838,9 +861,9 @@ export async function loadPriceScreen(slug: string): Promise<PriceScreenPayload 
     if (!row) return { available: false, status: 404, reason: 'No quote with that slug' };
     const estimate = await selectEstimateJson(row.id);
     const conversationId = await resolveConversationForQuote(row, estimate);
-    const { loadThread, loadNextWaiting, businessNumber } = await import('./price-brief');
+    const { loadNextWaiting, businessNumber } = await import('./price-brief');
     const [readiness, settings, thread, nextWaiting, business, benToRequest] = await Promise.all([
-        readinessFor(conversationId), liveSettings(), loadThread(conversationId).catch(() => buildThread([])),
+        readinessFor(conversationId), liveSettings(), threadFor(row, conversationId),
         loadNextWaiting(row.id).catch(() => null), businessNumber(), benToRequestFor(row.short_slug),
     ]);
     return buildPricePayload({ row, estimate, conversationId, readiness, settings, thread, nextWaiting, businessNumber: business, benToRequest });

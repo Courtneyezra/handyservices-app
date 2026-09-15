@@ -234,9 +234,15 @@ What the price screen shows for a v2 draft: the lines with the customer's own wo
 band, the photos on the draft. Nothing internal is on the row, in any field: the quote endpoint is
 reachable by slug with no session, so what the draft is missing is a fact on the case file instead,
 served to the price screen and, as `benToRequest`, to Ben's board card (Goal 2, below). The price
-screen's thread pane, the "asked, none sent" pill and its send button read the old conversation and
-messages tables, so they stay empty or refuse for a sandbox draft until cutover re-points them at
-the case file; the door's `/price` is the send in the meantime.
+screen's thread pane reads the case file for a draft whose row carries `source_channel` `comms_v2`
+(`quoting/price-screen-thread.ts`, asked by `server/spine/price-screen.ts` through a lazy import):
+every turn on the file whatever channel it came in on, a call's transcript and the web form
+included, each photo on it as a message of its own, and the "asked, none sent" pill reads that same
+thread. The file is found where the "To request" list's is (`priceScreenCaseFiles`), so a slug
+drafted in another process shows an empty pane rather than another thread. Every other draft keeps
+the old conversation and messages tables. The live send takes the new desk's delivery for a quote
+on a live case file (`quoting/price-screen-send.ts`); for a sandbox draft the door's `/price` is the
+send.
 
 ## Goal 5: the Scheduling specialist and the diary read (`scheduling/`)
 
