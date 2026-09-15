@@ -201,20 +201,23 @@ export class Gateway {
      * has no live timer for: a burst `joinBurst` was holding in memory when the process restarted,
      * so it landed on the file (turns are append-only) but was never handed to the desk. A party can
      * lose a burst on more than one channel across the same restart (WhatsApp and SMS both pending),
-     * so every channel with turns since the party's last reply is checked on its own, not only the
-     * most recent one. Empty when nothing on the file is in that state, including a burst this
-     * process is still timing normally.
+     * so every channel with turns since its own last reply is checked on its own: each channel's
+     * boundary (its own newest outbound turn, or its own newest non-waiting turn, already dispatched
+     * at once when it landed) closes only that channel's search, so an ordinary reply or an
+     * immediately-dispatched turn on one channel - SMS answered, an email in between, whatever -
+     * never hides an older channel's still-open stale group behind it. Empty when nothing on the
+     * file is in that state, including a burst this process is still timing normally.
      */
     private staleBurstsOf(file: CaseFile): Turn[][] {
         if (this.quietMs <= 0) return [];
         const groups: Turn[][] = [];
         for (const party of file.parties) {
             const byChannel = new Map<string, Turn[]>();
+            const closed = new Set<string>();
             for (let i = file.turns.length - 1; i >= 0; i--) {
                 const t = file.turns[i];
-                if (t.partyId !== party.personId) continue;
-                if (t.direction === 'outbound') break;
-                if (!waitsForQuiet(t)) break;
+                if (t.partyId !== party.personId || closed.has(t.channel)) continue;
+                if (t.direction === 'outbound' || !waitsForQuiet(t)) { closed.add(t.channel); continue; }
                 const list = byChannel.get(t.channel);
                 if (list) list.unshift(t); else byChannel.set(t.channel, [t]);
             }

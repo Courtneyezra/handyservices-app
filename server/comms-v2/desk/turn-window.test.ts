@@ -12,6 +12,7 @@ import { appendTurn, isTurnOf } from './case-file';
 import { MemoryCaseFileStore } from './store';
 import { customerTurnOf, waitsForQuiet } from './turn-window';
 import type { InboundTurn } from './whatsapp-adapter';
+import { clockDue } from '../channels/live-clock';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -192,6 +193,43 @@ describe('the gateway\'s quiet window', () => {
         const result2 = await g2.clock(file.id);
         expect(calls).toHaveLength(2);
         expect(result2?.runId).toBe('run_clock');
+    });
+
+    it('an email dispatched at once before the clock pass runs does not hide a WhatsApp burst the same restart stranded', async () => {
+        const calls: Turn[] = [];
+        const desk = answeringDesk(calls);
+        const store = new MemoryCaseFileStore();
+        const g1 = new Gateway({ desk, quietMs: 8_000, store });
+        void g1.inbound(msg('hi on whatsapp'));
+        const file = store.all()[0];
+        const partyId = file.parties[0].personId;
+        const waTurn = file.turns[0];
+        expect(calls).toHaveLength(0);
+        // The process dies here: nothing left to fire g1's real timer, exactly as a restart leaves it.
+        const waiting = (g1 as unknown as { waiting: Map<string, { timer: ReturnType<typeof setTimeout> | null }> }).waiting;
+        for (const b of waiting.values()) if (b.timer) clearTimeout(b.timer);
+        const dueAt = Date.parse(waTurn.at) + 8_000;
+        const g2 = new Gateway({ desk, quietMs: 8_000, store, now: () => new Date(dueAt + 1) });
+        // Before any clock pass reaches the file, the same party emails in: email never waits for
+        // quiet, so the gateway lands it and dispatches it to the desk at once (mirroring `inbound`).
+        const landedEmail = appendTurn(file, { at: new Date(Date.parse(waTurn.at) + 1_000).toISOString(), channel: 'email', kind: 'text', body: 'and by email', media: [], partyId, direction: 'inbound', runId: null, approver: null });
+        if (!landedEmail.ok) throw new Error(landedEmail.reason);
+        store.put(file);
+        const handTurn = (g2 as unknown as { handTurn(f: CaseFile, t: Turn): Promise<unknown> }).handTurn.bind(g2);
+        await handTurn(file, landedEmail.value);
+        expect(calls).toHaveLength(1);
+        expect(calls[0]).toMatchObject({ channel: 'email', body: 'and by email' });
+        expect(file.turns.map((t) => `${t.channel}:${t.direction}`)).toEqual(['whatsapp:inbound', 'email:inbound', 'email:outbound']);
+        // The email's own reply is now the party's newest turn; the WhatsApp message must still be found due.
+        expect(clockDue(file)).toBe(true);
+        const recovered = await g2.clock(file.id);
+        expect(recovered?.decision).toBe('send');
+        expect(calls).toHaveLength(2);
+        expect(calls[1]).toMatchObject({ channel: 'whatsapp', body: 'hi on whatsapp' });
+        const again = await g2.clock(file.id);
+        expect(calls).toHaveLength(2);
+        expect(again?.runId).toBe('run_clock');
+        expect(clockDue(file)).toBe(false);
     });
 
     it('a desk that throws rejects every message of its burst, and the next pass on the file still runs', async () => {

@@ -357,6 +357,26 @@ export function customerWroteSinceLastReply(file: CaseFile, partyId: string): bo
     return true;
 }
 
+/**
+ * Whether any one channel the party writes on has an inbound turn newer than the last outbound
+ * turn on that same channel. Unlike `customerWroteSinceLastReply` (the one-reply guard's own
+ * question: has the whole party been replied to since they last wrote, whichever channel either
+ * turn was on), this looks at each channel on its own, so a reply on one channel never hides
+ * another channel's still-unanswered turn from a caller that must not miss it (the live clock's
+ * `clockDue`, channels/live-clock.ts, which gates whether a stale burst lost to a restart -
+ * desk/gateway.ts `staleBurstsOf` - ever gets a pass to recover it).
+ */
+export function anyChannelAwaitingReply(file: CaseFile, partyId: string): boolean {
+    const lastOutboundAt: Partial<Record<ChannelKind, number>> = {};
+    for (const t of file.turns) if (t.partyId === partyId && t.direction === 'outbound') lastOutboundAt[t.channel] = Date.parse(t.at);
+    for (const t of file.turns) {
+        if (t.partyId !== partyId || t.direction !== 'inbound') continue;
+        const repliedAt = lastOutboundAt[t.channel];
+        if (repliedAt === undefined || Date.parse(t.at) > repliedAt) return true;
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------- stage
 
 /** Moves the stage and records why. Refuses a move the seven do not allow, and ready without type and location. */
