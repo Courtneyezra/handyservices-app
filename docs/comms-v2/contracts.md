@@ -201,7 +201,7 @@ brief for the composer, and never sees a figure.
 | `record_quote_facts` | the case file, the quote | the quote onto the file once: status, link, every figure (each line, the total, the deposit; never half a line, which is a breakdown rather than a line and is printed in whole pounds on the quote page) when live for figures, scope when live for scope | nothing; a repeat returns the existing facts |
 | `price_quote` | Ben's per-line prices, or the chain's suggestions | the priced record and the totals; the row stays a draft | not a draft; a line with no suggestion and no figure from Ben |
 | `mark_quote_sent` | the case file, after the delivery landed | the quote leaves draft, its figures reach the file, the stage walks to quoted | no quote on the file; a row the store will not mark sent |
-| `record_acceptance` | a witness | the row, the stage quoted to accepted, one push to Ben, the facts | any witness but a human; a draft; already accepted; no longer live |
+| `record_acceptance` | a witness (live, a `paid` witness names what the Stripe webhook already wrote instead of writing it here) | the row, the stage forward to accepted, one push to Ben, the facts | any witness but a human; a draft; already accepted; no longer live — a `paid` witness refuses only on a row that does not yet carry the payment, whether or not the quote is still live |
 
 **Which database the tools open.** Every WRITER in the desk asks one place before it opens the
 database, for its purpose (`server/comms-v2/live-database.ts`): the quote store, the draft chain, the
