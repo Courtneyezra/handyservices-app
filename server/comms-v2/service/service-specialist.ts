@@ -190,7 +190,7 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
         const field = res.output.changeOfDetails.field;
         const value = MASKED_FIELDS.has(field) ? rawValueFor(field, turn) : res.output.changeOfDetails.value;
         if (!value) {
-            brief.push(`They asked to change their ${field}, but the new ${field} could not be read from their message: say it has been passed to Ben to confirm; do not say it is done.`);
+            brief.push(`They asked to change their ${field}, but the new ${field} could not be read from their message: say you've noted it and will confirm it; do not say it is done.`);
             notes.push(`change of details ${field}: could not be read from the message`);
             if (!hold) hold = { reason: 'change_of_details', match: `the new ${field} could not be read from the message` };
         } else {
@@ -198,8 +198,8 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
             if (change.ok) {
                 factIds.push(change.fact.id);
                 brief.push(MASKED_FIELDS.has(field)
-                    ? `They asked to change their ${field} (fact ${change.fact.id}): say it has been passed to Ben to update; do not state or repeat the new ${field}, and do not say it is done.`
-                    : `They asked to change their ${field} to "${value}" (fact ${change.fact.id}): say it has been passed to Ben to update; do not say it is done.`);
+                    ? `They asked to change their ${field} (fact ${change.fact.id}): say you've noted it and will update it; do not state or repeat the new ${field}, and do not say it is done.`
+                    : `They asked to change their ${field} to "${value}" (fact ${change.fact.id}): say you've noted it and will update it; do not say it is done.`);
                 notes.push(`change of details ${MASKED_FIELDS.has(field) ? field : change.hold.match}`);
                 if (!hold) hold = change.hold;
             } else notes.push(`change of details refused: ${change.reason}`);
