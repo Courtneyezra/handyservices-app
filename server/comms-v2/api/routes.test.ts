@@ -345,7 +345,7 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         return file;
     }
 
-    async function harness() {
+    async function harness(sandboxAvailable: () => boolean = () => false) {
         const store = new MemoryCaseFileStore();
         const listed: ApproverAssignments = { ben: ['user_Ben.Real@handyservices.app'] };
         const app = express();
@@ -355,7 +355,7 @@ describe('one tap: send the held draft, and a template send on a shut window', (
             client: new FakeModelClient({ router: () => ({ subjects: [], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry' }), specialist: () => ({ facts: [], jobUnknowns: [], answeredSubjects: [] }), composer: () => ({ reply: 'ignored', factIds: [], kbIds: [] }) }),
             fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb,
         });
-        app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => listed, async () => ({ store, live: true, mode: 'dry_run' as const })));
+        app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => listed, async () => ({ store, live: true, mode: 'dry_run' as const }), undefined, undefined, sandboxAvailable));
         const srv = await new Promise<import('node:http').Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
         const root = `http://127.0.0.1:${(srv.address() as { port: number }).port}/api/comms-v2`;
         const call = async (method: string, route: string, as?: string) => {
@@ -427,6 +427,26 @@ describe('one tap: send the held draft, and a template send on a shut window', (
             expect(refused.status).toBe(409);
             expect(refused.json.error).toMatch(/no approved template/);
             expect(store.get(file.id)!.hold).not.toBeNull();
+        } finally {
+            await close();
+        }
+    });
+
+    it('/board carries sandboxAvailable exactly as the injected check answers, false by default (fail towards hiding)', async () => {
+        const { call, close } = await harness();
+        try {
+            const board = await call('GET', '/board');
+            expect(board.json.sandboxAvailable).toBe(false);
+        } finally {
+            await close();
+        }
+    });
+
+    it('/board carries sandboxAvailable true only when the check says the sandbox door could write here', async () => {
+        const { call, close } = await harness(() => true);
+        try {
+            const board = await call('GET', '/board');
+            expect(board.json.sandboxAvailable).toBe(true);
         } finally {
             await close();
         }

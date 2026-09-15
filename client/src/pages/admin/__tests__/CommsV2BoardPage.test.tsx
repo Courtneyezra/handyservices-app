@@ -59,7 +59,7 @@ function boardWithOneCardPerStage(): Board {
         stage: 'scoping', id: 'case_unassigned', customerName: 'Unassigned Customer', held: true,
         holdReason: 'a refund', holdApprover: 'ben', holdApproverAssigned: false,
     }));
-    return { stages: STAGES, columns };
+    return { stages: STAGES, columns, sandboxAvailable: true };
 }
 
 describe('<CommsV2BoardPage>', () => {
@@ -152,7 +152,7 @@ describe('<CommsV2BoardPage>', () => {
 
     it('starts a sandbox thread and sends the next customer message through the board door, refreshing the board', async () => {
         const user = userEvent.setup();
-        const empty: Board = { stages: STAGES, columns: Object.fromEntries(STAGES.map((s) => [s, []])) as Board['columns'] };
+        const empty: Board = { stages: STAGES, columns: Object.fromEntries(STAGES.map((s) => [s, []])) as Board['columns'], sandboxAvailable: true };
         const { calls } = mockFetch([
             { url: '/api/comms-v2/board', reply: () => ({ json: empty }) },
             { method: 'POST', url: '/api/comms-v2/sandbox/start', reply: () => ({ json: { ok: true } }) },
@@ -394,7 +394,7 @@ describe('<CommsV2BoardPage>', () => {
 
         // Before a card is opened, the docked panel is already there with a placeholder.
         expect(screen.getByTestId('docked-case-file-panel')).toBeTruthy();
-        expect(screen.getByText(/Select a case file/)).toBeTruthy();
+        expect(screen.getByText(/Select a conversation/)).toBeTruthy();
 
         await user.click(screen.getByTestId('board-card-case_held'));
         await waitFor(() => expect(screen.getByText('Can you do it for less?')).toBeTruthy());
@@ -402,5 +402,52 @@ describe('<CommsV2BoardPage>', () => {
         // It docked, not overlaid: no sheet role, and the board columns are still in the document.
         expect(screen.queryByRole('dialog')).toBeNull();
         expect(screen.getByTestId('board-column-first_contact')).toBeTruthy();
+    });
+
+    it('in production (the server reports the sandbox door cannot write here) hides every sandbox-only control and mode badge, and no visible text says "case file" or "sandbox"', async () => {
+        const board = boardWithOneCardPerStage();
+        board.sandboxAvailable = false;
+        mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+        ]);
+
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+
+        expect(screen.queryByTestId('sandbox-thread-control')).toBeNull();
+        expect(screen.queryByRole('button', { name: /sandbox only/i })).toBeNull();
+        expect(screen.queryByRole('button', { name: /live only/i })).toBeNull();
+        expect(screen.queryByText(/^sandbox$/i)).toBeNull();
+        expect(screen.queryByText(/^live$/i)).toBeNull();
+
+        expect(document.body.textContent).not.toMatch(/case file/i);
+        expect(document.body.textContent).not.toMatch(/sandbox/i);
+    });
+
+    it('where the sandbox works (a branch database) keeps the sandbox controls and mode badges visible, since the pipeline drives the board through them', async () => {
+        const board = boardWithOneCardPerStage();
+        mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+        ]);
+
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+
+        expect(screen.getByTestId('sandbox-thread-control')).toBeTruthy();
+        expect(screen.getByRole('button', { name: /sandbox only/i })).toBeTruthy();
+        expect(screen.getByRole('button', { name: /live only/i })).toBeTruthy();
+        expect(screen.getAllByText(/^sandbox$/i).length).toBeGreaterThan(0);
+    });
+
+    it('the conversation title reads plainly for Ben, with no raw case-file or sandbox wording', async () => {
+        const board = boardWithOneCardPerStage();
+        board.sandboxAvailable = false;
+        mockFetch([{ url: '/api/comms-v2/board', reply: () => ({ json: board }) }]);
+
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        expect(screen.getByText('Customer conversations')).toBeTruthy();
+        const total = Object.values(board.columns).reduce((n, c) => n + c.length, 0);
+        expect(screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === `${total} conversations`)).toBeTruthy();
     });
 });
