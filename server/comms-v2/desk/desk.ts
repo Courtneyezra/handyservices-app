@@ -42,6 +42,7 @@ import { channelFixedLines, MOVE_TO_WHATSAPP_SUBJECT } from '../channels/channel
 import { templateChoiceFor } from '../channels/templates';
 import { quote as quoteGather, quoteStateOf, quotingClock, quotingOwnsThread, quotingSummary, type QuotingSpecialistDeps } from '../quoting/quoting-specialist';
 import { liveFigureQuotes } from '../quoting/quoting-tools';
+import { refreshBenToRequest } from '../quoting/ben-to-request';
 
 export interface DeskDeps extends CaseFileDeps {
     client?: ModelClient;
@@ -116,6 +117,8 @@ export class Desk implements DeskLike {
         if (!party) return this.nothing(file, file.parties[0].personId, runId, calls, 'the turn\'s party is not on the file');
         if (turn.direction !== 'inbound') return this.nothing(file, party.personId, runId, calls, 'not a customer turn');
         const log = this.deps.log ?? (() => undefined);
+        // Ben's note of what the draft is missing, true as of this turn: a photo that has just landed is no longer his to request.
+        refreshBenToRequest(file, this.fileDeps());
 
         // 0. A thread held on a fixed line stays with Ben: no specialist, one acknowledgement per turn.
         if (file.hold?.exception && FIXED_LINE_ONLY.has(file.hold.exception)) {
