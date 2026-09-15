@@ -102,6 +102,13 @@ export interface Turn {
     /** Outbound only. */
     runId: string | null;
     approver: string | null;
+    /** Only on the desk's reading of a burst (desk/turn-window.ts): the ids of the messages it carries, oldest first. Never on a turn stored on the file. */
+    burst?: string[];
+}
+
+/** Whether a turn on the file is part of the turn the desk is answering: that turn itself, or one message of a burst read as one turn. */
+export function isTurnOf(t: Turn, turn: Turn): boolean {
+    return turn.burst ? turn.burst.includes(t.id) : t.id === turn.id;
 }
 
 export type FactSource =
@@ -348,6 +355,26 @@ export function customerWroteSinceLastReply(file: CaseFile, partyId: string): bo
         if (t.direction === 'outbound') return false;
     }
     return true;
+}
+
+/**
+ * Whether any one channel the party writes on has an inbound turn newer than the last outbound
+ * turn on that same channel. Unlike `customerWroteSinceLastReply` (the one-reply guard's own
+ * question: has the whole party been replied to since they last wrote, whichever channel either
+ * turn was on), this looks at each channel on its own, so a reply on one channel never hides
+ * another channel's still-unanswered turn from a caller that must not miss it (the live clock's
+ * `clockDue`, channels/live-clock.ts, which gates whether a stale burst lost to a restart -
+ * desk/gateway.ts `staleBurstsOf` - ever gets a pass to recover it).
+ */
+export function anyChannelAwaitingReply(file: CaseFile, partyId: string): boolean {
+    const lastOutboundAt: Partial<Record<ChannelKind, number>> = {};
+    for (const t of file.turns) if (t.partyId === partyId && t.direction === 'outbound') lastOutboundAt[t.channel] = Date.parse(t.at);
+    for (const t of file.turns) {
+        if (t.partyId !== partyId || t.direction !== 'inbound') continue;
+        const repliedAt = lastOutboundAt[t.channel];
+        if (repliedAt === undefined || Date.parse(t.at) > repliedAt) return true;
+    }
+    return false;
 }
 
 // ---------------------------------------------------------------- stage

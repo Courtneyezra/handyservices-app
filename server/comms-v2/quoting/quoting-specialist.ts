@@ -18,7 +18,7 @@
  * which stays human permanently: a "yes" in chat is pointed at the quote page and held for Ben.
  */
 import { z } from 'zod/v4';
-import { isReady, type CaseFile, type ModelCallRecord, type Party, type Turn } from '../desk/case-file';
+import { isReady, type CaseFile, type ModelCallRecord, type Party, type Turn, isTurnOf } from '../desk/case-file';
 import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { Route, RouterOutput } from '../desk/router';
@@ -109,7 +109,7 @@ const QUESTION_SYSTEM = [
 function threadFor(file: CaseFile, turn: Turn): string {
     return file.turns.slice(-14).map((t) => {
         const media = t.media.length ? ` [${t.media.map((m) => m.description ? `${m.kind}: ${m.description.description}` : m.kind).join('; ')}]` : '';
-        return `${t.id === turn.id ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${t.body}${media}`;
+        return `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${t.body}${media}`;
     }).join('\n');
 }
 

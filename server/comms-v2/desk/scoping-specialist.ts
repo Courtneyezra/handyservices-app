@@ -11,7 +11,7 @@
  * never sees the customer and holds no send tool.
  */
 import { z } from 'zod/v4';
-import { answered, everAsked, recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn } from './case-file';
+import { answered, everAsked, recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn, isTurnOf } from './case-file';
 import type { Proposal, SpecialistReturn } from './desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from './models';
 import { confirmLocation, describeMedia, mediaDeclined, mediaReceived, nextQuestion, offerCall, readiness, regulated, type DescribeDeps } from './scoping-tools';
@@ -43,7 +43,7 @@ const SYSTEM = [
 function threadFor(file: CaseFile, turn: Turn): string {
     return file.turns.slice(-16).map((t) => {
         const media = t.media.length ? ` [${t.media.map((m) => m.description ? `${m.kind}: ${m.description.description}` : `${m.kind} (not described)`).join('; ')}]` : '';
-        return `${t.id === turn.id ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${t.body}${media}`;
+        return `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${t.body}${media}`;
     }).join('\n');
 }
 

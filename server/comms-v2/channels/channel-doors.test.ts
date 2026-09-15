@@ -45,7 +45,7 @@ beforeAll(async () => {
     // A call or a form that establishes the job and the location makes the file ready, and Quoting
     // drafts on a ready file: the store and the drafter here keep that off the live chain.
     const store = new MemoryQuoteStore();
-    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates, kb: emptyKb, mediaDir: dir, now, scoping: { describe: async () => ({ ok: true, description: 'a ceiling fan', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier } });
+    const { router } = createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, templates, kb: emptyKb, mediaDir: dir, now, scoping: { describe: async () => ({ ok: true, description: 'a ceiling fan', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier } });
     const app = express();
     app.use(express.json());
     app.use('/api/comms-v2-sandbox', router);

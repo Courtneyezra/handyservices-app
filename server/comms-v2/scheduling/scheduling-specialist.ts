@@ -19,7 +19,7 @@
  * the composer that names which fact to copy verbatim. The composer voices it.
  */
 import { z } from 'zod/v4';
-import { recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn } from '../desk/case-file';
+import { recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn, isTurnOf } from '../desk/case-file';
 import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import type { FixedLineKind } from '../desk/fixed-lines';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
@@ -55,7 +55,7 @@ const SYSTEM = [
 ].join('\n');
 
 function threadFor(file: CaseFile, turn: Turn): string {
-    return file.turns.slice(-12).map((t) => `${t.id === turn.id ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${t.body}`).join('\n');
+    return file.turns.slice(-12).map((t) => `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${t.body}`).join('\n');
 }
 
 export interface SchedulingFindings {

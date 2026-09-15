@@ -26,7 +26,7 @@ beforeAll(async () => {
         composer: () => ({ reply: 'Got it, thanks.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
     });
     const templates = { async approved(name: string) { return name === CHASE_TEMPLATES.approver_chase.name || name === CHASE_TEMPLATES.owner_escalation.name ? { contentSid: `HX_${name}` } : null; } };
-    const { router } = createSandboxDoor({ client, fixedLines: noFixedLineSource, templates, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, approver: () => BEN });
+    const { router } = createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, templates, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, approver: () => BEN });
     const app = express();
     app.use(express.json());
     app.use('/api/comms-v2-sandbox', router);
@@ -105,7 +105,7 @@ describe('Goal 6 on the door', () => {
             specialist: () => ({ facts: [], jobUnknowns: [], answeredSubjects: [] }),
             composer: () => ({ reply: 'Thanks.', factIds: [], kbIds: [] }),
         });
-        const door = await serve(createSandboxDoor({ client, fixedLines: noFixedLineSource, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, approver: () => BEN }).router);
+        const door = await serve(createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, approver: () => BEN }).router);
         try {
             expect((await door('POST', '/start', { door: 'email', text: 'The shelf you put up has fallen off, not happy', name: 'Sam' })).status).toBe(200);
             const ben = await door('POST', '/ben-replies', { text: 'Sorry Sam, can you send me a photo of the wall and I will come and put it right.' });
@@ -123,7 +123,7 @@ describe('Goal 6 on the door', () => {
             specialist: () => ({ answers: [{ asked: 'email on file', source: 'record', id: 'email' }], changeOfDetails: null, holdReason: null }),
             composer: () => ({ reply: 'We have an email address on file for you.\n\nBen will confirm it.', factIds: [], kbIds: [] }),
         });
-        const door = await serve(createSandboxDoor({ client, fixedLines: noFixedLineSource, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, approver: () => BEN }).router);
+        const door = await serve(createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, approver: () => BEN }).router);
         try {
             const r = await door('POST', '/start', { door: 'email', text: 'What email address do you have for me?', name: 'Sam' });
             expect(r.status).toBe(200);

@@ -141,14 +141,14 @@ export function channelDoors(ctx: ChannelDoorContext): Router {
                 if (filesOf(req).length) { res.status(400).json({ error: 'an SMS cannot carry media (a UK long code cannot receive MMS)' }); return; }
                 const out = await gateway.inbound(fromDoorSms({ address: ctx.phone, name, text, at }));
                 if (!handled(res, out)) return;
-                ctx.respond(res, out.file, out.result, { messageId: out.turn.id, channel });
+                ctx.respond(res, out.file, out.result, { messageId: out.turn.id, channel, burst: { turnIds: out.burst } });
             } else {
                 const files = filesOf(req);
                 if (!text && !files.length) { res.status(400).json({ error: 'text or media is required' }); return; }
                 const env = fromDoorEmail({ address: SANDBOX_EMAIL, name, subject: str(req.body?.subject) || null, text, at, media: files }, { mediaDir: ctx.mediaDir });
                 const out = await gateway.inbound(env);
                 if (!handled(res, out)) return;
-                ctx.respond(res, out.file, out.result, { messageId: out.turn.id, channel, media: env.media.map((m) => ({ id: m.id, kind: m.kind })), email: emailOf(out.file) });
+                ctx.respond(res, out.file, out.result, { messageId: out.turn.id, channel, media: env.media.map((m) => ({ id: m.id, kind: m.kind })), email: emailOf(out.file), burst: { turnIds: out.burst } });
             }
         } catch (error: any) {
             res.status(500).json({ error: error?.message ?? 'sandbox message failed' });

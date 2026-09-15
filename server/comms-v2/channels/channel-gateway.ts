@@ -84,8 +84,8 @@ export class ChannelGateway extends Gateway {
             if (!rec.ok) this.log(`intake fact ${f.key} refused: ${rec.reason}`);
         }
 
-        const result = await this.handTurn(file, landed);
-        return { kind: 'handled', file, turn: landed, result };
+        const { result, burst } = await this.handTurn(file, landed);
+        return { kind: 'handled', file, turn: landed, result, burst };
     }
 
     /**
