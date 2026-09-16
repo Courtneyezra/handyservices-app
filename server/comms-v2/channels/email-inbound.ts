@@ -21,7 +21,8 @@
  *   409  the same email is being read right now; Resend retries later.
  *   502  Resend's API could not be read; nothing is marked seen, so Resend's retry reads it again.
  *   200  ignored: automated or internal mail (resend-inbound.ts `ignoredReason`). It is marked seen,
- *        logged with the reason only, and never forwarded; no attachment is downloaded.
+ *        logged with the reason only (no readable sender is a warning carrying Resend's email id),
+ *        and never forwarded; no attachment is downloaded.
  *   200  accepted: the envelope is built (email, attachments downloaded) and forwarded to the
  *        intake without waiting on the desk's turn.
  *
@@ -148,7 +149,8 @@ export function resendInboundRouter(deps: EmailInboundDeps = {}): Router {
         seen.add(`email:${emailId}`);
         seen.add(`delivery:${id}`);
         if (isIgnored(envelope)) {
-            console.log(`[comms-v2 email] received email ignored: ${envelope.ignored}`);
+            if (envelope.ignored === 'no_sender_address') console.warn(`[comms-v2 email] received email ${emailId} ignored: ${envelope.ignored}`);
+            else console.log(`[comms-v2 email] received email ignored: ${envelope.ignored}`);
             res.status(200).json({ ok: true, ignored: envelope.ignored });
             return;
         }

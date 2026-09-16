@@ -232,6 +232,16 @@ describe('ignored mail', () => {
         logs.mockRestore();
     });
 
+    it('with no readable sender is a warning carrying the email id, and nothing from the email', async () => {
+        const warns = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { post, forward } = await start({ envelope: readFrom(email('undisclosed-sender')).envelope });
+        const body = JSON.stringify(receivedEvent());
+        expect((await post(body, signed(body))).json).toEqual({ ok: true, ignored: 'no_sender_address' });
+        expect(forward).not.toHaveBeenCalled();
+        expect(warns.mock.calls.map((c) => c.join(' '))).toEqual([`[comms-v2 email] received email ${EMAIL_ID} ignored: no_sender_address`]);
+        warns.mockRestore();
+    });
+
     it('from an internal address is ignored; a customer email is forwarded', async () => {
         const logs = vi.spyOn(console, 'log').mockImplementation(() => {});
         const env = { ...ON, INTERNAL_EMAIL_ADDRESSES: 'ben@handyservices.example' };
