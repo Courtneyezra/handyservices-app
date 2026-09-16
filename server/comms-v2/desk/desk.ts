@@ -8,7 +8,8 @@
  * Exceptions (Contract 3): money, callbacks, date changes, a question with no source and a change
  * of details hold for Ben and the reply still answers the rest, saying Ben will come back on that.
  * A turn can raise more than one: each carries its own fixed line into the reply and the hold
- * records the gravest, so a price question that also asks for a call gets both lines.
+ * records the gravest, so a price question that also asks for a call gets both lines. A reply that
+ * puts a question off on a turn Service's model did not read holds as no source too (6b).
  * Complaints, refunds, trust doubts, gas and scoping that is not converging: one fixed line in
  * Ben's words, no composer, and while the hold stands no specialist either: each later turn gets
  * the short acknowledgement that Ben will come back. The vocabulary is server/comms-v2/service/
@@ -36,7 +37,7 @@ import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, heldAckLine, knowledgeBaseFixedLines, lateMediaAckLine, LATE_MEDIA_MS, type FixedLine, type FixedLineSource } from './fixed-lines';
 import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
-import { offersCall, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
+import { deferralMatch, offersCall, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
 import { TurnModelWatch, type TurnReport } from './model-health';
 import type { Exception, HoldException, Route } from './router';
@@ -307,6 +308,11 @@ export class Desk implements DeskLike {
             return this.heldAck(file, party.personId, turn, runId, calls, 'router_failed: the router could not read this turn, so a complaint or refund cannot be ruled out', null, 0, []);
         }
 
+        // What Ben's card said before this turn, so a question the reply puts off is held only where the turn added nothing to it (6b).
+        const cardBefore = file.hold?.reason ?? null;
+        // Whether Service's model read this turn: it raises no_source itself when it did.
+        let serviceRead = false;
+
         // 2. Exceptions that the Scoper does not scope: one fixed line, a hold, no composer.
         const fixedLines: FixedLine[] = [];
         const fixedLineKbIds: string[] = [];
@@ -352,6 +358,7 @@ export class Desk implements DeskLike {
             if (scoping) { calls.push(...scoping.calls); specialists.push(scoping); if (scoping.error) log(`scoping: ${scoping.error}`); }
             const service = await serve(file, turn, party, client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service') || asksToChangeDetails(turn.body) || asksAboutOurArea(turn.body), scopingRan });
             calls.push(...service.calls);
+            serviceRead = service.calls.length > 0;
             specialists.push(service);
             if (service.error) log(`service: ${service.error}`);
             // Scoping's and Service's holds, in the one vocabulary a fixed line answers; Quoting raises its own below.
@@ -610,6 +617,15 @@ export class Desk implements DeskLike {
             templateWording = pick.wording;
             rendered = { ok: true, bubbles: [{ text: pick.body, gapMs: 0 }] };
         }
+
+        // 6b. A question the composed reply puts off reaches Ben. Service holds on no_source itself when its
+        // model read the turn; when it did not (the router sent the turn elsewhere), the reply's "I'll check and
+        // come back to you" is the only record of the question, so it holds here, unless this turn has already
+        // put something on Ben's card (a money or date line says the same words about its own hold). Read
+        // from the words going out, not a model: the composer is told to say it will come back on anything it
+        // has no fact for, and those words are the promise Ben has to keep. A template send carries none of them.
+        const deferred = !template && !serviceRead && composed !== null && !(file.hold && file.hold.reason !== cardBefore) ? deferralMatch(composed) : null;
+        if (deferred) this.holdFor(file, 'no_source', `no_source: the reply said "${deferred}" and Service did not read the turn: ${turn.body.slice(0, 80)}`);
 
         // 7. The one sender.
         if (!template) factIds = Array.from(new Set([...prefixFactIds, ...factIds]));

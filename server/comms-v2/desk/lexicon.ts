@@ -127,6 +127,26 @@ export function ordinalDays(text: string): string[] {
 export const RE_BEN_COMES_BACK = /\b(?:ben|he|she|i|someone|one of (?:us|the team)|the team|we)\b[^.?!\n]{0,40}\b(?:will|['’]ll|can|is going to)\b[^.?!\n]{0,40}\b(?:be in touch|come back|get back|let you know|confirm|call|ring|phone)\b|\blet me\b[^.?!\n]{0,40}\b(?:come (?:straight )?back|get back|confirm)\b/i;
 
 /**
+ * A reply that puts off a question: "I'll check and come back to you on that", "let me find out".
+ * Narrower than RE_BEN_COMES_BACK: an offer to call, a confirmation and the wrap-up's "I'll put the
+ * quote together and send it over" are not a question left open, so they are not read as one.
+ */
+export const RE_DEFERS = /\b(?:i|we)\b[^.?!\n]{0,40}\b(?:will|['’]ll|am going to|['’]m going to)\b[^.?!\n]{0,40}\b(?:check|find out|come (?:straight )?back|get back|be in touch|let you know)\b|\blet me\b[^.?!\n]{0,40}\b(?:check|find out|come (?:straight )?back|get back)\b/i;
+
+/**
+ * The words of a reply that put a question off, or null. A sentence about the quote is the wrap-up
+ * or its delivery ("I'll get the quote over to you"), not a question left open, so it is skipped.
+ */
+export function deferralMatch(text: string): string | null {
+    for (const sentence of sentencesOf(text)) {
+        if (/\bquote\b/i.test(sentence)) continue;
+        const m = RE_DEFERS.exec(sentence);
+        if (m) return m[0];
+    }
+    return null;
+}
+
+/**
  * A promise to do, fix or guarantee something, a claim that a change to the customer's details is
  * already made (a change of details is Ben's to make; the desk only passes it on), or an admission
  * of fault. Fails closed: broad on purpose.

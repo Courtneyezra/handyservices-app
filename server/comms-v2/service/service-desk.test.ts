@@ -138,6 +138,62 @@ describe('the Service specialist on the desk', () => {
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(1);
     });
+    describe('a question the reply puts off when Service did not read the turn', () => {
+        const scopingOnly = (reply: string) => desk({
+            router: () => route({ subjects: ['scoping'], turnKind: 'enquiry' }),
+            specialist: ({ system }) => { if (isService(system)) throw new Error('Service was not routed'); return scopingOut([{ key: 'job_type', value: 'dripping tap' }]); },
+            composer: () => ({ reply, factIds: [], kbIds: [] }),
+        });
+        it('holds on no_source so the promise reaches Ben\'s board (the branch reply to "Are you on Checkatrade?")', async () => {
+            const { client, gateway } = scopingOnly("A dripping kitchen tap, got it.\n\nOn the Checkatrade question, I'll check and come back to you on that one.\n\nIs it a mixer tap or two separate taps?");
+            const out = await gateway.inbound(turn('Hi, my kitchen tap is dripping. Are you on Checkatrade?', '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(1);
+            expect(out.result.decision).toBe('send');
+            expect(out.result.delivered).toBe(true);
+            expect(out.file.hold).toMatchObject({ exception: 'no_source', approver: BEN });
+            expect(out.file.hold?.reason).toMatch(/^no_source: the reply said "I'll check and come back" and Service did not read the turn: Hi, my kitchen tap is dripping\. Are you on Checkatrade\?$/);
+            expect(out.result.hold?.exception).toBe('no_source');
+        });
+        it('an ordinary scoping-only job turn raises nothing: a question, a call offer and the wrap-up are not a question put off', async () => {
+            for (const reply of [
+                "A dripping kitchen tap, got it.\n\nIs it a mixer tap or two separate taps?\n\nHappy to give you a quick call if that's easier.",
+                "Thanks, that's everything I need for now. I'll put the quote together and send it over.",
+                "Thanks, I'll get the quote over to you.",
+            ]) {
+                const { gateway } = scopingOnly(reply);
+                const out = await gateway.inbound(turn('Hi, my kitchen tap is dripping.', '2026-09-11T10:00:00.000Z'));
+                if (out.kind !== 'handled') throw new Error(out.kind);
+                expect(out.result.decision).toBe('send');
+                expect(out.file.hold).toBeNull();
+            }
+        });
+        it('a turn whose own hold already carries the promise adds nothing: a price question holds on money alone', async () => {
+            const { gateway } = desk({
+                router: () => route({ subjects: ['quoting', 'scoping'], turnKind: 'question', exception: 'money' }),
+                specialist: ({ system }) => { if (isService(system)) throw new Error('Service was not routed'); return scopingOut([{ key: 'job_type', value: 'fence panel' }]); },
+                composer: () => ({ reply: `Fence panel, got it. ${DEFAULT_FIXED_LINES.money_to_ben}\n\nWhereabouts are you?`, factIds: [], kbIds: [] }),
+            });
+            const out = await gateway.inbound(turn('Fence panel down. How much roughly?', '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.file.hold).toMatchObject({ exception: 'money', notedOn: false });
+            expect(out.file.hold?.reason).not.toContain('no_source');
+        });
+        it('a turn Service read is left to Service: its answers decide, whatever words the reply uses', async () => {
+            const { client, gateway } = desk({
+                router: () => route({ subjects: ['scoping'], turnKind: 'enquiry' }),
+                specialist: ({ system }) => isService(system)
+                    ? serviceOut({ answers: [{ asked: 'areas covered', source: 'kb', id: 'kb-insured' }, { asked: 'fix a leaking tap?', source: 'job', id: null }] })
+                    : scopingOut([{ key: 'job_type', value: 'leaking tap' }]),
+                composer: () => ({ reply: `${INSURED}\n\nLet me check what the tap needs: is it a mixer?`, factIds: [], kbIds: ['kb-insured'] }),
+            });
+            const out = await gateway.inbound(turn('Do you cover Nottingham, and can you fix a leaking tap?', '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(2);
+            expect(out.result.decision).toBe('send');
+            expect(out.file.hold).toBeNull();
+        });
+    });
     it('answers a business question from a reviewed row verbatim, cited by id, and the business-claim guard passes on the citation', async () => {
         const { client, gateway } = desk({
             router: () => route({ subjects: ['service'], turnKind: 'question' }),
