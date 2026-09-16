@@ -485,6 +485,7 @@ const OVERRIDES: Record<string, Treatment> = {
     'sku_match_logs.input_text': 'narrative',
     'comms_opt_outs.trigger_text': 'note',
     'comms_opt_outs.note': 'note',
+    'comms_opt_outs.email_key': 'email',
     'comms_events.body': 'message_body',
     'comms_events.meta': 'json_deep',
     'comms_events.job_ref': 'keep',

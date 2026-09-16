@@ -7,7 +7,7 @@
  * bookkeeping of what the business has said: the ask ledger and the call offer. What still refuses
  * him is what the sender owns: a shut window, a wall of bubbles, a hold that is someone else's.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { appendTurn, everAsked, open, recordFact, hold as setHold, type ApproverSlot, type CaseFile, type Party, type TurnMedia } from './case-file';
 import { truncateWords } from '../channels/envelope';
 import { BEN } from './guards';
@@ -743,7 +743,9 @@ describe('the reply route a thread shows', () => {
 // with "spine.senders.null.enabled is not true", because a `human:*` row has no switch key and the
 // deliverer read it as the switch. Only faked deliverers had carried a human send live before.
 describe('a person\'s live send goes through the real live deliverer', () => {
-    afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.resetModules(); });
+    // An empty opt-out ledger: nobody on these threads has opted out.
+    beforeEach(() => { vi.doMock('../../opt-out', () => ({ blockedByOptOut: async () => null, optOutRefusalMessage: () => '' })); });
+    afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.doUnmock('../../opt-out'); vi.resetModules(); });
     function live(on: boolean): Array<{ approver: string; body: string }> {
         const outbox: Array<{ approver: string; body: string }> = [];
         vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: on ? { comms_v2: { enabled: true } } : {} }) }));
