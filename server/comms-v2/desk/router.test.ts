@@ -192,6 +192,11 @@ describe('the composer\'s brief', () => {
         expect(onSms).toContain('came to 3 SMS segments, over the 2 one text message may use');
         expect(onSms).toContain('one text message under 306 characters');
         expect(onSms).not.toContain('bubbles, over the ceiling of');
+        // One emoji makes the text UCS-2: the retry is told which character it was and the room it gets back without it (round 25).
+        const warm = `${'word '.repeat(30).trim()} \u{1F44D}`;
+        const onSmsWide = brief({ file, party: file.parties[0], turn: file.turns[0], shorten: shortenBriefFor('sms', warm, renderSms(warm).bubbles) });
+        expect(onSmsWide).toContain('because it carries \u{1F44D}: one character like that halves what a text message holds');
+        expect(onSmsWide).toContain('without that character (no emoji or symbols), under 306 characters');
         const whatsapp = fixture('Leaking tap');
         const wall = Array.from({ length: 6 }, (_, i) => `bubble ${i}`).join('\n\n');
         const onWhatsApp = brief({ file: whatsapp, party: whatsapp.parties[0], turn: whatsapp.turns[0], shorten: shortenBriefFor('whatsapp', wall, renderWhatsApp(wall).bubbles) });

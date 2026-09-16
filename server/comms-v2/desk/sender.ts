@@ -29,7 +29,7 @@ import type { GuardOutcome } from './guards';
 import { isHumanApprover, type Approver } from '../../approver';
 import { renderEmail } from '../channels/email-adapter';
 import { firstNameOf } from '../channels/envelope';
-import { renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
+import { nonGsmChars, renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
 import type { ChannelReplyPurpose } from '../channels/templates';
 import type { OutboundPurpose } from '../../opt-out';
 import { isOutOfHours, ukHour } from '../../working-hours';
@@ -330,7 +330,7 @@ export function render(channel: ReplyChannel, reply: string, opts: RenderOptions
  * number there is read by nobody.
  */
 export type ShortenBrief =
-    | { previous: string; channel: 'sms'; measured: number; ceiling: number; charBudget: number }
+    | { previous: string; channel: 'sms'; measured: number; ceiling: number; charBudget: number; wideChars: string[] }
     | { previous: string; channel: Exclude<ReplyChannel, 'sms'>; measured: number; ceiling: number };
 
 /**
@@ -339,12 +339,13 @@ export type ShortenBrief =
  * the composer the other channel's numbers gives it no reason to shorten, so the retry fails too.
  * The SMS budget is the refusing text's own encoding: one character outside GSM 03.38 halves what
  * two segments hold, so a GSM7 number would send the shortened reply back over the ceiling again.
+ * `wideChars` names those characters (an emoji, a ×), so the retry can drop them and get the room back.
  */
 export function shortenBriefFor(channel: ReplyChannel, previous: string, rendered: RenderedBubble[]): ShortenBrief {
     if (channel === 'sms') {
         const text = rendered[0]?.text ?? '';
         const multi = smsCost(text).encoding === 'ucs2' ? UCS2_MULTI : GSM7_MULTI;
-        return { previous, channel, measured: smsSegmentCount(text), ceiling: SMS_MAX_SEGMENTS, charBudget: multi * SMS_MAX_SEGMENTS };
+        return { previous, channel, measured: smsSegmentCount(text), ceiling: SMS_MAX_SEGMENTS, charBudget: multi * SMS_MAX_SEGMENTS, wideChars: nonGsmChars(text) };
     }
     return { previous, channel, measured: rendered.length, ceiling: BUBBLE_CEILING };
 }

@@ -496,6 +496,11 @@ describe('shortenBriefFor', () => {
         const ucs2 = shortenBriefFor('sms', ucs2Text, renderSms(ucs2Text).bubbles);
         expect(ucs2).toMatchObject({ channel: 'sms', charBudget: UCS2_MULTI * SMS_MAX_SEGMENTS });
         if (ucs2.channel === 'sms') expect(ucs2.charBudget).toBeLessThan(gsm7.channel === 'sms' ? gsm7.charBudget : 0);
+        // The characters that cost the room are named, so the retry can drop them (round 25); a GSM7 text names none.
+        expect(ucs2).toMatchObject({ wideChars: ['\u{1F44D}'] });
+        expect(gsm7).toMatchObject({ wideChars: [] });
+        const mixed = 'About 2\u00bd hrs, 1.2m \u00d7 30cm \u{1F44D} \u{1F44D}';
+        expect(shortenBriefFor('sms', mixed, renderSms(mixed).bubbles)).toMatchObject({ wideChars: ['\u00bd', '\u00d7', '\u{1F44D}'] });
     });
 });
 

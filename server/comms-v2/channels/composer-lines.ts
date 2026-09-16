@@ -39,7 +39,7 @@ export function composerChannelLines(file: CaseFile, party: Party, turn: Turn, n
     const choice = sendOn ? { ok: true as const, channel: sendOn } : chooseChannel(party, turn.channel, now);
     const channel = choice.ok ? choice.channel : 'whatsapp';
     const lines: string[] = [];
-    if (channel === 'sms') lines.push(`This reply goes by SMS, not WhatsApp: one short text message, under ${SMS_REPLY_BUDGET - reserved} characters in total, no blank lines and no bubbles. Say the one thing that matters and ask the one question.`);
+    if (channel === 'sms') lines.push(`This reply goes by SMS, not WhatsApp: one short text message, under ${SMS_REPLY_BUDGET - reserved} characters in total, no blank lines and no bubbles, and plain letters and punctuation only: no emoji or symbols such as × or ½, because one of them halves what a text message holds. Say the one thing that matters and ask the one question.`);
     else if (channel === 'email') lines.push('This reply goes by email: write the body only, in short paragraphs separated by a blank line, in a plain friendly register. No greeting line and no sign-off; the sender adds those.');
     if (reserved > 0) {
         lines.push('A line the desk writes goes ahead of your words in this send: do not introduce us and do not repeat that line.');

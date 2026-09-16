@@ -41,6 +41,11 @@ export function smsCost(text: string): { encoding: SmsEncoding; units: number } 
     return { encoding: 'gsm7', units };
 }
 
+/** The distinct characters outside GSM 03.38 (the ones that make a text UCS-2), in the order they first appear. */
+export function nonGsmChars(text: string): string[] {
+    return Array.from(new Set(Array.from(text).filter((ch) => !GSM7_BASIC.has(ch) && !GSM7_EXTENDED.has(ch))));
+}
+
 export function smsSegmentCount(text: string): number {
     if (!text) return 0;
     const { encoding, units } = smsCost(text);
