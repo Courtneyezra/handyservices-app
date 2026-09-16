@@ -23,7 +23,7 @@ import { EMAIL_SIGN_OFF, fromDoorEmail } from './email-adapter';
 import { ChannelDesk } from './channel-desk';
 import { ChannelGateway, type ChannelSeed } from './channel-gateway';
 import { fromDoorForm } from './form-adapter';
-import { fromDoorSms } from './sms-adapter';
+import { fromDoorSms, fromTwilioSms } from './sms-adapter';
 
 const TRANSCRIPT = 'Agent: Hi, it is Ben from Handy Services, you messaged about the bathroom extractor fan. Customer: Oh hi, yes. Agent: Is it just not spinning? Customer: Nothing at all, the light works but the fan is dead. Agent: OK. Easiest thing is if you can send me a couple of photos of the fan and the switch, then I can price it up. Customer: Yes fine, I will do that this afternoon. Agent: Great, speak soon.';
 const approvedAll: TemplateStatusSource = { async approved(name) { return { contentSid: `HX_${name}` }; } };
@@ -341,6 +341,29 @@ describe('the channel desk on a call', () => {
         const b = await gateway.inbound(fromDoorSms({ address: '+447700900942', text: 'NG9 2AB', at: '2026-09-11T10:05:00.000Z' }));
         if (b.kind !== 'handled') throw new Error(b.kind);
         expect(b.result.bubbles[0].text).not.toContain('WhatsApp');
+    });
+    it('a photo texted by SMS, which a UK long code cannot receive, reaches the router and the composer as a photo that did not reach us, never as an empty turn', async () => {
+        const seen: string[] = [];
+        const { gateway } = rig({
+            router: ({ user }) => { seen.push(user); return routeScoping(); },
+            specialist: () => ({ facts: [{ key: 'job_type', value: 'dripping kitchen tap' }], jobUnknowns: [], answeredSubjects: [] }),
+            composer: ({ user, n }) => { seen.push(user); return { reply: n === 1 ? 'A dripping tap, got it. Could you send a photo of it?' : 'That photo did not come through by text, sorry. Whereabouts are you?', factIds: [], kbIds: [] }; },
+        });
+        await gateway.inbound(fromDoorSms({ address: '+447700900942', name: 'Sam', text: 'kitchen tap is dripping', at: '2026-09-11T10:00:00.000Z' }), { whatsapp: false });
+        seen.length = 0;
+        const mms = fromTwilioSms({ From: '+447700900942', To: '+447700900001', Body: '', MessageSid: 'SM_test', NumMedia: '1', MediaUrl0: 'https://media.example.invalid/1' }, { now: () => new Date('2026-09-11T10:05:00.000Z') });
+        const b = await gateway.inbound(mms);
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.turn).toMatchObject({ channel: 'sms', body: '', media: [], mediaFailed: 1 });
+        // The router's thread and the composer's (any retry of the composer reads the same thread).
+        const threads = seen.filter((u) => u.includes('>> '));
+        expect(threads.length).toBeGreaterThanOrEqual(2);
+        for (const user of threads) {
+            expect(user.split('>> ')[1].split('\n')[0]).toMatch(/: \[1 photo or video sent that did not reach us\]$/);
+            expect(user).not.toContain('[empty]');
+        }
+        // A turn that lost nothing carries no note.
+        expect(b.file.turns[0].mediaFailed).toBeUndefined();
     });
     it('a first SMS reply held for Ben carries no invitation, so the next real reply still carries it, and only that once (1.4)', async () => {
         const { gateway } = rig({
