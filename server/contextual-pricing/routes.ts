@@ -2981,10 +2981,13 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
     }
 
     // 7a. Bump the catalog pick-count for any extras that were chosen — fire-and-forget.
-    // Don't block the response if telemetry fails.
+    // Don't block the response if telemetry fails, but DO say so: a swallowed failure here is
+    // exactly how a malformed query kept pick counts at zero unnoticed.
     if (input.optionalExtras && input.optionalExtras.length > 0) {
       const labels = input.optionalExtras.map((x) => x.label);
-      void incrementExtrasPickCount(labels);
+      void incrementExtrasPickCount(labels).catch((err) => {
+        console.error('[extras-catalog] pick-count update FAILED for', labels, '-', err);
+      });
     }
 
     // 7b. Track in PostHog (server-side, non-blocking)
