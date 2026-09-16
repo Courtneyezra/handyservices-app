@@ -87,6 +87,11 @@ export interface IntakeGatewayDeps {
  * of the process.
  */
 export async function liveChannelGateway(deps: IntakeGatewayDeps = {}): Promise<GatewayT> {
+    return (await intakeGateway(deps)).gateway;
+}
+
+/** The intake gateway with the purpose of the entry that supplied it, so a caller never pairs one gateway with another's purpose. */
+async function intakeGateway(deps: IntakeGatewayDeps): Promise<{ purpose: Purpose | 'any'; gateway: GatewayT }> {
     const readState = deps.liveState ?? (async () => (await import('../switch')).commsV2LiveState());
     const state = await readState();
     const purpose: Purpose = state.live ? 'live' : 'sandbox';
@@ -95,7 +100,7 @@ export async function liveChannelGateway(deps: IntakeGatewayDeps = {}): Promise<
         console.warn('[comms-v2 intake] every switch for the live desk is on, but this process is not the comms worker (COMMS_WORKER=1), where the desk\'s clock runs: the live gateway is not built here and nothing is delivered from this process');
     }
     // Checked and set with no await between them, so two forwards arriving together share one build.
-    if (live && (live.purpose === 'any' || live.purpose === purpose)) return live.gateway;
+    if (live && (live.purpose === 'any' || live.purpose === purpose)) { const shared = live; return { purpose: shared.purpose, gateway: await shared.gateway }; }
     if (live) console.log(`[comms-v2 intake] the switches changed: the ${live.purpose} gateway is set aside and a ${purpose} one is built${state.live ? '' : ` (off: ${state.off.join('; ')})`}`);
     const build = deps.build ?? buildIntakeGateway;
     const requirements = deps.requirements ?? INTAKE_REQUIREMENTS;
@@ -106,7 +111,7 @@ export async function liveChannelGateway(deps: IntakeGatewayDeps = {}): Promise<
     const entry: NonNullable<typeof live> = { purpose, gateway: building, ready: null };
     live = entry;
     building.then((g) => { entry.ready = g; }, () => { if (live === entry) live = null; });
-    return building;
+    return { purpose, gateway: await building };
 }
 
 /** The durable gateway for a purpose: the case file store, the quote store, the draft chain and the diary all open the database that purpose allows. */
@@ -253,10 +258,10 @@ export function deliveryLabelFor(purpose: Purpose | 'any' | undefined): string {
 }
 
 /** The same forward, awaited: the tests use it. */
-export async function forwardNow(event: IntakeEvent): Promise<IntakeReport> {
-    const gateway = await liveChannelGateway();
+export async function forwardNow(event: IntakeEvent, deps: IntakeGatewayDeps = {}): Promise<IntakeReport> {
+    const { purpose, gateway } = await intakeGateway(deps);
+    const deliveryLabel = deliveryLabelFor(purpose);
     const { envelopes, skipped } = await envelopesOf(event);
-    const deliveryLabel = deliveryLabelFor(builtIntakeGateway()?.purpose);
     let forwarded = 0;
     for (const envelope of envelopes) {
         const out = await gateway.inbound(envelope);
