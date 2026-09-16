@@ -544,42 +544,34 @@ describe('the desk', () => {
         expect(second.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
     });
 
-    it('the held acknowledgement does not spend the photo\'s one thanks, and the next turn is still told to carry it', async () => {
+    it('the held acknowledgement names the photo the turn brought and spends its one thanks, so the next turn is told not to thank again', async () => {
         const photo = [{ id: 'm1', kind: 'image' as const, mime: 'image/jpeg', path: '/tmp/m1.jpg', url: 'https://example.test/m1.jpg', bytes: 1024 }];
         let composerUser = '';
         const { gateway } = desk({
             router: () => routeScoping(),
             specialist: () => specialistFacts([{ key: 'job_type', value: 'leaking kitchen tap' }]),
             // The first turn's reply carries a figure, so the guards refuse it twice and the desk
-            // falls to the held acknowledgement, which is Ben's fixed line and names no photo.
+            // falls to the held acknowledgement, which names the photo the turn brought.
             composer: ({ user, n }) => {
                 composerUser = user;
                 return n <= 2
                     ? { reply: 'Thanks for the photo. That will be about £80.', factIds: [], kbIds: [] }
-                    : { reply: 'Thanks for the photo, that is the one.\n\nWhereabouts are you?', factIds: [], kbIds: [] };
+                    : { reply: 'Got it, that is the one.\n\nWhereabouts are you?', factIds: [], kbIds: [] };
             },
         });
 
         const first = await gateway.inbound(turn('here is the tap', '2026-09-11T10:00:00.000Z', photo));
         if (first.kind !== 'handled') throw new Error(first.kind);
         expect(first.result.decision).toBe('hold');
-        expect(first.result.bubbles[0].text).toBe(DEFAULT_FIXED_LINES.held_ack);
-        // The photo is still owed its thanks: the words that went never named it.
-        expect(first.file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeFalsy();
+        expect(first.result.bubbles[0].text).toBe("Thanks for the photo, leave it with me and I'll come back to you.");
+        // The words that went thanked for the photo, so the thanks is spent.
+        expect(first.file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
 
         const second = await gateway.inbound(turn('NG9 2AB', '2026-09-11T10:05:00.000Z'));
         if (second.kind !== 'handled') throw new Error(second.kind);
         expect(second.result.decision).toBe('send');
-        // The turn carries no photo of its own, and the instruction still asks for the thanks: it
-        // reads what the thread has received, not what this one turn brought.
-        expect(composerUser).toContain('thank for media: yes');
-        expect(second.result.guards.ask_ledger.result).toBe('pass');
-        expect(second.result.bubbles.map((b) => b.text).join(' ')).toContain('Thanks for the photo');
-        // Spent now, by the reply that went: a third turn is told not to thank again.
-        expect(second.file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
-
-        const third = await gateway.inbound(turn('cheers', '2026-09-11T10:10:00.000Z'));
-        if (third.kind !== 'handled') throw new Error(third.kind);
         expect(composerUser).toContain('thank for media: no');
+        expect(composerUser).not.toContain('came in earlier');
+        expect(second.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/thanks for the photo/i);
     });
 });

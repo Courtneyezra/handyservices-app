@@ -18,7 +18,7 @@ import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
 import type { Route } from './router';
 import { composerChannelLines } from '../channels/composer-lines';
-import type { ShortenBrief } from './sender';
+import { BUBBLE_CEILING, type ShortenBrief } from './sender';
 import { withoutDashPunctuation } from './dashes';
 
 export const composerOutputSchema = z.object({
@@ -44,6 +44,11 @@ export interface ComposeInput {
     specialists: SpecialistReturn[];
     /** Fixed lines the reply must carry, in Ben's words. */
     fixedLines: FixedLine[];
+    /**
+     * The late thanks for a photo or video that came in well before this turn. The desk adds it as a
+     * bubble after the reply, so the composer is told to leave that media alone and keep a bubble free.
+     */
+    lateAck?: FixedLine | null;
     /** Second attempt only: the guard failures, named. */
     failures?: string[];
     /** Second attempt only: the reply was too long for the channel it is going out on. */
@@ -134,6 +139,7 @@ export function buildComposerUser(input: ComposeInput): string {
     const never = Array.from(new Set([...neverAsk, ...declined]));
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);
     for (const s of specialists) if (s.specialist !== 'scoping' && s.brief?.length) { lines.push(s.specialist === 'service' ? 'Proposal from Service:' : `Notes from ${s.specialist} (facts to copy verbatim, what not to say):`); for (const b of s.brief) lines.push(`- ${b}`); }
+    if (input.lateAck) lines.push(`The last photo or video in the thread came in earlier and this reply is late for it: a bubble is added after your reply saying "${input.lateAck.text}". Do not thank for it or mention it yourself, answer the turn marked >> first, and use at most ${BUBBLE_CEILING - 1} bubbles.`);
     if (fixedLines.length) {
         lines.push('Fixed lines to include, in Ben\'s words:');
         for (const f of fixedLines) lines.push(`- ${f.text}`);

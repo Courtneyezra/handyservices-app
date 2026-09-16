@@ -13,21 +13,23 @@
  * Ben's words, no composer, and while the hold stands no specialist either: each later turn gets
  * the short acknowledgement that Ben will come back. The vocabulary is server/comms-v2/service/
  * hold-reasons.ts. A router that fails to read the turn holds for Ben with the fixed acknowledgement,
- * since nothing then rules out a complaint or a refund. A guard failure goes back to the composer once, then holds with the fixed
+ * since nothing then rules out a complaint or a refund. The acknowledgement names a photo or video the turn
+ * carried. A photo or video that arrived well before the turn and is still unthanked is thanked for in
+ * a line that says so, after the reply to what the customer has just said. A guard failure goes back to the composer once, then holds with the fixed
  * acknowledgement. A composer refusal or failure takes the fixed acknowledgement, never a silent
  * empty reply; so does a reply the sender refuses, which live includes one of Ben's four fixed
  * lines he has not yet reviewed. Never silent otherwise; a clock pass never messages a customer
  * ("no chasing", "one acknowledgement, then quiet"); it is where Ben is chased instead (7.5).
  */
 import { randomUUID } from 'node:crypto';
-import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, release as releaseHold, noteOnHold, supersede as supersedeHold, partyOf, setStage, isReady, messagesOf, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
+import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, release as releaseHold, noteOnHold, supersede as supersedeHold, partyOf, setStage, isReady, isTurnOf, messagesOf, type CaseFile, type ModelCallRecord, type Turn, type TurnMedia, type CaseFileDeps, type RenderedBubble } from './case-file';
 import { schedule } from '../scheduling/scheduling-specialist';
 import { dateChangeMatch, dateQuestionMatch, partyBookings, type PartyBookings, type SchedulingDeps } from '../scheduling/scheduling-tools';
 import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, Proposal, SpecialistReturn } from './desk-types';
-import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineSource } from './fixed-lines';
+import { fixedLine, heldAckLine, knowledgeBaseFixedLines, lateMediaAckLine, LATE_MEDIA_MS, type FixedLine, type FixedLineSource } from './fixed-lines';
 import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
-import { offersCall, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
+import { offersCall, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
 import { TurnModelWatch, type TurnReport } from './model-health';
 import type { Exception, HoldException, Route } from './router';
@@ -169,6 +171,11 @@ export class Desk implements DeskLike {
         let citedKbIds: string[] = [];
         const specialists: SpecialistReturn[] = [];
         let scoping: SpecialistReturn | null = null;
+        // Thanks owed for media that came in well before this turn: a line after the composed reply, never the composer's own words.
+        let lateAck: FixedLine | null = null;
+        const withLateAck = (composed: string) => lateAck ? `${composed}\n\n${lateAck.text}` : composed;
+        const sentLines = () => lateAck ? [...fixedLines, lateAck] : fixedLines;
+        let composed: string | null = null;
 
         // A fixed-line hold, whoever raised it: one line in Ben's words, the hold, no composer.
         const fixedLineHold = async (reason: HoldException, match: string) => {
@@ -272,12 +279,20 @@ export class Desk implements DeskLike {
                     scoping.proposal.mentionPhotos = false;
                     if (route.turnKind === 'not_ready') scoping.proposal.offerCall = false;
                 }
+                // Media that came in well before this turn is thanked for as late, after the reply to what the
+                // customer has just said, rather than read as though it had just arrived (fixed-lines.ts lateMediaAckLine).
+                // Media a message has already followed is not thanked for at all.
+                const owed = scoping?.proposal.thankForMedia ? mediaThanksOf(file, turn, this.now()) : 'on_time';
+                if (scoping && owed !== 'on_time') {
+                    scoping.proposal.thankForMedia = false;
+                    if (owed !== 'followed') lateAck = lateMediaAckLine(owed.media, owed.at, this.now());
+                }
                 // 4. Compose, once; a guard failure sends it back once; the ceiling sends it back once.
-                const input: ComposeInput = { file, party, turn, route, specialists, fixedLines, now: this.now() };
+                const input: ComposeInput = { file, party, turn, route, specialists, fixedLines, lateAck, now: this.now() };
                 const first = await compose(input, client);
                 calls.push(first.record);
                 composerCalls++;
-                if (first.output) { reply = first.output.reply; factIds = first.output.factIds; citedKbIds = first.output.kbIds; }
+                if (first.output) { composed = first.output.reply; reply = withLateAck(composed); factIds = first.output.factIds; citedKbIds = first.output.kbIds; }
                 else {
                     log(`composer: ${first.refused ? 'refused' : first.error}`);
                     return this.heldAck(file, party.personId, turn, runId, calls, `composer ${first.refused ? 'declined' : 'failed'}: ${first.error}`, null, composerCalls, specialists, undefined, summarise(route, specialists));
@@ -293,24 +308,28 @@ export class Desk implements DeskLike {
         const guardAttempt = async (text: string, ids: string[], cited: string[]): Promise<{ guards: GuardOutcome; kbIds: string[] }> => {
             const merged = Array.from(new Set([...fixedLineKbIds, ...cited]));
             const kbRows = await this.kbRows(merged, fixedLines);
-            return { guards: runGuards({ file, party, turn, reply: text, factIds: ids, kbIds: merged, kbRows, fixedLines, lookedUp, proposedSubject, liveQuoteRefs }), kbIds: merged };
+            return { guards: runGuards({ file, party, turn, reply: text, factIds: ids, kbIds: merged, kbRows, fixedLines: sentLines(), lookedUp, proposedSubject, liveQuoteRefs }), kbIds: merged };
         };
-        // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too.
+        // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too;
+        // so is a composed reply that thanks for media the late line already thanks for.
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
             const n = scopingQuestionCount(text);
-            return n > 1 ? { ok: false, guards: g.guards, failures: [...g.failures, `one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`] } : g;
+            const failures = [...g.failures];
+            if (n > 1) failures.push(`one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`);
+            if (lateAck && RE_THANKS_MEDIA.test(text)) failures.push('the photo or video came in earlier and a line after your reply thanks for it: do not thank for it yourself');
+            return failures.length > g.failures.length ? { ok: false, guards: g.guards, failures } : g;
         };
         const attempt = await guardAttempt(reply!, factIds, citedKbIds);
         let kbIds: string[] = attempt.kbIds;
-        let guards: GuardOutcome = withOneThing(attempt.guards, reply!);
+        let guards: GuardOutcome = withOneThing(attempt.guards, composed ?? reply!);
         if (!guards.ok && !fixedLineOnly) {
-            const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures, now: this.now() }, client);
+            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, failures: guards.failures, now: this.now() }, client);
             calls.push(again.record);
             composerCalls++;
             if (again.output) {
-                const retry = await guardAttempt(again.output.reply, again.output.factIds, again.output.kbIds);
+                const retry = await guardAttempt(withLateAck(again.output.reply), again.output.factIds, again.output.kbIds);
                 const g2 = withOneThing(retry.guards, again.output.reply);
-                if (g2.ok) { reply = again.output.reply; factIds = again.output.factIds; kbIds = retry.kbIds; guards = g2; }
+                if (g2.ok) { reply = withLateAck(again.output.reply); factIds = again.output.factIds; kbIds = retry.kbIds; guards = g2; }
                 else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed twice: ${g2.failures.join('; ')}`, again.output.reply, composerCalls, specialists, g2, summary);
             } else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed and the composer ${again.refused ? 'declined' : 'failed'} the retry`, reply, composerCalls, specialists, guards, summary);
         }
@@ -324,13 +343,15 @@ export class Desk implements DeskLike {
         if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
         let rendered = render(choice.channel, reply!, { name: party.name });
         if (!rendered.ok && rendered.reason === 'ceiling' && !fixedLineOnly) {
-            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles), now: this.now() }, client);
+            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles), now: this.now() }, client);
             calls.push(shorter.record);
             composerCalls++;
             if (shorter.output) {
-                const short = await guardAttempt(shorter.output.reply, shorter.output.factIds, shorter.output.kbIds);
-                const r3 = render(choice.channel, shorter.output.reply, { name: party.name });
-                if (short.guards.ok && r3.ok) { reply = shorter.output.reply; factIds = shorter.output.factIds; kbIds = short.kbIds; guards = short.guards; rendered = r3; }
+                const shortReply = withLateAck(shorter.output.reply);
+                const short = await guardAttempt(shortReply, shorter.output.factIds, shorter.output.kbIds);
+                const shortGuards = withOneThing(short.guards, shorter.output.reply);
+                const r3 = render(choice.channel, shortReply, { name: party.name });
+                if (shortGuards.ok && r3.ok) { reply = shortReply; factIds = shorter.output.factIds; kbIds = short.kbIds; guards = shortGuards; rendered = r3; }
             }
         }
         if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
@@ -359,11 +380,11 @@ export class Desk implements DeskLike {
         }
 
         // 7. The one sender.
-        const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), fixedLines, calls, mode: this.deps.mode ?? 'dry_run', answers: messagesOf(turn) }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
+        const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), fixedLines: sentLines(), calls, mode: this.deps.mode ?? 'dry_run', answers: messagesOf(turn) }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return this.heldAck(file, party.personId, turn, runId, calls, `send refused: ${sent.reason}`, reply, composerCalls, specialists, undefined, summary);
 
         // 8. The ledger and the stage, from what the business itself said.
-        this.afterSend(file, party.personId, templateWording ?? reply!, templateWording ? null : scopingProposal(specialists), templateWording ? [] : fixedLines);
+        this.afterSend(file, party.personId, templateWording ?? reply!, templateWording ? null : scopingProposal(specialists), templateWording ? [] : sentLines());
         return {
             runId, decision: 'send', partyId: party.personId, channel: choice.channel, windowState: window.state, templateId: template?.name ?? null, bubbles: rendered.bubbles,
             factIds, kbIds: Array.from(new Set(kbIds)), guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage,
@@ -388,13 +409,13 @@ export class Desk implements DeskLike {
         noteOnHold(file, { reason, draft, ownCard });
     }
 
-    /** Contract 4's second failure and the composer's fallback route: hold with the draft, and the customer still hears the fixed acknowledgement. */
+    /** Contract 4's second failure and the composer's fallback route: hold with the draft, and the customer still hears the fixed acknowledgement, naming any photo or video the turn brought. */
     private async heldAck(file: CaseFile, partyId: string, turn: Turn, runId: string, calls: ModelCallRecord[], why: string, draft: string | null, composerCalls: number, specialists: SpecialistReturn[], failed?: GuardOutcome, summary: string | null = null): Promise<DeskResult> {
         const party = partyOf(file, partyId)!;
         const held = { reason: why, draft, failures: failed?.failures ?? [] };
         if (file.hold) noteOnHold(file, { ...held, ownCard: DESK_RUN_NOTE });
         else setHold(file, { approver: approverFor(file, null), ...held }, this.fileDeps());
-        const line = await fixedLine(regulatedMatch(turn.body) ? 'gas' : 'held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines);
+        const line = regulatedMatch(turn.body) ? await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines) : heldAckLine(turn, file);
         const kbIds = line.kbId ? [line.kbId] : [];
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds, kbRows: await this.kbRows(kbIds, [line]), fixedLines: [line], proposedSubject: null, liveQuoteRefs: new Set() });
         const choice = chooseChannel(party, turn.channel, this.now());
@@ -420,9 +441,10 @@ export class Desk implements DeskLike {
      * weave it in naturally, so the invitation to move to WhatsApp is spent here, on this send,
      * rather than looked for in the text of a later one (channels/channel-lines.ts).
      *
-     * The proposal is the composed reply's own: the held acknowledgement passes none, because the
-     * words that went are Ben's fixed line and it names no photo, so the thanks the proposal asked
-     * for is still owed and a later reply may still carry it.
+     * The proposal is the composed reply's own: the held acknowledgement passes none. A fixed line
+     * that thanks for a photo or video (the held acknowledgement naming what the turn brought, the
+     * late thanks after a reply) spends the thanks itself; one that names none leaves it owed, so a
+     * later reply may still carry it.
      */
     private afterSend(file: CaseFile, partyId: string, said: string, proposal: Proposal | null, lines: FixedLine[]): void {
         const deps = this.fileDeps();
@@ -434,7 +456,7 @@ export class Desk implements DeskLike {
         // records but the reply never made leaves the photo unacknowledged for good, which is the
         // worse end of 1.7 than thanking for it twice. Any wording of gratitude counts, not one
         // that names the photo, so "Thanks for sending that over" is read as the thanks it is.
-        if (proposal?.thankForMedia && /\b(?:thanks?|thank you|cheers|ta)\b/i.test(said)) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
+        if ((proposal?.thankForMedia && /\b(?:thanks?|thank you|cheers|ta)\b/i.test(said)) || lines.some((l) => RE_THANKS_MEDIA.test(l.text))) { ledgerAnswered(file, 'media', deps); ledgerThanked(file, 'media', deps); }
         if (offersCall(said)) party.callOffered = true;
         if (lines.some((l) => l.kind === 'move_to_whatsapp')) ledgerAsk(file, MOVE_TO_WHATSAPP_SUBJECT, deps);
         if (isReady(file) && file.stage === 'scoping') setStage(file, 'ready', 'job type and location both on the file', deps);
@@ -458,6 +480,24 @@ export class Desk implements DeskLike {
 /** The Scoping proposal, the one a reply's ledger and summary are written from; null when Scoping did not run on this turn. */
 function scopingProposal(specialists: SpecialistReturn[]): Proposal | null {
     return specialists.find((s) => s.specialist === 'scoping')?.proposal ?? null;
+}
+
+/**
+ * How a thanks owed now stands against the newest photo or video from this party. `on_time` when the
+ * turn itself brought media (that thanks covers the rest) or the media came in within LATE_MEDIA_MS,
+ * so a customer who says a video is coming and sends it still gets one reply covering both.
+ * `followed` when any message, a person's from the board included, has already gone to the party
+ * since it came in: a thanks now would read as fresh for something already replied after. Otherwise
+ * the media and when it came, for a thanks that says it is late.
+ */
+function mediaThanksOf(file: CaseFile, turn: Turn, now: Date): 'on_time' | 'followed' | { media: TurnMedia[]; at: Date } {
+    if (turn.media.length) return 'on_time';
+    const i = file.turns.findLastIndex((t) => t.direction === 'inbound' && t.partyId === turn.partyId && t.media.length > 0);
+    const last = file.turns[i];
+    if (!last || isTurnOf(last, turn)) return 'on_time';
+    if (file.turns.slice(i + 1).some((t) => t.direction === 'outbound' && t.partyId === turn.partyId)) return 'followed';
+    const at = new Date(last.at);
+    return now.getTime() - at.getTime() > LATE_MEDIA_MS ? { media: last.media, at } : 'on_time';
 }
 
 /** A hold reason a fixed line answers (service/hold-reasons.ts). Quoting's own reasons are not in that vocabulary; the desk raises them on their own. */
