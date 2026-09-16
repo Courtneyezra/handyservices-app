@@ -9,7 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { open, type CaseFile } from '../desk/case-file';
 import { CALL_OUTCOMES, callOutcomeOf, callOutcomeOnFile, fromDoorCall, fromFinishedCall, transcriptBody, transcriptOf, validateDoorCall, TRANSCRIPT_BODY_MAX } from './call-adapter';
-import { EMAIL_FROM_MAX, emailThreadingFor, fromDoorEmail, fromInboundEmail, htmlToText, messageIdsOf, parseEmailAddress, renderEmail, stripQuotedHistory } from './email-adapter';
+import { EMAIL_FROM_MAX, EMAIL_PART_MAX, emailThreadingFor, fromDoorEmail, fromInboundEmail, htmlToText, messageIdsOf, parseEmailAddress, renderEmail, stripQuotedHistory } from './email-adapter';
 import { firstNameOf, truncateWords } from './envelope';
 import { fromDoorForm, fromWebForm } from './form-adapter';
 import { MAX_PHOTO_BYTES } from './media';
@@ -118,18 +118,22 @@ describe('the email adapter', () => {
         expect(htmlToText('<p>Kept</p><blockquote>unclosed <blockquote>q</blockquote> tail')).toBe('Kept\nunclosed tail');
     });
     it('reads a large hostile plain-text or HTML body, From and References quickly', () => {
-        const n = 300_000;
+        const run = 60_000;
+        const lines = [`${' '.repeat(run)}x`, `${'\u2003'.repeat(run)}y`, `${'\t\f\v'.repeat(run / 3)}z`];
+        expect(`Hello.\n${lines.join('\n')}`.length).toBeLessThan(EMAIL_PART_MAX);
         const started = Date.now();
-        const text = fromInboundEmail({ from: 'a@b.co', text: `Hello.\n${' '.repeat(n)}x\n${'\u2003'.repeat(n)}y` });
-        const html = fromInboundEmail({ from: 'a@b.co', html: `<p>Hello.</p><p>${'\u2003\f\v'.repeat(n)}x</p>` });
-        for (const from of [`<${'@'.repeat(n)} `, `a@${'.'.repeat(n)} `, `${'"'.repeat(n)}<a@b.co>`]) {
+        expect(stripQuotedHistory(`Hi\n${lines[0]}`)).toBe(`Hi\n${lines[0]}`);
+        const text = fromInboundEmail({ from: 'a@b.co', text: `Hello.\n${lines.join('\n')}` });
+        const html = fromInboundEmail({ from: 'a@b.co', html: `<p>Hello.</p><p>w${'\u2003\f\v'.repeat(run / 3)}x</p><p>v${'\u2003'.repeat(run)}y</p>` });
+        const n = 300_000;
+        for (const from of [`<${'@'.repeat(n)} `, `a@${'.'.repeat(n)} `, `${'"'.repeat(n)}<a@b.co>`, `<${'@'.repeat(EMAIL_FROM_MAX - 2)} `, `a@${'.'.repeat(EMAIL_FROM_MAX - 3)}@`]) {
             expect(() => fromInboundEmail({ from, text: 'hi' })).toThrow('inbound email without a sender address');
         }
         const refs = Array.from({ length: 50_000 }, (_, i) => `<r${i}@x>`).join(' ');
         const threaded = fromInboundEmail({ from: 'a@b.co', text: 'hi', messageId: '<m@x>', references: `${refs} ${refs}` });
         expect(Date.now() - started).toBeLessThan(2000);
-        expect(text.text).toBe('Hello.');
-        expect(html.text.startsWith('Hello.')).toBe(true);
+        expect(text.text).toBe(`Hello.\n${lines.join('\n')}`);
+        expect(html.text).toBe(`Hello.\n\nw${'\u2003\f\v'.repeat(run / 3)}x\n\nv${'\u2003'.repeat(run)}y`);
         expect(threaded.email?.references).toHaveLength(50_001);
         expect(parseEmailAddress(`"${'J'.repeat(EMAIL_FROM_MAX)}" <j@x.co>`)).toEqual({ address: '', name: null });
     });
