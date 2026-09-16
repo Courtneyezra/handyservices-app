@@ -85,7 +85,7 @@ describe('an expired quote, when the customer writes back', () => {
         expect(out.result.bubbles[0].text).toBe(`${LINE} Here's your updated quote: https://test.local/quote/${slug}`);
         expect(out.text).toContain('It covers taking the old mixer tap off');
         expect(out.result.bubbles).toHaveLength(2);
-        expect(composerUsers[composerUsers.length - 1]).toContain('That line is one bubble of its own: write at most 3 bubbles yourself.');
+        expect(composerUsers[composerUsers.length - 1]).toContain('That line is one bubble of its own: write at most 2 bubbles yourself.');
         expect(Object.values(out.result.guards).every((g) => g.result === 'pass')).toBe(true);
         // The row is live again at £126.00 (£120.00 x 1.05), its one line with it, and nobody is holding a card.
         expect(row.basePrice).toBe(12_600);
@@ -108,13 +108,13 @@ describe('an expired quote, when the customer writes back', () => {
     });
 
     it('an answer too long to sit under the reissue sentence is shortened to the room that sentence leaves, and the customer is told', async () => {
-        // Live, the composer wrote four bubbles, and three when asked to shorten: under a two-bubble sentence that was five, over the ceiling of four.
-        const four = 'It covers taking the old tap off.\n\nFitting the new mixer.\n\nChecking for leaks.\n\nAnd tidying up after.';
-        const three = 'It covers taking the old tap off.\n\nFitting the new mixer.\n\nAnd checking for leaks.';
-        const { say, row, file } = await expired({ composer: (user) => ({ reply: /Your previous reply came to/.test(user) ? three : four, factIds: [], kbIds: [] }) });
+        // The composer writes three bubbles, and two when asked to shorten: under the one-bubble sentence three was four, over the ceiling of three.
+        const three = 'It covers taking the old tap off.\n\nFitting the new mixer.\n\nChecking for leaks.';
+        const two = 'It covers taking the old tap off.\n\nAnd fitting the new mixer.';
+        const { say, row, file } = await expired({ composer: (user) => ({ reply: /Your previous reply came to/.test(user) ? two : three, factIds: [], kbIds: [] }) });
         const out = await say('what does that include again?');
         expect(out.result.decision).toBe('send');
-        expect(out.result.bubbles).toHaveLength(4);
+        expect(out.result.bubbles).toHaveLength(3);
         expect(out.result.bubbles[0].text).toContain(LINE);
         expect(row.basePrice).toBe(12_600);
         expect(file.hold).toBeNull();
@@ -122,12 +122,12 @@ describe('an expired quote, when the customer writes back', () => {
     });
 
     it('the shorten brief names the room the reissue sentence leaves', async () => {
-        const long = 'One.\n\nTwo.\n\nThree.\n\nFour.';
+        const long = 'One.\n\nTwo.\n\nThree.';
         const { say, composerUsers } = await expired({ composer: () => ({ reply: long, factIds: [], kbIds: [] }) });
         const out = await say('what does that include again?');
         expect(out.result.decision).toBe('hold');
         const shorten = composerUsers.find((u) => /Your previous reply came to/.test(u));
-        expect(shorten).toContain('Your previous reply came to 5 bubbles, over the ceiling of 3. Say the same in at most 3 short bubbles.');
+        expect(shorten).toContain('Your previous reply came to 4 bubbles, over the ceiling of 2. Say the same in at most 2 short bubbles,');
     });
 
     it('a second and a third expiry are reissued from the original each time, never on top of the last one', async () => {
