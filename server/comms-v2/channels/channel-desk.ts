@@ -12,7 +12,10 @@
  *                     there. On WhatsApp with the window open (they wrote within the day) the
  *                     template's words go as a plain message; a shut window needs the approved
  *                     template, and none approved holds the follow-up for Ben with the words as the
- *                     draft.
+ *                     draft. A thread we have written on inside the last 60 days is an ongoing
+ *                     conversation, not a first contact, and gets no text back at all: the call
+ *                     stays on the board, as the old desk's first-contact gate leaves it
+ *                     (server/first-contact-ack.ts `classifyHistory`, NOT_FIRST_CONTACT).
  *   answered_inbound  the transcript is read for facts; no acknowledgement (3.5). They rang us,
  *                     so the call is never offered again (1.5).
  *   ben_rang          the transcript is read for what Ben asked for (3.3); the post-call template
@@ -45,6 +48,19 @@ export interface ChannelDeskDeps extends CaseFileDeps {
     sender?: SenderDeps;
     mode?: 'dry_run' | 'live';
     log?: (line: string) => void;
+}
+
+/**
+ * How recently we must have written for a missed call to land on an ongoing conversation rather
+ * than a first contact: the old desk's `returningAfterDays` default (server/first-contact-ack.ts).
+ */
+export const MISSED_CALL_ONGOING_DAYS = 60;
+
+/** When we last wrote on the file inside the ongoing window, or null: a missed call then gets no text back. */
+function ongoingSince(file: CaseFile, now: Date): string | null {
+    const last = file.turns.filter((t) => t.direction === 'outbound').map((t) => t.at).sort().at(-1) ?? null;
+    if (!last) return null;
+    return now.getTime() - Date.parse(last) < MISSED_CALL_ONGOING_DAYS * 86_400_000 ? last : null;
 }
 
 const TEMPLATE_NOTE = 'template: words approved at registration; the guards run on composed replies';
@@ -143,6 +159,13 @@ export class ChannelDesk implements DeskLike {
         // One text back per thread (checklist 3.5). They may ring three times in five minutes; they hear back once.
         if (outcome === 'missed' && everAsked(file, MISSED_CALL_ACK_SUBJECT)) {
             return this.result(file, party.personId, runId, calls, { decision: 'none', factIds, summary, note: 'the missed-call text already went on this thread; one text back, never a second (checklist 3.5)' });
+        }
+
+        // A missed call on a conversation we are already having is not a first contact: "tell us what
+        // needs doing" to someone we wrote to minutes ago reads as a bot that did not notice.
+        const ongoing = outcome === 'missed' ? ongoingSince(file, this.now()) : null;
+        if (ongoing) {
+            return this.result(file, party.personId, runId, calls, { decision: 'none', factIds, summary, note: `a missed call on an ongoing thread (we last wrote ${ongoing}): no text back, as the old desk's first-contact gate; the call is on the board` });
         }
 
         // The follow-up: a template, on WhatsApp if the number is on it, else its words on SMS, else email.
