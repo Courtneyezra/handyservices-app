@@ -11,7 +11,7 @@
  * which no matcher separated from a phone call reliably, so the router reads it.
  */
 import { z } from 'zod/v4';
-import { isReady, type CaseFile, type Turn, type ModelCallRecord, STAGES, isTurnOf } from './case-file';
+import { isReady, type CaseFile, type Turn, type ModelCallRecord, STAGES, isTurnOf, mediaFailedNote } from './case-file';
 import { moneyQuestionMatch, regulatedMatch } from './lexicon';
 import { ROUTER_MODEL, type ModelClient } from './models';
 import { applyQuotingRoute } from '../quoting/quoting-specialist';
@@ -97,7 +97,7 @@ const SYSTEM = [
 ].join('\n');
 
 function threadFor(file: CaseFile, turn: Turn): string {
-    const lines = file.turns.slice(-12).map((t) => `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${t.body || (t.media.length ? `[${t.media.length} ${t.media[0].kind}${t.media.length > 1 ? 's' : ''}]` : '[empty]')}`);
+    const lines = file.turns.slice(-12).map((t) => `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? 'customer' : 'desk'}: ${[t.body || (t.media.length ? `[${t.media.length} ${t.media[0].kind}${t.media.length > 1 ? 's' : ''}]` : ''), mediaFailedNote(t)].filter(Boolean).join(' ') || '[empty]'}`);
     return lines.join('\n');
 }
 

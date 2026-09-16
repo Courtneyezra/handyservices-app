@@ -128,6 +128,17 @@ export interface Turn {
      * covering it (`coveredByReply`) goes to the desk again (channels/channel-gateway.ts).
      */
     handledBy?: string;
+    /**
+     * Inbound only: how many photos or videos the customer sent that never reached us (an MMS on
+     * SMS, a download that failed), so the desk knows they tried rather than reading an empty turn.
+     */
+    mediaFailed?: number;
+}
+
+/** The thread's note for media a turn carried that never reached us; empty when there was none. */
+export function mediaFailedNote(turn: Turn): string {
+    const n = turn.mediaFailed ?? 0;
+    return n > 0 ? `[${n} photo${n > 1 ? 's or videos' : ' or video'} sent that did not reach us]` : '';
 }
 
 /** The ids of the messages a turn the desk is answering carries: each message of a burst, or the turn itself. */
