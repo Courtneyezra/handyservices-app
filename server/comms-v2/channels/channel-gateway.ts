@@ -9,8 +9,9 @@
  *
  * A call is passed once at hang-up and again once its transcript and summary land (intake.ts
  * `call_transcribed`). The second pass, and any repeat of the first, finds the turn the call
- * already made by its call id and fills it in (`attachCall`): no second turn, and the desk is not
- * run, so nothing goes to the customer because a transcript arrived.
+ * already made by its call id and fills it in (`attachCall`): no second turn, and the desk does not
+ * reply, so nothing goes to the customer because a transcript arrived. A transcript that lands on a
+ * call read at hang-up with nothing to read is read then, for facts and Ben's asks only.
  *
  * Whether a number is on WhatsApp comes from a `WhatsAppPresence` source. The sandbox door's is
  * the scenario seed alone; the live intake's reads the messages the business already holds.
@@ -19,7 +20,7 @@ import { appendTurn, open, partyOf, recordFact, type CaseFile, type Turn } from 
 import { Gateway, type GatewayDeps, type InboundOutcome, type SeedInput } from '../desk/gateway';
 import { canonical, e164Of, type ResolveResult } from '../desk/identity';
 import type { InboundEnvelope } from './envelope';
-import { CALL_OUTCOME_KEY, CALL_SUMMARY_KEY, callOutcomeOnFile, transcriptOf } from './call-adapter';
+import { CALL_OUTCOME_KEY, CALL_SUMMARY_KEY, callOutcomeOnFile, hasTranscript } from './call-adapter';
 
 export interface WhatsAppPresence {
     /** True when the number is known to be on WhatsApp, false when known not to be, null when nothing says. */
@@ -153,14 +154,18 @@ export class ChannelGateway extends Gateway {
      * The call's turn filled in from a later pass. The body takes the new transcript only when the
      * pass has one and reads the call the same way the turn does (a missed call keeps its line); the
      * summary goes on as a fact sourced to the turn when it is new. A pass with nothing more leaves
-     * the turn as it was. The desk is not run.
+     * the turn as it was. The desk does not reply; a transcript filling in a turn that had none is
+     * read for facts (`readLateTranscript`), in its turn with any desk pass on the file, so the
+     * job, the location and what Ben asked for on the phone reach the file as they would have had the
+     * transcript been there at hang-up.
      */
-    private attachCall(file: CaseFile, turn: Turn, env: InboundEnvelope): InboundOutcome {
+    private async attachCall(file: CaseFile, turn: Turn, env: InboundEnvelope): Promise<InboundOutcome> {
         let changed = false;
         const outcome = callOutcomeOnFile(file, turn);
         const passOutcome = env.facts?.find((f) => f.key === CALL_OUTCOME_KEY)?.value;
-        const transcript = transcriptOf({ ...turn, body: env.text });
-        if (outcome !== 'missed' && passOutcome === outcome && transcript && transcript !== '(no transcript)' && env.text !== turn.body) {
+        let transcribed = false;
+        if (outcome !== 'missed' && passOutcome === outcome && hasTranscript({ ...turn, body: env.text }) && env.text !== turn.body) {
+            transcribed = !hasTranscript(turn);
             turn.body = env.text;
             changed = true;
         }
@@ -174,7 +179,11 @@ export class ChannelGateway extends Gateway {
             }
         }
         if (changed) this.store.put(file);
-        this.log(`call turn ${turn.id} on case ${file.id}: ${changed ? 'filled in' : 'nothing new'}; no desk run`);
+        // The call was read at hang-up with nothing to read: its transcript is read now, for facts only.
+        const read = transcribed && this.desk.readLateTranscript
+            ? await this.deskPass(file, (f) => this.desk.readLateTranscript!(f, turn)).catch((err) => { this.log(`late call read on case ${file.id} failed: ${err?.message ?? err}`); return []; })
+            : [];
+        this.log(`call turn ${turn.id} on case ${file.id}: ${changed ? 'filled in' : 'nothing new'}${transcribed ? `; transcript read, ${read.length} facts` : ''}; no reply`);
         return { kind: 'attached', file, turn, changed };
     }
 

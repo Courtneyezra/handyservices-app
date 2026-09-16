@@ -35,7 +35,7 @@ import type { DeskLike, DeskResult, GuardName, GuardVerdict } from '../desk/desk
 import { BEN } from '../desk/guards';
 import { AnthropicModelClient, type ModelClient } from '../desk/models';
 import { DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, templateBodyFor, windowOf, type ReplyPurpose, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from '../desk/sender';
-import { callOutcomeOnFile, type CallOutcome } from './call-adapter';
+import { callOutcomeOnFile, hasTranscript, type CallOutcome } from './call-adapter';
 import { MISSED_CALL_ACK_SUBJECT } from './templates';
 import { benAskedSubjects, ledgerAfterCall, readCall, recordCallFacts } from './call-reader';
 
@@ -75,6 +75,22 @@ export class ChannelDesk implements DeskLike {
         return this.inner.handleTurn(file, turn);
     }
 
+    /**
+     * A transcript that landed on a call turn after hang-up (channel-gateway.ts `attachCall`): read
+     * for facts, and Ben's asks on the ledger, exactly as a call read at hang-up is. Never a send,
+     * a hold or a template: the follow-up, if any, was decided at hang-up.
+     */
+    async readLateTranscript(file: CaseFile, turn: Turn): Promise<string[]> {
+        if (turn.direction !== 'inbound' || turn.kind !== 'call_transcript' || callOutcomeOnFile(file, turn) === 'missed' || !hasTranscript(turn)) return [];
+        const read = await readCall(file, turn, this.client);
+        if (!read.output) { (this.deps.log ?? (() => undefined))(`call reader (late transcript): ${read.error}`); return []; }
+        const deps = this.fileDeps();
+        const factIds = recordCallFacts(file, turn, read.output, deps);
+        if (isReady(file) && (file.stage === 'scoping' || file.stage === 'first_contact')) setStage(file, 'ready', 'job type and location both on the file, from the call', deps);
+        ledgerAfterCall(file, benAskedSubjects(file, read.output), deps);
+        return factIds;
+    }
+
     private fileDeps(): CaseFileDeps { return { now: this.now, newId: this.deps.newId }; }
 
     private result(file: CaseFile, partyId: string, runId: string, calls: ModelCallRecord[], over: Partial<DeskResult> & { decision: DeskResult['decision']; note: string | null }): DeskResult {
@@ -100,7 +116,9 @@ export class ChannelDesk implements DeskLike {
         const factIds: string[] = [];
         let asked: Array<'media' | 'postcode' | 'access'> = [];
         let summary = `call ${outcome}`;
-        if (outcome !== 'missed') {
+        // A live call reaches the desk at hang-up, before transcription: there is nothing to read yet,
+        // and the transcript that lands later is read then (`readLateTranscript`).
+        if (outcome !== 'missed' && hasTranscript(turn)) {
             const read = await readCall(file, turn, this.client);
             calls.push(read.record);
             if (read.output) {
