@@ -187,6 +187,15 @@ export function withDeskHealth(health: HeartbeatHealth, desk: import('./comms-v2
     return { ...health, ok: status === 'ok', status, desk };
 }
 
+/**
+ * What the unauthenticated GET /api/health/comms-worker may say about the desk: whether it can
+ * answer, nothing more. The provider's words, the failed call and the turn times are for the admin
+ * staff page and the page to Ben's phone only.
+ */
+export function publicCommsHealth(health: CommsHealth): Omit<CommsHealth, 'desk'> & { desk: Pick<CommsHealth['desk'], 'status' | 'canAnswer'> } {
+    return { ...health, desk: { status: health.desk.status, canAnswer: health.desk.canAnswer } };
+}
+
 /** For GET /api/health/comms-worker and the staff page. Never throws. */
 export async function getHeartbeatHealth(now: number = Date.now()): Promise<HeartbeatHealth> {
     const state = describeWorkerState();

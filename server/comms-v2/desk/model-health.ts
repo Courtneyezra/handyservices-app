@@ -231,7 +231,8 @@ let recording: Promise<unknown> = Promise.resolve();
  * After a customer turn: update the row, and page when the turn opens (or, hourly, continues) an episode, or ends one.
  * Row updates run one at a time in this process, each bounded, so concurrent failures page once and
  * an older turn never overwrites a newer verdict. The page is sent after the update and not waited
- * on, so a slow page delays no turn. Never throws.
+ * on, so a slow page delays no turn; an update that outlives its bound pages when it settles.
+ * Returns the page decided within the bound. Never throws.
  */
 export async function recordTurnModelHealth(report: TurnReport, deps: RecordTurnDeps = {}): Promise<ModelAlert | null> {
     if (report.outcome.verdict === 'no_model_call') return null;
@@ -239,12 +240,14 @@ export async function recordTurnModelHealth(report: TurnReport, deps: RecordTurn
     recording = run.catch(() => undefined);
     const alert = await run;
     if (report.outcome.verdict === 'failed') console.error(`[comms-v2 model-health] turn failed: ${report.outcome.failure!.role} ${report.outcome.failure!.model}: ${report.outcome.failure!.error}`);
-    if (alert) {
-        void Promise.resolve()
-            .then(() => (deps.notify ?? defaultNotify)(alert.title, alert.message))
-            .catch((error: any) => console.error('[comms-v2 model-health] page failed:', error?.message ?? error));
-    }
+    if (alert) sendPage(alert, deps);
     return alert;
+}
+
+function sendPage(alert: ModelAlert, deps: RecordTurnDeps): void {
+    void Promise.resolve()
+        .then(() => (deps.notify ?? defaultNotify)(alert.title, alert.message))
+        .catch((error: any) => console.error('[comms-v2 model-health] page failed:', error?.message ?? error));
 }
 
 async function updateForTurn(report: TurnReport, deps: RecordTurnDeps): Promise<ModelAlert | null> {
@@ -253,23 +256,24 @@ async function updateForTurn(report: TurnReport, deps: RecordTurnDeps): Promise<
     if (pageable === undefined) pageable = (await import('../../worker-gate')).isProductionEnv();
     const timeoutMs = deps.updateTimeoutMs ?? MODEL_HEALTH_UPDATE_TIMEOUT_MS;
     let alert: ModelAlert | null = null;
+    const settled = Promise.resolve()
+        .then(() => store.update((prev) => {
+            const next = nextModelHealth(prev, report, pageable!);
+            alert = next.alert;
+            return next.record === prev ? null : next.record;
+        }, report.at))
+        .then(() => alert, (error: any) => {
+            console.error('[comms-v2 model-health] could not update the row:', error?.message ?? error);
+            return nextModelHealth(null, report, pageable!).alert;
+        });
     let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-        await Promise.race([
-            store.update((prev) => {
-                const next = nextModelHealth(prev, report, pageable!);
-                alert = next.alert;
-                return next.record === prev ? null : next.record;
-            }, report.at),
-            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs} ms`)), timeoutMs); }),
-        ]);
-        return alert;
-    } catch (error: any) {
-        console.error('[comms-v2 model-health] could not update the row:', error?.message ?? error);
-        return nextModelHealth(null, report, pageable).alert;
-    } finally {
-        clearTimeout(timer);
-    }
+    const timedOut = Symbol('timed out');
+    const first = await Promise.race([settled, new Promise<typeof timedOut>((resolve) => { timer = setTimeout(() => resolve(timedOut), timeoutMs); })]);
+    clearTimeout(timer);
+    if (first !== timedOut) return first;
+    console.error(`[comms-v2 model-health] the row update is still running after ${timeoutMs} ms; later turns go ahead and its page, if any, goes when it settles`);
+    void settled.then((late) => { if (late) sendPage(late, deps); });
+    return null;
 }
 
 // ------------------------------------------------------------------ the health read

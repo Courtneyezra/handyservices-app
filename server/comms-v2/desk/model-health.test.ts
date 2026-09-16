@@ -20,7 +20,7 @@ import type { InboundTurn } from './whatsapp-adapter';
 import { recordingNotifier } from '../quoting/ben-notifier';
 import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore } from '../quoting/quote-store';
-import { withDeskHealth, type HeartbeatHealth } from '../../comms-worker-heartbeat';
+import { publicCommsHealth, withDeskHealth, type HeartbeatHealth } from '../../comms-worker-heartbeat';
 
 const CREDIT = 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.';
 
@@ -253,9 +253,34 @@ describe('a slow page or row', () => {
         const notify = async (title: string) => { pages.push(title); };
         const stuck = recordTurnModelHealth(failedAt('2026-09-16T05:41:10.000Z'), { store: hung, pageable: true, notify, updateTimeoutMs: 20 });
         const later = recordTurnModelHealth(failedAt('2026-09-16T05:41:20.000Z'), { store, pageable: true, notify, updateTimeoutMs: 20 });
-        await expect(stuck).resolves.toMatchObject({ kind: 'failing' });
+        await expect(stuck).resolves.toBeNull();
         await expect(later).resolves.toMatchObject({ kind: 'failing' });
         expect(store.row).toMatchObject({ state: 'failing', lastTurnAt: '2026-09-16T05:41:20.000Z' });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(pages).toEqual(['comms desk cannot answer: model call failed']);
+    });
+
+    it('a recovery turn whose update commits after its bound still sends exactly one "back" page', async () => {
+        const pages: string[] = [];
+        const failing: ModelHealthRecord = {
+            state: 'failing', lastTurnAt: '2026-09-16T05:41:16.000Z', lastOkAt: null, lastFailedAt: '2026-09-16T05:41:16.000Z',
+            failingSince: '2026-09-16T05:41:16.000Z', failedTurns: 3,
+            lastFailure: { role: 'router', model: 'm', error: 'credit balance too low', kind: 'provider', at: '2026-09-16T05:41:16.000Z', runId: 'r', caseId: 'c', decision: 'hold' },
+            alerted: true, lastAlertAt: '2026-09-16T05:41:16.000Z',
+        };
+        let row: ModelHealthRecord | null = failing;
+        let commit!: () => void;
+        const slow: ModelHealthStore = {
+            read: async () => row,
+            update: async (next) => { const r = next(row); await new Promise<void>((resolve) => { commit = resolve; }); if (r) row = r; },
+        };
+        const report: TurnReport = { outcome: { verdict: 'ok', failure: null }, at: new Date('2026-09-16T06:30:00.000Z'), runId: 'r2', caseId: 'c2', decision: 'send' };
+        await expect(recordTurnModelHealth(report, { store: slow, pageable: true, updateTimeoutMs: 10, notify: async (title) => { pages.push(title); } })).resolves.toBeNull();
+        expect(pages).toEqual([]);
+        commit();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(pages).toEqual(['comms desk is answering again']);
+        expect(row).toMatchObject({ state: 'ok', alerted: false });
     });
 });
 
@@ -271,6 +296,22 @@ describe('the health read', () => {
         r.use(working);
         await r.send('hello again');
         expect(withDeskHealth(hb(false), await deskModelHealth(r.store.read))).toMatchObject({ status: 'ok', ok: true, desk: { status: 'ok', canAnswer: true } });
+    });
+
+    it('the public health answer says only whether the desk can answer; the admin answer carries the provider detail', async () => {
+        const r = rig();
+        r.use(throwingClient(failures.billing));
+        await r.send('hello');
+        const admin = withDeskHealth(hb(false), await deskModelHealth(r.store.read));
+        const row = r.store.row!;
+        const secrets = [CREDIT, 'req_1', 'claude-haiku-4-5', row.lastTurnAt, row.failingSince!];
+        const publicBody = JSON.stringify(publicCommsHealth(admin));
+        expect(JSON.parse(publicBody)).toMatchObject({ status: 'cannot_answer', ok: false, desk: { status: 'failing', canAnswer: false } });
+        expect(Object.keys(JSON.parse(publicBody).desk).sort()).toEqual(['canAnswer', 'status']);
+        for (const secret of secrets) expect(publicBody).not.toContain(secret);
+        const adminBody = JSON.stringify(admin);
+        for (const secret of secrets) expect(adminBody).toContain(secret);
+        expect(admin.desk).toMatchObject({ failedTurns: 1, failedCall: { role: 'router', model: 'claude-haiku-4-5' } });
     });
 
     it('a stale heartbeat still reads stale; no turn yet reads idle; an unreadable row reads unknown, not failing', async () => {
