@@ -73,6 +73,25 @@ describe('a STOP by phone', () => {
         expect(await blockedByOptOut({ emails: ['sam.work@example.com'] }, 'marketing', store)).toMatchObject({ scope: 'all' });
     });
 
+    it('keeps the recorded opt-out when a further address cannot be written, and says so', async () => {
+        const store = memoryOptOutStore([SAM, { id: 'lead_sam_2', phone: '07700 900945', email: 'sam.work@example.com' }], { conv_2: 'lead_sam_2' });
+        const insert = store.insert;
+        store.insert = async (row) => {
+            if (row.phoneKey === '7700900945') throw new Error('connection reset');
+            return insert(row);
+        };
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const r = await recordOptOut({ phone: '07700900942', scope: 'all', source: 'inbound_keyword', conversationId: 'conv_2', messageId: 'm4' }, store);
+        expect(r).toMatchObject({ created: true, key: '7700900942' });
+        expect(r.id).toBe(store.rows[0].id);
+        expect(store.rows.map((x) => [x.phoneKey, x.emailKey])).toEqual([
+            ['7700900942', 'sam.tester@example.com'],
+            [null, 'sam.work@example.com'],
+        ]);
+        expect(errors).toHaveBeenCalledWith(expect.stringContaining(r.id!), 'connection reset');
+        errors.mockRestore();
+    });
+
     it('still records the phone when the addresses on file cannot be read', async () => {
         const store = memoryOptOutStore([SAM]);
         store.onFile = async () => { throw new Error('connection reset'); };
@@ -161,5 +180,15 @@ describe('revokeOptOut', () => {
         expect(await blockedByOptOut('07700900942', 'marketing', store)).toBeNull();
         expect(await blockedByOptOut({ emails: [SAM.email] }, 'marketing', store)).toBeNull();
         expect(await revokeOptOut('', 'human:ben@example.com', undefined, store)).toBe(0);
+    });
+
+    it('lifts the rows written for the lead the conversation is linked to', async () => {
+        const store = memoryOptOutStore([{ id: 'lead_sam_old', phone: '07700 900945', email: 'sam@example.com' }], { conv_1: 'lead_sam_old' });
+        await recordOptOut({ phone: '+447700900942', scope: 'all', source: 'inbound_keyword', conversationId: 'conv_1', messageId: 'm2' }, store);
+        await recordOptOut({ phone: ALEX.phone, scope: 'all', source: 'manual' }, store);
+        expect(await revokeOptOut('+447700900942', 'human:ben@example.com', 'opted back in', store)).toBe(2);
+        expect(await blockedByOptOut('07700900945', 'marketing', store)).toBeNull();
+        expect(await blockedByOptOut({ emails: ['sam@example.com'] }, 'marketing', store)).toBeNull();
+        expect(await blockedByOptOut(ALEX.phone, 'marketing', store)).toMatchObject({ scope: 'all' });
     });
 });

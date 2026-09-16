@@ -44,7 +44,7 @@
  */
 import { db } from './db';
 import { commsOptOuts, conversations } from '@shared/schema';
-import { eq, and, or, isNull, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, isNull, isNotNull, desc, sql, inArray } from 'drizzle-orm';
 import { commsPhoneKey, e164FromCommsKey } from './phone-utils';
 import { OPT_OUT_SCOPES, detectOptOut, type OptOutMatch, type OptOutScope } from './opt-out-detect';
 
@@ -171,7 +171,10 @@ export interface OptOutStore {
     onFile(keys: OptOutKeys, conversationId: string | null): Promise<OptOutKeys>;
     /** Insert one row. With a message id a second row for the same message is skipped and returns false. */
     insert(row: NewOptOutRow): Promise<boolean>;
-    /** Stamp every live row carrying any of the keys as revoked. */
+    /**
+     * Stamp as revoked every live row carrying any of the keys, and every live row recorded from
+     * the same conversation as one of those, which is where recordOptOut's further addresses sit.
+     */
     revoke(keys: OptOutKeys, revokedBy: string, note: string | null): Promise<number>;
 }
 
@@ -228,9 +231,11 @@ export const dbOptOutStore: OptOutStore = {
     },
     async revoke(keys, revokedBy, note) {
         if (!hasKeys(keys)) return 0;
+        const sameConversation = db.select({ id: commsOptOuts.conversationId }).from(commsOptOuts)
+            .where(and(keysWhere(keys), isNull(commsOptOuts.revokedAt), isNotNull(commsOptOuts.conversationId)));
         const rows = await db.update(commsOptOuts)
             .set({ revokedAt: new Date(), revokedBy, note })
-            .where(and(keysWhere(keys), isNull(commsOptOuts.revokedAt)))
+            .where(and(or(keysWhere(keys), inArray(commsOptOuts.conversationId, sameConversation)), isNull(commsOptOuts.revokedAt)))
             .returning({ id: commsOptOuts.id });
         return rows.length;
     },
@@ -364,15 +369,22 @@ export async function recordOptOut(
     // A redelivered message wrote its rows the first time round.
     if (created) {
         const also = `covers another address on file for the party in ${primary.id}`;
-        for (const k of morePhones) await store.insert({ ...rowFor(k, null), messageId: null, note: also });
-        for (const k of moreEmails) await store.insert({ ...rowFor(null, k), messageId: null, note: also });
+        const extras = [...morePhones.map((k) => rowFor(k, null)), ...moreEmails.map((k) => rowFor(null, k))];
+        for (const extra of extras) {
+            try {
+                await store.insert({ ...extra, messageId: null, note: also });
+            } catch (error: any) {
+                console.error(`[OptOut] Recorded ${primary.id} but could not cover ${extra.phoneKey ?? extra.emailKey} on a row of its own:`, error?.message);
+            }
+        }
     }
     return { created, id: created ? primary.id : null, key: phoneKey ?? emailKey, keys };
 }
 
 /**
  * Lift a suppression. Never deletes: the original rows stay, stamped with who lifted them. Lifts
- * it for the party, on every address on file, as recordOptOut wrote it.
+ * it for the party, on every address on file and every row recorded from the same conversation,
+ * as recordOptOut wrote it.
  */
 export async function revokeOptOut(who: OptOutAddress, revokedBy: string, note?: string, store: OptOutStore = dbOptOutStore): Promise<number> {
     const given = optOutKeysOf(who);
