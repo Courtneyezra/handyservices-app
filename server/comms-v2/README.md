@@ -185,12 +185,17 @@ id, before it answers 200; a write that fails is a 503, so Resend delivers again
 starts after the answer, and the comms worker's minute loop (`runInboundEmailRetryTick`, only while
 inbound email is on) retries each row the desk does not have yet with backoff, up to eight attempts.
 An attempt holds its row for ten minutes, so two never run at once. The row is done once the intake
-has returned and the durable case file store has written the file (`forwardNow` flushes it). An
+has returned, the desk has handled the turn, and the durable case file store has written the file
+the turn landed on (`forwardNow` flushes that file alone, so another file's failing write does not
+hold this email). An
 email that spends every attempt is kept as failed, logged at error level and paged. The hand-over
 carries a delivery id (`resend:<email id>`) that the gateway records on the turn (`Turn.deliveryId`)
 and refuses to land twice (`duplicate`), so a redelivery, an attempt racing another, or a restart
-between the desk taking the email and the row being marked adds no second turn and no second desk
-run. A desk run that throws after the turn landed is not run again: the turn is on the file. The
+between the desk taking the email and the row being marked adds no second turn. The desk runs on
+that turn again only while it is unhandled: no reply answers it and no desk run recorded its result
+on it (`Turn.handledBy`, written in the same put as the run's reply; a hold or a deliberate
+no-reply is a result). So a desk run that throws after the turn landed is run again on the next
+attempt, through the file's one pass queue, and a run that finished is never run twice. The
 switches, the migration and the worker needed to turn it on are in docs/RUNBOOK.md.
 
 Automated and internal mail never becomes a turn (`ignoredReason` in `channels/resend-inbound.ts`):

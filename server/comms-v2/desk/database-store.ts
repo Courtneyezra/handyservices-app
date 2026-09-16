@@ -16,8 +16,9 @@
  *
  * Writes run one at a time in the order they were asked for. A write that fails is logged and kept,
  * and that file waits for the retry (`retryMs`) so it cannot hold up another file's; `flush` retries
- * at once, waits for every pending write and rejects while any is still failing. Nothing here throws
- * out of `put`.
+ * at once, waits for every pending write and rejects while any is still failing; `flushFile` does the
+ * same for one file, so another file's failing write does not reject it. Nothing here throws out of
+ * `put`.
  *
  * Reading every row at open is the right size for one small business's threads: files number in
  * the thousands at most, and the rows carry `stage` and `person_ids` for any later SQL read. One
@@ -74,6 +75,8 @@ export class DatabaseCaseFileStore implements CaseFileStore {
     private writing: Promise<void> | null = null;
     private retryTimer: ReturnType<typeof setTimeout> | null = null;
     private lastError: Error | null = null;
+    /** Each unwritten file's last failure. */
+    private readonly errors = new Map<string, Error>();
     private readonly log: (line: string) => void;
     private readonly retryMs: number;
 
@@ -104,6 +107,7 @@ export class DatabaseCaseFileStore implements CaseFileStore {
         this.files.clear();
         this.dirty.clear();
         this.waiting.clear();
+        this.errors.clear();
         this.clears++;
         this.schedule();
     }
@@ -116,6 +120,13 @@ export class DatabaseCaseFileStore implements CaseFileStore {
         this.retryNow();
         while (this.writing) await this.writing;
         if (this.pending() && this.lastError) throw this.lastError;
+    }
+
+    /** Retry now and wait for the writes under way. Rejects while this file, or a clear it waits behind, is still unwritten; another file failing does not. */
+    async flushFile(id: string): Promise<void> {
+        this.retryNow();
+        while (this.writing) await this.writing;
+        if (this.dirty.has(id) || this.clears > 0) throw this.errors.get(id) ?? this.lastError ?? new Error(`case ${id} is not written yet`);
     }
 
     private retryNow(): void {
@@ -161,8 +172,10 @@ export class DatabaseCaseFileStore implements CaseFileStore {
             if (!file) continue;
             try {
                 await this.rows.upsert(recordOf(file));
+                this.errors.delete(id);
             } catch (err) {
                 failed = asError(err);
+                this.errors.set(id, failed);
                 this.dirty.add(id);
                 this.waiting.add(id);
                 this.log(`case file store: writing case ${id} failed, will retry: ${failed.message}`);

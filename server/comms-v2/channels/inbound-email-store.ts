@@ -8,7 +8,8 @@
  *   store    one row per email id, whatever state it is in, so a redelivery adds nothing
  *   attempt  takes the row for one hand-over (`claim`: pending, due, and not held by another
  *            attempt, counted as it is taken), hands the envelope to the intake and waits for it
- *   handed   the intake returned, and the case file store has written the file: the row is done
+ *   handed   the intake returned, the desk has handled the turn, and the case file store has
+ *            written that file: the row is done
  *   retry    the hand-over threw: the row is due again after the next of `RETRY_DELAYS_MS`, and
  *            after `MAX_ATTEMPTS` it is kept as failed, logged at error level and paged to Ben the
  *            way the worker alarm pages (production only). Nothing is ever deleted here.
@@ -19,9 +20,11 @@
  * lasts `CLAIM_MS`, so two attempts never hand the same row over at once, in one process or two.
  *
  * The hand-over carries the email's delivery id (`deliveryIdOf`), and the gateway never lands a
- * second turn with a delivery id a file already holds (channel-gateway.ts): an attempt that landed
- * the turn and then failed, or died before marking the row, is marked done by the next attempt
- * with no second turn and no second desk run.
+ * second turn with a delivery id a file already holds (channel-gateway.ts). The next attempt after
+ * one that landed the turn and then failed, or died before marking the row, adds no second turn: it
+ * runs the desk on that turn again only while no reply answers it and no desk run recorded a result
+ * on it (`Turn.handledBy`; a hold or a deliberate no-reply is a result), so a desk run that threw is
+ * run again and one that finished is not.
  *
  * The rows live where the intake's case files live: the database the switches give now
  * (live-database.ts), so the sandbox writes only the branch. No log line carries a value from an

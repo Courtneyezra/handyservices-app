@@ -3,7 +3,7 @@
  * backoff and a bounded count, and never lands twice however it is handed over again.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CaseFile, Turn } from '../desk/case-file';
+import { appendTurn, type CaseFile, type Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import { DatabaseCaseFileStore, type CaseFileRows } from '../desk/database-store';
 import { ChannelGateway } from './channel-gateway';
@@ -154,22 +154,36 @@ describe('handing it to the desk', () => {
 class CaseRows implements CaseFileRows {
     readonly files = new Map<string, CaseFile>();
     down = false;
+    /** Files whose writes fail even when the table is up. */
+    readonly stuck = new Set<string>();
     async loadAll() { return Array.from(this.files.values()).map((f) => JSON.parse(JSON.stringify(f)) as CaseFile); }
     async upsert(file: CaseFile) {
         if (this.down) throw new Error('connection terminated unexpectedly');
+        if (this.stuck.has(file.id)) throw new Error('value too long for the row');
         this.files.set(file.id, JSON.parse(JSON.stringify(file)));
     }
     async deleteAll() { this.files.clear(); }
 }
 
-function deskCounting(opts: { throwOnce?: boolean } = {}) {
+/**
+ * A desk that counts its runs. `throws` runs throw first; `reply` lands a reply answering the turn
+ * (before the throw when `replyThenThrow`); `decision` is what a run that returns decided.
+ */
+function deskCounting(opts: { throwOnce?: boolean; throws?: number; reply?: boolean; replyThenThrow?: boolean; decision?: DeskResult['decision'] } = {}) {
     const runs: Turn[] = [];
-    let throwNext = !!opts.throwOnce;
+    let throwsLeft = opts.throws ?? (opts.throwOnce ? 1 : 0);
     const desk: DeskLike = {
         async handleTurn(file: CaseFile, turn: Turn): Promise<DeskResult> {
             runs.push(turn);
-            if (throwNext) { throwNext = false; throw new Error('the composer failed'); }
-            return { runId: 'r', decision: 'none', partyId: file.parties[0].personId, channel: null, windowState: 'open', templateId: null, bubbles: [], factIds: [], kbIds: [], guards: {} as any, approver: null, hold: null, delivered: false, stageAfter: file.stage, calls: [], note: null, summary: null, error: null, landedTurnId: null, composerCalls: 0 };
+            const runId = `run_${runs.length}`;
+            const reply = () => appendTurn(file, { at: turn.at, channel: turn.channel, kind: 'text', body: 'Thanks, we are on it.', media: [], partyId: turn.partyId, direction: 'outbound', runId, approver: 'agent.comms_v2', answers: [turn.id] });
+            if (throwsLeft > 0) {
+                throwsLeft--;
+                if (opts.replyThenThrow) reply();
+                throw new Error('the composer failed');
+            }
+            if (opts.reply) reply();
+            return { runId, decision: opts.decision ?? (opts.reply ? 'send' : 'none'), partyId: file.parties[0].personId, channel: null, windowState: 'open', templateId: null, bubbles: [], factIds: [], kbIds: [], guards: {} as any, approver: null, hold: null, delivered: false, stageAfter: file.stage, calls: [], note: null, summary: null, error: null, landedTurnId: null, composerCalls: 0 };
         },
         async clockPass(file: CaseFile): Promise<DeskResult> { return this.handleTurn(file, file.turns[0]); },
     };
@@ -184,6 +198,9 @@ async function gatewayOn(rows: CaseRows, desk: DeskLike): Promise<ChannelGateway
 }
 
 const emailTurns = (rows: CaseRows) => Array.from(rows.files.values()).flatMap((f) => f.turns).filter((t) => t.channel === 'email');
+const inboundEmails = (rows: CaseRows) => emailTurns(rows).filter((t) => t.direction === 'inbound');
+const replies = (rows: CaseRows) => emailTurns(rows).filter((t) => t.direction === 'outbound');
+const throughIntake = { handOver: async (id: string, env: InboundEnvelope) => { await forwardNow({ kind: 'email_received', envelope: env, deliveryId: deliveryIdOf(id) }); } };
 
 describe('through the intake: one turn and one desk run per email', () => {
     const logs = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -205,7 +222,7 @@ describe('through the intake: one turn and one desk run per email', () => {
         expect(emailTurns(cases)).toHaveLength(2);
     });
 
-    it('a hand-over racing one still at the desk finds its turn: one turn, one desk run', async () => {
+    it('a hand-over racing one still at the desk waits for that run and finds its turn handled: one turn, one desk run', async () => {
         const cases = new CaseRows();
         let release!: () => void;
         const { desk: inner, runs } = deskCounting();
@@ -214,9 +231,10 @@ describe('through the intake: one turn and one desk run per email', () => {
         const event = { kind: 'email_received' as const, envelope: envelope(), deliveryId: deliveryIdOf(EMAIL_ID) };
         const first = forwardNow(event);
         await vi.waitFor(() => expect(release).toBeTypeOf('function'));
-        await expect(g.inbound(envelope(), {}, { deliveryId: deliveryIdOf(EMAIL_ID) })).resolves.toMatchObject({ kind: 'duplicate' });
+        const racing = g.inbound(envelope(), {}, { deliveryId: deliveryIdOf(EMAIL_ID) });
         release();
         await first;
+        await expect(racing).resolves.toMatchObject({ kind: 'duplicate' });
         expect(runs).toHaveLength(1);
         expect(emailTurns(cases)).toHaveLength(1);
     });
@@ -258,17 +276,93 @@ describe('through the intake: one turn and one desk run per email', () => {
         expect(runs).toHaveLength(1);
     });
 
-    it('a desk run that throws after the turn landed: the retry finds the turn, marks the row done and does not run the desk again', async () => {
+    it('a desk run that throws after the turn landed: the retry runs the desk on that turn again, and the email gets exactly one reply', async () => {
         const cases = new CaseRows();
-        const { desk, runs } = deskCounting({ throwOnce: true });
+        const { desk, runs } = deskCounting({ throwOnce: true, reply: true });
         await gatewayOn(cases, desk);
-        const h = harness({ handOver: async (id, env) => { await forwardNow({ kind: 'email_received', envelope: env, deliveryId: deliveryIdOf(id) }); } });
+        const h = harness(throughIntake);
         await h.queue.store(EMAIL_ID, envelope());
         expect(await h.queue.attempt(EMAIL_ID)).toBe('retrying');
+        expect(h.row().status).toBe('pending');
+        expect(replies(cases)).toHaveLength(0);
         h.advance(RETRY_DELAYS_MS[0]);
         expect((await h.queue.retryDue()).handed).toBe(1);
+        expect(h.row().status).toBe('done');
+        expect(runs).toHaveLength(2);
+        expect(runs[1].id).toBe(runs[0].id);
+        expect(inboundEmails(cases)).toHaveLength(1);
+        expect(replies(cases)).toHaveLength(1);
+        expect(replies(cases)[0].answers).toEqual([inboundEmails(cases)[0].id]);
+        // Handed over once more, the answered turn runs nothing.
+        await forwardNow({ kind: 'email_received', envelope: envelope(), deliveryId: deliveryIdOf(EMAIL_ID) });
+        expect(runs).toHaveLength(2);
+        expect(replies(cases)).toHaveLength(1);
+    });
+
+    it('a desk run that replied and then threw: the retry finds the turn answered, sends nothing more and marks the row done', async () => {
+        const cases = new CaseRows();
+        const { desk, runs } = deskCounting({ throwOnce: true, replyThenThrow: true });
+        await gatewayOn(cases, desk);
+        const h = harness(throughIntake);
+        await h.queue.store(EMAIL_ID, envelope());
+        expect(await h.queue.attempt(EMAIL_ID)).toBe('retrying');
+        expect(replies(cases)).toHaveLength(1);
+        h.advance(RETRY_DELAYS_MS[0]);
+        expect((await h.queue.retryDue()).handed).toBe(1);
+        expect(h.row().status).toBe('done');
         expect(runs).toHaveLength(1);
-        expect(emailTurns(cases)).toHaveLength(1);
+        expect(replies(cases)).toHaveLength(1);
+    });
+
+    it('a held turn is handled: the row is done with no reply, and a later hand-over reads the recorded result and runs nothing', async () => {
+        const cases = new CaseRows();
+        const { desk, runs } = deskCounting({ decision: 'hold' });
+        await gatewayOn(cases, desk);
+        const h = harness(throughIntake);
+        await h.queue.store(EMAIL_ID, envelope());
+        vi.spyOn(h.rows, 'handed').mockRejectedValueOnce(new Error('process killed'));
+        expect(await h.queue.attempt(EMAIL_ID)).toBe('handed');
+        expect(h.row().status).toBe('pending');
+        expect(inboundEmails(cases)[0].handledBy).toBe('run_1');
+        // A restart reads the file back, the hold runs out, and the next attempt marks the row.
+        const after = deskCounting();
+        await gatewayOn(cases, after.desk);
+        h.advance(CLAIM_MS);
+        expect((await h.queue.retryDue()).handed).toBe(1);
+        expect(h.row().status).toBe('done');
+        expect(runs).toHaveLength(1);
+        expect(after.runs).toHaveLength(0);
+        expect(replies(cases)).toHaveLength(0);
+    });
+
+    it('a desk that throws on every attempt: the email is kept as failed, logged at error level and paged, with one turn on the file', async () => {
+        const cases = new CaseRows();
+        const { desk, runs } = deskCounting({ throws: Infinity });
+        await gatewayOn(cases, desk);
+        const h = harness(throughIntake);
+        await h.queue.store(EMAIL_ID, envelope());
+        expect(await h.queue.attempt(EMAIL_ID)).toBe('retrying');
+        for (const wait of RETRY_DELAYS_MS) { h.advance(wait); await h.queue.retryDue(); }
+        expect(h.row()).toMatchObject({ status: 'failed', attempts: MAX_ATTEMPTS, lastError: 'the composer failed' });
+        expect(runs).toHaveLength(MAX_ATTEMPTS);
+        expect(inboundEmails(cases)).toHaveLength(1);
+        expect(h.error).toHaveBeenCalledWith(expect.stringContaining(`received email ${EMAIL_ID} could not be handed to the desk after ${MAX_ATTEMPTS} attempts`));
+        expect(h.notify).toHaveBeenCalledTimes(1);
+    });
+
+    it('another case file whose writes keep failing does not hold this email', async () => {
+        const cases = new CaseRows();
+        const { desk } = deskCounting();
+        const g = await gatewayOn(cases, desk);
+        await g.inbound(fromDoorEmail({ address: 'alex@example.invalid', name: 'Alex Stone', subject: 'Shelves', text: 'Two shelves.', at: '2026-09-16T09:00:00.000Z', messageId: '<a1@example.invalid>' }));
+        const other = Array.from(cases.files.keys())[0];
+        cases.stuck.add(other);
+        g.store.put(g.store.get(other)!);
+        const h = harness(throughIntake);
+        await h.queue.store(EMAIL_ID, envelope());
+        expect(await h.queue.attempt(EMAIL_ID)).toBe('handed');
+        expect(h.row().status).toBe('done');
+        expect(inboundEmails(cases).filter((t) => t.deliveryId === deliveryIdOf(EMAIL_ID))).toHaveLength(1);
     });
 
     it('a restart after the desk took the email but before the row was marked: the new process marks it with no second turn or run', async () => {

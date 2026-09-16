@@ -122,6 +122,12 @@ export interface Turn {
      * delivery a file already holds is never landed again (channels/channel-gateway.ts).
      */
     deliveryId?: string;
+    /**
+     * A delivery's turn only: the desk run that returned a result on it, whatever it decided (a
+     * reply, a hold, nothing). A delivery handed over again whose turn has neither this nor a reply
+     * answering it goes to the desk again (channels/channel-gateway.ts).
+     */
+    handledBy?: string;
 }
 
 /** The ids of the messages a turn the desk is answering carries: each message of a burst, or the turn itself. */

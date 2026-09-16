@@ -299,15 +299,18 @@ async function forwardOne(event: IntakeEvent, deps: IntakeGatewayDeps): Promise<
     const deliveryId = event.kind === 'email_received' ? event.deliveryId : undefined;
     let forwarded = 0;
     let attached = 0;
+    const landedOn = new Set<string>();
     for (const envelope of envelopes) {
         const out = await gateway.inbound(envelope, {}, { attachOnly: event.kind === 'call_transcribed', deliveryId });
+        if (out.kind === 'handled' || out.kind === 'duplicate') landedOn.add(out.file.id);
         if (out.kind === 'attached') { attached++; console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: call turn ${out.changed ? 'filled in' : 'unchanged'}, no desk run`); }
         else if (out.kind === 'handled') { forwarded++; console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: ${out.result.decision}${out.result.channel ? ` on ${out.result.channel}` : ''} (${deliveryLabel})`); }
         else if (out.kind === 'duplicate') { skipped.push('already on a case file'); console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: already on the file, not handed again`); }
         else skipped.push(out.kind === 'candidates' ? 'identity returned candidates' : out.reason);
     }
-    // A durable hand-over is done only once the file is written; the durable store says when (desk/database-store.ts).
-    if (deliveryId) await (gateway.store as { flush?: () => Promise<void> }).flush?.();
+    // A durable hand-over is done only once the file it landed on is written; the durable store says when (desk/database-store.ts).
+    const store = gateway.store as { flushFile?: (id: string) => Promise<void> };
+    if (deliveryId) for (const id of Array.from(landedOn)) await store.flushFile?.(id);
     return event.kind === 'call_finished' || event.kind === 'call_transcribed' ? { forwarded, attached, skipped } : { forwarded, skipped };
 }
 

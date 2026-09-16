@@ -41,9 +41,10 @@ export interface InboundOptions {
     /** Only fill in a call turn already on a file; never open a file, add a turn or run the desk. */
     attachOnly?: boolean;
     /**
-     * The delivery this turn comes from, recorded on the turn. A delivery already on any file is
-     * answered `duplicate`: no second turn and no second desk run. One still being landed in this
-     * process throws, so the caller keeps it and tries again later.
+     * The delivery this turn comes from, recorded on the turn. A delivery already on any file adds
+     * no second turn: its turn goes to the desk again only while the desk has not handled it
+     * (`handAgain`), and is otherwise answered `duplicate`. One still being landed in this process
+     * throws, so the caller keeps it and tries again later.
      */
     deliveryId?: string;
 }
@@ -63,7 +64,10 @@ export class ChannelGateway extends Gateway {
         const deliveryId = opts.deliveryId;
         if (!deliveryId) return this.land(env, seed, opts);
         const held = this.deliveryTurn(deliveryId);
-        if (held) return { kind: 'duplicate', ...held };
+        if (held) {
+            const result = await this.handAgain(held.file, held.turn);
+            return result ? { kind: 'handled', ...held, result, burst: [held.turn.id] } : { kind: 'duplicate', ...held };
+        }
         if (this.landing.has(deliveryId)) throw new Error('this delivery is being handed to the desk already');
         this.landing.add(deliveryId);
         try {
