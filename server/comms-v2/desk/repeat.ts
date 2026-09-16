@@ -13,16 +13,34 @@
  */
 import type { CaseFile, Turn } from './case-file';
 
-const RE_QUOTE = /\bquote\b/i;
-const RE_QUOTE_PROMISE = /\b(?:put(?:ting)?\b.*\btogether|send(?:ing)?\b.*\bover|pric(?:e|ing)\b.*\bup|work(?:ing)?\s+on|sort(?:ing)?\s+out|get(?:ting)?\b.*\bover)\b/i;
+const RE_QUOTE = /\b(?:quote|price|pricing)\b/i;
+// However the composer rewords it: put together, priced up, prepared, sent/texted/popped over or across,
+// sent to them, with them, theirs to have, on its way, to follow, or coming back to them with it.
+const RE_QUOTE_PROMISE = new RegExp([
+    String.raw`put(?:ting)?\b.*\btogether`,
+    String.raw`pric(?:e|ing)\b.*\bup`,
+    String.raw`work(?:ing)?\s+(?:on|out)`,
+    String.raw`sort(?:ing)?\s+out`,
+    String.raw`prepar(?:e|ed|ing)`,
+    String.raw`draw(?:ing)?\s+up`,
+    String.raw`(?:send|sending|get|getting|text|texting|pop|popping|pass|passing|message|messaging|email|emailing)\b.*\b(?:over|across|through|to you)`,
+    String.raw`send(?:ing)?\s+(?:you|it)`,
+    String.raw`with you`,
+    String.raw`on (?:its|the) way`,
+    String.raw`to follow`,
+    String.raw`(?:come|coming|get|getting)\s+back\s+to\s+you`,
+    String.raw`you(?:['’]ll|\s+will)\s+have`,
+    String.raw`be\s+in\s+touch`,
+].map((p) => `\\b(?:${p})\\b`).join('|'), 'i');
 const RE_ALL_I_NEED = /\b(?:everything|all)\s+(?:I|we)\s+need\b/i;
 
 export function sentencesOf(text: string): string[] {
     return text.replace(/\r\n/g, '\n').split(/(?<=[.?!])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 }
 
-/** The sentence wraps up: says that is everything needed, or that the quote is being put together or sent over. */
+/** The sentence wraps up: says that is everything needed, or promises the quote in any wording. A question never does. */
 export function isWrapUp(sentence: string): boolean {
+    if (sentence.trimEnd().endsWith('?')) return false;
     return RE_ALL_I_NEED.test(sentence) || (RE_QUOTE.test(sentence) && RE_QUOTE_PROMISE.test(sentence));
 }
 
