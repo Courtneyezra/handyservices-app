@@ -7,7 +7,8 @@
  * the business has said to the same party since it last asked them something, and names every
  * wrap-up sentence in it ("that's everything I need", "I'll put the quote together and send it
  * over", however it is worded) when one of those messages already wrapped up. A question asked since
- * (a new job being scoped) starts the count again. Nothing else is compared: an answer a customer asks for
+ * (a new job being scoped) starts the count again; a closing offer ("Anything else I can help with?")
+ * asks them nothing and does not. Nothing else is compared: an answer a customer asks for
  * twice is still given twice, and a brief human acknowledgement ("No worries at all, Kiran.") is what
  * answer 90 asks for.
  */
@@ -41,6 +42,13 @@ const RE_QUOTE_PROMISE = new RegExp([
     String.raw`you(?:['’]ll|\s+will)\s+have(?!\s+to\b)`,
     String.raw`be\s+in\s+touch`,
 ].map((p) => `\\b(?:${p})\\b`).join('|'), 'i');
+// A sign-off question that asks the customer for nothing: anything else we can help with or they need, any questions.
+const RE_CLOSING_OFFER = new RegExp(`^(?:(?:and|also|oh|but),?\\s+)?(?:${[
+    String.raw`(?:is\s+there\s+|have\s+you\s+got\s+|got\s+)?any(?:thing|\s+other|\s+more|\s+further)?\s+(?:else\s+)?questions?`,
+    String.raw`(?:is\s+there\s+)?anything\s+else\s+(?:I|we)\s+can\s+(?:help|do)`,
+    String.raw`(?:is\s+there\s+)?anything\s+else\s+you\s+need\s+(?:from\s+(?:me|us)|to\s+know)`,
+    String.raw`(?:can|could)\s+(?:I|we)\s+help\s+(?:you\s+)?with\s+anything\s+else`,
+].join('|')})\\b`, 'i');
 const RE_ALL_I_NEED = /\b(?:everything|all)\s+(?:I|we)\s+need\b/i;
 
 export function sentencesOf(text: string): string[] {
@@ -61,17 +69,23 @@ export function repeatedSentences(reply: string, previous: readonly string[]): s
 
 /**
  * What the business has said to this party since it last asked them something, newest first: every
- * outbound message back to (not including) the newest one with a question mark in it.
+ * outbound message back to (not including) the newest one with a question mark in it, a closing
+ * offer's aside.
  */
 export function saidSinceLastQuestion(file: CaseFile, partyId: string): Turn[] {
     const out: Turn[] = [];
     for (let i = file.turns.length - 1; i >= 0; i--) {
         const t = file.turns[i];
         if (t.direction !== 'outbound' || t.partyId !== partyId) continue;
-        if (t.body.includes('?')) break;
+        if (asksSomething(t.body)) break;
         out.push(t);
     }
     return out;
+}
+
+/** The message asks the party something: a question mark on any sentence that is not a closing offer. */
+function asksSomething(body: string): boolean {
+    return sentencesOf(body).some((s) => s.includes('?') && !RE_CLOSING_OFFER.test(s));
 }
 
 /**

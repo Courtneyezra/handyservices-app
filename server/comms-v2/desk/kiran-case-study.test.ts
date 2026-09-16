@@ -359,6 +359,28 @@ describe('the wrap-up check', () => {
         expect(client.calls.filter((x) => x.role === 'composer' && /said again:/.test(x.user))[0].user).toContain("I'll send you the quote on here.");
     });
 
+    it('gives a thanks one short bubble when the promise ended with a closing question', async () => {
+        // Round 28: the wrap-up signed off with "Anything else I can help with?", so the question mark
+        // started the count again and the thanks got the quote news reworded.
+        for (const closing of ['Anything else I can help with in the meantime?', 'Is there anything else you need from me?', 'Any questions in the meantime?']) {
+            const client = new FakeModelClient({
+                router: ({ user }) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: /thanks/.test((user.split('>>').pop() ?? '').toLowerCase()) ? 'acknowledgement' : 'answer' }),
+                specialist: ({ system }) => (/lines of a quote/.test(system) ? intakeOutput : { facts: [{ key: 'job_type', value: 'handles on 4 doors' }, { key: 'location', value: 'NG11 7DL' }], jobUnknowns: [], answeredSubjects: [] }),
+                composer: ({ user, n }) => ({ reply: n === 1 ? `${WRAP_UP} ${closing}` : /said again:/.test(user) ? 'No worries at all, Sam.' : "No problem, Sam. I'll send you the quote on here.", factIds: [], kbIds: [] }),
+            });
+            const quotes = new MemoryQuoteStore();
+            const desk = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, quoting: { store: quotes, drafter: new FakeDrafter(quotes), notifier: recordingNotifier } });
+            const gateway = new Gateway({ desk });
+            const one = await gateway.inbound(message('Handles on 4 doors, NG11 7DL'));
+            if (one.kind !== 'handled') throw new Error(one.kind);
+            expect(one.result.decision, closing).toBe('send');
+
+            const thanks = await gateway.inbound(message('thanks mate'));
+            if (thanks.kind !== 'handled') throw new Error(thanks.kind);
+            expect(thanks.result.bubbles.map((b) => b.text), closing).toEqual(['No worries at all, Sam.']);
+        }
+    });
+
     it('counts what was said since the last question, so a new job being scoped can wrap up again', async () => {
         const quotes = new MemoryQuoteStore();
         const client = kiranClient();
@@ -370,6 +392,18 @@ describe('the wrap-up check', () => {
         expect(saidSinceLastQuestion(out.file, party)).toHaveLength(1);
         out.file.turns.push({ ...out.file.turns[out.file.turns.length - 1], id: 'turn_q', body: 'And the shed door, is it wood or metal?' });
         expect(saidSinceLastQuestion(out.file, party)).toEqual([]);
+        // A closing offer asks them nothing; a question that asks for more work or a detail still starts the count again.
+        const last = out.file.turns[out.file.turns.length - 1];
+        for (const closing of ['Anything else I can help with?', 'Is there anything else you need from me?', 'Any other questions, just ask?', 'Can I help you with anything else?', 'And any questions at all?']) {
+            out.file.turns.push({ ...last, id: `turn_${closing}`, body: `${WRAP_UP} ${closing}` });
+            expect(saidSinceLastQuestion(out.file, party), closing).toHaveLength(1);
+            out.file.turns.pop();
+        }
+        for (const asks of ['Anything else that needs doing while I am there?', 'Is there anything else you need doing?', 'Any parking nearby?', 'Anything else I should know about the doors?']) {
+            out.file.turns.push({ ...last, id: `turn_${asks}`, body: `${WRAP_UP} ${asks}` });
+            expect(saidSinceLastQuestion(out.file, party), asks).toEqual([]);
+            out.file.turns.pop();
+        }
     });
 });
 
