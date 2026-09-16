@@ -78,4 +78,19 @@ describe('a burst of messages on the sandbox door', () => {
         const state = (await (await fetch(base)).json()) as any;
         expect(replies(state).length - before).toBe(2);
     });
+
+    it('a burst whose last message is STOP draws no reply and no model call, though the joined text is no whole-message keyword', async () => {
+        const opened = await post('/start', { door: 'whatsapp', text: 'Hi, is that the handyman?', name: 'Sam' });
+        expect(replies(opened.json.state)).toHaveLength(1);
+        const callsBefore = client.calls.length;
+
+        const out = await Promise.all(['Sorry wrong number', 'STOP'].map((text) => post('/message', { text, channel: 'whatsapp' })));
+
+        expect(out.map((r) => r.status)).toEqual([200, 200]);
+        for (const r of out) expect(r.json.burst.turnIds).toHaveLength(2);
+        expect(out.map((r) => plannedSendOfResponse(r.json)).some((s) => s.delivered)).toBe(false);
+        expect(client.calls.length).toBe(callsBefore);
+        const state = (await (await fetch(base)).json()) as any;
+        expect(replies(state)).toHaveLength(1);
+    });
 });
