@@ -138,16 +138,22 @@ export const RE_DEFERS = /\b(?:i|we)\b[^.?!\n]{0,40}\b(?:will|['’]ll|am going 
  * question", "find out", "check whether". "I'll have a look and get back to you" and "I'll let you
  * know once I've seen the photos" are the job being scoped, not a question left open.
  */
-const RE_ABOUT_A_QUESTION = /\b(?:on|about) (?:that|this|it)\b|\bquestion\b|\bfind out\b|\bcheck (?:on|that|whether|if)\b/i;
+const RE_ABOUT_A_QUESTION = /\b(?:on|about) (?:that|this)\b|\bquestion\b|\bfind out\b|\bcheck (?:on|whether)\b/i;
+
+/**
+ * A customer's ask that is the job itself: "can you fix it?", "could you put up these shelves",
+ * "how long will it take". Scoping answers it, so a put-off on it is not a question for Ben.
+ */
+const RE_JOB_ASK = /\b(?:can|could|would|will) (?:you|someone|ben)\b[^.?!\n]{0,20}\b(?:fix|repair|replace|do|sort|put|hang|mount|install|fit|come|pop|look|help|paint|build|change|remove|unblock|assemble|take a look)\b|\bhow (?:long|soon|quickly)\b/i;
 
 /**
  * The words of a reply that put off a question the customer asked on this turn, or null. The
- * customer's own words must ask something (RE_ASKING), and the reply's sentence must say it will
+ * customer's own words must ask something (RE_ASKING) that is not the job itself, and the reply's sentence must say it will
  * check or come back on that question. A sentence about the quote is the wrap-up or its delivery
  * ("I'll get the quote over to you"), not a question left open, so it is skipped.
  */
 export function deferralMatch(reply: string, asked: string): string | null {
-    if (!sentencesOf(asked).some((s) => RE_ASKING.test(s))) return null;
+    if (!sentencesOf(asked).some((s) => RE_ASKING.test(s) && !RE_JOB_ASK.test(s))) return null;
     for (const sentence of sentencesOf(reply)) {
         if (/\bquote\b/i.test(sentence) || !RE_ABOUT_A_QUESTION.test(sentence)) continue;
         const m = RE_DEFERS.exec(sentence);

@@ -171,9 +171,10 @@ describe('the Service specialist on the desk', () => {
                 "A dripping kitchen tap, got it. If you can send a photo of it, I'll have a look and get back to you.",
                 "A dripping kitchen tap, got it. I'll let you know once I've seen the photos.",
                 'A dripping kitchen tap, got it. Could you send a photo of the tap?',
+                "If you can send a photo, I'll take a look and get back to you on it.",
             ]) {
                 const { gateway } = scopingOnly(reply);
-                const out = await gateway.inbound(turn('Hi, my kitchen tap is dripping.', '2026-09-11T10:00:00.000Z'));
+                const out = await gateway.inbound(turn('Hi, my kitchen tap is dripping, can you fix it?', '2026-09-11T10:00:00.000Z'));
                 if (out.kind !== 'handled') throw new Error(out.kind);
                 expect(out.result.decision).toBe('send');
                 expect(out.file.hold).toBeNull();

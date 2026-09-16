@@ -405,7 +405,7 @@ describe('the desk', () => {
                 : /what it concerns/.test(system)
                     ? { concerns: [], beyondQuoteLine: true, acceptanceInChat: true, notReady: false }
                     : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
-            // The opening job turn is the wrap-up: a promise to come back on the first reply would itself be held (desk.ts 6b).
+            // The opening job turn gets the wrap-up it would really get once the job and the postcode are in.
             composer: ({ n }) => ({ reply: n === 1 ? 'Thanks, that is everything for now. I will put the quote together and send it over.' : DEFAULT_FIXED_LINES.money_to_ben, factIds: [], kbIds: [] }),
         }, clock, { quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
         const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', new Date(clock.t).toISOString()));
