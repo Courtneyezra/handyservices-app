@@ -116,6 +116,12 @@ export interface Turn {
      * turn rather than adding one (channels/channel-gateway.ts `attachCall`).
      */
     callId?: string;
+    /**
+     * Inbound turns handed over by a durable intake only (the inbound email store,
+     * channels/inbound-email-store.ts): the provider's delivery, such as `resend:<email id>`. A
+     * delivery a file already holds is never landed again (channels/channel-gateway.ts).
+     */
+    deliveryId?: string;
 }
 
 /** The ids of the messages a turn the desk is answering carries: each message of a burst, or the turn itself. */

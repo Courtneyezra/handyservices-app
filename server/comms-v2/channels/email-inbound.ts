@@ -16,27 +16,34 @@
  *        `RESEND_API_KEY` (to read the body and attachments) is not set.
  *   401  the signature is missing, does not verify, or is stamped more than five minutes from now
  *        (the library's tolerance), which is what refuses an old request replayed.
- *   200  a verified delivery already seen (same `svix-id`, or the same received email): a replay
- *        inside the tolerance, or Resend retrying, adds no second turn. Also any other event type.
+ *   200  a verified delivery already seen (same `svix-id`, or the same received email, remembered in
+ *        this process or kept in the store): a replay inside the tolerance, or Resend retrying,
+ *        adds no second turn. Also any other event type.
  *   409  the same email is being read right now; Resend retries later.
  *   502  Resend's API could not be read; nothing is marked seen, so Resend's retry reads it again.
+ *   503  the store could not be read or written; nothing is marked seen, so Resend retries.
  *   200  ignored: automated or internal mail (resend-inbound.ts `ignoredReason`). It is marked seen,
  *        logged with the reason only (no readable sender is a warning carrying Resend's email id),
- *        and never forwarded; no attachment is downloaded.
- *   200  accepted: the envelope is built (email, attachments downloaded) and forwarded to the
- *        intake without waiting on the desk's turn.
+ *        and never stored or forwarded; no attachment is downloaded.
+ *   200  accepted: the envelope is built (email, attachments downloaded) and written to the store
+ *        (inbound-email-store.ts) before the answer. The first hand-over to the desk starts once the
+ *        answer is sent; the comms worker retries it until the desk has the email, and an email that
+ *        spends every attempt is kept as failed and paged.
  *
- * The forward is not durable: a turn the intake fails to take after the 200 is lost. Inbound email
- * must not be switched on until the durable store-and-retry (follow-up task
- * hsa-comms-v2-email-inbound-durable) lands.
+ * The safeguard is in place: an email Resend has a 200 for is in the store, and a desk that fails to
+ * take it is tried again, so it is not lost. Switching inbound email on still needs the migration
+ * `20260916_comms_v2_inbound_emails.sql` applied, `COMMS_V2_EMAIL_INBOUND=1`, `COMMS_V2_INTAKE=1`,
+ * the two variables above, and a `COMMS_WORKER=1` process for the retries (docs/RUNBOOK.md,
+ * "Inbound email (Resend)"). None of them is set here.
  *
- * Seen deliveries are remembered in this process for a day, which covers Resend's retry schedule.
- * No value from an email is logged.
+ * Seen deliveries are also remembered in this process for a day, which spares a store read on a
+ * replay. No value from an email is logged.
  */
 import express, { Router, type Request, type Response } from 'express';
 import { Webhook } from 'svix';
 import type { InboundEnvelope } from './envelope';
-import { forwardToCommsV2, intakeEnabled, INTAKE_ENV } from './intake';
+import { intakeEnabled, INTAKE_ENV } from './intake';
+import { inboundEmailQueue, type InboundEmailQueue, type InboundEmailQueueDeps, type RetryPass } from './inbound-email-store';
 import { envelopeFromResend, isIgnored, type IgnoredEmail, type ResendEmailReceivedEvent, type ResendInboundDeps } from './resend-inbound';
 
 export const RESEND_INBOUND_PATH = '/api/webhooks/resend/inbound-email';
@@ -91,8 +98,8 @@ export interface EmailInboundDeps {
     env?: NodeJS.ProcessEnv;
     /** Builds the turn from a received email's id; the default reads Resend's API. */
     envelope?: (emailId: string, deps: ResendInboundDeps) => Promise<InboundEnvelope | IgnoredEmail>;
-    /** Hands the turn to the intake; the default is the fire-and-forget forward. */
-    forward?: (envelope: InboundEnvelope) => void;
+    /** Where accepted emails are kept and handed to the desk from; the default is the database store. */
+    queue?: InboundEmailQueue;
     seen?: SeenKeys;
     mediaDir?: string;
 }
@@ -105,7 +112,7 @@ function header(req: Request, name: string): string {
 export function resendInboundRouter(deps: EmailInboundDeps = {}): Router {
     const env = deps.env ?? process.env;
     const build = deps.envelope ?? envelopeFromResend;
-    const forward = deps.forward ?? ((envelope: InboundEnvelope) => forwardToCommsV2({ kind: 'email_received', envelope }, env));
+    const queue = deps.queue ?? inboundEmailQueue();
     const seen = deps.seen ?? new SeenKeys();
     const reading = new Set<string>();
     const router = Router();
@@ -136,26 +143,67 @@ export function resendInboundRouter(deps: EmailInboundDeps = {}): Router {
         if (reading.has(emailId)) { res.status(409).json({ error: 'this email is being read; retry later' }); return; }
 
         reading.add(emailId);
-        let envelope: InboundEnvelope | IgnoredEmail;
         try {
-            envelope = await build(emailId, { apiKey, mediaDir: deps.mediaDir, env });
-        } catch (err: any) {
-            console.error(`[comms-v2 email] reading a received email from Resend failed: ${err?.message ?? err}`);
-            res.status(502).json({ error: 'the received email could not be read from Resend' });
-            return;
+            try {
+                if (await queue.has(emailId)) { seen.add(`email:${emailId}`); seen.add(`delivery:${id}`); res.status(200).json({ ok: true, duplicate: true }); return; }
+            } catch (err: any) {
+                console.error(`[comms-v2 email] reading the inbound email store failed: ${err?.message ?? err}`);
+                res.status(503).json({ error: 'the inbound email store could not be read; retry later' });
+                return;
+            }
+            let envelope: InboundEnvelope | IgnoredEmail;
+            try {
+                envelope = await build(emailId, { apiKey, mediaDir: deps.mediaDir, env });
+            } catch (err: any) {
+                console.error(`[comms-v2 email] reading a received email from Resend failed: ${err?.message ?? err}`);
+                res.status(502).json({ error: 'the received email could not be read from Resend' });
+                return;
+            }
+            if (isIgnored(envelope)) {
+                seen.add(`email:${emailId}`);
+                seen.add(`delivery:${id}`);
+                if (envelope.ignored === 'no_sender_address') console.warn(`[comms-v2 email] received email ${emailId} ignored: ${envelope.ignored}`);
+                else console.log(`[comms-v2 email] received email ignored: ${envelope.ignored}`);
+                res.status(200).json({ ok: true, ignored: envelope.ignored });
+                return;
+            }
+            let stored: boolean;
+            try {
+                stored = await queue.store(emailId, envelope);
+            } catch (err: any) {
+                console.error(`[comms-v2 email] keeping received email ${emailId} failed; Resend will deliver it again: ${err?.message ?? err}`);
+                res.status(503).json({ error: 'the received email could not be kept; retry later' });
+                return;
+            }
+            seen.add(`email:${emailId}`);
+            seen.add(`delivery:${id}`);
+            if (!stored) { res.status(200).json({ ok: true, duplicate: true }); return; }
+            res.status(200).json({ ok: true, accepted: true, media: envelope.media.length, mediaFailures: envelope.mediaFailures.length });
+            void queue.attempt(emailId).catch((err: any) => console.error(`[comms-v2 email] the first hand-over of received email ${emailId} failed; the retry takes it: ${err?.message ?? err}`));
         } finally {
             reading.delete(emailId);
         }
-        seen.add(`email:${emailId}`);
-        seen.add(`delivery:${id}`);
-        if (isIgnored(envelope)) {
-            if (envelope.ignored === 'no_sender_address') console.warn(`[comms-v2 email] received email ${emailId} ignored: ${envelope.ignored}`);
-            else console.log(`[comms-v2 email] received email ignored: ${envelope.ignored}`);
-            res.status(200).json({ ok: true, ignored: envelope.ignored });
-            return;
-        }
-        forward(envelope);
-        res.status(200).json({ ok: true, accepted: true, media: envelope.media.length, mediaFailures: envelope.mediaFailures.length });
     });
     return router;
+}
+
+export interface RetryTick extends RetryPass { ran: boolean }
+
+let retrying = false;
+
+/**
+ * The comms worker's retry pass over kept emails (server/cron.ts, every minute): nothing while
+ * inbound email is switched off, and never two passes at once. Null when the last one is still running.
+ */
+export async function runInboundEmailRetryTick(deps: { env?: NodeJS.ProcessEnv; queue?: InboundEmailQueue } & InboundEmailQueueDeps = {}): Promise<RetryTick | null> {
+    if (!emailInboundEnabled(deps.env ?? process.env)) return { ran: false, due: 0, handed: 0, retrying: 0, failed: 0, errors: 0 };
+    if (retrying) return null;
+    retrying = true;
+    try {
+        const pass = await (deps.queue ?? inboundEmailQueue(deps)).retryDue();
+        if (pass.due) console.log(`[comms-v2 email] retry pass: ${pass.due} due, ${pass.handed} handed, ${pass.retrying} to retry, ${pass.failed} failed for good, ${pass.errors} errors`);
+        return { ran: true, ...pass };
+    } finally {
+        retrying = false;
+    }
 }

@@ -46,6 +46,8 @@ export type InboundOutcome =
     | { kind: 'handled'; file: CaseFile; turn: Turn; result: DeskResult; burst: string[] }
     /** A call already on a file, passed again: its turn filled in where the new pass says more, and no desk run. */
     | { kind: 'attached'; file: CaseFile; turn: Turn; changed: boolean }
+    /** A delivery already on a file (`Turn.deliveryId`), handed over again: nothing added, no desk run. */
+    | { kind: 'duplicate'; file: CaseFile; turn: Turn }
     /** Identity returned candidates: nothing is sent until a person picks one. */
     | { kind: 'candidates'; candidates: number; address: string }
     | { kind: 'refused'; reason: string };
@@ -54,6 +56,7 @@ export type InboundOutcome =
 export function notHandledReason(out: Exclude<InboundOutcome, { kind: 'handled' }>): string {
     if (out.kind === 'candidates') return 'identity returned candidates';
     if (out.kind === 'attached') return 'this call is already on the file; its turn was filled in and the desk did not run';
+    if (out.kind === 'duplicate') return 'this delivery is already on the file; the desk did not run again';
     return out.reason;
 }
 

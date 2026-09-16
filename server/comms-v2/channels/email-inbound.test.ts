@@ -1,14 +1,16 @@
 /**
  * The inbound email webhook: signed by Resend (Svix), off unless both switches say '1', mounted
  * outside the admin gate with its body kept raw. A good signature lands one turn; a bad, missing or
- * stale one lands nothing; a replay of a delivery already taken lands nothing more.
+ * stale one lands nothing; a replay of a delivery already taken lands nothing more. An accepted
+ * email is kept before Resend is answered, and a store that cannot keep it is answered with an error.
  */
 import http from 'node:http';
 import express from 'express';
 import { Webhook } from 'svix';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboundEnvelope } from './envelope';
-import { EMAIL_INBOUND_ENV, emailInboundEnabled, mountResendInbound, RESEND_INBOUND_PATH, RESEND_INBOUND_SECRET_ENV, resendInboundRawBody, resendInboundRouter, SeenKeys, type EmailInboundDeps } from './email-inbound';
+import { EMAIL_INBOUND_ENV, emailInboundEnabled, mountResendInbound, RESEND_INBOUND_PATH, RESEND_INBOUND_SECRET_ENV, resendInboundRawBody, resendInboundRouter, runInboundEmailRetryTick, SeenKeys, type EmailInboundDeps } from './email-inbound';
+import { inboundEmailQueue, MemoryInboundEmailRows, RETRY_DELAYS_MS } from './inbound-email-store';
 import { envelopeFromResend, type ResendInboundDeps } from './resend-inbound';
 
 vi.mock('../../db', () => ({ db: {} }));
@@ -48,14 +50,22 @@ const envelope: InboundEnvelope = { channel: 'email', address: 'sam.jones@exampl
 let server: http.Server | null = null;
 afterEach(() => { server?.close(); server = null; });
 
+const RECEIVED_ID = '56761188-7520-42d8-8898-ff6fc54ce618';
+
+/** A store in memory whose hand-over to the desk is a spy. */
+function memoryQueue(rows = new MemoryInboundEmailRows()) {
+    const handOver = vi.fn(async (_id: string, _e: InboundEnvelope) => {});
+    return { rows, handOver, queue: inboundEmailQueue({ rows: async () => rows, handOver, pageable: false }) };
+}
+
 /** The app as index.ts builds it: raw parser on the path, the global JSON parser, then the router. */
-async function start(deps: Partial<EmailInboundDeps> & { env?: NodeJS.ProcessEnv } = {}) {
+async function start(deps: Partial<EmailInboundDeps> & { env?: NodeJS.ProcessEnv; rows?: MemoryInboundEmailRows } = {}) {
     const build = vi.fn(async (_id: string, _d: { apiKey: string }) => envelope);
-    const forward = vi.fn((_e: InboundEnvelope) => {});
+    const { rows, handOver: forward, queue } = memoryQueue(deps.rows);
     const app = express();
     app.use(RESEND_INBOUND_PATH, resendInboundRawBody());
     app.use(express.json());
-    app.use(resendInboundRouter({ env: ON, envelope: build, forward, ...deps }));
+    app.use(resendInboundRouter({ env: ON, envelope: build, queue, ...deps }));
     server = http.createServer(app);
     await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
     const port = (server.address() as { port: number }).port;
@@ -63,7 +73,7 @@ async function start(deps: Partial<EmailInboundDeps> & { env?: NodeJS.ProcessEnv
         const res = await fetch(`http://127.0.0.1:${port}${RESEND_INBOUND_PATH}`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body });
         return { status: res.status, json: await res.json() as Record<string, unknown> };
     };
-    return { post, build, forward };
+    return { post, build, forward, rows };
 }
 
 describe('the switch', () => {
@@ -110,7 +120,7 @@ describe('the signature', () => {
         expect(build).toHaveBeenCalledTimes(1);
         expect(build.mock.calls[0][0]).toBe('56761188-7520-42d8-8898-ff6fc54ce618');
         expect(build.mock.calls[0][1].apiKey).toBe('re_test_key');
-        expect(forward).toHaveBeenCalledWith(envelope);
+        await vi.waitFor(() => expect(forward).toHaveBeenCalledWith(RECEIVED_ID, envelope));
     });
 
     it('bad: signed with another secret, or the body changed after signing, is refused', async () => {
@@ -147,7 +157,7 @@ describe('the signature', () => {
         // A fresh delivery id for the same received email (Resend retrying, or a re-signed replay).
         expect(await post(body, signed(body, { id: 'msg_replay_2' }))).toEqual({ status: 200, json: { ok: true, duplicate: true } });
         expect(build).toHaveBeenCalledTimes(1);
-        expect(forward).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(forward).toHaveBeenCalledTimes(1));
         // A request stamped outside the five-minute tolerance is refused even with a valid signature.
         const old = JSON.stringify(receivedEvent('11111111-1111-4111-8111-111111111111'));
         const stale = await post(old, signed(old, { at: new Date(Date.now() - 10 * 60 * 1000) }));
@@ -178,7 +188,7 @@ describe('after the signature', () => {
         expect(forward).not.toHaveBeenCalled();
         expect(errors).toHaveBeenCalledWith(expect.stringContaining('HTTP 500'));
         expect((await post(body, headers)).status).toBe(200);
-        expect(forward).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(forward).toHaveBeenCalledTimes(1));
         errors.mockRestore();
     });
 
@@ -192,7 +202,7 @@ describe('after the signature', () => {
         expect((await post(body, signed(body))).status).toBe(409);
         release(envelope);
         expect((await first).status).toBe(200);
-        expect(forward).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(forward).toHaveBeenCalledTimes(1));
     });
 
     it('forgets a seen key after a day', () => {
@@ -222,12 +232,13 @@ describe('ignored mail', () => {
     it('is answered 200 as ignored, logged with the reason only, marked seen and never forwarded', async () => {
         const logs = vi.spyOn(console, 'log').mockImplementation(() => {});
         const { calls, envelope: build } = readFrom(email('Sam Jones <sam.jones@example.com>', { 'Auto-Submitted': 'auto-replied' }));
-        const { post, forward } = await start({ envelope: build });
+        const { post, forward, rows } = await start({ envelope: build });
         const body = JSON.stringify(receivedEvent());
         expect(await post(body, signed(body))).toEqual({ status: 200, json: { ok: true, ignored: 'auto_submitted' } });
         expect(await post(body, signed(body))).toEqual({ status: 200, json: { ok: true, duplicate: true } });
         expect(calls).toHaveLength(1);
         expect(forward).not.toHaveBeenCalled();
+        expect(rows.rows.size).toBe(0);
         expect(logs.mock.calls.map((c) => c.join(' '))).toEqual(['[comms-v2 email] received email ignored: auto_submitted']);
         logs.mockRestore();
     });
@@ -252,7 +263,7 @@ describe('ignored mail', () => {
         server?.close();
         const customer = await start({ env, envelope: readFrom(email('Sam Jones <sam.jones@example.com>')).envelope });
         expect((await customer.post(body, signed(body))).json).toEqual({ ok: true, accepted: true, media: 0, mediaFailures: 0 });
-        expect(customer.forward).toHaveBeenCalledWith(expect.objectContaining({ channel: 'email', address: 'sam.jones@example.com', name: 'Sam Jones', via: 'resend' }));
+        await vi.waitFor(() => expect(customer.forward).toHaveBeenCalledWith(RECEIVED_ID, expect.objectContaining({ channel: 'email', address: 'sam.jones@example.com', name: 'Sam Jones', via: 'resend' })));
         logs.mockRestore();
     });
 });
@@ -260,9 +271,9 @@ describe('ignored mail', () => {
 describe('the mount', () => {
     it('answers a signed POST without a session, with the raw body, ahead of the JSON parser and any admin gate', async () => {
         expect(RESEND_INBOUND_PATH.startsWith('/api/comms-v2')).toBe(false);
-        const forward = vi.fn((_e: InboundEnvelope) => {});
+        const { handOver: forward, queue } = memoryQueue();
         const app = express();
-        mountResendInbound(app, { env: ON, envelope: async () => envelope, forward });
+        mountResendInbound(app, { env: ON, envelope: async () => envelope, queue });
         app.use(express.json());
         app.use((_req, res) => { res.status(401).json({ error: 'admin only' }); });
         server = http.createServer(app);
@@ -271,6 +282,82 @@ describe('the mount', () => {
         const body = JSON.stringify(receivedEvent());
         const res = await fetch(`http://127.0.0.1:${port}${RESEND_INBOUND_PATH}`, { method: 'POST', headers: { 'content-type': 'application/json', ...signed(body) }, body });
         expect({ status: res.status, json: await res.json() }).toEqual({ status: 200, json: { ok: true, accepted: true, media: 0, mediaFailures: 0 } });
-        expect(forward).toHaveBeenCalledWith(envelope);
+        await vi.waitFor(() => expect(forward).toHaveBeenCalledWith(RECEIVED_ID, envelope));
+    });
+});
+
+describe('the safeguard', () => {
+    it('keeps the email before answering: the answer does not wait on the desk, and the row is there when it comes', async () => {
+        const rows = new MemoryInboundEmailRows();
+        const handOver = vi.fn(() => new Promise<void>(() => {}));
+        const { post } = await start({ queue: inboundEmailQueue({ rows: async () => rows, handOver }) });
+        const body = JSON.stringify(receivedEvent());
+        expect((await post(body, signed(body))).json).toMatchObject({ accepted: true });
+        expect(rows.rows.get(RECEIVED_ID)).toMatchObject({ status: 'pending', envelope });
+        await vi.waitFor(() => expect(handOver).toHaveBeenCalledTimes(1));
+    });
+
+    it('answers 503 when the email cannot be kept, marks nothing seen, and keeps Resend\'s next delivery', async () => {
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const rows = new MemoryInboundEmailRows();
+        const insert = vi.spyOn(rows, 'insert').mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
+        const { post, forward } = await start({ rows });
+        const body = JSON.stringify(receivedEvent());
+        const headers = signed(body);
+        expect(await post(body, headers)).toEqual({ status: 503, json: { error: 'the received email could not be kept; retry later' } });
+        expect(errors).toHaveBeenCalledWith(expect.stringContaining(`keeping received email ${RECEIVED_ID} failed; Resend will deliver it again`));
+        expect(forward).not.toHaveBeenCalled();
+        expect(rows.rows.size).toBe(0);
+        expect(await post(body, headers)).toEqual({ status: 200, json: { ok: true, accepted: true, media: 0, mediaFailures: 0 } });
+        expect(insert).toHaveBeenCalledTimes(2);
+        await vi.waitFor(() => expect(forward).toHaveBeenCalledTimes(1));
+        errors.mockRestore();
+    });
+
+    it('answers 503 when the store cannot be read, before Resend is read', async () => {
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const rows = new MemoryInboundEmailRows();
+        vi.spyOn(rows, 'has').mockRejectedValueOnce(new Error('connection terminated unexpectedly'));
+        const { post, build } = await start({ rows });
+        const body = JSON.stringify(receivedEvent());
+        expect((await post(body, signed(body))).status).toBe(503);
+        expect(build).not.toHaveBeenCalled();
+        errors.mockRestore();
+    });
+
+    it('a redelivery after a restart is answered from the store: Resend is not read again and nothing more is kept or handed over', async () => {
+        const rows = new MemoryInboundEmailRows();
+        const before = await start({ rows });
+        const body = JSON.stringify(receivedEvent());
+        expect((await before.post(body, signed(body))).json).toMatchObject({ accepted: true });
+        await vi.waitFor(() => expect(before.forward).toHaveBeenCalledTimes(1));
+        server?.close();
+        // A new process: nothing remembered in memory, the same rows.
+        const after = await start({ rows });
+        expect(await after.post(body, signed(body))).toEqual({ status: 200, json: { ok: true, duplicate: true } });
+        expect(after.build).not.toHaveBeenCalled();
+        expect(after.forward).not.toHaveBeenCalled();
+        expect(rows.rows.size).toBe(1);
+    });
+
+    it('a failed first hand-over leaves the row pending, and the retry pass hands it over', async () => {
+        const warns = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const logs = vi.spyOn(console, 'log').mockImplementation(() => {});
+        let t = Date.now();
+        const rows = new MemoryInboundEmailRows();
+        const handOver = vi.fn().mockRejectedValueOnce(new Error('the gateway could not be built')).mockResolvedValue(undefined);
+        const queue = inboundEmailQueue({ rows: async () => rows, handOver, now: () => new Date(t) });
+        const { post } = await start({ queue });
+        const body = JSON.stringify(receivedEvent());
+        expect((await post(body, signed(body))).json).toMatchObject({ accepted: true });
+        await vi.waitFor(() => expect(rows.rows.get(RECEIVED_ID)).toMatchObject({ status: 'pending', attempts: 1, lastError: 'the gateway could not be built' }));
+        // Switched off, the retry pass does nothing.
+        t += RETRY_DELAYS_MS[0];
+        expect(await runInboundEmailRetryTick({ env: { ...ON, [EMAIL_INBOUND_ENV]: '0' }, queue })).toEqual({ ran: false, due: 0, handed: 0, retrying: 0, failed: 0, errors: 0 });
+        expect(handOver).toHaveBeenCalledTimes(1);
+        expect(await runInboundEmailRetryTick({ env: ON, queue })).toEqual({ ran: true, due: 1, handed: 1, retrying: 0, failed: 0, errors: 0 });
+        expect(rows.rows.get(RECEIVED_ID)).toMatchObject({ status: 'done', attempts: 2 });
+        warns.mockRestore();
+        logs.mockRestore();
     });
 });

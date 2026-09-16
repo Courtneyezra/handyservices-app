@@ -4889,3 +4889,25 @@ export const commsV2CaseFiles = pgTable("comms_v2_case_files", {
     index("idx_comms_v2_case_files_person_ids").using("gin", table.personIds),
 ]);
 export type CommsV2CaseFileRow = typeof commsV2CaseFiles.$inferSelect;
+
+/**
+ * Inbound emails the new desk has accepted, kept before Resend is answered and handed to the desk
+ * until it has them (server/comms-v2/channels/inbound-email-store.ts). One row per Resend email id;
+ * `envelope` is the turn the desk reads. Migration `migrations/20260916_comms_v2_inbound_emails.sql`.
+ */
+export const commsV2InboundEmails = pgTable("comms_v2_inbound_emails", {
+    emailId: text("email_id").primaryKey().notNull(),
+    envelope: jsonb("envelope").notNull(),
+    status: text("status").notNull().default('pending'),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow().notNull(),
+    claimId: text("claim_id"),
+    claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+    lastError: text("last_error"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).defaultNow().notNull(),
+    handedAt: timestamp("handed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index("idx_comms_v2_inbound_emails_due").on(table.nextAttemptAt).where(sql`${table.status} = 'pending'`),
+]);
+export type CommsV2InboundEmailRow = typeof commsV2InboundEmails.$inferSelect;

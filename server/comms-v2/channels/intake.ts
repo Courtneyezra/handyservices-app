@@ -49,8 +49,12 @@ export type IntakeEvent =
     | { kind: 'web_form'; lead: { customerName?: string | null; phone?: string | null; email?: string | null; jobDescription?: string | null; postcode?: string | null; address?: string | null; source?: string | null; leadId?: string | null; photos?: Array<{ contentBase64?: string | null; mime?: string | null }> } }
     | { kind: 'call_finished'; callRecordId: string }
     | { kind: 'call_transcribed'; callRecordId: string }
-    /** A received email, already read from Resend by the inbound email webhook (email-inbound.ts). */
-    | { kind: 'email_received'; envelope: InboundEnvelope };
+    /**
+     * A received email, already read from Resend by the inbound email webhook (email-inbound.ts) and
+     * kept until the desk has it (inbound-email-store.ts). `deliveryId` goes on the turn, so the same
+     * email handed over again lands no second turn.
+     */
+    | { kind: 'email_received'; envelope: InboundEnvelope; deliveryId?: string };
 
 /** `attached` is on a call's report only: the turns a call already had that this forward filled in. */
 export interface IntakeReport { forwarded: number; attached?: number; skipped: string[] }
@@ -273,7 +277,11 @@ export function deliveryLabelFor(purpose: Purpose | 'any' | undefined): string {
 /** Each call's forwards, one after another, so a transcript read after hang-up never lands before the hang-up's own turn. */
 const callForwards = new Map<string, Promise<unknown>>();
 
-/** The same forward, awaited: the tests use it. */
+/**
+ * The same forward, awaited: it throws when the desk did not take the event. The inbound email
+ * store hands its rows over through this, and an event carrying a delivery id resolves only once the
+ * case file store has written the file.
+ */
 export function forwardNow(event: IntakeEvent, deps: IntakeGatewayDeps = {}): Promise<IntakeReport> {
     if (event.kind !== 'call_finished' && event.kind !== 'call_transcribed') return forwardOne(event, deps);
     const key = event.callRecordId;
@@ -288,14 +296,18 @@ async function forwardOne(event: IntakeEvent, deps: IntakeGatewayDeps): Promise<
     const { purpose, gateway } = await intakeGateway(deps);
     const deliveryLabel = deliveryLabelFor(purpose);
     const { envelopes, skipped } = await envelopesOf(event);
+    const deliveryId = event.kind === 'email_received' ? event.deliveryId : undefined;
     let forwarded = 0;
     let attached = 0;
     for (const envelope of envelopes) {
-        const out = await gateway.inbound(envelope, {}, { attachOnly: event.kind === 'call_transcribed' });
+        const out = await gateway.inbound(envelope, {}, { attachOnly: event.kind === 'call_transcribed', deliveryId });
         if (out.kind === 'attached') { attached++; console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: call turn ${out.changed ? 'filled in' : 'unchanged'}, no desk run`); }
         else if (out.kind === 'handled') { forwarded++; console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: ${out.result.decision}${out.result.channel ? ` on ${out.result.channel}` : ''} (${deliveryLabel})`); }
+        else if (out.kind === 'duplicate') { skipped.push('already on a case file'); console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: already on the file, not handed again`); }
         else skipped.push(out.kind === 'candidates' ? 'identity returned candidates' : out.reason);
     }
+    // A durable hand-over is done only once the file is written; the durable store says when (desk/database-store.ts).
+    if (deliveryId) await (gateway.store as { flush?: () => Promise<void> }).flush?.();
     return event.kind === 'call_finished' || event.kind === 'call_transcribed' ? { forwarded, attached, skipped } : { forwarded, skipped };
 }
 

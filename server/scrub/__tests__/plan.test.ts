@@ -160,6 +160,11 @@ describe('shared/schema.ts', () => {
         expect(textual.filter((c) => c.table === 'comms_v2_case_files').map((c) => c.column).sort())
             .toEqual(['file', 'id', 'person_ids', 'stage']);
     });
+
+    it('includes the kept inbound emails', () => {
+        expect(textual.filter((c) => c.table === 'comms_v2_inbound_emails').map((c) => c.column).sort())
+            .toEqual(['claim_id', 'email_id', 'envelope', 'last_error', 'status']);
+    });
 });
 
 describe('the comms desk case file', () => {
@@ -207,6 +212,39 @@ describe('the comms desk case file', () => {
     it('its leaf overrides do not leak into other tables', () => {
         expect(classify('productized_services', 'name')).toBe('keep');
         expect(classify('leads', 'address')).toBe('address');
+    });
+});
+
+describe('the kept inbound emails', () => {
+    it.each([
+        ['email_id', 'keep'],
+        ['claim_id', 'keep'],
+        ['status', 'keep'],
+        ['last_error', 'note'],
+        ['envelope', 'json_deep'],
+    ])('column %s is %s', (col, treatment) => {
+        expect(classify('comms_v2_inbound_emails', col)).toBe(treatment);
+    });
+
+    // Leaves of the InboundEnvelope record, by the snake_case key the json walker asks about.
+    it.each([
+        ['name', 'person_name'],
+        ['address', 'contact'],
+        ['text', 'message_body'],
+        ['subject', 'note'],
+        ['path', 'url'],
+        ['url', 'url'],
+        ['ref', 'note'],
+        ['reason', 'note'],
+        ['value', 'note'],
+        ['email', 'email'],
+        ['phone', 'phone'],
+        ['postcode', 'postcode'],
+        ['provider_message_id', 'external_id'],
+        ['message_id', 'external_id'],
+        ['id', 'keep'],
+    ])('leaf %s is %s', (key, treatment) => {
+        expect(classify('comms_v2_inbound_emails', key)).toBe(treatment);
     });
 });
 
