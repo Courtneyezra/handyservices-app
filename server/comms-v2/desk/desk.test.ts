@@ -202,6 +202,17 @@ describe('the desk', () => {
         expect(out.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
     });
 
+    it('a combi, a flue or a pilot light in everyday words is gas too: the fixed line and a hold, and no composer call', async () => {
+        for (const body of ['My combi keeps losing pressure, can you have a look?', 'Can you look at my flue? Water is dripping from it', 'The pilot light keeps going out on the fire']) {
+            const { client, gateway } = desk({ router: () => routeScoping(), specialist: () => specialistFacts([]), composer: () => { throw new Error('the composer must not be called'); } });
+            const out = await gateway.inbound(turn(body, '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(client.calls.filter((c) => c.role === 'composer'), body).toHaveLength(0);
+            expect(out.result.bubbles.map((b) => b.text).join('\n\n'), body).toBe(DEFAULT_FIXED_LINES.gas);
+            expect(out.file.hold?.reason, body).toMatch(/regulated/);
+        }
+    });
+
     it('a customer who writes STOP gets no reply at all, mid-thread or as a first message, and no model is asked (server/opt-out.ts)', async () => {
         const { client, gateway } = desk({
             router: () => routeScoping(),

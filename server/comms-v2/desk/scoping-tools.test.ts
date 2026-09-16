@@ -112,6 +112,15 @@ describe('offer_call and regulated', () => {
         expect(regulated(t('a socket has stopped working and a wall needs a lintel')).regulated).toBe(false);
         expect(regulated(t('the boiler cupboard door is hanging off')).regulated).toBe(false);
     });
+    it('reads a combi, a flue and a pilot light as gas, but not a combi oven, microwave or drill', () => {
+        const t = (body: string): Turn => ({ ...fixture(body).turns[0] });
+        for (const body of ['My combi keeps losing pressure', "the combi's lost pressure again", 'Need my flue looked at', 'flue pipe is dripping', 'The pilot light keeps going out', 'both pilot lights are out']) {
+            expect(regulated(t(body)).regulated, body).toBe(true);
+        }
+        for (const body of ['can you fit a combi oven', 'my combi microwave bracket fell off', 'can I borrow your combi drill', 'the flue cupboard needs a new door', 'my combination lock is stuck', 'it has a big influence on the price']) {
+            expect(regulated(t(body)).regulated, body).toBe(false);
+        }
+    });
 });
 
 describe('lexicon', () => {

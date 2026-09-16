@@ -4,8 +4,12 @@
  * the old desk is being replaced and these must outlive it.
  */
 
-/** Only gas and asbestos are out of scope (behaviour.md, checklist cross-cutting 5). Plumbing, roofing, structural and electrical are ours. */
-export const RE_REGULATED = /\b(?:gas(?:\s|-)?(?:boiler|hob|cooker|fire|meter|pipe|leak|safe|engineer|supply|work|appliance|heater)|boiler\b(?![^.?!]*\b(?:cupboard|casing|box)\b)|gas\b|asbestos|artex(?:\s+\w+)?\s+(?:ceiling|test)|corgi)\b/i;
+/**
+ * Only gas and asbestos are out of scope (behaviour.md, checklist cross-cutting 5). Plumbing, roofing, structural and electrical are ours.
+ * A combi, a flue and a pilot light are gas appliances in everyday words ("my combi keeps losing pressure"), but not a combi oven,
+ * microwave or drill; a boiler's or flue's cupboard, casing or box is joinery.
+ */
+export const RE_REGULATED = /\b(?:gas(?:\s|-)?(?:boiler|hob|cooker|fire|meter|pipe|leak|safe|engineer|supply|work|appliance|heater)|(?:boiler|flue)s?\b(?![^.?!]*\b(?:cupboard|casing|box)\b)|combis?\b(?!\s+(?:ovens?|microwaves?|drills?))|pilot\s+lights?|gas\b|asbestos|artex(?:\s+\w+)?\s+(?:ceiling|test)|corgi)\b/i;
 
 export function regulatedMatch(text: string): string | null {
     const m = RE_REGULATED.exec(text);
