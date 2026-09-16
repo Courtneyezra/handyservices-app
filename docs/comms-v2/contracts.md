@@ -316,39 +316,40 @@ kept (6.3). A money question on such a thread is beyond a line of the quote, bec
 live, so the money fixed line and its hold stand. On superseded, answering from the newer quote is
 the better answer and is its own item.
 
-**An expired quote is reissued** (the captain's ruling of 16 September 2026: "re-issue the price with
-5% increase", automatic, "Up to nearest £1", "Always +5% on original", "Expired, new price"). When the
-customer writes back after the price lock, the desk puts the same quote back live
+**An expired quote is reissued** (the captain's ruling of 16 September 2026: "re-issue the price
+with 5% increase", automatic, "Up to nearest £1", "Always +5% on original", "Expired, new price").
+When the customer writes back after the price lock, the desk puts the same quote back live
 (`quoting/reissue.ts`, `reissue_quote`) at the price the customer first saw plus 5%, the total
 rounded up to the next pound and the lines scaled to it to the penny, and the one reply opens with a
 fixed sentence: "Your previous quote has expired, so I've updated it. The new price is £X." then
 "Here's your updated quote: <link>", followed by the composer's answer to anything else they asked.
 The original is kept on the row (`pricing_suggestions.reissue`), so a second and a third lapse land
 on the same figure. It is not the customer's own refresh on the quote page, which compounds, and the
-desk never points them there; once the desk has reissued a quote, that page's refresh prices from the
-same original too (`planSelfRefresh`), so neither path takes the total past it; a page refresh on a
-quote the desk never reissued still compounds as it always has, but keeps the original on the row, so
-a desk reissue after it is the original plus 5% again. The reissue is claimed by one run with a compare-and-set on the row
-and the reply is that run's alone, so one lapse is told at most once; a reissue on the row the file
-has no record of telling them about (a restart between the write and the reply, another process)
-holds for Ben once and is never told again. It does not happen, and the thread holds for Ben as
-before with the reason on the card, when the turn or the thread has anything else for Ben (money,
-acceptance in chat, any router exception, any other hold), when the reply's window is shut (no
-approved template carries the sentence), when the customer has any standing opt-out or the ledger
-cannot say, and when the row cannot be priced from the original with certainty (a refresh on the page
-or an edit since). A plain ask of the quote's own price ("is that price still ok?", "is the £120 still
-right?") is not money for Ben here: the router hands it to Quoting (`applyQuotingRoute`) and the
-reissue answers it ("reissue for plain asks", 16 September 2026). Only a message that is nothing
-but such an ask qualifies (`plainPriceAsk` in `desk/lexicon.ts`: every clause a plain ask or a
-greeting, any figure one the file recorded as the quote's total, nothing `haggleMatch` reads). Any
-other money-shaped turn (a counter-offer, "come down", "too steep", cash, payment terms, extras), or
-money the Quoting reading finds beyond the quote's own lines or cannot tie to the quote, stays money
-for Ben with no reissue, a plain ask included when the same message carries any of it; a plain ask that is not reissued for any other reason also goes to Ben as
-money. A reissue whose reply did not go holds for Ben with the new price and link named.
-The card records each one (`quote_reissued`, internal): the new figure, the one before, that it was
-automatic, and when it was sent or why not. Facts are append-only, so the price before a reissue
-stays on the file; only the newest `quote_line:<label>` for a quote is shown to the composer or
-accepted by the figure guard (`isSupersededFigure`, desk/case-file.ts).
+desk never points them there; once the desk has reissued a quote, that page's refresh prices from
+the same original too (`planSelfRefresh`), so neither path takes the total past it; a page refresh
+on a quote the desk never reissued still compounds as it always has, but keeps the original on the
+row, so a desk reissue after it is the original plus 5% again. The reissue is claimed by one run
+with a compare-and-set on the row and the reply is that run's alone, so one lapse is told at most
+once; a reissue on the row the file has no record of telling them about (a restart between the write
+and the reply, another process) holds for Ben once and is never told again. It does not happen, and
+the thread holds for Ben as before with the reason on the card, when the turn or the thread has
+anything else for Ben (money, acceptance in chat, any router exception, any other hold), when the
+reply's window is shut (no approved template carries the sentence), when the customer has any
+standing opt-out or the ledger cannot say, and when the row cannot be priced from the original with
+certainty (a refresh on the page or an edit since). A plain ask of the quote's own price ("is that
+price still ok?", "is the £120 still right?") is not money for Ben here: the router hands it to
+Quoting (`applyQuotingRoute`) and the reissue answers it ("reissue for plain asks", 16 September
+2026). Only a message that is nothing but such an ask qualifies (`plainPriceAsk` in
+`desk/lexicon.ts`: every clause a plain ask or a greeting, any figure one the file recorded as the
+quote's total, nothing `haggleMatch` reads). Any other money-shaped turn (a counter-offer, "come
+down", "too steep", cash, payment terms, extras), or money the Quoting reading finds beyond the
+quote's own lines or cannot tie to the quote, stays money for Ben with no reissue, a plain ask
+included when the same message carries any of it; a plain ask that is not reissued for any other
+reason also goes to Ben as money. A reissue whose reply did not go holds for Ben with the new price
+and link named. The card records each one (`quote_reissued`, internal): the new figure, the one
+before, that it was automatic, and when it was sent or why not. Facts are append-only, so the price
+before a reissue stays on the file; only the newest `quote_line:<label>` for a quote is shown to the
+composer or accepted by the figure guard (`isSupersededFigure`, desk/case-file.ts).
 
 ## The Scheduling tool server (Goal 5)
 
