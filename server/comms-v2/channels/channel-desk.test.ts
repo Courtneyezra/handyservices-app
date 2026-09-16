@@ -93,6 +93,35 @@ describe('the web form acknowledgement', () => {
         expect(b.result.bubbles.map((x) => x.text).join(' ')).toMatch(/photo/i);
         expect(b.file.ledger.find((l) => l.subject === 'media')?.askedAt).toBeTruthy();
     });
+    it('a form answered by SMS whose only question asks for a photo spends the photo ask, not the access question Scoping proposed, so access is still asked later', async () => {
+        const users: string[] = [];
+        const replies = [
+            'Hi Priya, a dripping kitchen mixer tap, got it. Could you send a photo of the tap?',
+            'Thanks Priya, a Grohe helps. Is there parking near you, or will someone be in to let me in?',
+        ];
+        const { gateway } = rig({
+            router: () => routeScoping({ turnKind: 'enquiry' }),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Fix dripping kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : /what it concerns/.test(system)
+                    ? { concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }
+                    : { facts: [{ key: 'job_type', value: 'dripping kitchen mixer tap' }], jobUnknowns: [], answeredSubjects: [] }),
+            composer: ({ user }) => { users.push(user); return { reply: replies[Math.min(users.length - 1, replies.length - 1)], factIds: [], kbIds: [] }; },
+        });
+        const a = await gateway.inbound(await fromDoorForm({ name: 'Priya Shah', phone: '07700 900123', job: 'Kitchen mixer tap keeps dripping, need it fixed or replaced', postcode: 'ng9 2ab', at: '2026-09-11T10:00:00.000Z' }), { whatsapp: false } as ChannelSeed);
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result).toMatchObject({ decision: 'send', delivered: true, channel: 'sms' });
+        expect(users[0]).toContain('ask one question about access');
+        expect(a.file.ledger.find((l) => l.subject === 'media')?.askedAt).toBeTruthy();
+        expect(a.file.ledger.find((l) => l.subject === 'access')?.askedAt ?? null).toBeNull();
+
+        const b = await gateway.inbound(fromDoorSms({ address: '+447700900123', text: 'Its a Grohe one, about 5 years old', at: '2026-09-11T10:10:00.000Z' }));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(users[1]).toContain('ask one question about access');
+        expect(users[1]).not.toMatch(/Never ask again[^\n]*access/);
+        expect(b.result).toMatchObject({ decision: 'send', delivered: true, channel: 'sms' });
+        expect(b.file.ledger.find((l) => l.subject === 'access')?.askedAt).toBeTruthy();
+    });
     it('the no-call row is the same acknowledgement with the offer taken out: once approved it goes, quoting the enquiry and asking nothing', async () => {
         const { gateway } = formRig(approvedAll);
         const a = await gateway.inbound(await form(), { whatsapp: true, alreadyRung: true } as ChannelSeed);
