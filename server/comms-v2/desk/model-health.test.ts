@@ -215,11 +215,45 @@ describe('concurrent turns', () => {
         expect(store.row).toMatchObject({ state: 'ok', alerted: false });
     });
 
-    it('a row that cannot be updated still pages the failure and never throws', async () => {
+    it('a row that cannot be updated pages nothing and never throws; the next turn that commits decides', async () => {
         const pages: string[] = [];
         const broken: ModelHealthStore = { read: async () => null, update: async () => { throw new Error('db down'); } };
-        await expect(recordTurnModelHealth(failed('2026-09-16T05:41:10.000Z', 'a'), deps(broken, pages))).resolves.toMatchObject({ kind: 'failing' });
+        await expect(recordTurnModelHealth(failed('2026-09-16T05:41:10.000Z', 'a'), deps(broken, pages))).resolves.toBeNull();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(pages).toEqual([]);
+        const store = memoryStore();
+        await recordTurnModelHealth(failed('2026-09-16T05:41:20.000Z', 'b'), deps(store, pages));
+        await new Promise((resolve) => setTimeout(resolve, 0));
         expect(pages).toEqual(['comms desk cannot answer: model call failed']);
+    });
+
+    it('a first failure that commits after its bound, and a second failing turn waiting on its lock, page once between them', async () => {
+        const pages: string[] = [];
+        let row: ModelHealthRecord | null = null;
+        let lock: Promise<void> = Promise.resolve();
+        let commitFirst!: () => void;
+        let calls = 0;
+        const locked: ModelHealthStore = {
+            read: async () => row,
+            update: async (next) => {
+                const held = lock;
+                let release!: () => void;
+                lock = new Promise<void>((resolve) => { release = resolve; });
+                await held;
+                try {
+                    const r = next(row);
+                    if (calls++ === 0) await new Promise<void>((resolve) => { commitFirst = resolve; });
+                    if (r) row = r;
+                } finally { release(); }
+            },
+        };
+        const opts = { store: locked, pageable: true, updateTimeoutMs: 10, notify: async (title: string) => { pages.push(title); } };
+        await expect(recordTurnModelHealth(failed('2026-09-16T05:41:10.000Z', 'a'), opts)).resolves.toBeNull();
+        await expect(recordTurnModelHealth(failed('2026-09-16T05:41:20.000Z', 'b'), opts)).resolves.toBeNull();
+        commitFirst();
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        expect(pages).toEqual(['comms desk cannot answer: model call failed']);
+        expect(row).toMatchObject({ state: 'failing', failedTurns: 2, alerted: true });
     });
 });
 

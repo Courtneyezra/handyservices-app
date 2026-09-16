@@ -192,8 +192,8 @@ export async function readModelHealth(): Promise<ModelHealthRecord | null> {
 async function updateModelHealth(next: (prev: ModelHealthRecord | null) => ModelHealthRecord | null, now: Date): Promise<void> {
     const db = await getDb();
     await db.transaction(async (tx) => {
-        await tx.execute(sql.raw(`set local statement_timeout = ${MODEL_HEALTH_UPDATE_TIMEOUT_MS}`));
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${MODEL_HEALTH_KEY}))`);
+        await tx.execute(sql.raw(`set local statement_timeout = ${MODEL_HEALTH_UPDATE_TIMEOUT_MS}`));
         const [row] = await tx.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, MODEL_HEALTH_KEY)).limit(1);
         const record = next(row ? parseModelHealth(row.value) : null);
         if (!record) return;
@@ -231,7 +231,8 @@ let recording: Promise<unknown> = Promise.resolve();
  * After a customer turn: update the row, and page when the turn opens (or, hourly, continues) an episode, or ends one.
  * Row updates run one at a time in this process, each bounded, so concurrent failures page once and
  * an older turn never overwrites a newer verdict. The page is sent after the update and not waited
- * on, so a slow page delays no turn; an update that outlives its bound pages when it settles.
+ * on, so a slow page delays no turn; an update that outlives its bound pages when it commits, and
+ * one that does not commit pages nothing.
  * Returns the page decided within the bound. Never throws.
  */
 export async function recordTurnModelHealth(report: TurnReport, deps: RecordTurnDeps = {}): Promise<ModelAlert | null> {
@@ -263,8 +264,8 @@ async function updateForTurn(report: TurnReport, deps: RecordTurnDeps): Promise<
             return next.record === prev ? null : next.record;
         }, report.at))
         .then(() => alert, (error: any) => {
-            console.error('[comms-v2 model-health] could not update the row:', error?.message ?? error);
-            return nextModelHealth(null, report, pageable!).alert;
+            console.error('[comms-v2 model-health] could not update the row; this turn pages nothing and the next one decides:', error?.message ?? error);
+            return null;
         });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timedOut = Symbol('timed out');
