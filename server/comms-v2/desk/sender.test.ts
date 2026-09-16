@@ -6,11 +6,27 @@
  * only; a live delivery that fails part way records what went as a partial send; a template is
  * shaped for the transport the customer wrote on.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { open, type CaseFile, type Party } from './case-file';
 import { DEFAULT_FIXED_LINES, type FixedLine } from './fixed-lines';
 import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, DESK_APPROVER, chooseChannel, initiate, liveDeliverer, noTemplateApproved, outboundLabelFor, pickTemplate, render, renderWhatsApp, send, shortenBriefFor, templateWire, windowOf, type Deliverer, type SendInput, type TemplateSend } from './sender';
 import { renderSms, UCS2_MULTI, GSM7_MULTI, SMS_MAX_SEGMENTS } from '../channels/sms-adapter';
+import { memoryOptOutStore, type MemoryOptOutStore } from '../../__tests__/opt-out-memory-store';
+
+// The opt-out ledger the live deliverer asks runs on an in-memory store; nothing reaches a database.
+const ledger = vi.hoisted(() => ({ store: null as unknown as MemoryOptOutStore, fail: false }));
+vi.mock('../../db', () => ({ db: {} }));
+vi.mock('../../opt-out', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../../opt-out')>();
+    return {
+        ...actual,
+        blockedByOptOut: async (who: Parameters<typeof actual.blockedByOptOut>[0], purpose: Parameters<typeof actual.blockedByOptOut>[1]) => {
+            if (ledger.fail) throw new Error('connection reset');
+            return actual.blockedByOptOut(who, purpose, ledger.store);
+        },
+    };
+});
+ledger.store = memoryOptOutStore();
 
 function fixture(): { file: CaseFile; party: Party } {
     const r = open({
@@ -244,6 +260,14 @@ describe('send', () => {
         expect((await send(input(file, party, { mode: 'live', runId: 'r_reply' }), { now: at('2026-09-11T11:00:02.000Z'), deliverer })).ok).toBe(true);
         expect(seen.map((i) => i.purpose)).toEqual(['missed_call', 'service_reply']);
     });
+    it('live delivery names every other address the party is known by, so the ledger is asked about all of them', async () => {
+        const { file, party } = fixture();
+        party.channels.push({ kind: 'email', address: 'sam@example.com', lastInboundAt: null }, { kind: 'sms', address: '+447700900942', lastInboundAt: null });
+        const seen: Parameters<Deliverer['deliver']>[0][] = [];
+        const deliverer: Deliverer = { async deliver(i) { seen.push(i); return { ok: true, sid: 'SM1' }; } };
+        expect((await send(input(file, party, { mode: 'live', runId: 'r_known' }), { now: at('2026-09-11T11:00:00.000Z'), deliverer })).ok).toBe(true);
+        expect(seen[0]).toMatchObject({ to: '+447700900942', knownAs: ['sam@example.com'] });
+    });
     it('live delivery goes through the deliverer with the template and the transport the customer wrote on, and a refused delivery lands nothing', async () => {
         const { file, party } = fixture();
         const seen: Parameters<NonNullable<Parameters<typeof send>[1]['deliverer']>['deliver']>[0][] = [];
@@ -337,6 +361,7 @@ describe('send', () => {
 });
 
 describe('liveDeliverer', () => {
+    beforeEach(() => { ledger.store = memoryOptOutStore(); ledger.fail = false; });
     it('refuses a live send on any channel but WhatsApp and SMS, even with the desk\'s switch on, and delivers nothing', async () => {
         vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
         const r = await liveDeliverer.deliver({
@@ -394,6 +419,50 @@ describe('liveDeliverer', () => {
         expect([calls[4].purpose, calls[4].context]).toEqual(['marketing', 'comms_v2:missed_call']);
         expect(outboundLabelFor('post_call_followup')).toEqual({ purpose: 'service_reply', context: 'comms_v2' });
         vi.doUnmock('../../outbound');
+        vi.doUnmock('../../spine/config');
+    });
+    it('refuses an email to an address a STOP by phone covers, as an opt-out, before the channel rule', async () => {
+        ledger.store = memoryOptOutStore([{ id: 'lead_sam', phone: '07700 900942', email: 'sam@example.com' }]);
+        const { recordOptOut } = await import('../../opt-out');
+        await recordOptOut({ phone: '447700900942@c.us', scope: 'all', source: 'inbound_keyword', messageId: 'm1' }, ledger.store);
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
+        const r = await liveDeliverer.deliver({
+            to: 'sam@example.com', channel: 'email', transport: 'twilio', bubbles: [{ text: 'Hi Sam,\n\nabout the tap.', gapMs: 0 }],
+            template: null, runId: 'r_email_stop', approver: DESK_APPROVER, purpose: 'service_reply',
+        });
+        expect(r).toMatchObject({ ok: false, delivered: [] });
+        if (!r.ok) expect(r.reason).toMatch(/asked us not to contact them at all/);
+        vi.doUnmock('../../spine/config');
+    });
+    it('refuses a send on any channel when the party opted out on another address it is known by, and lets everyone else through', async () => {
+        const sent: string[] = [];
+        ledger.store = memoryOptOutStore();
+        const { recordOptOut } = await import('../../opt-out');
+        await recordOptOut({ email: 'sam@example.com', scope: 'all', source: 'manual', channel: 'email' }, ledger.store);
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
+        vi.doMock('../../outbound', () => ({ sendCustomerMessage: async (i: { to: string }) => { sent.push(i.to); return { ok: true, sid: 'SM1', attempts: [], fellBack: false }; } }));
+        const common = { channel: 'whatsapp' as const, transport: 'twilio' as const, bubbles: [{ text: 'Your quote is ready.', gapMs: 0 }], template: null, approver: DESK_APPROVER, purpose: 'service_reply' as const };
+        const samByPhone = await liveDeliverer.deliver({ ...common, to: '+447700900942', runId: 's1', knownAs: ['sam@example.com'] });
+        expect(samByPhone).toMatchObject({ ok: false, delivered: [] });
+        if (!samByPhone.ok) expect(samByPhone.reason).toMatch(/asked us not to contact them at all/);
+        const samByEmail = await liveDeliverer.deliver({ ...common, channel: 'email', to: 'SAM@example.com', runId: 's2', knownAs: ['+447700900942'] });
+        if (!samByEmail.ok) expect(samByEmail.reason).toMatch(/asked us not to contact them at all/);
+        // Never opted out: the WhatsApp send goes, and an email is still refused by the channel rule alone.
+        expect(await liveDeliverer.deliver({ ...common, to: '+447700900943', runId: 'a1', knownAs: ['alex@example.com'] })).toMatchObject({ ok: true, sid: 'SM1' });
+        const alexByEmail = await liveDeliverer.deliver({ ...common, channel: 'email', to: 'alex@example.com', runId: 'a2', knownAs: ['+447700900943'] });
+        expect(alexByEmail.ok).toBe(false);
+        if (!alexByEmail.ok) expect(alexByEmail.reason).toMatch(/live delivery on email is refused/);
+        expect(sent).toEqual(['+447700900943']);
+        vi.doUnmock('../../outbound');
+        vi.doUnmock('../../spine/config');
+    });
+    it('refuses the send when the ledger cannot be read', async () => {
+        ledger.fail = true;
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
+        const r = await liveDeliverer.deliver({ to: '+447700900943', channel: 'whatsapp', transport: 'twilio', bubbles: [{ text: 'Hi', gapMs: 0 }], template: null, runId: 'f1', approver: DESK_APPROVER, purpose: 'service_reply' });
+        expect(r).toMatchObject({ ok: false, reason: 'the opt-out ledger could not be read, so the send was refused', delivered: [] });
+        errors.mockRestore();
         vi.doUnmock('../../spine/config');
     });
 });

@@ -2375,8 +2375,14 @@ export const commsOptOuts = pgTable("comms_opt_outs", {
     id: varchar("id").primaryKey().notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
 
-    /** Normalised identity from commsPhoneKey(). UK numbers are the 10-digit national form. */
-    phoneKey: varchar("phone_key").notNull(),
+    /** Normalised identity from commsPhoneKey(). UK numbers are the 10-digit national form. Null on a row keyed on email alone. */
+    phoneKey: varchar("phone_key"),
+    /**
+     * The second key: the normalised email address (optOutEmailKey() in server/opt-out.ts), so an
+     * opt-out holds on email too. A row carries at least one of the two keys
+     * (migrations/20260916_comms_opt_outs_email_key.sql).
+     */
+    emailKey: varchar("email_key"),
     /** Best-effort E.164 for humans reading the row. Never the lookup key. */
     e164: varchar("e164"),
 
@@ -2404,6 +2410,7 @@ export const commsOptOuts = pgTable("comms_opt_outs", {
     note: text("note"),
 }, (table) => [
     index("idx_comms_opt_outs_key").on(table.phoneKey),
+    index("idx_comms_opt_outs_email_key").on(table.emailKey),
     index("idx_comms_opt_outs_created").on(table.createdAt),
 ]);
 

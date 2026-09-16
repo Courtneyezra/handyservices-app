@@ -11,7 +11,7 @@
  *   the price screen hands a quote to the new desk only while the new desk is live and a case file
  *   carries the quote, and every other quote gets null back for the old path.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { open } from '../desk/case-file';
 import { noFixedLineSource } from '../desk/fixed-lines';
 import { FakeModelClient } from '../desk/models';
@@ -86,7 +86,9 @@ describe('deliverPricedQuote on a shut window', () => {
 });
 
 describe('deliverPricedQuote through the real live deliverer', () => {
-    afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.resetModules(); });
+    // An empty opt-out ledger: nobody on these threads has opted out.
+    beforeEach(() => { vi.doMock('../../opt-out', () => ({ blockedByOptOut: async () => null, optOutRefusalMessage: () => '' })); });
+    afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.doUnmock('../../opt-out'); vi.resetModules(); });
     const composing = new FakeModelClient({ composer: ({ user }) => ({ reply: `Your quote is ready: ${/https:\/\/test\.local\/\S+/.exec(user)?.[0] ?? ''}\n\nAny questions, just reply here.`, factIds: [], kbIds: [] }) });
     const wire = (outbox: Array<{ approver: string; body: string }>) => vi.doMock('../../outbound', () => ({ sendCustomerMessage: async (i: { approver: string; body: string }) => { outbox.push(i); return { ok: true, sid: `SM${outbox.length}`, attempts: [], fellBack: false }; } }));
 

@@ -16,7 +16,8 @@
  *      are normal customer messages, and silencing a live customer because they used the word stop
  *      is its own harm.
  *   2. RECORD — write it down, keyed on the normalised phone identity so it holds across every
- *      format the same person appears under.
+ *      format the same person appears under, and on the email address as a second key, so an
+ *      opt-out holds on every channel whichever address it arrived on.
  *   3. ANSWER "may I send to this person?" — one function, consulted by the outbound router, the
  *      approval queue and every bulk tool.
  *
@@ -42,7 +43,7 @@
  */
 import { db } from './db';
 import { commsOptOuts, conversations } from '@shared/schema';
-import { eq, and, isNull, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, isNull, desc, sql, inArray } from 'drizzle-orm';
 import { commsPhoneKey, e164FromCommsKey } from './phone-utils';
 
 // ---------------------------------------------------------------- types
@@ -72,7 +73,10 @@ export interface OptOutMatch {
 
 export interface OptOutRecord {
     id: string;
-    phoneKey: string;
+    /** Null on a row keyed on email alone. */
+    phoneKey: string | null;
+    /** Null on a row keyed on the phone alone. */
+    emailKey: string | null;
     e164: string | null;
     scope: OptOutScope;
     source: string;
@@ -231,14 +235,63 @@ export function detectOptOut(text: string | null | undefined): OptOutMatch | nul
     return null;
 }
 
+// ---------------------------------------------------------------- keys
+
+/**
+ * The ledger matches on two keys. The phone key is commsPhoneKey(). The email key is the address
+ * trimmed and lowercased, with a `mailto:` and invisible marks dropped; anything that is not
+ * shaped like an address is no key at all. Dots and plus tags are left alone: two addresses that
+ * differ only there can be two people, and a match on the wrong one would silence a stranger.
+ */
+export function optOutEmailKey(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    const s = raw.replace(/[​-‏‪-‮⁦-⁩]/g, '').trim().replace(/^mailto:/i, '').toLowerCase();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? s : null;
+}
+
+/**
+ * Who a sender is asking about. A bare string is a phone number, exactly as it always was; the
+ * object form names every address the sender knows the party by, so an opt-out that arrived on
+ * any one of them holds on all of them.
+ */
+export type OptOutAddress =
+    | string | null | undefined
+    | { phones?: ReadonlyArray<string | null | undefined>; emails?: ReadonlyArray<string | null | undefined> };
+
+export interface OptOutKeys { phoneKeys: string[]; emailKeys: string[] }
+
+function uniq(values: Array<string | null>): string[] {
+    return Array.from(new Set(values.filter((v): v is string => !!v)));
+}
+
+export function optOutKeysOf(who: OptOutAddress): OptOutKeys {
+    if (who == null || typeof who === 'string') return { phoneKeys: uniq([commsPhoneKey(who)]), emailKeys: [] };
+    return {
+        phoneKeys: uniq((who.phones ?? []).map((p) => commsPhoneKey(p))),
+        emailKeys: uniq((who.emails ?? []).map((e) => optOutEmailKey(e))),
+    };
+}
+
+function mergeKeys(a: OptOutKeys, b: OptOutKeys): OptOutKeys {
+    return { phoneKeys: uniq([...a.phoneKeys, ...b.phoneKeys]), emailKeys: uniq([...a.emailKeys, ...b.emailKeys]) };
+}
+
+function hasKeys(k: OptOutKeys): boolean {
+    return k.phoneKeys.length > 0 || k.emailKeys.length > 0;
+}
+
 // ---------------------------------------------------------------- store
 
 const STRENGTH: Record<OptOutScope, number> = { marketing: 1, all: 2 };
 
-function toRecord(row: typeof commsOptOuts.$inferSelect): OptOutRecord {
+type OptOutRow = typeof commsOptOuts.$inferSelect;
+type NewOptOutRow = typeof commsOptOuts.$inferInsert;
+
+function toRecord(row: OptOutRow): OptOutRecord {
     return {
         id: row.id,
         phoneKey: row.phoneKey,
+        emailKey: row.emailKey,
         e164: row.e164,
         scope: (row.scope as OptOutScope) ?? 'marketing',
         source: row.source,
@@ -249,31 +302,125 @@ function toRecord(row: typeof commsOptOuts.$inferSelect): OptOutRecord {
     };
 }
 
+/**
+ * The strongest of the live rows that carry one of the keys. Strongest scope wins; among equals,
+ * the earliest, because that is when they first asked. The store already filtered on the keys and
+ * on revocation; the key filter is repeated here so the answer never rests on the query alone.
+ */
+export function strongestOptOut(records: OptOutRecord[], keys: OptOutKeys): OptOutRecord | null {
+    const matching = records.filter((r) =>
+        (r.phoneKey !== null && keys.phoneKeys.includes(r.phoneKey)) ||
+        (r.emailKey !== null && keys.emailKeys.includes(r.emailKey)));
+    if (!matching.length) return null;
+    return matching.sort((a, b) => STRENGTH[b.scope] - STRENGTH[a.scope] || a.at.getTime() - b.at.getTime())[0];
+}
+
+/** Where the ledger reads and writes. The default is comms_opt_outs; a test passes its own. */
+export interface OptOutStore {
+    /** Rows not yet revoked that carry any of the keys. */
+    liveRows(keys: OptOutKeys): Promise<OptOutRecord[]>;
+    /**
+     * Every phone and email on file for the party these keys name: a lead carrying one of the keys,
+     * and the lead the conversation is linked to. One hop, never transitive.
+     */
+    onFile(keys: OptOutKeys, conversationId: string | null): Promise<OptOutKeys>;
+    /** Insert one row. With a message id a second row for the same message is skipped and returns false. */
+    insert(row: NewOptOutRow): Promise<boolean>;
+    /** Stamp every live row carrying any of the keys as revoked. */
+    revoke(keys: OptOutKeys, revokedBy: string, note: string | null): Promise<number>;
+}
+
+/** The digit strings a stored phone column can hold for a key (commsPhoneKey folds them all to it). */
+function phoneDigitForms(key: string): string[] {
+    return key.length === 10 && /^[1237]/.test(key)
+        ? [key, `0${key}`, `44${key}`, `0044${key}`]
+        : [key, `00${key}`];
+}
+
+function keysWhere(keys: OptOutKeys) {
+    const clauses = [];
+    if (keys.phoneKeys.length) clauses.push(inArray(commsOptOuts.phoneKey, keys.phoneKeys));
+    if (keys.emailKeys.length) clauses.push(inArray(commsOptOuts.emailKey, keys.emailKeys));
+    return or(...clauses);
+}
+
+export const dbOptOutStore: OptOutStore = {
+    async liveRows(keys) {
+        if (!hasKeys(keys)) return [];
+        const rows = await db.select().from(commsOptOuts)
+            .where(and(keysWhere(keys), isNull(commsOptOuts.revokedAt)))
+            .orderBy(desc(commsOptOuts.createdAt));
+        return rows.map(toRecord);
+    },
+    async onFile(keys, conversationId) {
+        const phoneForms = keys.phoneKeys.flatMap(phoneDigitForms);
+        // Array parameters are bound with sql.param: a bare JS array would expand into a record.
+        const rows: any = await db.execute(sql`
+            SELECT l.phone, l.email FROM leads l
+            WHERE regexp_replace(l.phone, '[^0-9]', '', 'g') = ANY(${sql.param(phoneForms)}::text[])
+               OR lower(trim(l.email)) = ANY(${sql.param(keys.emailKeys)}::text[])
+               OR l.id = (SELECT c.lead_id FROM conversations c WHERE c.id = ${conversationId ?? ''})
+        `);
+        const found = (rows.rows ?? rows) as Array<{ phone: string | null; email: string | null }>;
+        const out: OptOutKeys = { phoneKeys: [], emailKeys: [] };
+        for (const r of found) {
+            const phoneKey = commsPhoneKey(r.phone);
+            const emailKey = optOutEmailKey(r.email);
+            if (phoneKey) out.phoneKeys.push(phoneKey);
+            if (emailKey) out.emailKeys.push(emailKey);
+        }
+        return { phoneKeys: uniq(out.phoneKeys), emailKeys: uniq(out.emailKeys) };
+    },
+    async insert(row) {
+        if (row.messageId) {
+            const inserted = await db.insert(commsOptOuts).values(row)
+                .onConflictDoNothing({ target: commsOptOuts.messageId })
+                .returning({ id: commsOptOuts.id });
+            return inserted.length > 0;
+        }
+        await db.insert(commsOptOuts).values(row);
+        return true;
+    },
+    async revoke(keys, revokedBy, note) {
+        if (!hasKeys(keys)) return 0;
+        const rows = await db.update(commsOptOuts)
+            .set({ revokedAt: new Date(), revokedBy, note })
+            .where(and(keysWhere(keys), isNull(commsOptOuts.revokedAt)))
+            .returning({ id: commsOptOuts.id });
+        return rows.length;
+    },
+};
+
+/** The same keys plus what is on file for them. A failed lookup keeps the keys the caller gave and says so loudly. */
+async function withOnFile(keys: OptOutKeys, conversationId: string | null, store: OptOutStore, why: string): Promise<OptOutKeys> {
+    try {
+        return mergeKeys(keys, await store.onFile(keys, conversationId));
+    } catch (error: any) {
+        console.error(`[OptOut] Could not read the addresses on file while ${why}; only the address given is covered:`, error?.message);
+        return keys;
+    }
+}
+
 /** The strongest live suppression for a person, or null. Reads the log; never a cached flag. */
-export async function getOptOut(phone: string | null | undefined): Promise<OptOutRecord | null> {
-    const key = commsPhoneKey(phone);
-    if (!key) return null;
-    const rows = await db.select().from(commsOptOuts)
-        .where(and(eq(commsOptOuts.phoneKey, key), isNull(commsOptOuts.revokedAt)))
-        .orderBy(desc(commsOptOuts.createdAt));
-    if (!rows.length) return null;
-    // Strongest scope wins; among equals, the earliest, because that is when they first asked.
-    return rows
-        .map(toRecord)
-        .sort((a, b) => STRENGTH[b.scope] - STRENGTH[a.scope] || a.at.getTime() - b.at.getTime())[0];
+export async function getOptOut(who: OptOutAddress, store: OptOutStore = dbOptOutStore): Promise<OptOutRecord | null> {
+    const keys = optOutKeysOf(who);
+    if (!hasKeys(keys)) return null;
+    return strongestOptOut(await store.liveRows(keys), keys);
 }
 
 /**
  * The one question every sender asks: may I send this? Returns the record that blocks the send, or
- * null when it may proceed.
+ * null when it may proceed. An opt-out recorded against any address the sender names blocks it,
+ * on whichever channel the send is going out.
  *
  * An omitted purpose is 'marketing' — fail closed.
  */
 export async function blockedByOptOut(
-    phone: string | null | undefined,
+    who: OptOutAddress,
     purpose: OutboundPurpose = 'marketing',
+    store: OptOutStore = dbOptOutStore,
 ): Promise<OptOutRecord | null> {
-    const record = await getOptOut(phone);
+    const record = await getOptOut(who, store);
     if (!record) return null;
     if (record.scope === 'all') return record;             // nothing gets through, service included
     return purpose === 'service_reply' ? null : record;    // a plain STOP blocks marketing only
@@ -287,20 +434,29 @@ export function optOutRefusalMessage(record: OptOutRecord): string {
         : `This person opted out of marketing on ${when}. Campaigns and bulk outreach are blocked. A service reply to their own enquiry is still allowed.`;
 }
 
-/** All live suppressions as a lookup, for bulk tools that would otherwise do one query per person. */
+/**
+ * All live suppressions as a lookup, for bulk tools that would otherwise do one query per person.
+ * Keyed by phone key and by email key alike; the two never collide, because only an email key
+ * holds an `@`.
+ */
 export async function loadOptOutIndex(): Promise<Map<string, OptOutRecord>> {
     const rows = await db.select().from(commsOptOuts).where(isNull(commsOptOuts.revokedAt));
     const index = new Map<string, OptOutRecord>();
     for (const row of rows) {
         const record = toRecord(row);
-        const existing = index.get(record.phoneKey);
-        if (!existing || STRENGTH[record.scope] > STRENGTH[existing.scope]) index.set(record.phoneKey, record);
+        for (const key of [record.phoneKey, record.emailKey]) {
+            if (!key) continue;
+            const existing = index.get(key);
+            if (!existing || STRENGTH[record.scope] > STRENGTH[existing.scope]) index.set(key, record);
+        }
     }
     return index;
 }
 
 export interface RecordOptOutInput {
-    phone: string;
+    /** The address the opt-out arrived on, or the party's known addresses. At least one must be usable. */
+    phone?: string | null;
+    email?: string | null;
     scope: OptOutScope;
     source: 'inbound_keyword' | 'backfill' | 'manual';
     channel?: string | null;
@@ -314,57 +470,70 @@ export interface RecordOptOutInput {
 }
 
 /**
- * Write a suppression. Idempotent per triggering message (the partial unique index on message_id),
- * so a redelivered webhook or a re-run backfill adds nothing.
+ * Write a suppression. Idempotent per triggering message (the unique index on message_id), so a
+ * redelivered webhook or a re-run backfill adds nothing.
+ *
+ * An opt-out is the party's, not the address's: the phones and emails on file for the party are
+ * covered too, whichever of them it arrived on. The first row carries the address it arrived on
+ * and the first address of the other kind; every further address on file gets a row of its own
+ * with the same scope and evidence, so each is matched on its own key.
  *
  * Returns `created: false` when the row already existed — the caller still treats the person as
  * suppressed, it just did not learn anything new.
  */
-export async function recordOptOut(input: RecordOptOutInput): Promise<{ created: boolean; id: string | null; key: string | null }> {
-    const key = commsPhoneKey(input.phone);
-    if (!key) {
-        console.warn('[OptOut] Cannot record an opt-out for an unusable number:', input.phone);
-        return { created: false, id: null, key: null };
+export async function recordOptOut(
+    input: RecordOptOutInput,
+    store: OptOutStore = dbOptOutStore,
+): Promise<{ created: boolean; id: string | null; key: string | null; keys: OptOutKeys }> {
+    const given = optOutKeysOf({ phones: [input.phone], emails: [input.email] });
+    if (!hasKeys(given)) {
+        console.warn('[OptOut] Cannot record an opt-out without a usable phone number or email address.');
+        return { created: false, id: null, key: null, keys: given };
     }
+    const keys = await withOnFile(given, input.conversationId ?? null, store, 'recording an opt-out');
 
-    const id = `optout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const values = {
-        id,
-        phoneKey: key,
-        e164: e164FromCommsKey(key),
+    const newId = () => `optout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const evidence = {
         scope: input.scope,
         source: input.source,
         channel: input.channel ?? null,
         conversationId: input.conversationId ?? null,
-        messageId: input.messageId ?? null,
         contactName: input.contactName ?? null,
         matchedKeyword: input.matchedKeyword ?? null,
         matchRule: input.matchRule ?? null,
         // Kept verbatim (capped): this is the evidence for "what exactly did they say?".
         triggerText: input.triggerText ? input.triggerText.slice(0, 2000) : null,
-        note: input.note ?? null,
     };
+    const rowFor = (phoneKey: string | null, emailKey: string | null) => ({
+        id: newId(),
+        phoneKey,
+        emailKey,
+        e164: phoneKey ? e164FromCommsKey(phoneKey) : null,
+        ...evidence,
+    });
 
-    if (input.messageId) {
-        const inserted = await db.insert(commsOptOuts).values(values)
-            .onConflictDoNothing({ target: commsOptOuts.messageId })
-            .returning({ id: commsOptOuts.id });
-        return { created: inserted.length > 0, id: inserted[0]?.id ?? null, key };
+    const [phoneKey = null, ...morePhones] = keys.phoneKeys;
+    const [emailKey = null, ...moreEmails] = keys.emailKeys;
+    const primary = { ...rowFor(phoneKey, emailKey), messageId: input.messageId ?? null, note: input.note ?? null };
+    const created = await store.insert(primary);
+    // A redelivered message wrote its rows the first time round.
+    if (created) {
+        const also = `covers another address on file for the party in ${primary.id}`;
+        for (const k of morePhones) await store.insert({ ...rowFor(k, null), messageId: null, note: also });
+        for (const k of moreEmails) await store.insert({ ...rowFor(null, k), messageId: null, note: also });
     }
-
-    await db.insert(commsOptOuts).values(values);
-    return { created: true, id, key };
+    return { created, id: created ? primary.id : null, key: phoneKey ?? emailKey, keys };
 }
 
-/** Lift a suppression. Never deletes: the original row stays, stamped with who lifted it. */
-export async function revokeOptOut(phone: string, revokedBy: string, note?: string): Promise<number> {
-    const key = commsPhoneKey(phone);
-    if (!key) return 0;
-    const rows = await db.update(commsOptOuts)
-        .set({ revokedAt: new Date(), revokedBy, note: note ?? null })
-        .where(and(eq(commsOptOuts.phoneKey, key), isNull(commsOptOuts.revokedAt)))
-        .returning({ id: commsOptOuts.id });
-    return rows.length;
+/**
+ * Lift a suppression. Never deletes: the original rows stay, stamped with who lifted them. Lifts
+ * it for the party, on every address on file, as recordOptOut wrote it.
+ */
+export async function revokeOptOut(who: OptOutAddress, revokedBy: string, note?: string, store: OptOutStore = dbOptOutStore): Promise<number> {
+    const given = optOutKeysOf(who);
+    if (!hasKeys(given)) return 0;
+    const keys = await withOnFile(given, null, store, 'lifting an opt-out');
+    return store.revoke(keys, revokedBy, note ?? null);
 }
 
 // ---------------------------------------------------------------- the inbound hook
@@ -460,7 +629,7 @@ export async function optOutsByConversation(conversationIds: string[]): Promise<
 /** Count of live suppressions, for ops output. */
 export async function countOptOuts(): Promise<{ marketing: number; all: number }> {
     const rows: any = await db.execute(sql`
-        SELECT scope, count(DISTINCT phone_key)::int AS n
+        SELECT scope, count(DISTINCT coalesce(phone_key, email_key))::int AS n
         FROM comms_opt_outs WHERE revoked_at IS NULL GROUP BY scope
     `);
     const out = { marketing: 0, all: 0 };
