@@ -140,6 +140,18 @@ describe('renderWhatsApp', () => {
         for (const b of r.bubbles) { expect(b.text.length).toBeLessThanOrEqual(BUBBLE_MAX_CHARS); expect(b.text.endsWith('.')).toBe(true); }
         expect(r.bubbles.map((b) => b.text).join(' ')).toBe(long);
     });
+    it('never ends a bubble on a short form such as "e.g." that the sentence carries on past', () => {
+        const reply = 'Yes we cover SE15 and most of south east London. For the shelves, could you send a photo of the wall and let me know roughly how many there are, e.g. two or three? Thanks.';
+        const r = renderWhatsApp(reply);
+        expect(r.ok).toBe(true);
+        for (const b of r.bubbles) expect(b.text).not.toMatch(/\be\.g\.$/);
+        expect(r.bubbles.map((b) => b.text).join(' ')).toBe(reply);
+        const approx = `${'This sentence is long enough to push the bubble past its ceiling. '.repeat(2).trim()} It takes approx. 2 hrs and Mr. Patel can let me in.`;
+        expect(renderWhatsApp(approx).bubbles.map((b) => b.text)).toContain('It takes approx. 2 hrs and Mr. Patel can let me in.');
+        // A short form that does end its sentence still lets the next one start a bubble.
+        const etc = `${'This sentence is long enough to push the bubble past its ceiling. '.repeat(2).trim()} Shelves, hooks, etc. Whereabouts are you?`;
+        expect(renderWhatsApp(etc).bubbles.map((b) => b.text).at(-1)).toBe('Shelves, hooks, etc. Whereabouts are you?');
+    });
     it('returns the reply to the composer at the soft ceiling rather than sending a wall', () => {
         const r = renderWhatsApp(Array.from({ length: BUBBLE_CEILING + 1 }, (_, i) => `Bubble ${i}.`).join('\n\n'));
         expect(r.ok).toBe(false);
