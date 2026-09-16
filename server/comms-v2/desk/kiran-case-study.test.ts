@@ -306,12 +306,36 @@ describe('the wrap-up check', () => {
             'Quote to follow shortly.',
             "Your quote's being prepared now.",
             "I'm pricing it up now.",
+            // Round 15: the quote by another name, and more ways of saying it is coming.
+            "I'll send the estimate over shortly.",
+            'Ben will work out the cost and send it over.',
+            "I'll get a figure over to you soon.",
+            'Quote coming your way soon.',
+            "I'll drop the quote over later.",
+            "I'll ping the quote over this afternoon.",
+            'Expect the quote later today.',
+            'The quote should be in your inbox later today.',
+            "I'll let you know the price shortly.",
+            'Ben will be back to you with a price today.',
+            "I'll have the quote over to you by this evening.",
+            "Ben's on the quote now.",
+            'The quote will follow shortly.',
+            "I'll message you the quote in a bit.",
+            "We'll have a quote for you shortly.",
+            'Ben will get back with a price later.',
         ]) expect(repeatedSentences(`Cheers Sam. ${s}`, said), s).toEqual([s]);
         for (const s of [
             'Would you like a quote for the fence too?',
             'Thanks for sending the photos over.',
             'The quote includes all the materials.',
             'No worries at all, Sam.',
+            // An answer about the quote is not the promise again, whatever else it shares with one.
+            "You'll have to clear the cupboard first, it's not in the price.",
+            "The price is about what you'd expect for this kind of job.",
+            'The price is based on it being a single tap.',
+            'The price includes me coming over twice.',
+            'Yes, the estimate covers both doors.',
+            'The figure in the quote is for labour only.',
         ]) expect(repeatedSentences(s, said), s).toEqual([]);
     });
 
