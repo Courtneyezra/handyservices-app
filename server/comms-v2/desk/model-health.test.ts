@@ -223,6 +223,42 @@ describe('concurrent turns', () => {
     });
 });
 
+describe('a slow page or row', () => {
+    it('a page that never resolves delays neither its own turn nor a later one, and the row is still updated', async () => {
+        const store = memoryStore();
+        const pages: string[] = [];
+        const hanging = { store, pageable: true, notify: (title: string) => { pages.push(title); return new Promise<void>(() => {}); } };
+        const quotes = new MemoryQuoteStore();
+        const desk = new Desk({
+            client: throwingClient(failures['revoked key']), fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb,
+            scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) },
+            quoting: { store: quotes, drafter: new FakeDrafter(quotes), notifier: recordingNotifier },
+            modelHealth: (report) => recordTurnModelHealth(report, hanging),
+        });
+        const gateway = new Gateway({ desk });
+        const first = gateway.inbound(turn('first', new Date().toISOString()));
+        const second = (async () => { await first; return gateway.inbound({ ...turn('second', new Date().toISOString()), address: '+447700900943' }); })();
+        const within = <T>(p: Promise<T>) => Promise.race([p, new Promise<'hung'>((resolve) => setTimeout(() => resolve('hung'), 2_000))]);
+        expect(await within(first)).toMatchObject({ kind: 'handled' });
+        expect(await within(second)).toMatchObject({ kind: 'handled' });
+        expect(pages).toEqual(['comms desk cannot answer: model call failed']);
+        expect(store.row).toMatchObject({ state: 'failing', failedTurns: 2 });
+    });
+
+    it('a row update that never settles is abandoned after its bound, so later turns still record', async () => {
+        const pages: string[] = [];
+        const hung: ModelHealthStore = { read: async () => null, update: () => new Promise<void>(() => {}) };
+        const store = memoryStore();
+        const failedAt = (at: string): TurnReport => ({ outcome: { verdict: 'failed', failure: { role: 'router', model: 'm', error: 'boom', kind: 'provider' } }, at: new Date(at), runId: 'r', caseId: 'c', decision: 'hold' });
+        const notify = async (title: string) => { pages.push(title); };
+        const stuck = recordTurnModelHealth(failedAt('2026-09-16T05:41:10.000Z'), { store: hung, pageable: true, notify, updateTimeoutMs: 20 });
+        const later = recordTurnModelHealth(failedAt('2026-09-16T05:41:20.000Z'), { store, pageable: true, notify, updateTimeoutMs: 20 });
+        await expect(stuck).resolves.toMatchObject({ kind: 'failing' });
+        await expect(later).resolves.toMatchObject({ kind: 'failing' });
+        expect(store.row).toMatchObject({ state: 'failing', lastTurnAt: '2026-09-16T05:41:20.000Z' });
+    });
+});
+
 describe('the health read', () => {
     const hb = (stale: boolean): HeartbeatHealth => ({ ok: !stale, ageSeconds: 5, stale, at: 'x', pid: 1, host: 'h', version: null, status: stale ? 'stale' : 'ok', thisProcess: { role: 'worker', pid: 1, host: 'h', version: null }, staleAfterSeconds: 600 });
 

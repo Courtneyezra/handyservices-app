@@ -35,6 +35,8 @@ import type { ModelClient, StructuredCall, StructuredResult } from './models';
 export const MODEL_HEALTH_KEY = 'comms_v2_model_health';
 /** One page an episode, then at most one an hour while turns keep failing (STALE_ALERT_EVERY_MS). */
 export const MODEL_ALERT_EVERY_MS = 60 * 60_000;
+/** The longest one turn's row update may hold the others recorded after it. */
+export const MODEL_HEALTH_UPDATE_TIMEOUT_MS = 5_000;
 
 export interface ModelFailure {
     role: ModelCallRecord['role'];
@@ -190,6 +192,7 @@ export async function readModelHealth(): Promise<ModelHealthRecord | null> {
 async function updateModelHealth(next: (prev: ModelHealthRecord | null) => ModelHealthRecord | null, now: Date): Promise<void> {
     const db = await getDb();
     await db.transaction(async (tx) => {
+        await tx.execute(sql.raw(`set local statement_timeout = ${MODEL_HEALTH_UPDATE_TIMEOUT_MS}`));
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${MODEL_HEALTH_KEY}))`);
         const [row] = await tx.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, MODEL_HEALTH_KEY)).limit(1);
         const record = next(row ? parseModelHealth(row.value) : null);
@@ -214,6 +217,7 @@ export interface RecordTurnDeps {
     store?: ModelHealthStore;
     notify?: (title: string, message: string) => Promise<void>;
     pageable?: boolean;
+    updateTimeoutMs?: number;
 }
 
 async function defaultNotify(title: string, message: string): Promise<void> {
@@ -225,41 +229,47 @@ let recording: Promise<unknown> = Promise.resolve();
 
 /**
  * After a customer turn: update the row, and page when the turn opens (or, hourly, continues) an episode, or ends one.
- * Turns are recorded one at a time in this process, and the page goes after the row is written, so
- * concurrent failures page once and an older turn never overwrites a newer verdict. Never throws.
+ * Row updates run one at a time in this process, each bounded, so concurrent failures page once and
+ * an older turn never overwrites a newer verdict. The page is sent after the update and not waited
+ * on, so a slow page delays no turn. Never throws.
  */
-export function recordTurnModelHealth(report: TurnReport, deps: RecordTurnDeps = {}): Promise<ModelAlert | null> {
-    const run = recording.then(() => recordOne(report, deps));
+export async function recordTurnModelHealth(report: TurnReport, deps: RecordTurnDeps = {}): Promise<ModelAlert | null> {
+    if (report.outcome.verdict === 'no_model_call') return null;
+    const run = recording.then(() => updateForTurn(report, deps));
     recording = run.catch(() => undefined);
-    return run;
+    const alert = await run;
+    if (report.outcome.verdict === 'failed') console.error(`[comms-v2 model-health] turn failed: ${report.outcome.failure!.role} ${report.outcome.failure!.model}: ${report.outcome.failure!.error}`);
+    if (alert) {
+        void Promise.resolve()
+            .then(() => (deps.notify ?? defaultNotify)(alert.title, alert.message))
+            .catch((error: any) => console.error('[comms-v2 model-health] page failed:', error?.message ?? error));
+    }
+    return alert;
 }
 
-async function recordOne(report: TurnReport, deps: RecordTurnDeps): Promise<ModelAlert | null> {
-    if (report.outcome.verdict === 'no_model_call') return null;
+async function updateForTurn(report: TurnReport, deps: RecordTurnDeps): Promise<ModelAlert | null> {
     const store = deps.store ?? { read: readModelHealth, update: updateModelHealth };
     let pageable = deps.pageable;
     if (pageable === undefined) pageable = (await import('../../worker-gate')).isProductionEnv();
+    const timeoutMs = deps.updateTimeoutMs ?? MODEL_HEALTH_UPDATE_TIMEOUT_MS;
     let alert: ModelAlert | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-        await store.update((prev) => {
-            const next = nextModelHealth(prev, report, pageable!);
-            alert = next.alert;
-            return next.record === prev ? null : next.record;
-        }, report.at);
+        await Promise.race([
+            store.update((prev) => {
+                const next = nextModelHealth(prev, report, pageable!);
+                alert = next.alert;
+                return next.record === prev ? null : next.record;
+            }, report.at),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs} ms`)), timeoutMs); }),
+        ]);
+        return alert;
     } catch (error: any) {
         console.error('[comms-v2 model-health] could not update the row:', error?.message ?? error);
-        alert = nextModelHealth(null, report, pageable).alert;
+        return nextModelHealth(null, report, pageable).alert;
+    } finally {
+        clearTimeout(timer);
     }
-    if (report.outcome.verdict === 'failed') console.error(`[comms-v2 model-health] turn failed: ${report.outcome.failure!.role} ${report.outcome.failure!.model}: ${report.outcome.failure!.error}`);
-    const page = alert as ModelAlert | null;
-    if (page) {
-        try {
-            await (deps.notify ?? defaultNotify)(page.title, page.message);
-        } catch (error: any) {
-            console.error('[comms-v2 model-health] page failed:', error?.message ?? error);
-        }
-    }
-    return page;
 }
 
 // ------------------------------------------------------------------ the health read
