@@ -5,7 +5,8 @@
  * the one WHERE clause both the queue and the confirm screen's "next waiting" read. No database.
  */
 import { describe, it, expect } from 'vitest';
-import { buildPriceQueue, buildQueueItem, QUEUE_CAP } from './price-queue';
+import { buildPriceQueue, buildQueueItem, estimatesQuery, QUEUE_CAP } from './price-queue';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { WAITING_DRAFT_WHERE } from './price-brief';
 import type { DraftRowShape, EstimateRowShape } from './price-screen';
 
@@ -108,5 +109,41 @@ describe('the one definition of waiting', () => {
         expect(WAITING_DRAFT_WHERE).toContain('q.pricing_suggestions is not null');
         expect(WAITING_DRAFT_WHERE).toContain("coalesce(q.pricing_suggestions->'hold', 'null'::jsonb) = 'null'::jsonb");
         expect(QUEUE_CAP).toBe(200);
+    });
+});
+
+// ---------------------------------------------------------------- the estimates read
+
+/**
+ * The regression behind "cannot cast type record to text[]": the queue's second query interpolated
+ * the JS id list straight into the template, and drizzle expands an array in place — `($1, $2)`, a
+ * record — so `::text[]` failed and the page 500'd on every load with a draft waiting. The list has
+ * to arrive as ONE bound array parameter whatever its length. Compiled, not executed: no database.
+ */
+describe('the estimates query binds the id list as one array parameter', () => {
+    const compile = async (ids: string[]) => new PgDialect().sqlToQuery(await estimatesQuery(ids));
+
+    for (const [label, ids] of [
+        ['one waiting draft', ['quote_s']],
+        ['two waiting drafts', ['quote_s', 'quote_g']],
+        ['a full queue', Array.from({ length: QUEUE_CAP }, (_, i) => `quote_${i}`)],
+    ] as const) {
+        it(`${label}: any($1::text[]), one parameter holding the whole list`, async () => {
+            const q = await compile([...ids]);
+            expect(q.sql).toContain('e.draft_quote_id = any($1::text[])');
+            expect(q.params).toEqual([[...ids]]);
+        });
+
+        it(`${label}: the list is never expanded into a record`, async () => {
+            const q = await compile([...ids]);
+            expect(q.sql).not.toContain('$2');
+            expect(q.sql).not.toMatch(/any\(\(/);
+        });
+    }
+
+    it('still the newest non-superseded row per draft', async () => {
+        const q = await compile(['quote_s']);
+        expect(q.sql).toContain('distinct on (e.draft_quote_id)');
+        expect(q.sql).toContain('order by e.draft_quote_id, (e.superseded_at is null) desc, e.created_at desc');
     });
 });
