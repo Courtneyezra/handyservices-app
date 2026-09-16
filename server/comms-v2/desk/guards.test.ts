@@ -163,6 +163,17 @@ describe('guards', () => {
         appendTurn(f.file, { at: '2026-09-11T10:02:00.000Z', channel: 'whatsapp', direction: 'inbound', partyId: 'p1', kind: 'text', body: 'ok', media: [], runId: null, approver: null });
         expect(runGuards({ file: f.file, party: f.party, turn: f.turn, reply: 'now fine', factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null }).guards.one_reply.result).toBe('pass');
     });
+    it('one reply: a message that landed while the last reply was being written, and that reply did not answer, is a turn in between', () => {
+        const f = fixture();
+        const oneReply = (turn: typeof f.turn) => runGuards({ file: f.file, party: f.party, turn, reply: 'Thanks, that video shows it well.', factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null }).guards.one_reply.result;
+        const video = appendTurn(f.file, { at: '2026-09-11T10:00:43.000Z', channel: 'whatsapp', direction: 'inbound', partyId: 'p1', kind: 'media', body: '', media: [], runId: null, approver: null });
+        if (!video.ok) throw new Error(video.reason);
+        appendTurn(f.file, { at: '2026-09-11T10:01:19.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'I\'ll keep an eye out for it', media: [], runId: 'r1', approver: 'agent.comms_v2', answers: [f.turn.id] });
+        expect(oneReply(video.value)).toBe('pass');
+        appendTurn(f.file, { at: '2026-09-11T10:01:48.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'got the video', media: [], runId: 'r2', approver: 'agent.comms_v2', answers: [video.value.id] });
+        expect(oneReply(video.value)).toBe('fail');
+        expect(oneReply(f.turn)).toBe('fail');
+    });
     it('ask ledger: asks a subject already asked and unanswered, a photo twice, or thanks twice', () => {
         const f = fixture();
         ask(f.file, 'postcode');

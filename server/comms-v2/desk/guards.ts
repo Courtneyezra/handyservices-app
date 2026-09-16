@@ -18,7 +18,7 @@
  * guards: Ben for a homeowner; for a tenant issue, later, the landlord's rules, then the landlord,
  * then Ben. A rule-based approver is a legal value from day one and has no rules yet.
  */
-import { askedUnanswered, customerWroteSinceLastReply, everAsked, ledgerEntry, release as releaseHold, sameApprover, type ApproverSlot, type CaseFile, type Fact, type Outcome, type Party, type Turn } from './case-file';
+import { askedUnanswered, customerTurnUnanswered, everAsked, ledgerEntry, release as releaseHold, sameApprover, type ApproverSlot, type CaseFile, type Fact, type Outcome, type Party, type Turn } from './case-file';
 import type { GuardName, GuardVerdict } from './desk-types';
 import type { FixedLine } from './fixed-lines';
 import { withoutDashPunctuation } from './dashes';
@@ -189,7 +189,7 @@ export function checkDisclosure(input: GuardInput): GuardVerdict {
 
 export function checkOneReply(input: GuardInput): GuardVerdict {
     if (input.prompted === 'human_action') return { result: 'pass', note: 'a person acted on the thread, which licenses this send; the guard counts the desk\'s own replies to one customer turn' };
-    return customerWroteSinceLastReply(input.file, input.party.personId) ? pass() : fail('a second reply to the same party with no customer turn in between');
+    return customerTurnUnanswered(input.file, input.party.personId) ? pass() : fail('a second reply to the same party with no customer turn in between');
 }
 
 export function checkAskLedger(input: GuardInput): GuardVerdict {

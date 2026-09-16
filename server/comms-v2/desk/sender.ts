@@ -409,6 +409,8 @@ export interface SendInput {
     mode: 'dry_run' | 'live';
     /** What the reply is for, so the delivery is gated under its row's opt-out class (`outboundLabelFor`). Omitted: a service reply. */
     purpose?: ReplyPurpose;
+    /** The messages of the customer turn the reply answers (case-file.ts `messagesOf`), recorded on its outbound turn. Omitted when it answers no one turn: a person's words, a quote Ben sent. */
+    answers?: string[];
 }
 
 export type SendOutcome = { ok: true; record: SendRecord } | { ok: false; reason: string };
@@ -451,7 +453,7 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     const land = (bubbles: RenderedBubble[], partial: boolean): SendOutcome => {
         const last = input.file.turns[input.file.turns.length - 1];
         const at = new Date(Math.max(now().getTime(), last ? Date.parse(last.at) + 1 : 0)).toISOString();
-        const turn = appendTurn(input.file, { at, channel: input.channel, direction: 'outbound', partyId: input.partyId, kind: 'text', body: bubbles.map((b) => b.text).join('\n'), media: [], runId: input.runId, approver: input.approver }, deps);
+        const turn = appendTurn(input.file, { at, channel: input.channel, direction: 'outbound', partyId: input.partyId, kind: 'text', body: bubbles.map((b) => b.text).join('\n'), media: [], runId: input.runId, approver: input.approver, ...(input.answers ? { answers: input.answers } : {}) }, deps);
         if (!turn.ok) return { ok: false, reason: turn.reason };
         const record: SendRecord = {
             runId: input.runId, approver: input.approver, partyId: input.partyId, channel: input.channel, windowState: input.window.state, templateId: input.template?.name ?? null,

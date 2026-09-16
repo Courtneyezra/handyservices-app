@@ -2,11 +2,12 @@
  * The channel gateway and the Desk API: one entry per customer turn. A normalised inbound turn
  * passes through Identity, lands on the person's one open case file (opened if none), and is
  * handed to the desk. A quick run of messages from one party is handed over as one turn once they
- * go quiet (turn-window.ts), and the desk runs on one file one pass at a time. A clock pass and
- * time passing enter here too, so the desk has one door.
+ * go quiet (turn-window.ts), held on the file as a wait until the desk has answered it, and the
+ * desk runs on one file one pass at a time. A clock pass and time passing enter here too, so the
+ * desk has one door.
  */
 import { randomUUID } from 'node:crypto';
-import { appendTurn, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type CaseFileDeps } from './case-file';
+import { answeredByReply, appendTurn, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type TurnWait, type CaseFileDeps } from './case-file';
 import { Identity, e164Of, type ResolveResult } from './identity';
 import { MemoryCaseFileStore, type CaseFileStore } from './store';
 import type { InboundTurn } from './whatsapp-adapter';
@@ -31,11 +32,12 @@ export interface GatewayDeps {
 /** What one message came to: the desk's result, and the ids of the messages the desk read as the one turn this message was part of. */
 export interface HandedTurn { result: DeskResult; burst: string[] }
 
-/** Messages from one party on one channel of one file, waiting out the quiet window. */
+/** Messages from one party on one channel of one file, waiting out the quiet window; `wait` is the same burst as the file records it. */
 interface Burst {
     key: string;
     file: CaseFile;
     turns: Turn[];
+    wait: TurnWait;
     timer: ReturnType<typeof setTimeout> | null;
     waiters: Array<{ turnId: string; resolve: (h: HandedTurn) => void; reject: (e: unknown) => void }>;
 }
@@ -62,6 +64,8 @@ export class Gateway {
     protected readonly newId: (prefix: string) => string;
     protected readonly log: (line: string) => void;
     private readonly quietMs: number;
+    /** Who holds the waits this gateway records on a file (`TurnWait.holder`): new with every process, so a wait any other holder left is one a restart left behind. */
+    private readonly holder = `gateway_${randomUUID()}`;
     private readonly waiting = new Map<string, Burst>();
     /** The tail of each file's desk passes, so a pass starts only once the one before it on that file has finished. */
     private readonly passes = new Map<string, Promise<unknown>>();
@@ -120,49 +124,43 @@ export class Gateway {
      * A message that waits for quiet (turn-window.ts) joins its party's burst and resolves when the
      * burst has been answered: the newest message with the desk's result, each earlier one with a
      * result saying the same run answered it and nothing went on it alone. Anything else goes to the
-     * desk now, after whatever that party still had waiting on the file.
+     * desk now, after whatever that party still had waiting on the file, a burst a restart left
+     * behind included.
      */
     protected async handTurn(file: CaseFile, landed: Turn): Promise<HandedTurn> {
         this.store.put(file);
         if (this.quietMs > 0 && waitsForQuiet(landed)) return this.joinBurst(file, landed);
         for (const b of Array.from(this.waiting.values())) if (b.file.id === file.id && b.turns[0].partyId === landed.partyId) this.flush(b);
+        for (const w of this.leftBehind(file)) if (w.partyId === landed.partyId) this.recover(file, w).catch((err) => this.log(`recovering a burst on case ${file.id} failed: ${err?.message ?? err}`));
         return { result: await this.deskPass(file, (f) => this.desk.handleTurn(f, landed)), burst: [landed.id] };
     }
 
+    /**
+     * The message into its party's burst on this channel, recorded on the file as the burst's wait
+     * with the time it falls due. A fresh burst takes in what a restart left waiting on the same
+     * party's channel, so those messages and this one go to the desk as one turn, not answered
+     * separately or left behind this message's own reply.
+     */
     private joinBurst(file: CaseFile, landed: Turn): Promise<HandedTurn> {
         const key = `${file.id}|${landed.partyId}|${landed.channel}`;
-        // A fresh burst (nothing live in this process for the key) does not start empty: a restart
-        // can leave earlier, still-unanswered messages on this same party's channel already landed
-        // on the file with no reply and no timer left for them (gateway.ts staleBurstsOf recovers
-        // them once quiet, but this new message means the party is not quiet yet). Seeding the burst
-        // with those first means they go to the desk as one turn with this message, not answered
-        // separately or, worse, left permanently behind this message's own reply.
-        const burst = this.waiting.get(key) ?? { key, file, turns: this.unansweredOnChannel(file, landed.partyId, landed.channel, landed.id), timer: null, waiters: [] };
-        this.waiting.set(key, burst);
-        burst.turns.push(landed);
-        if (burst.timer) clearTimeout(burst.timer);
-        burst.timer = setTimeout(() => this.flush(burst), this.quietMs);
-        return new Promise((resolve, reject) => burst.waiters.push({ turnId: landed.id, resolve, reject }));
-    }
-
-    /**
-     * A party's turns on one channel, newest first as found, walked back from the newest and
-     * stopped the moment a turn on that same channel closes it (an outbound reply, or a non-waiting
-     * turn already dispatched at once when it landed) - the same boundary `staleBurstsOf` finds,
-     * scoped to the one channel a fresh burst is about to open on. `excludeId` leaves out the
-     * message that is itself opening the burst: it is already the newest turn on the file by the
-     * time this runs, and is added back as the burst's newest message by the caller.
-     */
-    private unansweredOnChannel(file: CaseFile, partyId: string, channel: string, excludeId: string): Turn[] {
-        const turns: Turn[] = [];
-        for (let i = file.turns.length - 1; i >= 0; i--) {
-            const t = file.turns[i];
-            if (t.id === excludeId) continue;
-            if (t.partyId !== partyId || t.channel !== channel) continue;
-            if (t.direction === 'outbound' || !waitsForQuiet(t)) break;
-            turns.unshift(t);
+        let burst = this.waiting.get(key);
+        if (!burst) {
+            const left = this.leftBehind(file).filter((w) => w.partyId === landed.partyId && w.channel === landed.channel);
+            const turns = left.flatMap((w) => this.unanswered(file, w));
+            dropWaits(file, left);
+            const wait: TurnWait = { partyId: landed.partyId, channel: landed.channel, turnIds: [], dueAt: landed.at, holder: this.holder, handedAt: null };
+            file.waits = [...(file.waits ?? []), wait];
+            burst = { key, file, turns, wait, timer: null, waiters: [] };
+            this.waiting.set(key, burst);
         }
-        return turns;
+        burst.turns.push(landed);
+        burst.wait.turnIds = burst.turns.map((t) => t.id);
+        burst.wait.dueAt = new Date(this.now().getTime() + this.quietMs).toISOString();
+        this.store.put(file);
+        if (burst.timer) clearTimeout(burst.timer);
+        const live = burst;
+        burst.timer = setTimeout(() => this.flush(live), this.quietMs);
+        return new Promise((resolve, reject) => live.waiters.push({ turnId: landed.id, resolve, reject }));
     }
 
     /** The burst to the desk as one turn. A new message from the party after this starts the next burst. */
@@ -174,10 +172,28 @@ export class Gateway {
         const newest = ids[ids.length - 1];
         const turn = customerTurnOf(burst.turns);
         if (ids.length > 1) this.log(`one customer turn from ${ids.length} messages on case ${burst.file.id}`);
-        this.deskPass(burst.file, (f) => this.desk.handleTurn(f, turn)).then(
+        this.answerWait(burst.file, burst.wait, turn).then(
             (result) => { for (const w of burst.waiters) w.resolve({ result: w.turnId === newest ? result : answeredWith(result, ids.length, this.quietMs), burst: ids }); },
             (err) => { for (const w of burst.waiters) w.reject(err); },
         );
+    }
+
+    /**
+     * A wait's messages to the desk as one turn. The wait stays on the file, marked handed, until the
+     * pass has finished, and comes off in the same put that lands the pass's reply: a clock pass
+     * while the desk is still writing never reads those messages as lost, and a restart before the
+     * pass lands leaves the wait for the next process to recover.
+     */
+    private answerWait(file: CaseFile, wait: TurnWait, turn: Turn): Promise<DeskResult> {
+        wait.handedAt = this.now().toISOString();
+        this.store.put(file);
+        return this.deskPass(file, async (f) => {
+            try {
+                return await this.desk.handleTurn(f, turn);
+            } finally {
+                dropWaits(f, [wait]);
+            }
+        });
     }
 
     /** One desk pass on a file, after any pass already running or queued on it; the file is put when the pass is done, even when it throws. */
@@ -198,63 +214,52 @@ export class Gateway {
 
     /**
      * A clock pass with no new message. The desk never chases, so this is where "then quiet" is
-     * proven - unless a burst this process lost to a restart is sitting on the file past its
-     * window, in which case every such burst (one party can lose more than one, across different
-     * channels) goes to the desk now, once each, through the same turn path a live burst flushes
-     * on: a process restart mid-window never leaves an already-landed message unanswered.
+     * proven - unless the file holds a wait a restart left behind (another gateway's, `TurnWait`)
+     * that has fallen due, in which case every such wait goes to the desk now, once each, through the
+     * same path a live burst flushes on: a restart mid-window or mid-pass never leaves a landed
+     * message unanswered. A wait this gateway holds is still being timed or answered, and is left alone.
      */
     async clock(fileId: string): Promise<DeskResult | null> {
         const file = this.store.get(fileId);
         if (!file) return null;
-        // Found once, from the file as it stands before any recovery reply lands: answering the
-        // first stale channel appends an outbound turn, and re-scanning after that would read that
-        // turn as "the party has been replied to" and hide a second, older channel's stale group
-        // behind it (the file has no per-channel record of what has been answered).
-        const stale = this.staleBurstsOf(file);
-        if (stale.length) {
-            let result: DeskResult | null = null;
-            for (const turns of stale) {
-                this.log(`recovered ${turns.length === 1 ? 'a message' : `a burst of ${turns.length} messages`} lost to a restart on case ${file.id}`);
-                result = await this.deskPass(file, (f) => this.desk.handleTurn(f, customerTurnOf(turns)));
-            }
-            return result;
+        const now = this.now().getTime();
+        const due = this.leftBehind(file).filter((w) => Date.parse(w.dueAt) <= now);
+        if (due.length) {
+            // Queued together, so each goes after the one before it on the file and none is taken twice.
+            const runs = await Promise.allSettled(due.map((w) => this.recover(file, w)));
+            const failed = runs.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+            if (failed) throw failed.reason;
+            const answered = runs.map((r) => (r as PromiseFulfilledResult<DeskResult | null>).value).filter((r): r is DeskResult => !!r);
+            if (answered.length) return answered[answered.length - 1];
         }
         return this.deskPass(file, (f) => this.desk.clockPass(f));
     }
 
+    /** Waits on the file this gateway does not hold: left by the process before a restart. */
+    private leftBehind(file: CaseFile): TurnWait[] {
+        return (file.waits ?? []).filter((w) => w.holder !== this.holder);
+    }
+
+    /** A wait's messages still on the file that no reply records answering, oldest first. */
+    private unanswered(file: CaseFile, wait: TurnWait): Turn[] {
+        return wait.turnIds.map((id) => file.turns.find((t) => t.id === id)).filter((t): t is Turn => !!t && !answeredByReply(file, t.id));
+    }
+
     /**
-     * Every party-and-channel's trailing inbound messages, quiet past the window, that this process
-     * has no live timer for: a burst `joinBurst` was holding in memory when the process restarted,
-     * so it landed on the file (turns are append-only) but was never handed to the desk. A party can
-     * lose a burst on more than one channel across the same restart (WhatsApp and SMS both pending),
-     * so every channel with turns since its own last reply is checked on its own: each channel's
-     * boundary (its own newest outbound turn, or its own newest non-waiting turn, already dispatched
-     * at once when it landed) closes only that channel's search, so an ordinary reply or an
-     * immediately-dispatched turn on one channel - SMS answered, an email in between, whatever -
-     * never hides an older channel's still-open stale group behind it. Empty when nothing on the
-     * file is in that state, including a burst this process is still timing normally.
+     * A wait a restart left behind, taken over by this gateway and answered as one turn. Null, with
+     * the wait dropped, when a reply already answers every message on it: the process before the
+     * restart landed its reply but not the put that took the wait off.
      */
-    private staleBurstsOf(file: CaseFile): Turn[][] {
-        if (this.quietMs <= 0) return [];
-        const groups: Turn[][] = [];
-        for (const party of file.parties) {
-            const byChannel = new Map<string, Turn[]>();
-            const closed = new Set<string>();
-            for (let i = file.turns.length - 1; i >= 0; i--) {
-                const t = file.turns[i];
-                if (t.partyId !== party.personId || closed.has(t.channel)) continue;
-                if (t.direction === 'outbound' || !waitsForQuiet(t)) { closed.add(t.channel); continue; }
-                const list = byChannel.get(t.channel);
-                if (list) list.unshift(t); else byChannel.set(t.channel, [t]);
-            }
-            for (const [channel, turns] of byChannel) {
-                const newest = turns[turns.length - 1];
-                if (this.waiting.has(`${file.id}|${party.personId}|${channel}`)) continue;
-                if (this.now().getTime() - Date.parse(newest.at) < this.quietMs) continue;
-                groups.push(turns);
-            }
+    private recover(file: CaseFile, wait: TurnWait): Promise<DeskResult | null> {
+        wait.holder = this.holder;
+        const turns = this.unanswered(file, wait);
+        if (!turns.length) {
+            dropWaits(file, [wait]);
+            this.store.put(file);
+            return Promise.resolve(null);
         }
-        return groups;
+        this.log(`recovered ${turns.length === 1 ? 'a message' : `a burst of ${turns.length} messages`} lost to a restart on case ${file.id}`);
+        return this.answerWait(file, wait, customerTurnOf(turns));
     }
 
     /** Time passes: every timestamp on the file moves back by N hours, which shuts the window past 24. */
@@ -270,6 +275,7 @@ export class Gateway {
         for (const s of file.sends) s.at = shift(s.at)!;
         for (const h of file.stageHistory) h.at = shift(h.at)!;
         if (file.hold) file.hold.since = shift(file.hold.since)!;
+        for (const w of file.waits ?? []) { w.dueAt = shift(w.dueAt)!; w.handedAt = shift(w.handedAt); }
         this.store.put(file);
         return file;
     }
@@ -293,6 +299,13 @@ export class Gateway {
         const f = this.store.get(fileId);
         return f ? snapshot(f) : null;
     }
+}
+
+/** Takes waits off the file; the key goes with the last one, so a file with nothing waiting reads as it did before waits were recorded. */
+function dropWaits(file: CaseFile, gone: TurnWait[]): void {
+    if (!file.waits || !gone.length) return;
+    file.waits = file.waits.filter((w) => !gone.includes(w));
+    if (!file.waits.length) delete file.waits;
 }
 
 /** An earlier message of a burst: the run that answered the burst, with nothing sent on this message itself. */

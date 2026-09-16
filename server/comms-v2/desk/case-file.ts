@@ -104,6 +104,36 @@ export interface Turn {
     approver: string | null;
     /** Only on the desk's reading of a burst (desk/turn-window.ts): the ids of the messages it carries, oldest first. Never on a turn stored on the file. */
     burst?: string[];
+    /**
+     * Outbound only, on a reply the desk wrote to a customer turn: the ids of the messages that turn
+     * carried (`messagesOf`). Absent on a person's own words and on a reply written before it was
+     * recorded, which answer everything before them (`customerTurnUnanswered`).
+     */
+    answers?: string[];
+}
+
+/** The ids of the messages a turn the desk is answering carries: each message of a burst, or the turn itself. */
+export function messagesOf(turn: Turn): string[] {
+    return turn.burst ?? [turn.id];
+}
+
+/**
+ * A quick run of customer messages the gateway is holding for the desk (desk/turn-window.ts), kept on
+ * the file from the first message until the desk pass that reads them has finished. The quiet window
+ * is timed in the gateway's memory, so this is what lets a clock pass tell a burst a live process is
+ * still timing or answering from one a restart left behind (desk/gateway.ts `clock`).
+ */
+export interface TurnWait {
+    partyId: string;
+    channel: ChannelKind;
+    /** The messages, oldest first. */
+    turnIds: string[];
+    /** When the burst goes to the desk if nothing more arrives: the newest message's arrival plus the quiet window. */
+    dueAt: string;
+    /** The gateway holding it, one per process; a wait any other gateway holds was left by a restart. */
+    holder: string;
+    /** When it was handed to the desk; null while it is still waiting for quiet. */
+    handedAt: string | null;
 }
 
 /** Whether a turn on the file is part of the turn the desk is answering: that turn itself, or one message of a burst read as one turn. */
@@ -251,6 +281,8 @@ export interface CaseFile {
     sentRunIds: string[];
     /** Ben's chase on the standing hold (service/chase.ts), kept with the file so a restart never chases again. Absent or null when nothing is being chased. */
     chase?: ChaseRecord | null;
+    /** Bursts of customer messages the gateway is holding for the desk or has handed to it and not yet seen answered (`TurnWait`). Absent or empty when none. */
+    waits?: TurnWait[];
 }
 
 export type Refusal = { ok: false; reason: string };
@@ -347,34 +379,30 @@ export function lastTurn(file: CaseFile): Turn | null {
     return file.turns[file.turns.length - 1] ?? null;
 }
 
-export function customerWroteSinceLastReply(file: CaseFile, partyId: string): boolean {
-    for (let i = file.turns.length - 1; i >= 0; i--) {
-        const t = file.turns[i];
-        if (t.partyId !== partyId) continue;
-        if (t.direction === 'inbound') return true;
-        if (t.direction === 'outbound') return false;
-    }
-    return true;
+/**
+ * Whether the party has written something the desk's replies to them have not answered: an inbound
+ * turn after the newest turn any reply to them answered. A reply the desk wrote records the messages
+ * it answered (`Turn.answers`), so a message that landed while that reply was being written - after
+ * the turn it answers, before it was sent, so before it on the file - still counts; a reply with no
+ * record (a person's own words, a reply written before the record) answers everything before it.
+ * True when nothing has been sent to the party yet. The one-reply guard's question.
+ */
+export function customerTurnUnanswered(file: CaseFile, partyId: string): boolean {
+    const index = new Map(file.turns.map((t, i) => [t.id, i]));
+    let replied = false;
+    let answeredTo = -1;
+    file.turns.forEach((t, i) => {
+        if (t.partyId !== partyId || t.direction !== 'outbound') return;
+        replied = true;
+        const upTo = t.answers ? Math.max(-1, ...t.answers.map((id) => index.get(id) ?? i)) : i;
+        answeredTo = Math.max(answeredTo, upTo);
+    });
+    return !replied || file.turns.some((t, i) => i > answeredTo && t.partyId === partyId && t.direction === 'inbound');
 }
 
-/**
- * Whether any one channel the party writes on has an inbound turn newer than the last outbound
- * turn on that same channel. Unlike `customerWroteSinceLastReply` (the one-reply guard's own
- * question: has the whole party been replied to since they last wrote, whichever channel either
- * turn was on), this looks at each channel on its own, so a reply on one channel never hides
- * another channel's still-unanswered turn from a caller that must not miss it (the live clock's
- * `clockDue`, channels/live-clock.ts, which gates whether a stale burst lost to a restart -
- * desk/gateway.ts `staleBurstsOf` - ever gets a pass to recover it).
- */
-export function anyChannelAwaitingReply(file: CaseFile, partyId: string): boolean {
-    const lastOutboundAt: Partial<Record<ChannelKind, number>> = {};
-    for (const t of file.turns) if (t.partyId === partyId && t.direction === 'outbound') lastOutboundAt[t.channel] = Date.parse(t.at);
-    for (const t of file.turns) {
-        if (t.partyId !== partyId || t.direction !== 'inbound') continue;
-        const repliedAt = lastOutboundAt[t.channel];
-        if (repliedAt === undefined || Date.parse(t.at) > repliedAt) return true;
-    }
-    return false;
+/** Whether a reply on the file records answering this message (`Turn.answers`). */
+export function answeredByReply(file: CaseFile, turnId: string): boolean {
+    return file.turns.some((t) => t.direction === 'outbound' && !!t.answers?.includes(turnId));
 }
 
 // ---------------------------------------------------------------- stage

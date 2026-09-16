@@ -20,7 +20,7 @@
  * ("no chasing", "one acknowledgement, then quiet"); it is where Ben is chased instead (7.5).
  */
 import { randomUUID } from 'node:crypto';
-import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, release as releaseHold, noteOnHold, supersede as supersedeHold, partyOf, setStage, isReady, customerWroteSinceLastReply, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
+import { ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, hold as setHold, release as releaseHold, noteOnHold, supersede as supersedeHold, partyOf, setStage, isReady, messagesOf, type CaseFile, type ModelCallRecord, type Turn, type CaseFileDeps, type RenderedBubble } from './case-file';
 import { schedule } from '../scheduling/scheduling-specialist';
 import { dateChangeMatch, dateQuestionMatch, partyBookings, type PartyBookings, type SchedulingDeps } from '../scheduling/scheduling-tools';
 import { compose, type ComposeInput } from './composer';
@@ -87,10 +87,11 @@ export class Desk implements DeskLike {
     async clockPass(file: CaseFile): Promise<DeskResult> {
         const party = file.parties[0];
         const chased = await quotingClock(file, this.quotingDeps());
-        // The gateway (gateway.ts staleBurstsOf) already answers a customer turn once it is due; a
-        // tick can still land here while one is waiting out its quiet window, so the note says that
-        // rather than claiming there is nothing to reply to.
-        const waitingNote = customerWroteSinceLastReply(file, party.personId)
+        // The gateway (gateway.ts) answers a customer turn once it is due, and recovers one a restart
+        // left behind before this pass runs; a tick can still land here while one is waiting out its
+        // quiet window or being answered (the file's `waits`), so the note says that rather than
+        // claiming there is nothing to reply to.
+        const waitingNote = (file.waits ?? []).some((w) => w.partyId === party.personId)
             ? 'a customer turn is waiting out its quiet window; the desk never chases, so it answers once quiet'
             : 'no customer turn, nothing to reply to; the desk never chases the customer';
         const base = this.nothing(file, party.personId, `run_${randomUUID()}`, [], `clock pass: ${waitingNote}; ${chased.note}`);
@@ -341,7 +342,7 @@ export class Desk implements DeskLike {
         }
 
         // 7. The one sender.
-        const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), fixedLines, calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
+        const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), fixedLines, calls, mode: this.deps.mode ?? 'dry_run', answers: messagesOf(turn) }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return this.heldAck(file, party.personId, turn, runId, calls, `send refused: ${sent.reason}`, reply, composerCalls, specialists, undefined, summary);
 
         // 8. The ledger and the stage, from what the business itself said.
@@ -385,7 +386,7 @@ export class Desk implements DeskLike {
         const base = { ...this.nothing(file, partyId, runId, calls, why, 'hold'), summary };
         if (!choice.ok || !window || !rendered?.ok || !guards.ok || window.state === 'shut') return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement not sent: ${!choice.ok ? choice.reason : !rendered?.ok ? `no render for ${choice.channel}` : !guards.ok ? guards.failures.join('; ') : 'window shut'}` };
         const bubbles: RenderedBubble[] = rendered.bubbles;
-        const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds, fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run' }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
+        const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds, fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run', answers: messagesOf(turn) }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
         if (!sent.ok) return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement refused: ${sent.reason}` };
         this.afterSend(file, partyId, line.text, null, [line]);
         return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, kbIds, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, composerCalls, note: why };
