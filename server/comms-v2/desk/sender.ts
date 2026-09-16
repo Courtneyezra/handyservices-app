@@ -9,7 +9,9 @@
  * sandbox-only until cutover. SMS and email render through server/comms-v2/channels (Goal 3); a
  * form or a call cannot carry a reply, so `chooseChannel` opens a real channel. Live delivery is
  * WhatsApp and SMS only, because the surviving outbound send is the one path that consults the
- * opt-out ledger; a live email send is refused rather than routed around it.
+ * opt-out ledger; a live email send is refused rather than routed around it. Before that, the
+ * deliverer asks the ledger about every address the party is known by, phone and email, so an
+ * opt-out on any one of them stops a send on every channel.
  *
  * Invariants: one run id sends once; every send has an approver; nothing the desk composed reaches
  * a customer without passing the guards, while a person's own words from Ben's board carry their
@@ -475,7 +477,8 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: TemplateVars, st
 // ---------------------------------------------------------------- send
 
 export interface Deliverer {
-    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver; purpose: DeliveryPurpose }): Promise<DeliveryOutcome>;
+    /** `knownAs`: every other address the recipient is known by on the file, so an opt-out recorded against any of them stops the send. */
+    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver; purpose: DeliveryPurpose; knownAs?: string[] }): Promise<DeliveryOutcome>;
 }
 
 /** A failure names the bubbles that had already reached the customer, so the file can record them. Both carry the label the delivery was, or would have been, sent under. */
@@ -506,6 +509,20 @@ export const liveDeliverer: Deliverer = {
         const switches = [registryEntryFor(DESK_APPROVER)?.switchKey ?? null, ...(entry.switchKey ? [entry.switchKey] : [])];
         const off = switches.find((key) => !key || cfg.senders?.[key]?.enabled !== true);
         if (off !== undefined) return { ok: false, reason: `spine.senders.${off}.enabled is not true; the new desk stays in the sandbox until it is`, delivered, label };
+        // The opt-out ledger, asked about every address the party is known by, phone and email alike,
+        // so an opt-out that arrived on one channel stops a send on any other. It runs before the
+        // channel rule, so an email to an opted-out address is refused as that even while email is
+        // refused outright. The outbound send below asks again about the number it sends to.
+        const addresses = [input.to, ...(input.knownAs ?? [])];
+        const { blockedByOptOut, optOutRefusalMessage } = await import('../../opt-out');
+        let suppression;
+        try {
+            suppression = await blockedByOptOut({ phones: addresses.filter((a) => !a.includes('@')), emails: addresses.filter((a) => a.includes('@')) }, label.purpose);
+        } catch (error: any) {
+            console.error('[comms-v2 sender] Opt-out lookup failed; refusing the send:', error?.message);
+            return { ok: false, reason: 'the opt-out ledger could not be read, so the send was refused', delivered, label };
+        }
+        if (suppression) return { ok: false, reason: optOutRefusalMessage(suppression), delivered, label };
         if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send, which is the only path that checks the opt-out ledger, carries WhatsApp and SMS only`, delivered, label };
         const { sendCustomerMessage } = await import('../../outbound');
         let sid: string | null = null;
@@ -599,7 +616,7 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     };
 
     if (input.mode === 'live') {
-        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, purpose: input.purpose ?? 'service_reply' });
+        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, purpose: input.purpose ?? 'service_reply', knownAs: party.channels.map((c) => c.address).filter((a) => a !== channel.address) });
         if (!delivered.ok) {
             if (delivered.delivered.length) land(delivered.delivered, true);
             return { ok: false, reason: delivered.reason };
