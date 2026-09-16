@@ -10,7 +10,7 @@ import { commsPhoneKey } from '../phone-utils';
 export interface MemoryLead { id: string; phone: string; email: string | null }
 
 export interface MemoryOptOutStore extends OptOutStore {
-    rows: Array<OptOutRecord & { messageId: string | null; revokedAt: Date | null; note: string | null }>;
+    rows: Array<OptOutRecord & { messageId: string | null; conversationId: string | null; revokedAt: Date | null; note: string | null }>;
     leads: MemoryLead[];
     /** conversation id → lead id */
     conversationLeads: Map<string, string>;
@@ -48,13 +48,18 @@ export function memoryOptOutStore(leads: MemoryLead[] = [], conversationLeads: R
                 id: row.id, phoneKey: row.phoneKey ?? null, emailKey: row.emailKey ?? null, e164: row.e164 ?? null,
                 scope: (row.scope as OptOutRecord['scope']) ?? 'marketing', source: row.source, channel: row.channel ?? null,
                 at: new Date(clock += 1000), matchedKeyword: row.matchedKeyword ?? null, triggerText: row.triggerText ?? null,
-                messageId: row.messageId ?? null, revokedAt: null, note: row.note ?? null,
+                messageId: row.messageId ?? null, conversationId: row.conversationId ?? null, revokedAt: null, note: row.note ?? null,
             });
             return true;
         },
         async revoke(keys, _by, note) {
+            const live = store.rows.filter((r) => !r.revokedAt);
+            const conversations = new Set(live.filter((r) => r.conversationId && carries(r, keys)).map((r) => r.conversationId));
             let n = 0;
-            for (const r of store.rows) if (!r.revokedAt && carries(r, keys)) { r.revokedAt = new Date(); r.note = note; n++; }
+            for (const r of live) {
+                if (!carries(r, keys) && !conversations.has(r.conversationId)) continue;
+                r.revokedAt = new Date(); r.note = note; n++;
+            }
             return n;
         },
     };
