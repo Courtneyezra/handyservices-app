@@ -19,8 +19,30 @@ export function regulatedMatch(text: string): string | null {
 /** A figure of money. */
 export const RE_FIGURE = /(?:£\s*\d[\d,]*(?:\.\d+)?)|(?:\b\d[\d,]*(?:\.\d+)?\s*(?:pounds?|quid|gbp)\b)|(?:\b\d+p\b)/i;
 
-/** A money question beyond a quote line: how much, cost, price, cheaper, discount. "A quote for X" is an enquiry, not a money question. */
-export const RE_MONEY_QUESTION = /\b(?:how much|cost(?:s|ing)?|price[sd]?|pricing|charge[sd]?|ballpark|rough(?:ly)?\s+(?:idea|figure|cost|price|estimate)|estimate\b|cheap(?:er|est)?|expensive|discount|any cheaper|do it for less|knock (?:some|a bit) off|call[- ]?out fee|hourly rate|day rate|deposit)\b|£\s*\d/i;
+/**
+ * Haggling in everyday words: "is that the best you can do?", "any wiggle room?", "bit steep", "would you take 120?",
+ * "someone else quoted me 80", "mates rates". Written narrow, so "lower the shelf", "match the paint" and
+ * "do any better than a patch" stay job talk.
+ */
+const HAGGLE = [
+    'best you can do', 'wiggle room', 'negotiab\\w*', 'haggle', 'sharpen (?:your|the) pencil',
+    '(?:any|some) room (?:to move|for (?:movement|manoeuvre))(?! (?:the|a|it|them|my|our|your)\\b)',
+    '(?:any|do) (?:better|movement) on (?:the |that |this |your )?(?:quote|figure|total|that|this|it)',
+    'meet (?:me|us) (?:in the middle|half ?way)',
+    '(?:bit|too|very|quite|rather|little) (?:steep|dear|pricey|pricy)', 'pric(?:e)?y',
+    "(?:that's|thats|that is|seems|sounds) (?:like )?(?:a lot|a bit much|too much)(?! (?:of|like|better|worse|easier|harder|clearer|quicker|nicer|more|less)\\b)",
+    'budget', 'quoted (?:me|us)', '(?:you|it) go (?:any )?lower',
+    '(?:match|beat) (?:(?:that|their|his|her|this|the other|another) )?(?:quote|figure|£ ?\\d+|\\d+)',
+    "mates?'?s? rates?", '(?:pensioner|oap|student|nhs|forces|cash) (?:rate|price|discount|deal)',
+    '(?:any|special|better|cash) deal', 'chance of a deal', 'do (?:me|us) a deal',
+    '(?:do (?:it )?for|take|accept) £?\\d+(?:\\.\\d+)?\\b(?! ?(?:of|am|pm|hours?|hrs?|mins?|minutes?|days?|weeks?|months?|years?|o\'?clock|st|nd|rd|th|%|x|mm|cm|m)\\b)',
+    '\\d+ (?:quid|cash)', 'for (?:a (?:bit|little|touch) )?less',
+    'knock (?:a |an )?(?:bit|some|anything|tenner|fiver|few quid|little|£ ?\\d+|\\d+) off',
+    'instal(?:l)?ments?', 'payment plan', 'pay (?:it )?(?:monthly|in (?:parts|stages|bits))',
+].join('|');
+
+/** A money question beyond a quote line: how much, cost, price, cheaper, discount, a haggle. "A quote for X" is an enquiry, not a money question. */
+export const RE_MONEY_QUESTION = new RegExp(`\\b(?:how much|cost(?:s|ing)?|price[sd]?|pricing|charge[sd]?|ballpark|rough(?:ly)?\\s+(?:idea|figure|cost|price|estimate)|estimate\\b|cheap(?:er|est)?|expensive|discount|any cheaper|call[- ]?out fee|hourly rate|day rate|deposit|${HAGGLE})\\b|£\\s*\\d`, 'i');
 
 export function moneyQuestionMatch(text: string): string | null {
     const m = RE_MONEY_QUESTION.exec(text);
