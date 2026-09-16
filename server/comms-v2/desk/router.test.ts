@@ -1,11 +1,12 @@
 /** The router: structured output, the fallback when the model fails, and the belts under it. */
 import { describe, expect, it } from 'vitest';
-import { open, type CaseFile } from './case-file';
+import { appendTurn, open, type CaseFile, type TurnMedia } from './case-file';
 import { buildComposerUser } from './composer';
 import { FakeModelClient } from './models';
 import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, renderWhatsApp, shortenBriefFor } from './sender';
 import { renderSms } from '../channels/sms-adapter';
 import { route, routerOutputSchema } from './router';
+import { customerTurnOf } from './turn-window';
 
 function fixture(text: string): CaseFile {
     const r = open({
@@ -197,5 +198,43 @@ describe('the composer\'s brief', () => {
         expect(onWhatsApp).toContain(`came to 6 bubbles, over the ceiling of ${BUBBLE_CEILING}`);
         // The retry is told the width the splitter holds each bubble to, or three long paragraphs split to four again.
         expect(onWhatsApp).toContain(`each one or two sentences of at most ${BUBBLE_MAX_CHARS} characters`);
+    });
+});
+
+describe('a photo and a video in one customer turn', () => {
+    // Round 8: the customer sends a photo, then a video of the leak, inside the quiet window, so the desk reads one turn.
+    // The thread named only the first kind ("[2 images: ...]"), so the reply thanked for two photos.
+    const shot = (id: string, kind: TurnMedia['kind'], description: string): TurnMedia => ({
+        id, kind, mime: kind === 'image' ? 'image/jpeg' : 'video/mp4', path: `/tmp/${id}`, url: null,
+        description: { kind, description, confidence: 'high', model: 'gemini', at: '2026-09-11T10:01:00.000Z' },
+    });
+    function burst() {
+        const file = fixture('Hi, the pipe under my kitchen sink is leaking, NG9 2AB');
+        const photo = appendTurn(file, { partyId: 'p1', direction: 'inbound', at: '2026-09-11T10:01:00.000Z', channel: 'whatsapp', kind: 'media', body: 'Here it is', media: [shot('m1', 'image', 'A cupboard under a kitchen sink with a wet base. Defects: water stain. (confidence high)')] });
+        const video = appendTurn(file, { partyId: 'p1', direction: 'inbound', at: '2026-09-11T10:01:05.000Z', channel: 'whatsapp', kind: 'media', body: '', media: [shot('m2', 'video', 'Water dripping from a pipe joint under a sink. (confidence medium)')] });
+        if (!photo.ok || !video.ok) throw new Error('append failed');
+        return { file, turn: customerTurnOf([photo.value, video.value]) };
+    }
+
+    it('shows the router one photo and one video', async () => {
+        const { file, turn } = burst();
+        const client = new FakeModelClient({ router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'answer' }) });
+        await route(file, turn, client);
+        expect(client.calls[0].user).toContain('The marked turn carries 1 photo and 1 video.');
+        expect(client.calls[0].user).toContain('customer: [1 video]');
+        expect(client.calls[0].user).not.toMatch(/\bimages?\b/);
+    });
+
+    it('shows the composer each kind with what it shows', () => {
+        const { file, turn } = burst();
+        const user = buildComposerUser({ file, party: file.parties[0], turn, route: { turnKind: 'answer', subjects: ['scoping'], exceptions: [] }, specialists: [], fixedLines: [] });
+        expect(user).toContain('>> Sam: Here it is [1 photo: A cupboard under a kitchen sink with a wet base]');
+        expect(user).toContain('>> Sam: [1 video: Water dripping from a pipe joint under a sink]');
+        // A web form carries both on the one stored turn.
+        const form = fixture('Leaking pipe under the sink, NG9 2AB');
+        const sent = appendTurn(form, { partyId: 'p1', direction: 'inbound', at: '2026-09-11T10:02:00.000Z', channel: 'form', kind: 'form', body: 'Photo and video attached', media: [shot('m3', 'image', 'A wet cupboard base.'), shot('m4', 'video', 'Water dripping from a pipe joint.')] });
+        if (!sent.ok) throw new Error(sent.reason);
+        const both = buildComposerUser({ file: form, party: form.parties[0], turn: sent.value, route: { turnKind: 'answer', subjects: ['scoping'], exceptions: [] }, specialists: [], fixedLines: [] });
+        expect(both).toContain('>> Sam: Photo and video attached [1 photo and 1 video: photo, A wet cupboard base; video, Water dripping from a pipe joint]');
     });
 });

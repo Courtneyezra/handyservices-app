@@ -12,7 +12,7 @@
  * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
  */
 import { z } from 'zod/v4';
-import { ASK_SUBJECTS, customerVisibleFacts, isSupersededFigure, type CaseFile, type Party, type ReplyChannel, type Turn, isTurnOf, mediaFailedNote } from './case-file';
+import { ASK_SUBJECTS, customerVisibleFacts, isSupersededFigure, type CaseFile, type Party, type ReplyChannel, type Turn, isTurnOf, mediaFailedNote, type TurnMedia, mediaCountLabel } from './case-file';
 import type { FixedLine } from './fixed-lines';
 import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
@@ -136,9 +136,16 @@ function withoutWords(text: string, drop: Set<string>): string {
     }).join('').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?)])/g, '$1').trim();
 }
 
+/** A turn's media as the thread shows it: "[1 photo and 1 video: photo, <what it shows>; video, <what it shows>]". */
+function mediaFor(media: TurnMedia[], unmentioned: Set<string>): string {
+    const mixed = new Set(media.map((m) => m.kind)).size > 1;
+    const shown = media.filter((m) => m.description).map((m) => `${mixed ? `${m.kind === 'image' ? 'photo' : 'video'}, ` : ''}${withoutWords(lightPhotoSummary(m.description!.description), unmentioned).replace(/\.$/, '')}`);
+    return ` [${mediaCountLabel(media)}${shown.length ? `: ${shown.join('; ')}` : ''}]`;
+}
+
 function threadFor(file: CaseFile, turn: Turn, unmentioned: Set<string>): string {
     return file.turns.slice(-16).map((t) => {
-        const media = t.media.length ? ` [${t.media.length} ${t.media[0].kind}${t.media.length > 1 ? 's' : ''}${t.media.map((m) => m.description ? `: ${withoutWords(lightPhotoSummary(m.description.description), unmentioned)}` : '').join('')}]` : '';
+        const media = t.media.length ? mediaFor(t.media, unmentioned) : '';
         const said = [`${t.body}${media}`.trim(), mediaFailedNote(t)].filter(Boolean).join(' ');
         return `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? (file.parties.find((p) => p.personId === t.partyId)?.name ?? 'customer') : 'you'}: ${said}`;
     }).join('\n');
