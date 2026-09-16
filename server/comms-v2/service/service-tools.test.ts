@@ -130,6 +130,19 @@ describe('asksAboutOurArea', () => {
         'Is that too far for you?',
         'Dripping kitchen tap. And do you cover Nottingham?',
         'Do you cover Nottingham, and can you fix a leaking tap?',
+        'Do you travel to Derby?',
+        'Would you be able to come to Beeston?',
+        'Are you covering Beeston?',
+        'r u covering Hucknall',
+        'Does your area include Beeston?',
+        'Is Stapleford somewhere you cover?',
+        'Are you anywhere near Beeston?',
+        'hi, do you do jobs in Beeston?',
+        'Can you do work in Hucknall?',
+        'Do you cover south Nottingham?',
+        'Do you cover all of Nottingham?',
+        'Do you cover the whole of Nottingham?',
+        'Do you cover out towards Ilkeston?',
     ])('matches a coverage question: %s', (text) => {
         expect(asksAboutOurArea(text)).toBe(true);
     });
@@ -161,6 +174,18 @@ describe('asksAboutOurArea', () => {
         'Can you come to measure?',
         'could you come to price',
         'can you come to estimate?',
+        'Does that cover all of the costs?',
+        'do you cover all of it?',
+        'Do you travel to fix things?',
+        'Are you still covering the cost?',
+        'are you covering it',
+        'Can you do work in bathrooms?',
+        'do you do jobs in the evenings',
+        'Do you do jobs in December?',
+        'Would you be able to come to fix it?',
+        'do you cover south facing walls',
+        'Are you anywhere near finished?',
+        'Is there anywhere you go for parts?',
     ])('does not match: %s', (text) => {
         expect(asksAboutOurArea(text)).toBe(false);
     });
