@@ -208,6 +208,31 @@ describe('the channel desk on a call', () => {
             expect(a.file.hold?.reason).toContain('customer may have asked to stop on a call; check and record the opt-out');
         }
     });
+    it('a missed call on a conversation we are already having gets no text back; after 60 quiet days it is a first contact again', async () => {
+        const { gateway, clock } = rig({
+            router: () => routeScoping({ turnKind: 'enquiry' }),
+            specialist: () => ({ facts: [], jobUnknowns: [], answeredSubjects: [] }),
+            composer: () => ({ reply: 'Thanks Sam, a dead bathroom fan. Could you send a photo of it?', factIds: [], kbIds: [] }),
+        }, approvedAll);
+        const a = await gateway.inbound(wa('Hi, my bathroom extractor fan has died', '2026-09-11T10:00:00.000Z'), { whatsapp: true } as ChannelSeed);
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result.decision).toBe('send');
+        // Ten minutes after our reply the customer rings and nobody answers: "tell us what needs doing" would ask what they have just told us.
+        clock.t = Date.parse('2026-09-11T10:10:00.000Z');
+        const b = await gateway.inbound(call('missed', '2026-09-11T10:10:00.000Z', null));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result).toMatchObject({ decision: 'none', delivered: false, bubbles: [] });
+        expect(b.result.note).toMatch(/ongoing thread/);
+        expect(b.file.sends).toHaveLength(1);
+        expect(b.file.hold).toBeNull();
+        expect(b.file.parties[0].alreadyRung).toBe(true);
+        // Sixty-one days on, the thread is cold and the missed call is answered as a first contact is.
+        clock.t = Date.parse('2026-11-11T10:00:00.000Z');
+        const c = await gateway.inbound(call('missed', '2026-11-11T10:00:00.000Z', null));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        expect(c.result).toMatchObject({ decision: 'send', delivered: true, templateId: 'missed_call_ack' });
+        expect(c.file.sends).toHaveLength(2);
+    });
     it('an answered inbound call gets no acknowledgement; the transcript is read for facts and the caller is never offered a call again', async () => {
         const { gateway, client } = rig({
             specialist: () => read({ location: 'NG9 2AB' }),
@@ -323,7 +348,9 @@ describe('the channel desk on a call', () => {
         expect(b.result.bubbles[0].text).toMatch(/send over the photos we talked about/);
         const c = await sms.gateway.inbound(call('missed', '2026-09-11T10:10:00.000Z', null));
         if (c.kind !== 'handled') throw new Error(c.kind);
-        expect(c.result.decision).toBe('send');
+        // Unheld, but we wrote ten minutes ago: an ongoing thread, so the missed call gets no text back.
+        expect(c.result.decision).toBe('none');
+        expect(c.result.note).toMatch(/ongoing thread/);
         b.file.hold = { approver: { kind: 'human', id: 'ben' }, reason: 'complaint', exception: 'complaint', since: '2026-09-11T10:00:00.000Z', draft: null, failures: [] };
         const d = await sms.gateway.inbound(call('ben_rang', '2026-09-11T10:20:00.000Z'));
         if (d.kind !== 'handled') throw new Error(d.kind);
