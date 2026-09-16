@@ -6,10 +6,11 @@
  */
 import { Router } from 'express';
 import { z } from 'zod';
-import { eq, asc, sql } from 'drizzle-orm';
+import { eq, asc } from 'drizzle-orm';
 import { db } from './db';
 import { quoteExtrasCatalog } from '../shared/schema';
 import { requireAdmin } from './auth';
+import { extrasPickCountQuery } from './quote-extras-queries';
 
 export const quoteExtrasCatalogRouter = Router();
 
@@ -153,17 +154,15 @@ quoteExtrasCatalogRouter.delete('/api/admin/extras-catalog/:id', requireAdmin, a
   }
 });
 
-/** Bump the pick counter for analytics — fire-and-forget from the quote save path. */
+/**
+ * Bump the pick counter for analytics.
+ *
+ * This used to swallow every failure in a warn-only catch, which is how a malformed query (the
+ * array cast in `extrasPickCountQuery`) went unnoticed: pick counts never incremented and nothing
+ * surfaced. It now throws. Callers that must not block on telemetry say so at the call site and
+ * log the rejection at error level, so a real failure is visible instead of silent.
+ */
 export async function incrementExtrasPickCount(labels: string[]): Promise<void> {
   if (labels.length === 0) return;
-  try {
-    await db.execute(sql`
-      UPDATE quote_extras_catalog
-      SET pick_count = pick_count + 1
-      WHERE label = ANY(${labels}::text[])
-    `);
-  } catch (err) {
-    // Telemetry failure should not block quote creation
-    console.warn('[extras-catalog] pick-count update failed:', err);
-  }
+  await db.execute(extrasPickCountQuery(labels));
 }

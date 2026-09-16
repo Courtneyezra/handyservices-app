@@ -3739,7 +3739,7 @@ export const quoteExtrasCatalog = pgTable("quote_extras_catalog", {
   /** Display order in the admin picker. Lower = higher in the list. */
   sortOrder: integer("sort_order").notNull().default(100),
   isActive: boolean("is_active").notNull().default(true),
-  /** Cumulative tracking — how often this entry has been picked into a quote. */
+  /** How many quotes have picked this entry — once per quote, not per save (`newlyPickedExtraLabels` in `server/quote-extras-queries.ts`). */
   pickCount: integer("pick_count").notNull().default(0),
   /** Phase 16 — category slugs this extra is relevant for. Empty array = always-relevant impulse add. */
   relevantCategories: text("relevant_categories").array(),
