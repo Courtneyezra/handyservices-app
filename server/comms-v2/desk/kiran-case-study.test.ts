@@ -162,7 +162,7 @@ describe('the Kiran thread: four near-identical wrap-ups', () => {
 });
 
 describe('a repeat rewritten while a late photo is owed its thanks', () => {
-    it('keeps the late thanks after the rewrite, and marks the photo thanked only because it went', async () => {
+    async function lateThanksOwed(retry: string) {
         const clock = { t: Date.parse('2026-09-16T10:00:00.000Z') };
         const now = () => new Date(clock.t);
         const composerUsers: string[] = [];
@@ -172,7 +172,7 @@ describe('a repeat rewritten while a late photo is owed its thanks', () => {
             composer: ({ user, n }) => {
                 composerUsers.push(user);
                 if (n === 1) return { reply: WRAP_UP, factIds: [], kbIds: [] };
-                if (/said again:/.test(user)) return { reply: 'No worries at all, Sam 👍', factIds: [], kbIds: [] };
+                if (/said again:/.test(user)) return { reply: retry, factIds: [], kbIds: [] };
                 return { reply: `Cheers Sam.\n\n${WRAP_UP}`, factIds: [], kbIds: [] };
             },
         });
@@ -187,7 +187,11 @@ describe('a repeat rewritten while a late photo is owed its thanks', () => {
         clock.t += 60_000;
         file.turns.push({ ...inbound, id: 'turn_photo', at: now().toISOString(), body: '', media: [{ id: 'photo_1', kind: 'image', mime: 'image/jpeg', path: '/tmp/door.jpg', url: 'https://example.test/door.jpg', description: null }] } as typeof inbound);
         clock.t += 45 * 60_000;
+        return { gateway, file, now, composerUsers };
+    }
 
+    it('keeps the late thanks after the rewrite, and marks the photo thanked only because it went', async () => {
+        const { gateway, file, now, composerUsers } = await lateThanksOwed('No worries at all, Sam 👍');
         const thanks = await gateway.inbound({ ...message('ok thanks'), at: now().toISOString() });
         if (thanks.kind !== 'handled') throw new Error(thanks.kind);
         expect(thanks.result.decision).toBe('send');
@@ -195,6 +199,19 @@ describe('a repeat rewritten while a late photo is owed its thanks', () => {
         expect(texts[0]).toBe('No worries at all, Sam 👍');
         expect(texts.at(-1)).toMatch(/^Thanks for the photo you sent earlier/);
         expect(composerUsers.find((u) => /said again:/.test(u))).toContain('came in earlier');
+        expect(file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
+    });
+
+    it('still sends the new words and the late thanks when the rewrite repeats again and the wrap-up is taken out', async () => {
+        const { gateway, file, now } = await lateThanksOwed(`Cheers Sam.\n\n${WRAP_UP}`);
+        const thanks = await gateway.inbound({ ...message('ok thanks'), at: now().toISOString() });
+        if (thanks.kind !== 'handled') throw new Error(thanks.kind);
+        expect(thanks.result.decision).toBe('send');
+        const texts = thanks.result.bubbles.map((b) => b.text);
+        expect(texts[0]).toBe('Cheers Sam.');
+        expect(texts).toHaveLength(2);
+        expect(texts[1]).toMatch(/^Thanks for the photo you sent earlier/);
+        expect(texts.join(' ')).not.toContain("I'll put the quote together");
         expect(file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
     });
 });

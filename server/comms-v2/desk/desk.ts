@@ -389,7 +389,7 @@ export class Desk implements DeskLike {
             if (again.output) {
                 const retry = await guardAttempt(withLateAck(again.output.reply), again.output.factIds, again.output.kbIds);
                 const g2 = withOneThing(retry.guards, again.output.reply);
-                if (g2.ok) { reply = withLateAck(again.output.reply); factIds = again.output.factIds; kbIds = retry.kbIds; guards = g2; }
+                if (g2.ok) { composed = again.output.reply; reply = withLateAck(composed); factIds = again.output.factIds; kbIds = retry.kbIds; guards = g2; }
                 else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed twice: ${g2.failures.join('; ')}`, again.output.reply, composerCalls, specialists, g2, summary);
             } else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed and the composer ${again.refused ? 'declined' : 'failed'} the retry`, reply, composerCalls, specialists, guards, summary);
         }
@@ -415,15 +415,16 @@ export class Desk implements DeskLike {
                 const retry = await guardAttempt(withLateAck(again.output.reply), again.output.factIds, again.output.kbIds);
                 const g = withOneThing(retry.guards, again.output.reply);
                 const still = repeatsOf(again.output.reply);
-                if (g.ok && !still.length) { reply = withLateAck(again.output.reply); factIds = again.output.factIds; kbIds = retry.kbIds; guards = g; repeated = []; }
+                if (g.ok && !still.length) { composed = again.output.reply; reply = withLateAck(composed); factIds = again.output.factIds; kbIds = retry.kbIds; guards = g; repeated = []; }
             }
             if (repeated.length) {
-                const trimmed = withoutSentences(reply!, repeated);
-                const kept = trimmed.trim() ? withOneThing((await guardAttempt(trimmed, factIds, kbIds)).guards, trimmed) : null;
+                const trimmed = withoutSentences(composed ?? reply!, repeated);
+                const kept = trimmed.trim() ? withOneThing((await guardAttempt(withLateAck(trimmed), factIds, kbIds)).guards, trimmed) : null;
                 const note = `the reply only wrapped up again, as already said (${repeated.join(' | ')}); nothing sent`;
                 if (!kept || !kept.ok) return { ...this.nothing(file, party.personId, runId, calls, kept ? `${note}; what was left failed the guards: ${kept.failures.join('; ')}` : note), factIds: [], kbIds: [], guards: guards.guards, composerCalls, summary };
                 log(`repeat: dropped ${repeated.length} sentence(s) the last message already said`);
-                reply = trimmed;
+                composed = trimmed;
+                reply = withLateAck(trimmed);
                 guards = kept;
             }
         }
@@ -445,7 +446,7 @@ export class Desk implements DeskLike {
                     r3 = render(choice.channel, shortReply, { name: party.name, softWidth: true });
                     if (r3.ok) log(`render: the shortened reply still ran over ${BUBBLE_CEILING} bubbles at ${BUBBLE_MAX_CHARS} characters and went at ${BUBBLE_SOFT_MAX_CHARS}`);
                 }
-                if (shortGuards.ok && r3.ok) { reply = shortReply; factIds = shorter.output.factIds; kbIds = short.kbIds; guards = shortGuards; rendered = r3; }
+                if (shortGuards.ok && r3.ok) { composed = shorter.output.reply; reply = shortReply; factIds = shorter.output.factIds; kbIds = short.kbIds; guards = shortGuards; rendered = r3; }
             }
         }
         if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
