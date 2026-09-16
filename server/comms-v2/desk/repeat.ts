@@ -13,9 +13,11 @@
  */
 import type { CaseFile, Turn } from './case-file';
 
-const RE_QUOTE = /\b(?:quote|price|pricing)\b/i;
-// However the composer rewords it: put together, priced up, prepared, sent/texted/popped over or across,
-// sent to them, with them, theirs to have, on its way, to follow, or coming back to them with it.
+// The quote by any of its everyday names: a quote, a price, an estimate, the costs, a figure.
+const RE_QUOTE = /\b(?:quotes?|prices?|pricing|estimates?|costs?|costings?|figures?)\b/i;
+// However the composer rewords it: put together, priced up, prepared, sent/texted/popped/dropped over or
+// across, sent to them, with them, theirs to have, on its way or coming their way, to follow, expected,
+// in their inbox, let known, being worked on, or coming back to them with it.
 const RE_QUOTE_PROMISE = new RegExp([
     String.raw`put(?:ting)?\b.*\btogether`,
     String.raw`pric(?:e|ing)\b.*\bup`,
@@ -23,13 +25,20 @@ const RE_QUOTE_PROMISE = new RegExp([
     String.raw`sort(?:ing)?\s+out`,
     String.raw`prepar(?:e|ed|ing)`,
     String.raw`draw(?:ing)?\s+up`,
-    String.raw`(?:send|sending|get|getting|text|texting|pop|popping|pass|passing|message|messaging|email|emailing)\b.*\b(?:over|across|through|to you)`,
-    String.raw`send(?:ing)?\s+(?:you|it)`,
+    String.raw`(?:send|sending|get|getting|text|texting|pop|popping|pass|passing|message|messaging|email|emailing|drop|dropping|ping|pinging|fire|firing|shoot|shooting|whatsapp)\b.*\b(?:over|across|through|to you)`,
+    String.raw`(?:send|sending|message|messaging|text|texting|email|emailing)\s+(?:you|it)`,
+    String.raw`coming\s+(?:shortly|soon|later|today|tonight|tomorrow)`,
+    String.raw`your\s+(?:way|inbox)`,
+    String.raw`(?:to|will|['’]ll|shall|should)\s+follow`,
+    String.raw`follow(?:ing)?\s+up`,
+    String.raw`expect\s+(?:the|a|your|it)`,
+    String.raw`let\s+you\s+know`,
+    String.raw`(?:['’]ll|will|shall)\s+have\s+(?:the|a|your|it)\s+(?:quote|price|estimate|figure|over|ready|with)`,
+    String.raw`(?:['’]s|is|['’]m|am|['’]re|are)\s+on\s+(?:it|(?:the|your)\s+(?:quote|price|estimate))`,
     String.raw`with you`,
     String.raw`on (?:its|the) way`,
-    String.raw`to follow`,
-    String.raw`(?:come|coming|get|getting)\s+back\s+to\s+you`,
-    String.raw`you(?:['’]ll|\s+will)\s+have`,
+    String.raw`(?:be|come|coming|get|getting)\s+back\s+(?:to\s+you|with)`,
+    String.raw`you(?:['’]ll|\s+will)\s+have(?!\s+to\b)`,
     String.raw`be\s+in\s+touch`,
 ].map((p) => `\\b(?:${p})\\b`).join('|'), 'i');
 const RE_ALL_I_NEED = /\b(?:everything|all)\s+(?:I|we)\s+need\b/i;
