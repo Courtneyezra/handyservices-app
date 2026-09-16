@@ -281,10 +281,11 @@ export class Desk implements DeskLike {
                 }
                 // Media that came in well before this turn is thanked for as late, after the reply to what the
                 // customer has just said, rather than read as though it had just arrived (fixed-lines.ts lateMediaAckLine).
-                const owed = scoping?.proposal.thankForMedia ? lateMediaOf(file, turn, this.now()) : null;
-                if (scoping && owed) {
+                // Media a message has already followed is not thanked for at all.
+                const owed = scoping?.proposal.thankForMedia ? mediaThanksOf(file, turn, this.now()) : 'on_time';
+                if (scoping && owed !== 'on_time') {
                     scoping.proposal.thankForMedia = false;
-                    lateAck = lateMediaAckLine(owed.media, owed.at, this.now());
+                    if (owed !== 'followed') lateAck = lateMediaAckLine(owed.media, owed.at, this.now());
                 }
                 // 4. Compose, once; a guard failure sends it back once; the ceiling sends it back once.
                 const input: ComposeInput = { file, party, turn, route, specialists, fixedLines, lateAck, now: this.now() };
@@ -482,20 +483,21 @@ function scopingProposal(specialists: SpecialistReturn[]): Proposal | null {
 }
 
 /**
- * The newest photo or video from this party that is not part of the turn being answered and came in
- * longer ago than LATE_MEDIA_MS: the media a thanks owed now would be late for. Null when the turn
- * itself brought media (that thanks is on time and covers the rest), nothing is that old, or any
- * message, a person's from the board included, has already gone to the party since it came in, so a
- * customer who says a video is coming and sends it still gets one reply covering both.
+ * How a thanks owed now stands against the newest photo or video from this party. `on_time` when the
+ * turn itself brought media (that thanks covers the rest) or the media came in within LATE_MEDIA_MS,
+ * so a customer who says a video is coming and sends it still gets one reply covering both.
+ * `followed` when any message, a person's from the board included, has already gone to the party
+ * since it came in: a thanks now would read as fresh for something already replied after. Otherwise
+ * the media and when it came, for a thanks that says it is late.
  */
-function lateMediaOf(file: CaseFile, turn: Turn, now: Date): { media: TurnMedia[]; at: Date } | null {
-    if (turn.media.length) return null;
+function mediaThanksOf(file: CaseFile, turn: Turn, now: Date): 'on_time' | 'followed' | { media: TurnMedia[]; at: Date } {
+    if (turn.media.length) return 'on_time';
     const i = file.turns.findLastIndex((t) => t.direction === 'inbound' && t.partyId === turn.partyId && t.media.length > 0);
     const last = file.turns[i];
-    if (!last || isTurnOf(last, turn)) return null;
-    if (file.turns.slice(i + 1).some((t) => t.direction === 'outbound' && t.partyId === turn.partyId)) return null;
+    if (!last || isTurnOf(last, turn)) return 'on_time';
+    if (file.turns.slice(i + 1).some((t) => t.direction === 'outbound' && t.partyId === turn.partyId)) return 'followed';
     const at = new Date(last.at);
-    return now.getTime() - at.getTime() > LATE_MEDIA_MS ? { media: last.media, at } : null;
+    return now.getTime() - at.getTime() > LATE_MEDIA_MS ? { media: last.media, at } : 'on_time';
 }
 
 /** A hold reason a fixed line answers (service/hold-reasons.ts). Quoting's own reasons are not in that vocabulary; the desk raises them on their own. */

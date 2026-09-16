@@ -7,7 +7,7 @@
  * the text is still thanked for in the one covering reply, as PR #85 allowed.
  */
 import { describe, expect, it } from 'vitest';
-import { appendTurn, type CaseFile, type TurnMedia } from './case-file';
+import { appendTurn, release, type CaseFile, type TurnMedia } from './case-file';
 import { Desk, type DeskDeps } from './desk';
 import { DEFAULT_FIXED_LINES, noFixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
@@ -152,6 +152,67 @@ describe('a thanks for media that is late', () => {
         const next = await gateway.inbound(message('I have more work, can I send a video?', '2026-09-16T04:38:49.000Z'));
         if (next.kind !== 'handled') throw new Error(next.kind);
         expect(user).not.toContain('came in earlier');
+        expect(user).toContain('thank for media: no');
+        expect(next.result.bubbles.map((b) => b.text)).toEqual(["Yes, that's fine."]);
+    });
+
+    /** A composer that thanks for the video whenever it is asked to, as the model did on 16 Sep. */
+    const thanksWhenAsked = (users: string[]) => ({ user }: { user: string }) => {
+        users.push(user);
+        return user.includes('thank for media: yes')
+            ? { reply: "Thanks for the video, that's really helpful.\n\nYes, that's fine.", factIds: [], kbIds: [] }
+            : { reply: "Yes, that's fine.", factIds: [], kbIds: [] };
+    };
+    const ben = { kind: 'human' as const, id: 'ben' };
+
+    it('does not thank for a video a complaint line already followed, once the hold is released and the customer writes the next day', async () => {
+        const users: string[] = [];
+        const { gateway, clock } = desk({
+            router: ({ n }) => (n === 1 ? routeScoping({ exception: 'complaint', turnKind: 'other' }) : routeScoping({ turnKind: 'answer' })),
+            specialist: noFacts,
+            composer: thanksWhenAsked(users),
+        }, '2026-09-15T19:00:00.000Z');
+        const first = await gateway.inbound(message('The tap you fitted is leaking again, look. NG3 3EG', '2026-09-15T19:00:00.000Z', videoIn));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.result.bubbles.map((b) => b.text).join('\n\n')).toBe(DEFAULT_FIXED_LINES.complaint);
+        const file = first.file;
+        expect(file.ledger.find((l) => l.subject === 'media')?.thankedAt ?? null).toBeNull();
+        if (!release(file, ben, 'carry on').ok) throw new Error('release refused');
+
+        clock.t = Date.parse('2026-09-16T04:38:49.000Z');
+        const next = await gateway.inbound(message('Can you come this week?', '2026-09-16T04:38:49.000Z'));
+        if (next.kind !== 'handled') throw new Error(next.kind);
+        expect(users.at(-1)).toContain('thank for media: no');
+        expect(next.result.bubbles.map((b) => b.text)).toEqual(["Yes, that's fine."]);
+    });
+
+    it('does not thank for an earlier video the plain held acknowledgement already followed', async () => {
+        const users: string[] = [];
+        const { gateway, clock } = desk({
+            router: () => routeScoping({ turnKind: 'answer' }),
+            specialist: noFacts,
+            composer: (call) => {
+                if (call.n === 1) return { reply: 'Hi Sam, a dripping kitchen tap, no problem.', factIds: [], kbIds: [] };
+                if (call.n === 2) return { error: '529 overloaded' };
+                return thanksWhenAsked(users)(call);
+            },
+        }, '2026-09-15T19:00:00.000Z');
+        const first = await gateway.inbound(message('My kitchen tap drips. NG3 3EG', '2026-09-15T19:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        const file = first.file;
+        videoLeftUnanswered(file, '2026-09-15T19:06:09.000Z');
+
+        clock.t = Date.parse('2026-09-15T20:07:00.000Z');
+        const held = await gateway.inbound(message('any update?', '2026-09-15T20:07:00.000Z'));
+        if (held.kind !== 'handled') throw new Error(held.kind);
+        expect(held.result.decision).toBe('hold');
+        expect(held.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        if (!release(file, ben, 'carry on').ok) throw new Error('release refused');
+
+        clock.t = Date.parse('2026-09-16T04:38:49.000Z');
+        const next = await gateway.inbound(message('Can you come this week?', '2026-09-16T04:38:49.000Z'));
+        if (next.kind !== 'handled') throw new Error(next.kind);
+        expect(users.at(-1)).toContain('thank for media: no');
         expect(next.result.bubbles.map((b) => b.text)).toEqual(["Yes, that's fine."]);
     });
 
