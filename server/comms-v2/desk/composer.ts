@@ -18,6 +18,7 @@ import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
 import type { Route } from './router';
 import { composerChannelLines } from '../channels/composer-lines';
+import { GSM7_MULTI } from '../channels/sms-adapter';
 import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, type ShortenBrief } from './sender';
 import { withoutDashPunctuation } from './dashes';
 
@@ -214,7 +215,9 @@ export function buildComposerUser(input: ComposeInput): string {
     if (shorten) {
         lines.push('');
         lines.push(shorten.channel === 'sms'
-            ? `Your previous reply came to ${shorten.measured} SMS segments, over the ${shorten.ceiling} one text message may use. Say the same in one text message under ${shorten.charBudget} characters. Previous reply:`
+            ? shorten.wideChars.length
+                ? `Your previous reply came to ${shorten.measured} SMS segments, over the ${shorten.ceiling} one text message may use, because it carries ${shorten.wideChars.join(' ')}: one character like that halves what a text message holds. Say the same in one text message without ${shorten.wideChars.length > 1 ? 'those characters' : 'that character'} (no emoji or symbols), under ${GSM7_MULTI * shorten.ceiling} characters. Previous reply:`
+                : `Your previous reply came to ${shorten.measured} SMS segments, over the ${shorten.ceiling} one text message may use. Say the same in one text message under ${shorten.charBudget} characters. Previous reply:`
             : `Your previous reply came to ${shorten.measured} bubbles, over the ceiling of ${shorten.ceiling}. Say the same in at most ${shorten.ceiling} short bubbles, a blank line between them, each one or two sentences of at most ${BUBBLE_MAX_CHARS} characters: a longer one is split in two and counts as two. Previous reply:`);
         lines.push(shorten.previous);
     }

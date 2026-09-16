@@ -473,6 +473,30 @@ describe('the channel desk on a call', () => {
         if (b.kind !== 'handled') throw new Error(b.kind);
         expect(b.result.bubbles[0].text).not.toContain('WhatsApp');
     });
+    it('an SMS reply with an emoji, which halves what one text holds, is sent back once naming the emoji, and the plain retry goes (round 25)', async () => {
+        const users: string[] = [];
+        const warm = `Hi Priya \u{1F44B} sorry to hear the extractor fan has stopped \u{1F642} Which room is it in, and is it a ceiling or a wall fan? ${DEFAULT_FIXED_LINES.move_to_whatsapp}`;
+        const plain = `Hi Priya, sorry to hear the extractor fan has stopped. Which room is it in, and is it a ceiling or a wall fan? ${DEFAULT_FIXED_LINES.move_to_whatsapp}`;
+        const { gateway } = rig({
+            router: () => routeScoping({ turnKind: 'enquiry' }),
+            specialist: () => ({ facts: [{ key: 'job_type', value: 'extractor fan dead' }], jobUnknowns: [], answeredSubjects: [] }),
+            composer: ({ user, n }) => {
+                users.push(user);
+                // A model told only "under 134 characters" keeps its emoji; one told what cost the room drops them.
+                if (n === 1) return { reply: warm, factIds: [], kbIds: [] };
+                return { reply: /carries \u{1F44B} \u{1F642}/u.test(user) ? plain : warm, factIds: [], kbIds: [] };
+            },
+        });
+        const a = await gateway.inbound(fromDoorSms({ address: '+447700900942', name: 'Priya', text: 'Hi my bathroom extractor fan has stopped', at: '2026-09-11T10:00:00.000Z' }), { whatsapp: false });
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(users[0]).toContain('no emoji');
+        expect(users[1]).toContain('without those characters');
+        expect(a.result).toMatchObject({ decision: 'send', delivered: true, channel: 'sms' });
+        expect(a.result.bubbles).toHaveLength(1);
+        expect(a.result.bubbles[0].text).toContain('fan has stopped. Which room');
+        expect(a.result.bubbles[0].text).not.toMatch(/\p{Extended_Pictographic}/u);
+        expect(a.file.hold).toBeFalsy();
+    });
     it('a photo texted by SMS, which a UK long code cannot receive, reaches the router and the composer as a photo that did not reach us, never as an empty turn', async () => {
         const seen: string[] = [];
         const { gateway } = rig({
