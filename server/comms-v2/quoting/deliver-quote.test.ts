@@ -107,6 +107,22 @@ describe('deliverPricedQuote through the real live deliverer', () => {
         expect((await store.read(priced.record.slug))?.isDraft).toBe(false);
     });
 
+    it('the live price screen\'s send gets a 200 back, not a 409 hold, through the same real deliverer', async () => {
+        const outbox: Array<{ approver: string; body: string }> = [];
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
+        wire(outbox);
+        const { file, store, priced } = await pricedThread('2026-09-14T11:50:00.000Z');
+        const cases = new MemoryCaseFileStore();
+        cases.put(file);
+        const sent = await sendPricedQuoteThroughDesk(
+            { slug: priced.record.slug, approver: APPROVER, quoteUrl: priced.quoteUrl, totals: priced.totals },
+            { liveState: async () => ({ live: true, off: [] }), gateway: async () => ({ store: cases }), deskDeps: { client: composing, templates: approved, fixedLines: noFixedLineSource, quoting: { store } }, now },
+        );
+        expect(sent).toMatchObject({ status: 200, json: { ok: true, sent: true, desk: 'comms_v2', mode: 'freeform' } });
+        expect(new Set(outbox.map((o) => o.approver))).toEqual(new Set([APPROVER]));
+        expect(file.hold).toBeNull();
+    });
+
     it('still holds it, naming the desk\'s own switch, while that switch is off', async () => {
         const outbox: Array<{ approver: string; body: string }> = [];
         vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: {} }) }));

@@ -363,6 +363,13 @@ describe('liveDeliverer', () => {
         expect(off.ok).toBe(false);
         if (!off.ok) expect(off.reason).toBe('spine.senders.comms_v2.enabled is not true; the new desk stays in the sandbox until it is');
         expect(approvers).toEqual(['human:ben@example.com']);
+        // A sender with a switch of its own is still refused while that switch is off, and the desk's own row while the desk's is.
+        senders = { comms_v2: { enabled: true }, rules_ask: { enabled: false } };
+        const keyedOff = await liveDeliverer.deliver({ ...common, runId: 'k1', approver: 'rules.ask' });
+        expect(keyedOff).toMatchObject({ ok: false, reason: 'spine.senders.rules_ask.enabled is not true; the new desk stays in the sandbox until it is' });
+        senders = { comms_v2: { enabled: false } };
+        expect(await liveDeliverer.deliver({ ...common, runId: 'd1', approver: DESK_APPROVER })).toMatchObject({ ok: false, reason: 'spine.senders.comms_v2.enabled is not true; the new desk stays in the sandbox until it is' });
+        expect(approvers).toEqual(['human:ben@example.com']);
         vi.doUnmock('../../outbound');
         vi.doUnmock('../../spine/config');
     });
