@@ -132,6 +132,51 @@ export function asksToChangeDetails(text: string): boolean {
     return RE_CHANGE_OF_DETAILS.test(text);
 }
 
+/**
+ * A plain match for a customer asking whether we cover their area: "do you cover Nottingham",
+ * "which areas do you cover", "how far do you travel". The desk runs the Service specialist on such
+ * a turn even when the router did not list service, so the areas-covered answer in the knowledge
+ * base is read; it raises no hold and does not stop Scoping running on the job half of a mixed turn.
+ * It only adds to the router's reading. A carve-out in the router prompt (option A) can go on top
+ * once the comms-v2 router has an eval to catch drift; it should not replace this.
+ *
+ * "cover" is a trap in this trade ("cover the hole", "does that cover the cost"), so a verb that
+ * names a place is trusted only when a place follows it: a postcode, "my area", a capitalised word,
+ * or a lone lowercase word that ends the question. Every new phrase wants a negative test beside it.
+ */
+const RE_AREA_PHRASE = /\b(?:which|what)\s+(?:areas?|parts?|towns?|places?|postcodes?)\s+(?:do|does|can|will)\s+(?:you|u|ya)\b|\bareas?\s+(?:do\s+)?(?:you|u)\s+(?:cover|serve|work)\b|\bareas?\s+covered\b|\b(?:in|within|inside|outside|out\s+of|part\s+of)\s+your\s+(?:local\s+|service\s+|coverage\s+|working\s+)?(?:area|patch|radius|range)\b(?!\s+of\b)|\bhow\s+far\s+(?:out\s+)?(?:do|will|would|can|could)\s+(?:you|u)\s+(?:(?:guys|lot)\s+)?(?:travel|go|come|cover)\b|\btoo\s+far\s+(?:out\s+)?(?:for|from)\s+(?:you|u)\b|\bwhere\s+(?:are\s+you|r\s+u)\s+based\b|\bare\s+(?:you|u)\s+(?:local\s+to|based\s+(?:in|near|around))\b/i;
+const RE_PLACE_VERB = /\b(?:(?:do|does|d'you)\s+(?:(?:you|u|ya)\s+(?:(?:guys|lot|still)\s+)?)?(?:cover|serve|service|work\s+(?:in|around|near)|operate\s+(?:in|around|near)|go\s+(?:out\s+)?(?:to|as\s+far\s+as)|come\s+(?:out\s+)?(?:to|as\s+far\s+as))|(?:can|could|will|would)\s+(?:you|u)\s+(?:(?:guys|lot)\s+)?(?:come|travel|go|get)\s+(?:out\s+)?(?:to|as\s+far\s+as)|are\s+(?:you|u)\s+able\s+to\s+(?:come|travel|go|get)\s+(?:out\s+)?(?:to|as\s+far\s+as))\s+((?:the\s+)?[a-z][\w'-]*)([^\n]{0,12})/gi;
+const RE_POSTCODE = /^[a-z]{1,2}\d[a-z\d]?$/i;
+const RE_AREA_NOUN = /^(?:my|our|your|this|that|the)$/i;
+const RE_AREA_NOUN_AFTER = /^\s+(?:local\s+)?(?:area|town|village|city|postcode|neighbourhood|part\s+of)\b/i;
+// A lone lowercase word is a place only when the question ends on it ("do you cover beeston?").
+const RE_ENDS_QUESTION = /^\s*(?:[?.!,;]|$|(?:and|or|area|please|at\s+all)\b)/i;
+/** Words that follow "cover" or "come to" and are not places: money, pronouns, visits, days and months, and the jobs themselves. */
+const NOT_A_PLACE = new Set([
+    'a', 'an', 'it', 'its', 'these', 'those', 'them', 'me', 'us', 'mine', 'ours', 'yours', 'all', 'any', 'anything', 'everything', 'both', 'some', 'up', 'over', 'out', 'fix', 'do', 'see', 'look', 'have', 'quote', 'give',
+    'assess', 'check', 'help', 'measure', 'price', 'estimate', 'inspect', 'survey', 'view', 'value', 'sort',
+    'monday', 'mondays', 'tuesday', 'tuesdays', 'wednesday', 'wednesdays', 'thursday', 'thursdays', 'friday', 'fridays', 'saturday', 'saturdays', 'sunday', 'sundays',
+    'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'christmas', 'easter',
+    'cost', 'costs', 'price', 'prices', 'parts', 'materials', 'labour', 'labor', 'fee', 'fees', 'charge', 'charges', 'callout', 'call-out', 'vat', 'insurance', 'damage', 'damages', 'expenses', 'travel',
+    'plumbing', 'electrics', 'electrical', 'leaks', 'leak', 'roofing', 'roofs', 'painting', 'decorating', 'tiling', 'carpentry', 'gardening', 'flooring', 'plastering', 'repairs', 'jobs', 'work', 'emergencies', 'emergency', 'weekends', 'evenings', 'nights', 'holidays', 'gas', 'boilers', 'asbestos',
+]);
+
+export function asksAboutOurArea(text: string): boolean {
+    if (RE_AREA_PHRASE.test(text)) return true;
+    for (const m of Array.from(text.matchAll(RE_PLACE_VERB))) {
+        const after = m[2] ?? '';
+        // "the NG7 area", "the Beeston area": a place only with the article in front of it.
+        const withThe = /^the\s+/i.test(m[1]);
+        const place = m[1].replace(/^the\s+/i, '');
+        if (RE_POSTCODE.test(place)) return true;
+        if (RE_AREA_NOUN.test(place)) { if (RE_AREA_NOUN_AFTER.test(after)) return true; continue; }
+        if (NOT_A_PLACE.has(place.toLowerCase())) continue;
+        if (withThe) { if (/^[A-Z]/.test(place) && RE_AREA_NOUN_AFTER.test(after)) return true; continue; }
+        if (/^[A-Z]/.test(place) || RE_ENDS_QUESTION.test(after)) return true;
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------- convergence
 
 /** Replies the desk may send while scoping before the thread is handed to Ben as not converging. */

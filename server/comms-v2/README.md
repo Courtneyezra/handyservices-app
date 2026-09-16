@@ -330,7 +330,11 @@ The specialist for facts and aftercare (docs/comms-v2/design.md, "Who handles wh
 is in docs/comms-v2/contracts.md). It answers only from a reviewed knowledge-base row, cited by id and
 verbatim, or the customer's own record, and holds on everything else. The desk runs it beside Scoping:
 its deterministic tools every turn, its model when the router sends the turn to `service`, or when
-the customer's own words ask to change a detail on their record, whatever the router read.
+the customer's own words ask to change a detail on their record or whether we cover their area
+(`asksAboutOurArea`, which widens the knowledge-base lookup to the areas-covered row, raises no hold
+and leaves Scoping to run on a mixed turn's job half),
+whatever the router read. A router-prompt carve-out for coverage can go on top of that match once
+the router has an eval to catch drift.
 
 | Piece | File | What it is |
 |---|---|---|

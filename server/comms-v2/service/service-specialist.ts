@@ -26,7 +26,7 @@ import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import { reviewedKb, type KbReader } from '../desk/scoping-tools';
 import type { ServiceHold } from './hold-reasons';
-import { BY, changeOfDetails, convergence, customerRecord, kbLookup, MASKED_FIELDS, RECORD_FIELDS, type KbRowVerbatim, type RecordEntry } from './service-tools';
+import { asksAboutOurArea, BY, changeOfDetails, convergence, customerRecord, kbLookup, MASKED_FIELDS, RECORD_FIELDS, type KbRowVerbatim, type RecordEntry } from './service-tools';
 
 /** What the model may return: selections and labels only. No field can carry a reply. */
 export const serviceOutputSchema = z.object({
@@ -110,6 +110,9 @@ export interface ServeOptions {
     scopingRan: boolean;
 }
 
+/** Added to the lookup on a coverage question, so the areas-covered row is a candidate whatever words the customer used. */
+const AREA_QUERY = 'which areas do you cover';
+
 const emptyProposal = (file: CaseFile, hold: ServiceHold | null): Proposal => ({ nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: !!(file.job.type && file.job.location), hold });
 
 export async function serve(file: CaseFile, turn: Turn, party: Party, client: ModelClient, deps: ServiceSpecialistDeps = {}, opts: ServeOptions): Promise<SpecialistReturn> {
@@ -126,7 +129,7 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
     }
     if (!opts.routed || !turn.body.trim()) return { specialist: 'service', factIds, proposal: emptyProposal(file, null), calls, error: null, brief, note: null };
 
-    const rows: KbRowVerbatim[] = await kbLookup(turn.body, deps.kb ?? reviewedKb);
+    const rows: KbRowVerbatim[] = await kbLookup(asksAboutOurArea(turn.body) ? `${turn.body}\n${AREA_QUERY}` : turn.body, deps.kb ?? reviewedKb);
     const record: RecordEntry[] = customerRecord(file, party);
 
     // The model reads the thread and the candidates and returns selections.
