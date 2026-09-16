@@ -84,24 +84,65 @@ function decodeEntities(s: string): string {
 }
 
 /**
+ * `s` without each block `open` starts and `closeOf` ends; a block never closed drops the rest.
+ * One pass forward, so a body full of unclosed openers costs no more than its length.
+ */
+function dropBlocks(s: string, open: RegExp, closeOf: (m: RegExpExecArray) => RegExp): string {
+    let out = '';
+    let at = 0;
+    open.lastIndex = 0;
+    for (let m = open.exec(s); m; m = open.exec(s)) {
+        const close = closeOf(m);
+        close.lastIndex = open.lastIndex;
+        const end = close.exec(s);
+        out += s.slice(at, m.index);
+        if (!end) return out;
+        at = open.lastIndex = close.lastIndex;
+    }
+    return out + s.slice(at);
+}
+
+const CLOSE_TAG: Record<string, RegExp> = {};
+const closeTagOf = (m: RegExpExecArray) => (CLOSE_TAG[m[1].toLowerCase()] ??= new RegExp(`</${m[1]}\\s*>`, 'gi'));
+
+/** `s` with each outermost `<blockquote>` that is closed replaced by a line break; a stray or unclosed tag is left. */
+function dropBlockquotes(s: string): string {
+    const opens: number[] = [];
+    const cut: Array<[number, number]> = [];
+    const tag = /<(\/?)blockquote\b[^<>]*>/gi;
+    for (let m = tag.exec(s); m; m = tag.exec(s)) {
+        if (!m[1]) { opens.push(m.index); continue; }
+        const start = opens.pop();
+        if (start === undefined) continue;
+        while (cut.length && cut[cut.length - 1][0] >= start) cut.pop();
+        cut.push([start, tag.lastIndex]);
+    }
+    let out = '';
+    let at = 0;
+    for (const [a, b] of cut) { out += `${s.slice(at, a)}\n`; at = b; }
+    return out + s.slice(at);
+}
+
+/**
  * An HTML body as plain lines, for a mail client that sent no plain-text part. Quoted history a
  * client marks up (a `<blockquote>`, Gmail's `gmail_quote` block) is dropped here; the rest is left
- * to `stripQuotedHistory`, which reads the text the same way as a plain-text part.
+ * to `stripQuotedHistory`, which reads the text the same way as a plain-text part. Anyone can email
+ * the business, so every step is linear in the body's length.
  */
 export function htmlToText(html: string): string {
     let s = html.replace(/\r\n/g, '\n');
-    s = s.replace(/<!--[\s\S]*?-->/g, '');
-    s = s.replace(/<(head|style|script|title)\b[\s\S]*?<\/\1\s*>/gi, '');
-    for (let prev = ''; prev !== s;) {
-        prev = s;
-        s = s.replace(/<blockquote\b(?:(?!<blockquote\b)[\s\S])*?<\/blockquote\s*>/gi, '\n');
+    s = dropBlocks(s, /<!--/g, () => /-->/g);
+    s = dropBlocks(s, /<(head|style|script|title)\b/gi, closeTagOf);
+    s = dropBlockquotes(s);
+    const gmail = /<div\b[^<>]*/gi;
+    for (let m = gmail.exec(s); m; m = gmail.exec(s)) {
+        if (/class=["'][^"']*gmail_quote/i.test(m[0])) { s = `${s.slice(0, m.index)}\n`; break; }
     }
-    s = s.replace(/<div\b[^>]*class=["'][^"']*gmail_quote[\s\S]*$/i, '\n');
-    s = s.replace(/\s*\n\s*/g, ' ');
+    s = s.split('\n').map((l) => l.trim()).join(' ');
     s = s.replace(/<br\s*\/?>/gi, '\n');
-    s = s.replace(/<\/?(p|div|tr|table|h[1-6]|ul|ol|section|article|header|footer)\b[^>]*>/gi, '\n');
-    s = s.replace(/<li\b[^>]*>/gi, '\n- ');
-    s = s.replace(/<[^>]*>/g, '');
+    s = s.replace(/<\/?(p|div|tr|table|h[1-6]|ul|ol|section|article|header|footer)\b[^<>]*>/gi, '\n');
+    s = s.replace(/<li\b[^<>]*>/gi, '\n- ');
+    s = s.replace(/<[^<>]*>/g, '');
     s = decodeEntities(s);
     return s.split('\n').map((l) => l.replace(/[ \t\u00a0]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }

@@ -107,6 +107,16 @@ describe('the email adapter', () => {
         const html = '<p>See below.</p><blockquote>q1<blockquote>older</blockquote>still q1</blockquote><p>Thursday works.</p><blockquote>q2</blockquote><p>Sam</p>';
         expect(htmlToText(html)).toBe('See below.\n\nThursday works.\n\nSam');
     });
+    it('reads a large hostile HTML body in linear time', () => {
+        const n = 100_000;
+        const bodies = ['<style>x'.repeat(n), '<!--x'.repeat(n), '<blockquote>'.repeat(n) + 'q' + '</blockquote>'.repeat(n), '<div class="a'.repeat(n), '<p'.repeat(n), ' '.repeat(n * 5) + 'x'];
+        const started = Date.now();
+        for (const html of bodies) htmlToText(`<p>Hello.</p>${html}`);
+        expect(Date.now() - started).toBeLessThan(2000);
+        expect(htmlToText('<p>Hello.</p><style>a{}<!-- never closed')).toBe('Hello.');
+        expect(htmlToText('<p>Hi</p><!-- never closed <p>gone</p>')).toBe('Hi');
+        expect(htmlToText('<p>Kept</p><blockquote>unclosed <blockquote>q</blockquote> tail')).toBe('Kept\nunclosed tail');
+    });
     it('strips history at the quote header or the first quoted line', () => {
         expect(stripQuotedHistory('new words\n\n-----Original Message-----\nFrom: x\nold')).toBe('new words');
         expect(stripQuotedHistory('new\n> old\n> older')).toBe('new');
