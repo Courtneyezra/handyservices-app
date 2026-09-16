@@ -192,6 +192,8 @@ export async function readModelHealth(): Promise<ModelHealthRecord | null> {
 async function updateModelHealth(next: (prev: ModelHealthRecord | null) => ModelHealthRecord | null, now: Date): Promise<void> {
     const db = await getDb();
     await db.transaction(async (tx) => {
+        await tx.execute(sql.raw(`set local lock_timeout = ${MODEL_HEALTH_UPDATE_TIMEOUT_MS * 2}`));
+        await tx.execute(sql.raw(`set local idle_in_transaction_session_timeout = ${MODEL_HEALTH_UPDATE_TIMEOUT_MS * 2}`));
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${MODEL_HEALTH_KEY}))`);
         await tx.execute(sql.raw(`set local statement_timeout = ${MODEL_HEALTH_UPDATE_TIMEOUT_MS}`));
         const [row] = await tx.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, MODEL_HEALTH_KEY)).limit(1);
