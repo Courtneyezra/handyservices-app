@@ -291,6 +291,50 @@ describe('the wrap-up check', () => {
         expect(withoutSentences(`Cheers.\n\n${WRAP_UP}`, [WRAP_UP.split('. ')[0] + '.', WRAP_UP.split('. ')[1]])).toBe('Cheers.');
     });
 
+    it('reads the everyday rewordings of the promise as the same wrap-up, and a question or plain news as none', () => {
+        const said = [WRAP_UP];
+        for (const s of [
+            "I'll send you the quote shortly.",
+            "I'll text the price over later today.",
+            "You'll have the quote from me later today.",
+            'Your quote will be with you shortly.',
+            "I'll get the quote to you by this evening.",
+            "The quote's on its way.",
+            "I'll be in touch with the quote shortly.",
+            "I'll come back to you with a quote this afternoon.",
+            "I'll pop the quote across to you soon.",
+            'Quote to follow shortly.',
+            "Your quote's being prepared now.",
+            "I'm pricing it up now.",
+        ]) expect(repeatedSentences(`Cheers Sam. ${s}`, said), s).toEqual([s]);
+        for (const s of [
+            'Would you like a quote for the fence too?',
+            'Thanks for sending the photos over.',
+            'The quote includes all the materials.',
+            'No worries at all, Sam.',
+        ]) expect(repeatedSentences(s, said), s).toEqual([]);
+    });
+
+    it('gives a thanks after the promise one short bubble when the composer rewords the promise', async () => {
+        const client = new FakeModelClient({
+            router: ({ user }) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: /thanks/.test((user.split('>>').pop() ?? '').toLowerCase()) ? 'acknowledgement' : 'answer' }),
+            specialist: ({ system }) => (/lines of a quote/.test(system) ? intakeOutput : { facts: [{ key: 'job_type', value: 'handles on 4 doors' }, { key: 'location', value: 'NG11 7DL' }], jobUnknowns: [], answeredSubjects: [] }),
+            composer: ({ user, n }) => ({ reply: n === 1 ? WRAP_UP : /said again:/.test(user) ? 'No worries at all, Sam.' : "No problem, Sam. I'll send you the quote on here.", factIds: [], kbIds: [] }),
+        });
+        const quotes = new MemoryQuoteStore();
+        const desk = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, quoting: { store: quotes, drafter: new FakeDrafter(quotes), notifier: recordingNotifier } });
+        const gateway = new Gateway({ desk });
+        const one = await gateway.inbound(message('Handles on 4 doors, NG11 7DL'));
+        if (one.kind !== 'handled') throw new Error(one.kind);
+        expect(one.result.bubbles.map((b) => b.text)).toEqual([WRAP_UP]);
+
+        const thanks = await gateway.inbound(message('thanks mate'));
+        if (thanks.kind !== 'handled') throw new Error(thanks.kind);
+        expect(thanks.result.decision).toBe('send');
+        expect(thanks.result.bubbles.map((b) => b.text)).toEqual(['No worries at all, Sam.']);
+        expect(client.calls.filter((x) => x.role === 'composer' && /said again:/.test(x.user))[0].user).toContain("I'll send you the quote on here.");
+    });
+
     it('counts what was said since the last question, so a new job being scoped can wrap up again', async () => {
         const quotes = new MemoryQuoteStore();
         const client = kiranClient();
