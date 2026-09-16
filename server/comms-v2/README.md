@@ -195,8 +195,9 @@ the email (`GET /emails/receiving/{id}`) and its attachments
 - The From header's display name and address (`"Jones, Sam" <sam@...>`), unfolded; the address is
   lowercased. A From header that does not parse to an address or carries an encoded word gives way
   to Resend's own `from` field.
-- The plain-text part, or the HTML part read as text when the client sent none. A `<blockquote>` (innermost
-  first, so words between two quotes are kept) or Gmail quote block is dropped, and the quoted history is then stripped from the text.
+- The plain-text part, or the HTML part read as text when the client sent none. A closed `<blockquote>`
+  (matched open to close, so words between two quotes are kept) or Gmail quote block is dropped,
+  and the quoted history is then stripped from the text.
 - `Message-ID`, `In-Reply-To` and `References`, kept on the party's email channel so a reply joins
   the same thread.
 - Each photo or video, downloaded from its signed URL (the API key is never sent there). A photo is
