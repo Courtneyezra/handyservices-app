@@ -216,6 +216,8 @@ not driven in the sandbox; the door records the acceptance event itself, exactly
 writes on the quote row, so the desk's own behaviour after an acceptance can be checked without
 taking a payment.
 
+## Batch 9, answered 11 Sep
+
 **43. The guards over Ben's own words.** "humanReply does not run the desks guards over a reply Ben
 typed. None of the eight, not figure, date, commitment and fault, business claim, disclosure,
 regulated, ask ledger or one reply. They exist to stop the composer inventing things and Ben is the
@@ -355,7 +357,7 @@ Given on the bearings board, captured result lavish-d6356d3e6027f92c sequence 5,
 - trust: "That's a fair question. Let me get you a proper answer rather than a quick one, and I'll come back to you. / Thanks / Ben"
 No timeframe in any of them. Still open as follow-up: the desk's other fixed lines in code (money_to_ben, held_ack, no_source and the rest) also name Ben in the third person.
 
-## Batch 11, answered 16 Sep (Kiran case study, hsa-comms-case-study-kiran)
+## Batch 11, answered 16 Sep (a live thread case study)
 
 Also 16 Sep, superseding answer 88: the server was rescaled to 16 GB, and work is gated by free memory rather than a worker count.
 
