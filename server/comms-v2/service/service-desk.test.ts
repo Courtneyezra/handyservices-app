@@ -10,7 +10,7 @@
  * (7.5). No customer send on a clock pass. A held thread that turns to gas is still not left silent,
  * and a turn the router sends to Service alongside another subject is still scoped. A graver reason
  * takes over a hold that answers the rest, and a guard retry that drops a citation is not recorded
- * as having made it.
+ * as having made it. A coverage question or a change of details reaches Service whatever the router read.
  */
 import { describe, expect, it } from 'vitest';
 import { Desk, type DeskDeps } from '../desk/desk';
@@ -68,6 +68,54 @@ describe('the Service specialist on the desk', () => {
         expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(2);
         expect(out.file.hold?.reason).toMatch(/^change_of_details: address/);
         expect(out.file.facts.find((f) => f.key === 'change_of_details')?.value).toBe('address');
+    });
+    it('a coverage question the router sent to Scoping still reaches Service: the areas-covered row is read and cited, with no hold', async () => {
+        const AREAS = 'We cover Nottingham and the surrounding areas, Beeston and West Bridgford included.';
+        const areasKb = { async list() { return [{ id: 'kb-areas', topic: 'Which areas do you cover?', approvedWords: AREAS }]; } };
+        const { client, gateway } = desk({
+            router: () => route({ subjects: ['scoping'], turnKind: 'question' }),
+            specialist: ({ system, user }) => {
+                if (!isService(system)) return scopingOut();
+                expect(user).toContain('kb-areas');
+                return serviceOut({ answers: [{ asked: 'areas covered', source: 'kb', id: 'kb-areas' }] });
+            },
+            composer: ({ user }) => {
+                expect(user).toContain('cite knowledge-base id kb-areas');
+                const factId = /\(fact (fact_[^)]+)\)/.exec(user)![1];
+                return { reply: `${AREAS}\n\nWhat's the job you've got in mind?`, factIds: [factId], kbIds: ['kb-areas'] };
+            },
+        }, { kb: areasKb });
+        const out = await gateway.inbound(turn('Do cover Nottingham?', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(2);
+        expect(out.result.decision).toBe('send');
+        expect(out.result.kbIds).toEqual(['kb-areas']);
+        expect(out.result.bubbles[0].text).toBe(AREAS);
+        expect(out.file.hold).toBeNull();
+    });
+    it('a mixed coverage-and-job turn the router sent to Scoping runs both: Scoping takes the job half and Service does not hold it as no source', async () => {
+        const { client, gateway } = desk({
+            router: () => route({ subjects: ['scoping'], turnKind: 'enquiry' }),
+            specialist: ({ system }) => isService(system)
+                ? serviceOut({ answers: [{ asked: 'areas covered', source: 'kb', id: 'kb-insured' }, { asked: 'fix a leaking tap?', source: 'job', id: null }] })
+                : scopingOut([{ key: 'job_type', value: 'leaking tap' }]),
+            composer: ({ user }) => { expect(user).toContain('Proposal from Scoping:'); return { reply: `${INSURED}\n\nWhereabouts are you?`, factIds: [], kbIds: ['kb-insured'] }; },
+        });
+        const out = await gateway.inbound(turn('Do you cover Nottingham, and can you fix a leaking tap?', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(2);
+        expect(out.file.job.type).toBe('leaking tap');
+        expect(out.file.hold).toBeNull();
+    });
+    it('a turn that only looks like coverage ("cover the cost") does not run the Service model', async () => {
+        const { client, gateway } = desk({
+            router: () => route({ subjects: ['scoping'], turnKind: 'question' }),
+            specialist: ({ system }) => { if (isService(system)) throw new Error('Service was not routed'); return scopingOut([{ key: 'job_type', value: 'gutter' }]); },
+            composer: () => ({ reply: 'Thanks, whereabouts are you?', factIds: [], kbIds: [] }),
+        });
+        const out = await gateway.inbound(turn('Gutter is leaking. Does your price cover the cost of parts?', '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(1);
     });
     it('answers a business question from a reviewed row verbatim, cited by id, and the business-claim guard passes on the citation', async () => {
         const { client, gateway } = desk({

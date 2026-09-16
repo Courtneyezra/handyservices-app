@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import { appendTurn, ask, hold, open, recordFact, release, type CaseFile } from '../desk/case-file';
 import { emptyKb, JOB_ASKS_MAX } from '../desk/scoping-tools';
-import { asksToChangeDetails, changeOfDetails, convergence, customerRecord, kbLookup, SCOPING_REPLIES_MAX, stemsOf } from './service-tools';
+import { asksAboutOurArea, asksToChangeDetails, changeOfDetails, convergence, customerRecord, kbLookup, SCOPING_REPLIES_MAX, stemsOf } from './service-tools';
 
 function fixture(text = 'hi', name: string | null = 'Sam'): CaseFile {
     const r = open({
@@ -104,6 +104,56 @@ describe('asksToChangeDetails', () => {
     it('does not match ordinary use of "moved" that is not a change of home', () => {
         expect(asksToChangeDetails("we've moved the sofa out of the hallway for you")).toBe(false);
         expect(asksToChangeDetails("I've moved my car onto the drive")).toBe(false);
+    });
+});
+
+describe('asksAboutOurArea', () => {
+    it.each([
+        'Do cover Nottingham?',
+        'Do you cover Nottingham?',
+        'do you cover nottingham',
+        'Which areas do you cover?',
+        'what area do u cover',
+        'Do you work in Derby?',
+        'do you come out to Arnold?',
+        'Are you able to travel to Derby?',
+        'How far do you travel?',
+        'Is Beeston in your area?',
+        'Is West Bridgford within your service area?',
+        'Do you cover NG5?',
+        'do you cover the NG7 area',
+        'Do you cover my area? NG9 2AB',
+        'do you go as far as Mansfield',
+        'Could you come out to Long Eaton next week?',
+        'Are you local to Carlton?',
+        'Where are you based?',
+        'Is that too far for you?',
+        'Dripping kitchen tap. And do you cover Nottingham?',
+        'Do you cover Nottingham, and can you fix a leaking tap?',
+    ])('matches a coverage question: %s', (text) => {
+        expect(asksAboutOurArea(text)).toBe(true);
+    });
+    it.each([
+        'Do you cover the cost of materials?',
+        'does that cover the cost',
+        'do you cover parts and labour?',
+        'Does the price cover VAT?',
+        'Can you cover the hole in the wall?',
+        'the cover plate on the socket is cracked',
+        'I want to cover up the tiles in the bathroom',
+        'the area around the sink is mouldy',
+        'NG9 2AB',
+        'I live in Nottingham, the tap is leaking',
+        'Can you come to mine on Tuesday?',
+        'can you come out to fix the gutter',
+        'Do you work in the evenings?',
+        'do you cover plumbing?',
+        'do you service boilers',
+        'Is that your area of expertise?',
+        'We have a dust cover over the sofa, can you work around it?',
+        'Are you insured?',
+    ])('does not match: %s', (text) => {
+        expect(asksAboutOurArea(text)).toBe(false);
     });
 });
 
