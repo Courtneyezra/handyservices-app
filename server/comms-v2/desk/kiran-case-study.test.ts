@@ -343,6 +343,32 @@ describe('photos get one light detail (answer 92)', () => {
         expect(out.file.turns[0].media[0].description?.description).toBe(HANDLE_PHOTO);
     });
 
+    it('never shows the composer a brand read off the photo that the customer did not write, in the photo or in a job detail taken from it', async () => {
+        const shelf = 'A wooden floating shelf on a plasterboard wall. Below on the floor is a yellow DeWalt Floating Shelf Kit box. Defects: Plasterboard wall (moderate: vertical crack). Text seen: plasterboard wall, DEWALT, FLOATING SHELF KIT. Not shown: fixings. (confidence low)';
+        const run = async (body: string) => {
+            const prompts: string[] = [];
+            const client = new FakeModelClient({
+                router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'answer' }),
+                specialist: () => ({ facts: [{ key: 'job_detail', value: 'kit provided (DeWalt Floating Shelf Kit)' }], jobUnknowns: ['what goes on it'], answeredSubjects: ['media'] }),
+                composer: ({ user }) => { prompts.push(user); return { reply: 'Thanks for the photo, I can see the kit there.\n\nWhat are you planning to keep on it?', factIds: [], kbIds: [] }; },
+            });
+            const quotes = new MemoryQuoteStore();
+            const desk = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, scoping: { describe: async () => ({ ok: true, description: shelf, confidence: 'low', model: 'fake', usage: null, durationMs: 1 }) }, quoting: { store: quotes, drafter: new FakeDrafter(quotes), notifier: recordingNotifier } });
+            const out = await new Gateway({ desk }).inbound({ ...message(body), media: [{ id: 'photo_1', kind: 'image', mime: 'image/jpeg', path: '/tmp/shelf.jpg', url: null }] });
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            return { user: prompts[0], file: out.file };
+        };
+        const unnamed = await run('floating shelf on a plasterboard wall, NG9 2AB, here\'s the wall, kit is in the box');
+        expect(unnamed.user).not.toMatch(/dewalt/i);
+        expect(unnamed.user).toContain('a yellow Floating Shelf Kit box');
+        expect(unnamed.user).toContain('kit provided');
+        // Ben's own view keeps it.
+        expect(unnamed.file.facts.some((f) => f.key === 'job_detail' && f.value.includes('DeWalt'))).toBe(true);
+        // A brand the customer named is theirs to hear back.
+        const named = await run('floating shelf on a plasterboard wall, NG9 2AB, the DeWalt kit is in the box');
+        expect(named.user).toContain('DeWalt Floating Shelf Kit');
+    });
+
     it('describes a turn\'s photos together, and records them in the order they came', async () => {
         let running = 0;
         let most = 0;

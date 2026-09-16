@@ -18,7 +18,7 @@ import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
 import type { Route } from './router';
 import { composerChannelLines } from '../channels/composer-lines';
-import { BUBBLE_CEILING, type ShortenBrief } from './sender';
+import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, type ShortenBrief } from './sender';
 import { withoutDashPunctuation } from './dashes';
 
 export const composerOutputSchema = z.object({
@@ -109,9 +109,36 @@ export function lightPhotoSummary(description: string): string {
     return description.split(/\s*\b(?:Defects|Text seen|Not shown):/)[0].replace(/\s*\(confidence \w+\)\s*$/i, '').trim();
 }
 
-function threadFor(file: CaseFile, turn: Turn): string {
+const RE_TEXT_SEEN = /\bText seen:\s*(.*?)\.?(?=\s*(?:Not shown:|\(confidence\b|$))/;
+const words = (text: string): string[] => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1);
+
+/**
+ * The words a photo showed that nobody on the thread wrote: what the photo model read off a box or a
+ * label (`Text seen:`), less every word a customer typed. A brand is only ever one of these, and it
+ * also rides into the opening sentence and into a job detail the specialist took from the photo, so
+ * the composer is shown neither (answer 92: never a brand the customer did not mention).
+ */
+export function unmentionedPhotoText(file: CaseFile): Set<string> {
+    const descriptions = [
+        ...file.turns.flatMap((t) => t.media.map((m) => m.description?.description ?? '')),
+        ...file.facts.filter((f) => f.source.kind === 'media_description').map((f) => f.value),
+    ];
+    const read = descriptions.flatMap((d) => words(RE_TEXT_SEEN.exec(d)?.[1] ?? ''));
+    const typed = new Set(file.turns.filter((t) => t.direction === 'inbound').flatMap((t) => words(t.body ?? '')));
+    return new Set(read.filter((w) => !typed.has(w)));
+}
+
+function withoutWords(text: string, drop: Set<string>): string {
+    if (!drop.size) return text;
+    return text.split(/(\s+)/).filter((piece) => {
+        const w = words(piece);
+        return !(w.length && w.every((x) => drop.has(x)));
+    }).join('').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?)])/g, '$1').trim();
+}
+
+function threadFor(file: CaseFile, turn: Turn, unmentioned: Set<string>): string {
     return file.turns.slice(-16).map((t) => {
-        const media = t.media.length ? ` [${t.media.length} ${t.media[0].kind}${t.media.length > 1 ? 's' : ''}${t.media.map((m) => m.description ? `: ${lightPhotoSummary(m.description.description)}` : '').join('')}]` : '';
+        const media = t.media.length ? ` [${t.media.length} ${t.media[0].kind}${t.media.length > 1 ? 's' : ''}${t.media.map((m) => m.description ? `: ${withoutWords(lightPhotoSummary(m.description.description), unmentioned)}` : '').join('')}]` : '';
         return `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? (file.parties.find((p) => p.personId === t.partyId)?.name ?? 'customer') : 'you'}: ${t.body}${media}`;
     }).join('\n');
 }
@@ -126,7 +153,8 @@ export function buildComposerUser(input: ComposeInput): string {
     lines.push(`Customer: ${party.name ?? 'unknown name'}. Stage: ${file.stage}. Prefers text only: ${party.prefersText ? 'yes' : 'no'}.`);
     lines.push(...composerChannelLines(file, party, turn, input.now ?? new Date(), input.channel, input.reserved));
     lines.push('Thread, oldest first (the turn to reply to is marked >>):');
-    lines.push(threadFor(file, turn));
+    const unmentioned = unmentionedPhotoText(file);
+    lines.push(threadFor(file, turn, unmentioned));
     lines.push('');
     // Ben's own facts carry the admin price screen and internal notes: they never reach the composer.
     // A diary fact is only citable while this run looked it up: an older booked date was true when it was
@@ -134,7 +162,7 @@ export function buildComposerUser(input: ComposeInput): string {
     const lookedUp = new Set(specialists.flatMap((s) => s.factIds));
     const citable = customerVisibleFacts(file).filter((f) => f.source.kind !== 'diary' || lookedUp.has(f.id));
     lines.push('Facts on the file (id: key = value):');
-    lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.source.kind === 'media_description' ? lightPhotoSummary(f.value) : f.value}`).join('\n') : '(none yet)');
+    lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.source.kind === 'media_description' ? withoutWords(lightPhotoSummary(f.value), unmentioned) : f.source.kind === 'thread' ? withoutWords(f.value, unmentioned) : f.value}`).join('\n') : '(none yet)');
     lines.push('');
     lines.push(`Turn kind: ${route.turnKind}. Subjects: ${route.subjects.join(', ')}. Exceptions: ${route.exceptions.join(', ') || 'none'}.`);
     if (proposal) {
@@ -166,7 +194,7 @@ export function buildComposerUser(input: ComposeInput): string {
         lines.push('');
         lines.push(shorten.channel === 'sms'
             ? `Your previous reply came to ${shorten.measured} SMS segments, over the ${shorten.ceiling} one text message may use. Say the same in one text message under ${shorten.charBudget} characters. Previous reply:`
-            : `Your previous reply came to ${shorten.measured} bubbles, over the ceiling of ${shorten.ceiling}. Say the same in at most ${shorten.ceiling} short bubbles. Previous reply:`);
+            : `Your previous reply came to ${shorten.measured} bubbles, over the ceiling of ${shorten.ceiling}. Say the same in at most ${shorten.ceiling} short bubbles, a blank line between them, each one or two sentences of at most ${BUBBLE_MAX_CHARS} characters: a longer one is split in two and counts as two. Previous reply:`);
         lines.push(shorten.previous);
     }
     lines.push('');

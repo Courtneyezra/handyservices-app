@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { open, type CaseFile } from './case-file';
 import { buildComposerUser } from './composer';
 import { FakeModelClient } from './models';
-import { BUBBLE_CEILING, renderWhatsApp, shortenBriefFor } from './sender';
+import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, renderWhatsApp, shortenBriefFor } from './sender';
 import { renderSms } from '../channels/sms-adapter';
 import { route, routerOutputSchema } from './router';
 
@@ -195,5 +195,7 @@ describe('the composer\'s brief', () => {
         const wall = Array.from({ length: 6 }, (_, i) => `bubble ${i}`).join('\n\n');
         const onWhatsApp = brief({ file: whatsapp, party: whatsapp.parties[0], turn: whatsapp.turns[0], shorten: shortenBriefFor('whatsapp', wall, renderWhatsApp(wall).bubbles) });
         expect(onWhatsApp).toContain(`came to 6 bubbles, over the ceiling of ${BUBBLE_CEILING}`);
+        // The retry is told the width the splitter holds each bubble to, or three long paragraphs split to four again.
+        expect(onWhatsApp).toContain(`each one or two sentences of at most ${BUBBLE_MAX_CHARS} characters`);
     });
 });
