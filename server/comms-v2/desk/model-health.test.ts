@@ -41,8 +41,20 @@ function throwingClient(make: () => Error): ModelClient {
     return client;
 }
 
-function memoryStore(): ModelHealthStore & { row: ModelHealthRecord | null } {
-    const s = { row: null as ModelHealthRecord | null, read: async () => s.row, write: async (r: ModelHealthRecord) => { s.row = r; } };
+/** A row whose reads and writes each take a tick, so updates that are not kept apart interleave. */
+function memoryStore(): ModelHealthStore & { row: ModelHealthRecord | null; writes: number } {
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 1));
+    const s = {
+        row: null as ModelHealthRecord | null,
+        writes: 0,
+        read: async () => s.row,
+        update: async (next: (prev: ModelHealthRecord | null) => ModelHealthRecord | null) => {
+            await tick();
+            const record = next(s.row);
+            await tick();
+            if (record) { s.row = record; s.writes++; }
+        },
+    };
     return s;
 }
 
@@ -165,6 +177,49 @@ describe('the desk model alarm', () => {
     it('a turn with no model call leaves the verdict where it was', () => {
         const prev = nextModelHealth(null, { outcome: { verdict: 'failed', failure: { role: 'router', model: 'm', error: 'x', kind: 'provider' } }, at: new Date(), runId: 'r', caseId: 'c', decision: 'hold' }, true).record;
         expect(nextModelHealth(prev, { outcome: { verdict: 'no_model_call', failure: null }, at: new Date(), runId: 'r', caseId: 'c', decision: 'hold' }, true)).toEqual({ record: prev, alert: null });
+    });
+});
+
+describe('concurrent turns', () => {
+    const failed = (at: string, caseId: string): TurnReport => ({ outcome: { verdict: 'failed', failure: { role: 'router', model: 'm', error: `boom ${caseId}`, kind: 'provider' } }, at: new Date(at), runId: `run_${caseId}`, caseId, decision: 'hold' });
+    const ok = (at: string, caseId: string): TurnReport => ({ outcome: { verdict: 'ok', failure: null }, at: new Date(at), runId: `run_${caseId}`, caseId, decision: 'send' });
+    const deps = (store: ModelHealthStore, pages: string[]) => ({ store, pageable: true, notify: async (title: string) => { pages.push(title); } });
+
+    it('an outage failing many customers at once pages once and counts every failed turn', async () => {
+        const store = memoryStore();
+        const pages: string[] = [];
+        await Promise.all([1, 2, 3, 4, 5].map((i) => recordTurnModelHealth(failed(`2026-09-16T05:41:1${i}.000Z`, `c${i}`), deps(store, pages))));
+        expect(pages).toEqual(['comms desk cannot answer: model call failed']);
+        expect(store.row).toMatchObject({ state: 'failing', failedTurns: 5, alerted: true, failingSince: '2026-09-16T05:41:11.000Z' });
+    });
+
+    it('an older failed turn recorded after a newer good one does not overwrite it', async () => {
+        const store = memoryStore();
+        const pages: string[] = [];
+        await recordTurnModelHealth(ok('2026-09-16T05:41:20.000Z', 'new'), deps(store, pages));
+        expect(await recordTurnModelHealth(failed('2026-09-16T05:41:10.000Z', 'old'), deps(store, pages))).toBeNull();
+        expect(pages).toEqual([]);
+        expect(store.row).toMatchObject({ state: 'ok', lastTurnAt: '2026-09-16T05:41:20.000Z' });
+        expect(store.writes).toBe(1);
+        expect(assessModelHealth(store.row)).toMatchObject({ status: 'ok', canAnswer: true });
+    });
+
+    it('a failed turn and a newer good one racing end ok, and the page that went is followed by its "back"', async () => {
+        const store = memoryStore();
+        const pages: string[] = [];
+        await Promise.all([
+            recordTurnModelHealth(failed('2026-09-16T05:41:10.000Z', 'a'), deps(store, pages)),
+            recordTurnModelHealth(ok('2026-09-16T05:41:20.000Z', 'b'), deps(store, pages)),
+        ]);
+        expect(pages).toEqual(['comms desk cannot answer: model call failed', 'comms desk is answering again']);
+        expect(store.row).toMatchObject({ state: 'ok', alerted: false });
+    });
+
+    it('a row that cannot be updated still pages the failure and never throws', async () => {
+        const pages: string[] = [];
+        const broken: ModelHealthStore = { read: async () => null, update: async () => { throw new Error('db down'); } };
+        await expect(recordTurnModelHealth(failed('2026-09-16T05:41:10.000Z', 'a'), deps(broken, pages))).resolves.toMatchObject({ kind: 'failing' });
+        expect(pages).toEqual(['comms desk cannot answer: model call failed']);
     });
 });
 

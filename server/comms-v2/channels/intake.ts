@@ -23,6 +23,7 @@
  */
 import type { InboundEnvelope } from './envelope';
 import type { Identity } from '../desk/identity';
+import type { RecordTurnDeps, TurnReport } from '../desk/model-health';
 import type { NonCustomerReason } from '../../internal-numbers';
 
 export const INTAKE_ENV = 'COMMS_V2_INTAKE';
@@ -127,12 +128,22 @@ async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
     const mode = INTAKE_DESK_MODE[purpose];
     // Ben's quote notifications go to his phone only from the live desk, and only while it is live (quoting/ben-notifier.ts).
     const notifier = purpose === 'live' ? (await import('../quoting/ben-notifier')).liveBenNotifier() : undefined;
-    const { recordTurnModelHealth } = await import('../desk/model-health');
-    // Every customer turn this desk runs says whether its models answered: the health read and the page (desk/model-health.ts).
-    const desk = new Desk({ mode, log, modelHealth: (report) => recordTurnModelHealth(report), quoting: { store: quotes, drafter: chainDrafter(quotes, purpose), ...(notifier ? { notifier } : {}) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
+    const modelHealth = await intakeModelHealth(purpose);
+    const desk = new Desk({ mode, log, ...(modelHealth ? { modelHealth } : {}), quoting: { store: quotes, drafter: chainDrafter(quotes, purpose), ...(notifier ? { notifier } : {}) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
     log(`gateway built for the ${purpose} desk (${mode === 'live' ? 'live delivery' : 'dry run'})`);
     const { CUSTOMER_TURN_QUIET_MS } = await import('../desk/turn-window');
     return new ChannelGateway({ desk: new ChannelDesk(desk, { mode, log }), identity, store, presence: messagesPresence, log, quietMs: CUSTOMER_TURN_QUIET_MS });
+}
+
+/**
+ * What the intake's desk does with each customer turn's model verdict (desk/model-health.ts): only the
+ * live desk records it, pages and moves the health read, since only it answers customers; a sandbox
+ * desk answers none and never writes production (live-database.ts).
+ */
+export async function intakeModelHealth(purpose: Purpose, deps: RecordTurnDeps = {}): Promise<((report: TurnReport) => Promise<unknown>) | undefined> {
+    if (purpose !== 'live') return undefined;
+    const { recordTurnModelHealth } = await import('../desk/model-health');
+    return (report) => recordTurnModelHealth(report, deps);
 }
 
 /** The intake gateway where one is already built, with the purpose it was built for; never builds one. */

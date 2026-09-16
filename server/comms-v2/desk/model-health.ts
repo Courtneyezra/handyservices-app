@@ -28,7 +28,7 @@
  * The db is imported lazily so this module, and its tests, load without DATABASE_URL.
  */
 import { appSettings } from '@shared/schema';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { ModelCallRecord } from './case-file';
 import type { ModelClient, StructuredCall, StructuredResult } from './models';
 
@@ -131,6 +131,7 @@ export function parseModelHealth(value: unknown): ModelHealthRecord | null {
 export function nextModelHealth(prev: ModelHealthRecord | null, report: TurnReport, pageable: boolean): { record: ModelHealthRecord | null; alert: ModelAlert | null } {
     const { outcome } = report;
     if (outcome.verdict === 'no_model_call') return { record: prev, alert: null };
+    if (prev && Date.parse(prev.lastTurnAt) > report.at.getTime()) return { record: prev, alert: null };
     const at = report.at.toISOString();
     const now = report.at.getTime();
 
@@ -185,20 +186,28 @@ export async function readModelHealth(): Promise<ModelHealthRecord | null> {
     return row ? parseModelHealth(row.value) : null;
 }
 
-async function writeModelHealth(record: ModelHealthRecord, now: Date): Promise<void> {
+/** Read, decide and write under a transaction-scoped lock on the key, so a writer in another process cannot interleave. */
+async function updateModelHealth(next: (prev: ModelHealthRecord | null) => ModelHealthRecord | null, now: Date): Promise<void> {
     const db = await getDb();
-    await db.insert(appSettings)
-        .values({
-            id: MODEL_HEALTH_KEY, key: MODEL_HEALTH_KEY, value: record,
-            description: 'Comms desk model health from real customer turns (see server/comms-v2/desk/model-health.ts)',
-            updatedAt: now,
-        })
-        .onConflictDoUpdate({ target: appSettings.key, set: { value: record, updatedAt: now } });
+    await db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${MODEL_HEALTH_KEY}))`);
+        const [row] = await tx.select({ value: appSettings.value }).from(appSettings).where(eq(appSettings.key, MODEL_HEALTH_KEY)).limit(1);
+        const record = next(row ? parseModelHealth(row.value) : null);
+        if (!record) return;
+        await tx.insert(appSettings)
+            .values({
+                id: MODEL_HEALTH_KEY, key: MODEL_HEALTH_KEY, value: record,
+                description: 'Comms desk model health from real customer turns (see server/comms-v2/desk/model-health.ts)',
+                updatedAt: now,
+            })
+            .onConflictDoUpdate({ target: appSettings.key, set: { value: record, updatedAt: now } });
+    });
 }
 
 export interface ModelHealthStore {
     read(): Promise<ModelHealthRecord | null>;
-    write(record: ModelHealthRecord, now: Date): Promise<void>;
+    /** Hands `next` the current row and writes what it returns (nothing for null), with no other update in between. */
+    update(next: (prev: ModelHealthRecord | null) => ModelHealthRecord | null, now: Date): Promise<void>;
 }
 
 export interface RecordTurnDeps {
@@ -212,35 +221,45 @@ async function defaultNotify(title: string, message: string): Promise<void> {
     await notifyWorkerHealth({ title, message });
 }
 
-/** After a customer turn: update the row, and page when the turn opens (or, hourly, continues) an episode, or ends one. Never throws. */
-export async function recordTurnModelHealth(report: TurnReport, deps: RecordTurnDeps = {}): Promise<ModelAlert | null> {
+let recording: Promise<unknown> = Promise.resolve();
+
+/**
+ * After a customer turn: update the row, and page when the turn opens (or, hourly, continues) an episode, or ends one.
+ * Turns are recorded one at a time in this process, and the page goes after the row is written, so
+ * concurrent failures page once and an older turn never overwrites a newer verdict. Never throws.
+ */
+export function recordTurnModelHealth(report: TurnReport, deps: RecordTurnDeps = {}): Promise<ModelAlert | null> {
+    const run = recording.then(() => recordOne(report, deps));
+    recording = run.catch(() => undefined);
+    return run;
+}
+
+async function recordOne(report: TurnReport, deps: RecordTurnDeps): Promise<ModelAlert | null> {
     if (report.outcome.verdict === 'no_model_call') return null;
-    const store = deps.store ?? { read: readModelHealth, write: writeModelHealth };
+    const store = deps.store ?? { read: readModelHealth, update: updateModelHealth };
     let pageable = deps.pageable;
     if (pageable === undefined) pageable = (await import('../../worker-gate')).isProductionEnv();
-    let prev: ModelHealthRecord | null = null;
+    let alert: ModelAlert | null = null;
     try {
-        prev = await store.read();
+        await store.update((prev) => {
+            const next = nextModelHealth(prev, report, pageable!);
+            alert = next.alert;
+            return next.record === prev ? null : next.record;
+        }, report.at);
     } catch (error: any) {
-        console.error('[comms-v2 model-health] could not read the row:', error?.message ?? error);
-    }
-    const { record, alert } = nextModelHealth(prev, report, pageable);
-    if (record) {
-        try {
-            await store.write(record, report.at);
-        } catch (error: any) {
-            console.error('[comms-v2 model-health] could not write the row:', error?.message ?? error);
-        }
+        console.error('[comms-v2 model-health] could not update the row:', error?.message ?? error);
+        alert = nextModelHealth(null, report, pageable).alert;
     }
     if (report.outcome.verdict === 'failed') console.error(`[comms-v2 model-health] turn failed: ${report.outcome.failure!.role} ${report.outcome.failure!.model}: ${report.outcome.failure!.error}`);
-    if (alert) {
+    const page = alert as ModelAlert | null;
+    if (page) {
         try {
-            await (deps.notify ?? defaultNotify)(alert.title, alert.message);
+            await (deps.notify ?? defaultNotify)(page.title, page.message);
         } catch (error: any) {
             console.error('[comms-v2 model-health] page failed:', error?.message ?? error);
         }
     }
-    return alert;
+    return page;
 }
 
 // ------------------------------------------------------------------ the health read
