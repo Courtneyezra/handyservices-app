@@ -326,6 +326,30 @@ describe('the desk', () => {
         expect(c.file.hold?.failures.join(' ')).toMatch(/no question/);
     });
 
+    it('a short pause whose reply asks a question anyway: back to the composer once; the real answer after it is scoped as usual (2.4)', async () => {
+        const { gateway } = desk({
+            router: ({ n }) => n === 2 ? routeScoping({ turnKind: 'short_pause' }) : routeScoping({ turnKind: n === 1 ? 'enquiry' : 'answer' }),
+            specialist: ({ n }) => specialistFacts(n === 3 ? [{ key: 'job_type', value: 'dripping bathroom tap' }, { key: 'job_detail', value: 'mixer tap' }] : [{ key: 'job_type', value: 'dripping bathroom tap' }]),
+            composer: ({ user, n }) => {
+                if (n === 1) return { reply: 'A dripping bathroom tap, got it.\n\nIs it a mixer tap or two separate taps?', factIds: [], kbIds: [] };
+                if (n === 2) { expect(user).toContain('this turn: an acknowledgement only, no question'); return { reply: 'No rush! While you look, is it the hot or the cold side that drips?', factIds: [], kbIds: [] }; }
+                if (n === 3) { expect(user).toContain('asked for a moment'); return { reply: 'No rush at all.', factIds: [], kbIds: [] }; }
+                return { reply: 'A mixer, thanks.\n\nHow long has it been dripping for?', factIds: [], kbIds: [] };
+            },
+        });
+        await gateway.inbound(turn('My bathroom tap drips', '2026-09-11T10:00:00.000Z'));
+        const b = await gateway.inbound(turn('one sec, let me go and look', '2026-09-11T10:02:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.composerCalls).toBe(2);
+        expect(b.result.decision).toBe('send');
+        expect(b.result.bubbles.map((x) => x.text)).toEqual(['No rush at all.']);
+        expect(b.file.hold).toBeNull();
+        const c = await gateway.inbound(turn("it's a mixer", '2026-09-11T10:04:00.000Z'));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        expect(c.result.decision).toBe('send');
+        expect(c.result.bubbles.map((x) => x.text).join(' ')).toContain('How long has it been dripping for?');
+    });
+
     it('a shut window with no approved template holds the reply as a pending draft; nothing freeform leaves', async () => {
         const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
         const { gateway } = desk({ router: () => routeScoping(), specialist: () => specialistFacts([]), composer: ({ n }) => ({ reply: n === 1 ? 'Hi there.\n\nWhat is the job?' : 'Still here, no rush.', factIds: [], kbIds: [] }) }, clock);

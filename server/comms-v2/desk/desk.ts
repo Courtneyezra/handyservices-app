@@ -502,14 +502,16 @@ export class Desk implements DeskLike {
         // else holds the composer to it. A call the customer asks for in this turn may be answered. A promise of
         // more or a not-ready customer gets one acknowledgement and then quiet (2.5, 6.2, answers 8 and 19), so a
         // question in that reply is checked the same way: it would ask them for something they have just put off.
-        const quietTurn = route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready';
+        // A short pause ("one sec, let me check") gets the same acknowledgement-only brief (2.4): they are away finding something.
+        const quietTurn = route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready' || route.turnKind === 'short_pause';
+        const quietWhy = route.turnKind === 'not_ready' ? 'said they are not ready yet' : route.turnKind === 'short_pause' ? 'asked for a moment and will be straight back' : 'promised to send more';
         const noCallOffer = exceptions.includes('callback') || asksForCall(turn.body) ? null
             : party.prefersText ? 'they prefer text' : party.alreadyRung ? 'they have already rung us' : null;
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
             const n = scopingQuestionCount(text);
             const failures = [...g.failures];
             const own = fixedLines.reduce((t, f) => t.split(f.text).join(' '), text);
-            if (quietTurn && scopingQuestionCount(own) > 0) failures.push(`an acknowledgement only, no question: they have ${route.turnKind === 'not_ready' ? 'said they are not ready yet' : 'promised to send more'}, so ask them nothing and use no question mark`);
+            if (quietTurn && scopingQuestionCount(own) > 0) failures.push(`an acknowledgement only, no question: they have ${quietWhy}, so ask them nothing and use no question mark`);
             else if (n > 1) failures.push(`one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`);
             const offer = noCallOffer ? offersCall(own) : null;
             if (offer) failures.push(`do not offer or mention a call ("${offer}"): ${noCallOffer}`);
