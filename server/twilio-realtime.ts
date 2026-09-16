@@ -236,6 +236,16 @@ export class MediaStreamRecorder {
                 console.warn(`[PostCall] lead upsert failed for ${callRecordId}:`, e?.message ?? e);
             }
 
+            // 3b. comms-v2: the call reached the new desk at hang-up with no transcript; fill in
+            //     that same turn now the transcript and job summary are on the row. Behind
+            //     COMMS_V2_INTAKE, never runs the desk, never blocks.
+            try {
+                const { forwardToCommsV2 } = await import("./comms-v2/channels/intake");
+                forwardToCommsV2({ kind: "call_transcribed", callRecordId });
+            } catch (e: any) {
+                console.warn(`[PostCall] comms-v2 transcript forward failed for ${callRecordId}:`, e?.message ?? e);
+            }
+
             // 4. Refresh the thread card now the transcript, verdict and lead exist. This is also
             // the post-classification moment for the continuation lane on the batch path: the
             // verdict is in hand, so `continuation: true` here (not at hangup) is what makes the

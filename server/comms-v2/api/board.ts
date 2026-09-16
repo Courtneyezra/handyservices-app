@@ -11,6 +11,7 @@ import {
 } from '../desk/case-file';
 import { slotAssigned, type ApproverAssignments } from './approvers';
 import { benToRequest } from '../quoting/ben-to-request';
+import { CALL_SUMMARY_KEY, callOutcomeOnFile, type CallOutcome } from '../channels/call-adapter';
 
 export type BoardMode = 'sandbox' | 'live';
 
@@ -35,13 +36,27 @@ export interface BoardCard {
     benToRequest: string[];
 }
 
+/**
+ * What a call turn's bubble shows: the header line the turn's body opens with, the summary recorded
+ * for the call, and the transcript when there is one. The transcript and summary can land after the
+ * turn does (channels/channel-gateway.ts `attachCall`), so both are null until then.
+ */
+export interface CallView {
+    outcome: CallOutcome;
+    headline: string;
+    summary: string | null;
+    transcript: string | null;
+}
+
+export type DetailTurn = Turn & { call?: CallView };
+
 export interface CaseFileDetail {
     id: string;
     stage: Stage;
     mode: BoardMode;
     party: { name: string | null; role: string; address: string } | null;
     job: Job;
-    turns: Turn[];
+    turns: DetailTurn[];
     facts: Fact[];
     hold: Hold | null;
     holdApproverAssigned: boolean;
@@ -120,6 +135,26 @@ export function boardOf(files: CaseFile[], filter: BoardFilter = {}, assignments
     return { stages: STAGES, columns };
 }
 
+/** A call turn's bubble, read off the turn and its facts; null for any other turn. */
+export function callViewOf(file: CaseFile, turn: Turn): CallView | null {
+    const outcome = callOutcomeOnFile(file, turn);
+    if (!outcome) return null;
+    const [first, ...rest] = turn.body.split('\n');
+    const header = /^\[[^\]]*\]$/.test(first ?? '');
+    const text = (header ? rest.join('\n') : turn.body).trim();
+    let summary: string | null = null;
+    for (let i = file.facts.length - 1; i >= 0 && summary === null; i--) {
+        const f = file.facts[i];
+        if (f.key === CALL_SUMMARY_KEY && f.source.kind === 'thread' && f.source.turnId === turn.id) summary = f.value;
+    }
+    return {
+        outcome,
+        headline: header ? first.slice(1, -1) : 'call',
+        summary,
+        transcript: text && text !== '(no transcript)' ? text : null,
+    };
+}
+
 /** The file's turns and facts, read-only, for a card opened in detail. */
 export function detailOf(file: CaseFile, assignments: ApproverAssignments = {}): CaseFileDetail {
     const party = file.parties[0] ?? null;
@@ -129,7 +164,10 @@ export function detailOf(file: CaseFile, assignments: ApproverAssignments = {}):
         mode: modeOf(file),
         party: party ? { name: party.name, role: party.role, address: party.canonical } : null,
         job: file.job,
-        turns: file.turns,
+        turns: file.turns.map((t) => {
+            const call = callViewOf(file, t);
+            return call ? { ...t, call } : t;
+        }),
         facts: file.facts,
         hold: file.hold,
         holdApproverAssigned: file.hold ? slotAssigned(file.hold.approver, assignments) : false,

@@ -23,7 +23,7 @@ import multer from 'multer';
 import { snapshot, type CaseFile } from './case-file';
 import { Desk, type DeskDeps } from './desk';
 import type { DeskResult } from './desk-types';
-import { Gateway, type SeedInput } from './gateway';
+import { Gateway, notHandledReason, type SeedInput } from './gateway';
 import { CUSTOMER_TURN_QUIET_MS } from './turn-window';
 import { windowOf } from './sender';
 import { fromDoor } from './whatsapp-adapter';
@@ -181,7 +181,7 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
             if (seed.known) gateway.identity.seedCustomer('phone:07700900942', { name });
             const turn = fromDoor({ address: SANDBOX_PHONE_E164, name, text, at: now().toISOString() }, { mediaDir: deps.mediaDir });
             const out = await gateway.inbound(turn, seed);
-            if (out.kind !== 'handled') { res.status(409).json({ error: out.kind === 'candidates' ? 'identity returned candidates' : out.reason }); return; }
+            if (out.kind !== 'handled') { res.status(409).json({ error: notHandledReason(out) }); return; }
             respond(res, out.file, out.result, { door: 'whatsapp', entry: { kind: 'whatsapp', text } });
         } catch (error: any) {
             res.status(500).json({ error: error?.message ?? 'sandbox start failed' });
@@ -205,7 +205,7 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
             const existing = currentFile();
             const turn = fromDoor({ address: SANDBOX_PHONE_E164, name: existing?.parties[0]?.name ?? null, text, media: files, at: now().toISOString() }, { mediaDir: deps.mediaDir });
             const out = await gateway.inbound(turn);
-            if (out.kind !== 'handled') { res.status(409).json({ error: out.kind === 'candidates' ? 'identity returned candidates' : out.reason }); return; }
+            if (out.kind !== 'handled') { res.status(409).json({ error: notHandledReason(out) }); return; }
             respond(res, out.file, out.result, { messageId: out.turn.id, channel: 'whatsapp', media: turn.media.map((m) => ({ id: m.id, kind: m.kind })), burst: { turnIds: out.burst } });
         } catch (error: any) {
             res.status(500).json({ error: error?.message ?? 'sandbox message failed' });

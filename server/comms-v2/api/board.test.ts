@@ -126,6 +126,31 @@ describe('detailOf', () => {
     });
 });
 
+describe('a call turn in detail', () => {
+    const callTurn = (file: CaseFile, body: string) => appendTurn(file, { at: new Date(clock.t += 1000).toISOString(), channel: 'call', partyId: file.parties[0].personId, direction: 'inbound', kind: 'call_transcript', body, media: [], runId: null, approver: null, callId: 'call_9' }, { newId });
+
+    it('carries a bare call as its headline alone, with no transcript and no summary', () => {
+        const file = openFile();
+        const t = callTurn(file, '[call: they rang us and were answered, 2 min]\n(no transcript)');
+        if (!t.ok) throw new Error(t.reason);
+        const turn = detailOf(file).turns.find((x) => x.id === t.value.id)!;
+        expect(turn.call).toEqual({ outcome: 'answered_inbound', headline: 'call: they rang us and were answered, 2 min', summary: null, transcript: null });
+    });
+
+    it('carries the transcript and the newest summary recorded for that call once they land; other turns carry no call', () => {
+        const file = openFile();
+        const t = callTurn(file, '[call: they rang us and were answered, 2 min]\n[Caller]: the gutter is overflowing');
+        if (!t.ok) throw new Error(t.reason);
+        recordFact(file, { key: 'call_outcome', value: 'answered_inbound', source: { kind: 'thread', turnId: t.value.id }, by: 'call_adapter' }, { now, newId });
+        recordFact(file, { key: 'call_summary', value: 'Gutter', source: { kind: 'thread', turnId: t.value.id }, by: 'call_adapter' }, { now, newId });
+        recordFact(file, { key: 'call_summary', value: 'Overflowing gutter at the back', source: { kind: 'thread', turnId: t.value.id }, by: 'call_adapter' }, { now, newId });
+        recordFact(file, { key: 'call_summary', value: 'another call', source: { kind: 'thread', turnId: 'turn_other' }, by: 'call_adapter' }, { now, newId });
+        const detail = detailOf(file);
+        expect(detail.turns[0].call).toBeUndefined();
+        expect(detail.turns.find((x) => x.id === t.value.id)!.call).toEqual({ outcome: 'answered_inbound', headline: 'call: they rang us and were answered, 2 min', summary: 'Overflowing gutter at the back', transcript: '[Caller]: the gutter is overflowing' });
+    });
+});
+
 describe('a held card knows whether its slot has anyone assigned', () => {
     it('assigned when the row lists a user for the hold approver, else not', () => {
         const file = openFile();

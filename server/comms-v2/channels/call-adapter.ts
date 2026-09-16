@@ -27,6 +27,7 @@ export const TRANSCRIPT_MIN_CHARS = 40;
 export const TRANSCRIPT_BODY_MAX = 6000;
 
 export const CALL_OUTCOME_KEY = 'call_outcome';
+export const CALL_SUMMARY_KEY = 'call_summary';
 
 /** A finished call as the telephony side reports it, provider-neutral. */
 export interface FinishedCall {
@@ -81,7 +82,7 @@ export function fromFinishedCall(call: FinishedCall, deps: CallAdapterDeps = {})
     if (!address) throw new Error('call without a phone number');
     const transcript = (call.transcript ?? '').trim();
     const facts: IntakeFact[] = [{ key: CALL_OUTCOME_KEY, value: outcome }];
-    if ((call.jobSummary ?? '').trim()) facts.push({ key: 'call_summary', value: (call.jobSummary ?? '').trim().slice(0, 200) });
+    if ((call.jobSummary ?? '').trim()) facts.push({ key: CALL_SUMMARY_KEY, value: (call.jobSummary ?? '').trim().slice(0, 200) });
     return {
         channel: 'call', address, name: (call.name ?? '').trim() || null, text: transcriptBody(outcome, transcript, call.durationSeconds), media: [],
         at: call.at ?? now().toISOString(), providerMessageId: call.callId ?? null, via: 'telephony', mediaFailures: [], kind: 'call_transcript',
