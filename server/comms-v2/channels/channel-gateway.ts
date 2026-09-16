@@ -7,6 +7,11 @@
  * known to be on it), records the adapter's facts with the turn as their source, keeps the email
  * thread on the email channel, then hands the turn to the desk. Nothing below the gateway changes.
  *
+ * A call is passed once at hang-up and again once its transcript and summary land (intake.ts
+ * `call_transcribed`). The second pass, and any repeat of the first, finds the turn the call
+ * already made by its call id and fills it in (`attachCall`): no second turn, and the desk is not
+ * run, so nothing goes to the customer because a transcript arrived.
+ *
  * Whether a number is on WhatsApp comes from a `WhatsAppPresence` source. The sandbox door's is
  * the scenario seed alone; the live intake's reads the messages the business already holds.
  */
@@ -14,6 +19,7 @@ import { appendTurn, open, partyOf, recordFact, type CaseFile, type Turn } from 
 import { Gateway, type GatewayDeps, type InboundOutcome, type SeedInput } from '../desk/gateway';
 import { canonical, e164Of, type ResolveResult } from '../desk/identity';
 import type { InboundEnvelope } from './envelope';
+import { CALL_OUTCOME_KEY, CALL_SUMMARY_KEY, callOutcomeOnFile, transcriptOf } from './call-adapter';
 
 export interface WhatsAppPresence {
     /** True when the number is known to be on WhatsApp, false when known not to be, null when nothing says. */
@@ -31,6 +37,11 @@ export interface ChannelGatewayDeps extends GatewayDeps {
     presence?: WhatsAppPresence;
 }
 
+export interface InboundOptions {
+    /** Only fill in a call turn already on a file; never open a file, add a turn or run the desk. */
+    attachOnly?: boolean;
+}
+
 export class ChannelGateway extends Gateway {
     private readonly presence: WhatsAppPresence;
 
@@ -40,7 +51,13 @@ export class ChannelGateway extends Gateway {
     }
 
     /** Any channel's turn: identity, the one file, the party's reach, the adapter's facts, then the desk. */
-    async inbound(env: InboundEnvelope, seed: ChannelSeed = {}): Promise<InboundOutcome> {
+    async inbound(env: InboundEnvelope, seed: ChannelSeed = {}, opts: InboundOptions = {}): Promise<InboundOutcome> {
+        const callId = env.channel === 'call' && env.kind === 'call_transcript' ? env.providerMessageId : null;
+        if (callId) {
+            const held = this.callTurn(callId);
+            if (held) return this.attachCall(held.file, held.turn, env);
+        }
+        if (opts.attachOnly) return { kind: 'refused', reason: 'no call turn on any file to attach this call to' };
         const resolved: ResolveResult = this.identity.resolve(env.channel, env.address, { name: env.name, email: env.hints?.email ?? null, phone: env.hints?.phone ?? null, postcode: env.hints?.postcode ?? null });
         if (!resolved.ok) {
             if (resolved.reason === 'candidates') { this.log(`identity: ${resolved.candidates.length} candidates for a ${env.channel} address; no reply`); return { kind: 'candidates', candidates: resolved.candidates.length, address: env.address }; }
@@ -59,7 +76,7 @@ export class ChannelGateway extends Gateway {
 
         const address = env.channel === 'email' ? resolved.canonical.replace(/^email:/, '') : (e164Of(resolved.canonical) ?? env.address);
         const kind: Turn['kind'] = env.kind ?? (env.media.length ? 'media' : 'text');
-        const turnBody = { at: env.at, channel: env.channel, kind, body: env.text, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })) };
+        const turnBody = { at: env.at, channel: env.channel, kind, body: env.text, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(callId ? { callId } : {}) };
         let file: CaseFile | null = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {
@@ -86,6 +103,44 @@ export class ChannelGateway extends Gateway {
 
         const { result, burst } = await this.handTurn(file, landed);
         return { kind: 'handled', file, turn: landed, result, burst };
+    }
+
+    /** The turn a call already made, on whichever file holds it, done files included. */
+    private callTurn(callId: string): { file: CaseFile; turn: Turn } | null {
+        for (const file of this.store.all()) {
+            const turn = file.turns.find((t) => t.callId === callId);
+            if (turn) return { file, turn };
+        }
+        return null;
+    }
+
+    /**
+     * The call's turn filled in from a later pass. The body takes the new transcript only when the
+     * pass has one and reads the call the same way the turn does (a missed call keeps its line); the
+     * summary goes on as a fact sourced to the turn when it is new. A pass with nothing more leaves
+     * the turn as it was. The desk is not run.
+     */
+    private attachCall(file: CaseFile, turn: Turn, env: InboundEnvelope): InboundOutcome {
+        let changed = false;
+        const outcome = callOutcomeOnFile(file, turn);
+        const passOutcome = env.facts?.find((f) => f.key === CALL_OUTCOME_KEY)?.value;
+        const transcript = transcriptOf({ ...turn, body: env.text });
+        if (outcome !== 'missed' && passOutcome === outcome && transcript && transcript !== '(no transcript)' && env.text !== turn.body) {
+            turn.body = env.text;
+            changed = true;
+        }
+        const summary = env.facts?.find((f) => f.key === CALL_SUMMARY_KEY)?.value.trim();
+        if (summary) {
+            const had = [...file.facts].reverse().find((f) => f.key === CALL_SUMMARY_KEY && f.source.kind === 'thread' && f.source.turnId === turn.id);
+            if (had?.value !== summary) {
+                const rec = recordFact(file, { key: CALL_SUMMARY_KEY, value: summary, source: { kind: 'thread', turnId: turn.id }, by: `${env.channel}_adapter` }, this.fileDeps());
+                if (rec.ok) changed = true;
+                else this.log(`call summary refused: ${rec.reason}`);
+            }
+        }
+        if (changed) this.store.put(file);
+        this.log(`call turn ${turn.id} on case ${file.id}: ${changed ? 'filled in' : 'nothing new'}; no desk run`);
+        return { kind: 'attached', file, turn, changed };
     }
 
     /**

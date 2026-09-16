@@ -17,6 +17,11 @@
  * (`seedInternalNumbers`), so Ben's handset, staff and the business's own lines resolve internal and
  * the gateway refuses them before a case file opens.
  *
+ * A call is forwarded twice: `call_finished` at hang-up, before the batch transcription has run, and
+ * `call_transcribed` once the transcript and job summary are on the row (twilio-realtime.ts). The
+ * second only fills in the turn the first made (channel-gateway.ts `attachCall`): it never opens a
+ * file, adds a turn or runs the desk.
+ *
  * `forwardToCommsV2` never throws and never blocks: an old handler's response does not wait on
  * the new desk, and a failure here is one log line. No value from an event is logged, only the
  * case id and the decision.
@@ -42,9 +47,11 @@ export type IntakeEvent =
     | { kind: 'twilio_incoming'; body: Record<string, unknown> }
     | { kind: 'meta_webhook'; payload: unknown }
     | { kind: 'web_form'; lead: { customerName?: string | null; phone?: string | null; email?: string | null; jobDescription?: string | null; postcode?: string | null; address?: string | null; source?: string | null; leadId?: string | null; photos?: Array<{ contentBase64?: string | null; mime?: string | null }> } }
-    | { kind: 'call_finished'; callRecordId: string };
+    | { kind: 'call_finished'; callRecordId: string }
+    | { kind: 'call_transcribed'; callRecordId: string };
 
-export interface IntakeReport { forwarded: number; skipped: string[] }
+/** `attached` is on a call's report only: the turns a call already had that this forward filled in. */
+export interface IntakeReport { forwarded: number; attached?: number; skipped: string[] }
 
 type Purpose = import('../live-database').DatabasePurpose;
 type GatewayT = import('./channel-gateway').ChannelGateway;
@@ -230,16 +237,17 @@ export async function envelopesOf(event: IntakeEvent, deps: { fetch?: typeof fet
             const { fromWebForm } = await import('./form-adapter');
             return { envelopes: [await fromWebForm(event.lead, { mediaDir: deps.mediaDir })], skipped };
         }
-        case 'call_finished': {
+        case 'call_finished':
+        case 'call_transcribed': {
             const { db } = await import('../../db');
             const { calls } = await import('@shared/schema');
             const { eq } = await import('drizzle-orm');
             const [call] = await db.select().from(calls).where(eq(calls.id, event.callRecordId)).limit(1);
             if (!call) { skipped.push('no call record'); return { envelopes: [], skipped }; }
-            const { describeCall } = await import('../../call-thread');
+            const { describeCall, nonFillerSummary } = await import('../../call-thread');
             const info = describeCall(call as any);
             const { fromFinishedCall } = await import('./call-adapter');
-            const env = fromFinishedCall({ phone: call.phoneNumber, name: call.customerName, direction: info.direction, missed: info.missed, transcript: call.transcription, durationSeconds: call.duration, at: (call.endTime ?? call.startTime)?.toISOString() ?? null, jobSummary: call.jobSummary, callId: call.id });
+            const env = fromFinishedCall({ phone: call.phoneNumber, name: call.customerName, direction: info.direction, missed: info.missed, transcript: call.transcription, durationSeconds: call.duration, at: (call.endTime ?? call.startTime)?.toISOString() ?? null, jobSummary: nonFillerSummary(call.jobSummary), callId: call.id });
             if (!env) skipped.push('an unanswered outbound call is recorded on the call row only');
             return { envelopes: env ? [env] : [], skipped };
         }
@@ -257,18 +265,33 @@ export function deliveryLabelFor(purpose: Purpose | 'any' | undefined): string {
     return purpose && purpose !== 'any' && INTAKE_DESK_MODE[purpose] === 'live' ? 'live delivery' : 'dry run';
 }
 
+/** Each call's forwards, one after another, so a transcript read after hang-up never lands before the hang-up's own turn. */
+const callForwards = new Map<string, Promise<unknown>>();
+
 /** The same forward, awaited: the tests use it. */
-export async function forwardNow(event: IntakeEvent, deps: IntakeGatewayDeps = {}): Promise<IntakeReport> {
+export function forwardNow(event: IntakeEvent, deps: IntakeGatewayDeps = {}): Promise<IntakeReport> {
+    if (event.kind !== 'call_finished' && event.kind !== 'call_transcribed') return forwardOne(event, deps);
+    const key = event.callRecordId;
+    const next = (callForwards.get(key) ?? Promise.resolve()).then(() => forwardOne(event, deps));
+    const tail = next.catch(() => undefined);
+    callForwards.set(key, tail);
+    void tail.then(() => { if (callForwards.get(key) === tail) callForwards.delete(key); });
+    return next;
+}
+
+async function forwardOne(event: IntakeEvent, deps: IntakeGatewayDeps): Promise<IntakeReport> {
     const { purpose, gateway } = await intakeGateway(deps);
     const deliveryLabel = deliveryLabelFor(purpose);
     const { envelopes, skipped } = await envelopesOf(event);
     let forwarded = 0;
+    let attached = 0;
     for (const envelope of envelopes) {
-        const out = await gateway.inbound(envelope);
-        if (out.kind === 'handled') { forwarded++; console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: ${out.result.decision}${out.result.channel ? ` on ${out.result.channel}` : ''} (${deliveryLabel})`); }
+        const out = await gateway.inbound(envelope, {}, { attachOnly: event.kind === 'call_transcribed' });
+        if (out.kind === 'attached') { attached++; console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: call turn ${out.changed ? 'filled in' : 'unchanged'}, no desk run`); }
+        else if (out.kind === 'handled') { forwarded++; console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: ${out.result.decision}${out.result.channel ? ` on ${out.result.channel}` : ''} (${deliveryLabel})`); }
         else skipped.push(out.kind === 'candidates' ? 'identity returned candidates' : out.reason);
     }
-    return { forwarded, skipped };
+    return event.kind === 'call_finished' || event.kind === 'call_transcribed' ? { forwarded, attached, skipped } : { forwarded, skipped };
 }
 
 /** For tests: forget the live gateway, or put a scripted one in its place. */

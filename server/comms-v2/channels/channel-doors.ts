@@ -24,7 +24,7 @@ import { Router, type Response } from 'express';
 import multer from 'multer';
 import type { CaseFile } from '../desk/case-file';
 import type { DeskResult } from '../desk/desk-types';
-import type { SeedInput } from '../desk/gateway';
+import { notHandledReason, type SeedInput } from '../desk/gateway';
 import { canonical } from '../desk/identity';
 import { fromDoorCall, validateDoorCall } from './call-adapter';
 import type { ChannelGateway, ChannelSeed } from './channel-gateway';
@@ -67,7 +67,7 @@ export function ensureSandboxIdentity(gateway: ChannelGateway, phone: string, em
 
 function handled(res: Response, out: Awaited<ReturnType<ChannelGateway['inbound']>>): out is Extract<typeof out, { kind: 'handled' }> {
     if (out.kind === 'handled') return true;
-    res.status(409).json({ error: out.kind === 'candidates' ? 'identity returned candidates' : out.reason });
+    res.status(409).json({ error: notHandledReason(out) });
     return false;
 }
 

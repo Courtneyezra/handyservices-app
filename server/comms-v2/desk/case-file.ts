@@ -110,6 +110,12 @@ export interface Turn {
      * recorded, which answer everything before them (`customerTurnUnanswered`).
      */
     answers?: string[];
+    /**
+     * Inbound call turns from the telephony intake only: the `calls` row the turn was made from.
+     * The same call passed again (its transcript and summary landing after hang-up) fills in this
+     * turn rather than adding one (channels/channel-gateway.ts `attachCall`).
+     */
+    callId?: string;
 }
 
 /** The ids of the messages a turn the desk is answering carries: each message of a burst, or the turn itself. */

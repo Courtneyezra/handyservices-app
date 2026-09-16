@@ -450,4 +450,41 @@ describe('<CommsV2BoardPage>', () => {
         const total = Object.values(board.columns).reduce((n, c) => n + c.length, 0);
         expect(screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === `${total} conversations`)).toBeTruthy();
     });
+    it('a call bubble shows its summary and hides the transcript behind a toggle; a bare call says nothing has landed yet', async () => {
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        const at = new Date().toISOString();
+        const detail: CaseFileDetail = {
+            id: 'case_held', stage: 'first_contact', mode: 'sandbox',
+            party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
+            job: { type: null, location: null, quoteRef: null, bookingRef: null },
+            turns: [
+                { id: 'c1', at, channel: 'call', direction: 'inbound', kind: 'call_transcript', body: '[call: they rang us and were answered, 2 min]\n[Caller]: my gutter is overflowing', media: [], call: { outcome: 'answered_inbound', headline: 'call: they rang us and were answered, 2 min', summary: 'Overflowing gutter at the back', transcript: '[Caller]: my gutter is overflowing' } },
+                { id: 'c2', at, channel: 'call', direction: 'inbound', kind: 'call_transcript', body: '[call: they rang us and were answered, 1 min]\n(no transcript)', media: [], call: { outcome: 'answered_inbound', headline: 'call: they rang us and were answered, 1 min', summary: null, transcript: null } },
+            ],
+            facts: [],
+            hold: null,
+            holdApproverAssigned: false,
+        };
+        mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+        ]);
+
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await user.click(screen.getByTestId('board-card-case_held'));
+
+        await waitFor(() => expect(screen.getByTestId('call-turn-c1')).toBeTruthy());
+        expect(screen.getByTestId('call-summary-c1').textContent).toBe('Overflowing gutter at the back');
+        expect(screen.queryByTestId('call-transcript-c1')).toBeNull();
+        await user.click(screen.getByRole('button', { name: 'Show transcript' }));
+        expect(screen.getByTestId('call-transcript-c1').textContent).toBe('[Caller]: my gutter is overflowing');
+        await user.click(screen.getByRole('button', { name: 'Hide transcript' }));
+        expect(screen.queryByTestId('call-transcript-c1')).toBeNull();
+
+        expect(screen.getByTestId('call-summary-c2').textContent).toBe('No summary yet');
+        expect(screen.getByTestId('call-turn-c2').textContent).toContain('No transcript yet');
+        expect(screen.getByTestId('call-turn-c2').textContent).not.toContain('(no transcript)');
+    });
 });

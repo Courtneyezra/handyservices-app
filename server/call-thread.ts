@@ -101,10 +101,16 @@ const FILLER_SUMMARY = [
     /^recovered from twilio logs\.?$/i,         // importer marker
 ];
 
-function usableSummary(jobSummary: string | null | undefined): string | null {
+/** The row's own `jobSummary`, trimmed, or null when it is empty or filler. No classifier fallback. */
+export function nonFillerSummary(jobSummary: string | null | undefined): string | null {
     const s = (jobSummary ?? '').trim();
+    if (!s || FILLER_SUMMARY.some((re) => re.test(s))) return null;
+    return s;
+}
+
+function usableSummary(jobSummary: string | null | undefined): string | null {
+    const s = nonFillerSummary(jobSummary);
     if (!s) return null;
-    if (FILLER_SUMMARY.some((re) => re.test(s))) return null;
     return s.split(/\n\s*\n/)[0].trim().slice(0, 300) || null;
 }
 

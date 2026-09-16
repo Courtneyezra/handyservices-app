@@ -135,6 +135,8 @@ export interface Turn {
     media: TurnMedia[];
     /** Outbound only: who sent it, `human:<their email or user id>` for a person, `agent.comms_v2` for the desk. */
     approver?: string | null;
+    /** Call turns only: the transcript and summary land after the call does, so both may be null. */
+    call?: { outcome: string; headline: string; summary: string | null; transcript: string | null };
 }
 
 /**
@@ -163,6 +165,32 @@ function TurnMediaView({ media }: { media: TurnMedia }) {
         );
     }
     return <video src={media.url} controls preload="metadata" className="mb-1 max-h-56 w-full max-w-[280px] rounded-md bg-black" />;
+}
+
+/** A call turn's bubble body: what happened, the summary, and the transcript behind a toggle. Minimal on purpose; the bubble's design comes later. */
+function CallTurnBody({ turnId, call }: { turnId: string; call: NonNullable<Turn['call']> }) {
+    const [open, setOpen] = useState(false);
+    return (
+        <div data-testid={`call-turn-${turnId}`}>
+            <p className="text-xs text-muted-foreground">{call.headline}</p>
+            <p data-testid={`call-summary-${turnId}`}>{call.summary ?? 'No summary yet'}</p>
+            {call.transcript ? (
+                <>
+                    <button
+                        type="button"
+                        className="mt-1 text-xs underline"
+                        aria-expanded={open}
+                        onClick={() => setOpen((v) => !v)}
+                    >
+                        {open ? 'Hide transcript' : 'Show transcript'}
+                    </button>
+                    {open && <p data-testid={`call-transcript-${turnId}`} className="mt-1 whitespace-pre-wrap text-xs">{call.transcript}</p>}
+                </>
+            ) : (
+                <p className="mt-1 text-xs text-muted-foreground">No transcript yet</p>
+            )}
+        </div>
+    );
 }
 
 export interface Fact {
@@ -556,7 +584,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
                             >
                                 <p data-testid={`turn-speaker-${t.id}`} className="mb-0.5 text-[10px] font-semibold text-muted-foreground">{speakerOf(t, customerName, data.speakerNames)}</p>
                                 {(t.media ?? []).map((m) => <TurnMediaView key={m.id} media={m} />)}
-                                {t.body && <p className="whitespace-pre-wrap">{t.body}</p>}
+                                {t.call ? <CallTurnBody turnId={t.id} call={t.call} /> : t.body && <p className="whitespace-pre-wrap">{t.body}</p>}
                                 <p data-testid={`turn-meta-${t.id}`} className="mt-0.5 text-[10px] text-muted-foreground">
                                     {t.channel} · {relativeTime(t.at)}
                                 </p>

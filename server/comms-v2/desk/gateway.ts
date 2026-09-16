@@ -44,9 +44,18 @@ interface Burst {
 
 export type InboundOutcome =
     | { kind: 'handled'; file: CaseFile; turn: Turn; result: DeskResult; burst: string[] }
+    /** A call already on a file, passed again: its turn filled in where the new pass says more, and no desk run. */
+    | { kind: 'attached'; file: CaseFile; turn: Turn; changed: boolean }
     /** Identity returned candidates: nothing is sent until a person picks one. */
     | { kind: 'candidates'; candidates: number; address: string }
     | { kind: 'refused'; reason: string };
+
+/** Why an inbound was not handled, for a door to say. */
+export function notHandledReason(out: Exclude<InboundOutcome, { kind: 'handled' }>): string {
+    if (out.kind === 'candidates') return 'identity returned candidates';
+    if (out.kind === 'attached') return 'this call is already on the file; its turn was filled in and the desk did not run';
+    return out.reason;
+}
 
 export interface SeedInput {
     prefersText?: boolean;
