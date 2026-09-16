@@ -152,6 +152,26 @@ describe('renderWhatsApp', () => {
         const etc = `${'This sentence is long enough to push the bubble past its ceiling. '.repeat(2).trim()} Shelves, hooks, etc. Whereabouts are you?`;
         expect(renderWhatsApp(etc).bubbles.map((b) => b.text).at(-1)).toBe('Shelves, hooks, etc. Whereabouts are you?');
     });
+    it('never leaves a list number, "hrs." or "a.m." on the end of a bubble (round 22)', () => {
+        const list = "Thanks Sam, that's really helpful and the photos are clear. Two quick things before Ben prices it:\n1. Is the tap a mixer or two separate taps?\n2. Is there an isolation valve under the sink you can reach?";
+        const r = renderWhatsApp(list);
+        expect(r.ok).toBe(true);
+        expect(r.bubbles.map((b) => b.text)).toEqual([
+            "Thanks Sam, that's really helpful and the photos are clear. Two quick things before Ben prices it:",
+            '1. Is the tap a mixer or two separate taps?',
+            '2. Is there an isolation valve under the sink you can reach?',
+        ]);
+        // A short list that fits one bubble keeps its items on their own lines.
+        expect(renderWhatsApp('Two quick things:\n1. Is the tap a mixer?\n2. Could you send a photo?').bubbles.map((b) => b.text))
+            .toEqual(['Two quick things:\n1. Is the tap a mixer?\n2. Could you send a photo?']);
+        // A number ending a sentence is not a list item.
+        expect(renderWhatsApp('Is that flat 2. Thanks.').bubbles.map((b) => b.text)).toEqual(['Is that flat 2. Thanks.']);
+        const hours = 'Lovely, thanks for the details about the fence panels and the posts along the back of the garden. Our hours are 8 a.m. to 5 p.m. on weekdays, and a visit takes about 2 hrs. at most. Could you make sure the side gate is unlocked?';
+        const h = renderWhatsApp(hours);
+        expect(h.ok).toBe(true);
+        for (const b of h.bubbles) expect(b.text).not.toMatch(/(?:\b[ap]\.m|\bhrs|\b\d)\.$/);
+        expect(h.bubbles.map((b) => b.text).join(' ')).toBe(hours);
+    });
     it('returns the reply to the composer at the soft ceiling rather than sending a wall', () => {
         const r = renderWhatsApp(Array.from({ length: BUBBLE_CEILING + 1 }, (_, i) => `Bubble ${i}.`).join('\n\n'));
         expect(r.ok).toBe(false);
