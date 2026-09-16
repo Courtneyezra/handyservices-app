@@ -391,8 +391,9 @@ the customer's own words ask to change a detail on their record or whether we co
 and leaves Scoping to run on a mixed turn's job half),
 whatever the router read. A router-prompt carve-out for coverage can go on top of that match once
 the router has an eval to catch drift. When its model did not read the turn, a composed reply that
-puts a question off ("I'll check and come back to you on that", `deferralMatch` in desk/lexicon.ts)
-holds as `no_source` in the desk (desk.ts 6b), unless the turn already put something on Ben's card, so
+puts off a question the customer asked on that turn ("I'll check and come back to you on that",
+`deferralMatch` in desk/lexicon.ts; "I'll have a look and get back to you" on a job turn is not one)
+holds as `no_source` in the desk (desk.ts 6b), unless the turn raised or noted a hold of its own, so
 the promise is on his board; a turn Service read is left to its own answers.
 
 | Piece | File | What it is |

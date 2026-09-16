@@ -308,10 +308,14 @@ export class Desk implements DeskLike {
             return this.heldAck(file, party.personId, turn, runId, calls, 'router_failed: the router could not read this turn, so a complaint or refund cannot be ruled out', null, 0, []);
         }
 
-        // What Ben's card said before this turn, so a question the reply puts off is held only where the turn added nothing to it (6b).
-        const cardBefore = file.hold?.reason ?? null;
         // Whether Service's model read this turn: it raises no_source itself when it did.
         let serviceRead = false;
+        // Whether this turn raised or noted a hold, so a question the reply puts off is held only where the turn put nothing on Ben's card (6b).
+        let heldThisTurn = false;
+        const holdFor = (exception: HoldException | null, reason: string, draft: string | null = null, ownCard?: string) => {
+            heldThisTurn = true;
+            this.holdFor(file, exception, reason, draft, ownCard);
+        };
 
         // 2. Exceptions that the Scoper does not scope: one fixed line, a hold, no composer.
         const fixedLines: FixedLine[] = [];
@@ -338,7 +342,7 @@ export class Desk implements DeskLike {
             const line = await fixedLine(FIXED_LINE_FOR[reason], this.deps.fixedLines ?? knowledgeBaseFixedLines);
             fixedLines.push(line);
             if (line.kbId) fixedLineKbIds.push(line.kbId);
-            this.holdFor(file, reason, `${reason}: ${match}`);
+            holdFor(reason, `${reason}: ${match}`);
             reply = line.text;
         };
         // Gravest first: a fixed-line-only exception on the turn takes the thread off the composer, whatever else it raised.
@@ -375,30 +379,30 @@ export class Desk implements DeskLike {
                 // Every exception the turn raised carries its own fixed line; the hold records the gravest.
                 for (const e of exceptions.filter((x) => ANSWER_THE_REST.has(x))) {
                     fixedLines.push(await fixedLine(FIXED_LINE_FOR[e], this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                    this.holdFor(file, e, `${e}: ${matchFor(route, e, turn.body)}`);
+                    holdFor(e, `${e}: ${matchFor(route, e, turn.body)}`);
                 }
                 for (const h of holds.filter((x) => ANSWER_THE_REST.has(x.reason))) {
                     fixedLines.push(await fixedLine(FIXED_LINE_FOR[h.reason], this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                    this.holdFor(file, h.reason, `${h.reason}: ${h.match}`);
+                    holdFor(h.reason, `${h.reason}: ${h.match}`);
                 }
                 // Quoting's own holds. A money exception still on the route is Ben's and carried its line
                 // above; money the router handed to Quoting (5.3) that its reading did not answer is held here.
                 if (!exceptions.includes('money')) {
                     if (quoting?.proposal.hold?.reason === 'money') {
                         fixedLines.push(await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                        this.holdFor(file, 'money', `money beyond a quote line: ${quoting.proposal.hold.match}`);
+                        holdFor('money', `money beyond a quote line: ${quoting.proposal.hold.match}`);
                     } else if (quoting?.proposal.hold?.reason === 'stale_quote') {
                         // Decided once every other hold on the turn is known (below): an expired quote may be reissued instead.
                         staleQuote = quoting.proposal.hold.match;
                     } else if (quoting?.proposal.hold?.reason === 'draft_failed') {
                         fixedLines.push(await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                        this.holdFor(file, null, `${DRAFT_FAILED_HOLD} (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, null, DRAFT_FAILED_HOLD);
+                        holdFor(null, `${DRAFT_FAILED_HOLD} (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, null, DRAFT_FAILED_HOLD);
                         if (scoping) { scoping.proposal.nextQuestion = null; scoping.proposal.mentionPhotos = false; scoping.proposal.ready = false; }
                     }
                 }
-                if (quoting?.unannounced) this.holdFor(file, null, quoting.unannounced);
+                if (quoting?.unannounced) holdFor(null, quoting.unannounced);
                 if (quoting?.proposal.hold?.acceptedInChat) {
-                    this.holdFor(file, null, `acceptance in chat: the customer said yes to the quote (${quoting.proposal.hold.match}); acceptance stays on the quote page and with Ben`);
+                    holdFor(null, `acceptance in chat: the customer said yes to the quote (${quoting.proposal.hold.match}); acceptance stays on the quote page and with Ben`);
                 }
                 // Goal 5: dates and lead time are the Scheduling specialist's, read from the diary; a date change holds for Ben and the reply still answers the rest.
                 // The router's date_change exception is passed in, and holds where the diary shows the customer a booking or could not say (checklist 5.5). A move the router
@@ -424,7 +428,7 @@ export class Desk implements DeskLike {
                     specialists.push(sched);
                     if (sched.error) log(`scheduling: ${sched.error}`);
                     for (const kind of sched.scheduling.fixedLines) fixedLines.push(await fixedLine(kind, this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                    if (sched.proposal.hold) this.holdFor(file, sched.proposal.hold.reason === 'date_change' ? 'date_change' : null, `${sched.proposal.hold.reason}: ${sched.proposal.hold.match}`);
+                    if (sched.proposal.hold) holdFor(sched.proposal.hold.reason === 'date_change' ? 'date_change' : null, `${sched.proposal.hold.reason}: ${sched.proposal.hold.match}`);
                 }
                 if (staleQuote && quoting) {
                     const claim = quoting.reissue ? await this.claimReissue(file, turn, runId, quoting.reissue, exceptions) : null;
@@ -442,13 +446,13 @@ export class Desk implements DeskLike {
                         }
                         if (route.moneyToQuoting) {
                             fixedLines.push(await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines));
-                            this.holdFor(file, 'money', `money on an expired quote: ${matchFor(route, 'money', turn.body)}`);
+                            holdFor('money', `money on an expired quote: ${matchFor(route, 'money', turn.body)}`);
                         }
                         const blockers = quoting.reissue?.blockers.length ? quoting.reissue.blockers.join('; ') : null;
                         const why = claim && !claim.ok && !blockers ? `; not reissued automatically: ${claim.why}` : '';
                         // Restated on the desk's own card for this quote; on any other card it is a promise to keep, noted as ever.
                         const ownCard = file.hold?.reason.startsWith(STALE_HOLD) && !file.hold.notedOn ? STALE_HOLD : undefined;
-                        this.holdFor(file, null, `${STALE_HOLD} (${staleQuote}): no figure may be read from it and the customer has been told Ben will come back to them on it${why}`, null, ownCard);
+                        holdFor(null, `${STALE_HOLD} (${staleQuote}): no figure may be read from it and the customer has been told Ben will come back to them on it${why}`, null, ownCard);
                         // What the customer asked Ben is noted as theirs, so the card is no longer the desk's to restate, clear or reissue over.
                         if (blockers) noteOnHold(file, { reason: `not reissued automatically: ${blockers}` });
                     }
@@ -618,14 +622,14 @@ export class Desk implements DeskLike {
             rendered = { ok: true, bubbles: [{ text: pick.body, gapMs: 0 }] };
         }
 
-        // 6b. A question the composed reply puts off reaches Ben. Service holds on no_source itself when its
-        // model read the turn; when it did not (the router sent the turn elsewhere), the reply's "I'll check and
-        // come back to you" is the only record of the question, so it holds here, unless this turn has already
-        // put something on Ben's card (a money or date line says the same words about its own hold). Read
+        // 6b. A question the customer asked and the composed reply puts off reaches Ben. Service holds on no_source
+        // itself when its model read the turn; when it did not (the router sent the turn elsewhere), the reply's
+        // "I'll check and come back to you on that" is the only record of the question, so it holds here, unless
+        // this turn raised or noted a hold (a money or date line says the same words about its own hold). Read
         // from the words going out, not a model: the composer is told to say it will come back on anything it
         // has no fact for, and those words are the promise Ben has to keep. A template send carries none of them.
-        const deferred = !template && !serviceRead && composed !== null && !(file.hold && file.hold.reason !== cardBefore) ? deferralMatch(composed) : null;
-        if (deferred) this.holdFor(file, 'no_source', `no_source: the reply said "${deferred}" and Service did not read the turn: ${turn.body.slice(0, 80)}`);
+        const deferred = !template && !serviceRead && !heldThisTurn && composed !== null ? deferralMatch(composed, turn.body) : null;
+        if (deferred) holdFor('no_source', `no_source: the reply said "${deferred}" and Service did not read the turn: ${turn.body.slice(0, 80)}`);
 
         // 7. The one sender.
         if (!template) factIds = Array.from(new Set([...prefixFactIds, ...factIds]));

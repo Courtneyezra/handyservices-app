@@ -139,27 +139,38 @@ describe('the Service specialist on the desk', () => {
         expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(1);
     });
     describe('a question the reply puts off when Service did not read the turn', () => {
-        const scopingOnly = (reply: string) => desk({
+        const scopingOnly = (reply: string, extra: Partial<DeskDeps> = {}) => desk({
             router: () => route({ subjects: ['scoping'], turnKind: 'enquiry' }),
             specialist: ({ system }) => { if (isService(system)) throw new Error('Service was not routed'); return scopingOut([{ key: 'job_type', value: 'dripping tap' }]); },
             composer: () => ({ reply, factIds: [], kbIds: [] }),
-        });
-        it('holds on no_source so the promise reaches Ben\'s board (the branch reply to "Are you on Checkatrade?")', async () => {
-            const { client, gateway } = scopingOnly("A dripping kitchen tap, got it.\n\nOn the Checkatrade question, I'll check and come back to you on that one.\n\nIs it a mixer tap or two separate taps?");
-            const out = await gateway.inbound(turn('Hi, my kitchen tap is dripping. Are you on Checkatrade?', '2026-09-11T10:00:00.000Z'));
-            if (out.kind !== 'handled') throw new Error(out.kind);
-            expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(1);
-            expect(out.result.decision).toBe('send');
-            expect(out.result.delivered).toBe(true);
-            expect(out.file.hold).toMatchObject({ exception: 'no_source', approver: BEN });
-            expect(out.file.hold?.reason).toMatch(/^no_source: the reply said "I'll check and come back" and Service did not read the turn: Hi, my kitchen tap is dripping\. Are you on Checkatrade\?$/);
-            expect(out.result.hold?.exception).toBe('no_source');
-        });
-        it('an ordinary scoping-only job turn raises nothing: a question, a call offer and the wrap-up are not a question put off', async () => {
+        }, extra);
+        const CHECKATRADE = 'Hi, my kitchen tap is dripping. Are you on Checkatrade?';
+        for (const [reply, asked] of [
+            ["A dripping kitchen tap, got it.\n\nOn the Checkatrade question, I'll check and come back to you on that one.\n\nIs it a mixer tap or two separate taps?", CHECKATRADE],
+            ["A dripping kitchen tap, got it.\n\nOn Checkatrade, let me check and come back to you on that one.\n\nIs it a mixer tap or two separate taps?", CHECKATRADE],
+            ["A dripping kitchen tap, got it.\n\nOn weekends, I'll check and come back to you on that.\n\nIs it a mixer tap or two separate taps?", 'Hi, my kitchen tap is dripping. Do you work weekends?'],
+        ]) {
+            it(`holds on no_source so the promise reaches Ben's board: "${asked}"`, async () => {
+                const { client, gateway } = scopingOnly(reply);
+                const out = await gateway.inbound(turn(asked, '2026-09-11T10:00:00.000Z'));
+                if (out.kind !== 'handled') throw new Error(out.kind);
+                expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(1);
+                expect(out.result.decision).toBe('send');
+                expect(out.result.delivered).toBe(true);
+                expect(out.file.hold).toMatchObject({ exception: 'no_source', approver: BEN });
+                expect(out.file.hold?.reason).toMatch(/^no_source: the reply said ".+" and Service did not read the turn: /);
+                expect(out.file.hold?.reason).toContain(asked);
+                expect(out.result.hold?.exception).toBe('no_source');
+            });
+        }
+        it('an ordinary scoping-only job turn raises nothing: a question, a call offer, the wrap-up and a look at the photos are not a question put off', async () => {
             for (const reply of [
                 "A dripping kitchen tap, got it.\n\nIs it a mixer tap or two separate taps?\n\nHappy to give you a quick call if that's easier.",
                 "Thanks, that's everything I need for now. I'll put the quote together and send it over.",
                 "Thanks, I'll get the quote over to you.",
+                "A dripping kitchen tap, got it. If you can send a photo of it, I'll have a look and get back to you.",
+                "A dripping kitchen tap, got it. I'll let you know once I've seen the photos.",
+                'A dripping kitchen tap, got it. Could you send a photo of the tap?',
             ]) {
                 const { gateway } = scopingOnly(reply);
                 const out = await gateway.inbound(turn('Hi, my kitchen tap is dripping.', '2026-09-11T10:00:00.000Z'));
@@ -167,6 +178,26 @@ describe('the Service specialist on the desk', () => {
                 expect(out.result.decision).toBe('send');
                 expect(out.file.hold).toBeNull();
             }
+        });
+        it('a customer who asked nothing leaves no card, whatever the reply puts off', async () => {
+            const { gateway } = scopingOnly("A dripping kitchen tap, got it. I'll check and come back to you on that.");
+            const out = await gateway.inbound(turn('Hi, my kitchen tap is dripping.', '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.result.decision).toBe('send');
+            expect(out.file.hold).toBeNull();
+        });
+        it('a template send raises nothing: the words that go out are the template\'s', async () => {
+            const { gateway, clock } = scopingOnly("A dripping kitchen tap, got it. On the Checkatrade question, I'll check and come back to you on that one.", { templates: { async approved() { return { contentSid: 'HX_any' }; } } });
+            const first = await gateway.inbound(turn('Hi, my kitchen tap is dripping.', '2026-09-11T10:00:00.000Z'));
+            if (first.kind !== 'handled') throw new Error(first.kind);
+            gateway.age(first.file.id, 30);
+            clock.t = Date.parse('2026-09-11T10:00:00.000Z');
+            const out = await gateway.inbound(turn(CHECKATRADE, new Date(clock.t - 29 * 3_600_000).toISOString()));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.result.windowState).toBe('shut');
+            expect(out.result.templateId).not.toBeNull();
+            expect(out.result.decision).toBe('send');
+            expect(out.file.hold).toBeNull();
         });
         it('a turn whose own hold already carries the promise adds nothing: a price question holds on money alone', async () => {
             const { gateway } = desk({
@@ -178,6 +209,20 @@ describe('the Service specialist on the desk', () => {
             if (out.kind !== 'handled') throw new Error(out.kind);
             expect(out.file.hold).toMatchObject({ exception: 'money', notedOn: false });
             expect(out.file.hold?.reason).not.toContain('no_source');
+        });
+        it('a price question on a thread already held on money re-notes nothing: the money line is not a question put off', async () => {
+            const { gateway } = desk({
+                router: () => route({ subjects: ['quoting', 'scoping'], turnKind: 'question', exception: 'money' }),
+                specialist: ({ system }) => { if (isService(system)) throw new Error('Service was not routed'); return scopingOut([{ key: 'job_type', value: 'fence panel' }]); },
+                composer: () => ({ reply: `Fence panel, got it. ${DEFAULT_FIXED_LINES.money_to_ben}`, factIds: [], kbIds: [] }),
+            });
+            const first = await gateway.inbound(turn('Fence panel down. How much roughly?', '2026-09-11T10:00:00.000Z'));
+            if (first.kind !== 'handled') throw new Error(first.kind);
+            const before = first.file.hold?.reason;
+            const out = await gateway.inbound(turn('Fence panel down. How much roughly?', '2026-09-11T10:05:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.file.hold).toMatchObject({ exception: 'money', notedOn: false });
+            expect(out.file.hold?.reason).toBe(before);
         });
         it('a turn Service read is left to Service: its answers decide, whatever words the reply uses', async () => {
             const { client, gateway } = desk({
