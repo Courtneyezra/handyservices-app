@@ -129,6 +129,8 @@ together, on the next read, with nothing written to any row:
 
 - The intake's desk delivers (`INTAKE_DESK_MODE`: `live` for the live purpose, never for the sandbox),
   through the one outbound send under `agent.comms_v2`, and a board answer goes out the same way.
+  Each handled forward's decision line ends with the mode of the gateway that handled it
+  (`deliveryLabelFor`): `(live delivery)` here, `(dry run)` for the sandbox.
 - The old desk stands down (`old-desk.ts`): every sender in `OLD_DESK_SENDERS` (the legacy agent and
   its autosend, the spine's lane agents, the SLA chase, the rules layer's replies, the webform chase,
   the lead automations) is refused at server/outbound.ts with a `send_refused` event; the spine's

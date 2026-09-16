@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaseFile, Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import { ChannelGateway } from './channel-gateway';
-import { INTAKE_DESK_MODE, INTAKE_ENV, INTAKE_REQUIREMENTS, builtIntakeGateway, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, liveChannelGateway, resetLiveChannelGateway } from './intake';
+import { INTAKE_DESK_MODE, INTAKE_ENV, INTAKE_REQUIREMENTS, builtIntakeGateway, deliveryLabelFor, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, liveChannelGateway, resetLiveChannelGateway } from './intake';
 
 const turns: Turn[] = [];
 const fakeDesk: DeskLike = {
@@ -86,6 +86,32 @@ describe('the intake switch', () => {
         expect(turns.length).toBe(before + 1);
         expect(turns[turns.length - 1]).toMatchObject({ channel: 'sms', body: 'my gate has dropped' });
         resetLiveChannelGateway();
+    });
+    it('labels the decision log with the gateway\'s real delivery mode, never a fixed word', () => {
+        expect(deliveryLabelFor('sandbox')).toBe('dry run');
+        expect(deliveryLabelFor('live')).toBe('live delivery');
+        expect(deliveryLabelFor('any')).toBe('dry run');
+        expect(deliveryLabelFor(undefined)).toBe('dry run');
+    });
+    it('logs each decision with the mode of the gateway that handled it, even when the switches move while the forward runs', async () => {
+        const lines: string[] = [];
+        const spy = vi.spyOn(console, 'log').mockImplementation((line: string) => { lines.push(String(line)); });
+        try {
+            const event = { kind: 'twilio_incoming', body: { From: '+447700900942', Body: 'the tap drips' } } as const;
+            resetLiveChannelGateway();
+            const flipWhileBuilding = async () => { void Promise.resolve().then(() => resetLiveChannelGateway()); return new ChannelGateway({ desk: fakeDesk }); };
+            await forwardNow(event, { requirements: [], liveState: async () => ({ live: true, off: [] }), build: flipWhileBuilding });
+            expect(builtIntakeGateway()).toBeNull();
+            resetLiveChannelGateway(new ChannelGateway({ desk: fakeDesk }), 'sandbox');
+            await forwardNow(event, { requirements: [], liveState: async () => ({ live: false, off: ['spine.commsDesk = \'comms_v2\''] }) });
+            const decisions = lines.filter((l) => l.startsWith('[comms-v2 intake] twilio_incoming -> case '));
+            expect(decisions).toHaveLength(2);
+            expect(decisions[0]).toMatch(/\(live delivery\)$/);
+            expect(decisions[1]).toMatch(/\(dry run\)$/);
+        } finally {
+            spy.mockRestore();
+            resetLiveChannelGateway();
+        }
     });
 });
 
