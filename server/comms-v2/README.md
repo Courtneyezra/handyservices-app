@@ -462,7 +462,10 @@ first with the answer actions docked beneath the newest turn, customer bubbles o
 desk's or a staff member's on the other, each turn's own media shown inline. At 1024px and up
 (`useIsWideBoard`, `client/src/pages/admin/CommsV2BoardPage.tsx`) the open file sits in a permanent
 panel beside the board (layout report hsa-comms-v2-ben-board-layouts-s33, option 01); below that
-width it is the same conversation view in a full-screen sheet.
+width it is the same conversation view in a full-screen sheet. Opening another file, even one
+already cached, starts it with empty reply and release boxes, their buttons disabled and no earlier
+send outcome shown, so one customer's words can never be sent to another
+(`client/src/pages/admin/__tests__/CommsV2BoardPage.switch-conversation.test.tsx`).
 
 | Piece | File | What it is |
 |---|---|---|

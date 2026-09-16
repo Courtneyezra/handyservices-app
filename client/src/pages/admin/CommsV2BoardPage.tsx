@@ -768,7 +768,8 @@ export default function CommsV2BoardPage() {
                 {wide && (
                     <aside data-testid="docked-case-file-panel" className="flex w-[420px] shrink-0 flex-col overflow-hidden border-l bg-background p-4">
                         {openCardId ? (
-                            <CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} showMode={sandboxAvailable} />
+                            // Keyed by the open file so a cached conversation never inherits the last one's typed words or send state.
+                            <CaseFileDetailView key={openCardId} fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} showMode={sandboxAvailable} />
                         ) : (
                             <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center text-sm text-muted-foreground">
                                 <MessageSquare className="h-5 w-5 opacity-60" />
@@ -786,7 +787,7 @@ export default function CommsV2BoardPage() {
                             <SheetTitle>Conversation</SheetTitle>
                             <SheetDescription>The conversation, with the release and answer actions docked below it.</SheetDescription>
                         </SheetHeader>
-                        {openCardId && <div className="mt-4 min-h-0 flex-1"><CaseFileDetailView fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} showMode={sandboxAvailable} /></div>}
+                        {openCardId && <div className="mt-4 min-h-0 flex-1"><CaseFileDetailView key={openCardId} fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} showMode={sandboxAvailable} /></div>}
                     </SheetContent>
                 </Sheet>
             )}
