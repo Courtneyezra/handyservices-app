@@ -9,7 +9,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { open, type CaseFile, type Party } from './case-file';
 import { DEFAULT_FIXED_LINES, heldAckLine, lateMediaAckLine, type FixedLine } from './fixed-lines';
-import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, DESK_APPROVER, chooseChannel, initiate, liveDeliverer, noTemplateApproved, outboundLabelFor, pickTemplate, render, renderWhatsApp, send, shortenBriefFor, templateWire, windowOf, type Deliverer, type SendInput, type TemplateSend } from './sender';
+import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, DESK_APPROVER, GAP_MAX_MS, GAP_MIN_MS, typingGap, chooseChannel, initiate, liveDeliverer, noTemplateApproved, outboundLabelFor, pickTemplate, render, renderWhatsApp, send, shortenBriefFor, templateWire, windowOf, type Deliverer, type SendInput, type TemplateSend } from './sender';
 import { renderSms, UCS2_MULTI, GSM7_MULTI, SMS_MAX_SEGMENTS } from '../channels/sms-adapter';
 
 function fixture(): { file: CaseFile; party: Party } {
@@ -70,14 +70,47 @@ describe('windowOf', () => {
 });
 
 describe('renderWhatsApp', () => {
-    it('splits at the composer\'s blank lines with typing gaps of one to three seconds', () => {
+    it('splits at the composer\'s blank lines with typing gaps of two and a half to seven seconds (answer 91)', () => {
         const r = renderWhatsApp('Hi Sam, a leaking tap, no problem.\n\nWhereabouts are you?\n\nHappy to give you a quick call if easier.');
         expect(r.ok).toBe(true);
         expect(r.bubbles.map((b) => b.text)).toEqual(['Hi Sam, a leaking tap, no problem.', 'Whereabouts are you?', 'Happy to give you a quick call if easier.']);
-        for (const b of r.bubbles) { expect(b.gapMs).toBeGreaterThanOrEqual(1000); expect(b.gapMs).toBeLessThanOrEqual(3000); }
-        expect(r.bubbles[0].gapMs).toBeGreaterThan(r.bubbles[1].gapMs);
+        for (const b of r.bubbles) { expect(b.gapMs).toBeGreaterThanOrEqual(GAP_MIN_MS); expect(b.gapMs).toBeLessThanOrEqual(GAP_MAX_MS); }
+        expect(renderWhatsApp('x'.repeat(150)).bubbles[0].gapMs).toBeGreaterThan(r.bubbles[1].gapMs);
     });
-    it('splits a bubble over about three hundred characters at sentence boundaries, never mid-sentence', () => {
+    it('spaces a bubble by roughly its typing time: about five seconds for 160 characters, never over seven', () => {
+        expect(typingGap('x'.repeat(160))).toBe(4800);
+        expect(typingGap('ok')).toBe(GAP_MIN_MS);
+        expect(typingGap('x'.repeat(1000))).toBe(GAP_MAX_MS);
+        // A person's own words keep the short gaps they had: he typed them before pressing send.
+        for (const b of renderWhatsApp('One.\n\nTwo.', { asTyped: true }).bubbles) expect(b.gapMs).toBeLessThanOrEqual(3000);
+    });
+    it('keeps the Kiran bubble to about 160 characters, one or two sentences each, cut at a comma when one sentence runs over (answer 93)', () => {
+        const kiran = "Got it, so it's the new satin chrome handles, one of them the bathroom set with the lock, going onto the 2 existing doors along with new hinges, and hardware going onto the 2 new doors where the holes are already drilled.";
+        const r = renderWhatsApp(kiran);
+        expect(r.ok).toBe(true);
+        expect(r.bubbles.length).toBeGreaterThan(1);
+        for (const b of r.bubbles) expect(b.text.length).toBeLessThanOrEqual(BUBBLE_MAX_CHARS);
+        const three = renderWhatsApp('One short sentence here. Another short one here. A third short one here.');
+        expect(three.bubbles.map((b) => b.text)).toEqual(['One short sentence here. Another short one here. A third short one here.']);
+        const long = Array.from({ length: 3 }, (_, i) => `Sentence number ${i} is long enough to count towards the bubble limit here.`).join(' ');
+        expect(renderWhatsApp(long).bubbles.map((b) => b.text)).toEqual([
+            'Sentence number 0 is long enough to count towards the bubble limit here. Sentence number 1 is long enough to count towards the bubble limit here.',
+            'Sentence number 2 is long enough to count towards the bubble limit here.',
+        ]);
+        // A sentence with no comma to cut at stays whole: never mid-phrase.
+        const noComma = `A ${'very '.repeat(40)}long sentence.`;
+        expect(renderWhatsApp(noComma).bubbles.map((b) => b.text)).toEqual([noComma]);
+    });
+    it('caps a reply at three bubbles, while a person\'s words and wide bubbles keep four', () => {
+        const four = 'One.\n\nTwo.\n\nThree.\n\nFour.';
+        expect(BUBBLE_CEILING).toBe(3);
+        expect(renderWhatsApp(four).ok).toBe(false);
+        expect(renderWhatsApp(four, { asTyped: true }).ok).toBe(true);
+        expect(renderWhatsApp(four, { wideBubbles: true }).ok).toBe(true);
+        const ben = `${'This is one of the sentences Ben reviewed for the knowledge base. '.repeat(4).trim()}`;
+        expect(renderWhatsApp(ben, { wideBubbles: true }).bubbles).toHaveLength(1);
+    });
+    it('splits a bubble over about 160 characters at sentence boundaries, never mid-sentence', () => {
         const sentence = 'This sentence is exactly long enough to matter for the split rule here.';
         const long = Array.from({ length: 6 }, () => sentence).join(' ');
         const r = renderWhatsApp(long);

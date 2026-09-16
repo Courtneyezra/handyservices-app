@@ -36,10 +36,32 @@ import { isOutOfHours, ukHour } from '../../working-hours';
 import { WINDOW_TEMPLATES } from '../../window-templates';
 
 export const WINDOW_HOURS = 24;
-export const BUBBLE_MAX_CHARS = 300;
-export const BUBBLE_CEILING = 4;
-export const GAP_MIN_MS = 1000;
-export const GAP_MAX_MS = 3000;
+/**
+ * What one bubble the desk writes may hold (behaviour.md answer 93, 16 Sep 2026: "About 160, 1-2
+ * sentences"): a soft ceiling of about 160 characters, at most three bubbles a reply (answers 82
+ * and 93). Soft because a single sentence over it is only cut at a comma, never mid-phrase.
+ */
+export const BUBBLE_MAX_CHARS = 160;
+export const BUBBLE_CEILING = 3;
+/**
+ * The limits bubbles had before answer 93: a person's typed reply (`asTyped`) is never refused for a
+ * fourth paragraph, and words sent with `wideBubbles` are split only where they run past three
+ * hundred characters, as they always were.
+ */
+export const TYPED_BUBBLE_CEILING = 4;
+export const WIDE_BUBBLE_MAX_CHARS = 300;
+/**
+ * The pause before each bubble the desk writes, scaled to roughly the time a person takes to type it
+ * (answer 91, 16 Sep 2026: "Longer gaps only"): about 30 ms a character, from 2.5 to 7 seconds, so a
+ * 160-character bubble waits about five. The quiet window before the desk reads a turn is not this
+ * (desk/turn-window.ts) and stays eight seconds.
+ */
+export const GAP_MIN_MS = 2500;
+export const GAP_MAX_MS = 7000;
+export const GAP_PER_CHAR_MS = 30;
+/** A person's own words were typed before he pressed send: the short gaps they always had. */
+export const TYPED_GAP_MIN_MS = 1000;
+export const TYPED_GAP_MAX_MS = 3000;
 
 /** The desk's own approver name for an unattended send: `agent.comms_v2` in server/sender-registry.ts, switch key `comms_v2`. */
 export const DESK_APPROVER: Approver = 'agent.comms_v2';
@@ -142,20 +164,71 @@ export function windowOf(party: Party, channel: ReplyChannel, now: Date): Window
 
 export type RenderResult = { ok: true; bubbles: RenderedBubble[] } | { ok: false; reason: 'ceiling' | 'empty'; bubbles: RenderedBubble[] };
 
-function typingGap(text: string): number {
-    return Math.max(GAP_MIN_MS, Math.min(GAP_MAX_MS, Math.round(GAP_MIN_MS + text.length * 8)));
+/** The pause before a bubble the desk wrote: roughly its typing time. */
+export function typingGap(text: string): number {
+    return Math.max(GAP_MIN_MS, Math.min(GAP_MAX_MS, Math.round(text.length * GAP_PER_CHAR_MS)));
 }
 
-/** Split one bubble that is too long at sentence boundaries; a single sentence over the limit stays whole (never cut mid-sentence). */
-function splitLong(text: string): string[] {
-    if (text.length <= BUBBLE_MAX_CHARS) return [text];
+function typedGap(text: string): number {
+    return Math.max(TYPED_GAP_MIN_MS, Math.min(TYPED_GAP_MAX_MS, Math.round(TYPED_GAP_MIN_MS + text.length * 8)));
+}
+
+/** The shortest piece a comma split may leave, so a long sentence is never broken into a fragment. */
+const MIN_CLAUSE_CHARS = 40;
+
+/**
+ * A sentence over the soft ceiling, cut at its commas into pieces a person would send on their own.
+ * Each piece is at least a short clause; a sentence with no such comma stays whole. The comma that
+ * ended a piece is dropped, as a person splitting a thought across two messages would.
+ */
+function splitAtCommas(sentence: string, max: number): string[] {
+    const parts = sentence.split(/,\s+/);
+    if (parts.length < 2) return [sentence];
+    const out: string[] = [];
+    let cur = '';
+    for (const part of parts) {
+        const joined = cur ? `${cur}, ${part}` : part;
+        if (cur && joined.length > max && cur.length >= MIN_CLAUSE_CHARS) { out.push(cur); cur = part; }
+        else cur = joined;
+    }
+    if (cur) {
+        // A last piece too short to stand alone goes back on the one before it.
+        if (out.length && cur.length < MIN_CLAUSE_CHARS) out[out.length - 1] = `${out[out.length - 1]}, ${cur}`;
+        else out.push(cur);
+    }
+    return out;
+}
+
+/**
+ * One bubble over the soft ceiling split the way a person would: at sentence boundaries first, one or
+ * two sentences a bubble, then a sentence still over the ceiling at its commas. Never mid-phrase: a
+ * sentence with no comma to split at stays whole.
+ */
+/** `wideBubbles`: split only past three hundred characters, at sentence boundaries, as before answer 93. */
+function splitWide(text: string): string[] {
+    if (text.length <= WIDE_BUBBLE_MAX_CHARS) return [text];
     const sentences = text.split(/(?<=[.?!])\s+/).map((s) => s.trim()).filter(Boolean);
     const out: string[] = [];
     let cur = '';
     for (const s of sentences) {
         if (!cur) { cur = s; continue; }
-        if ((cur + ' ' + s).length <= BUBBLE_MAX_CHARS) cur = `${cur} ${s}`;
+        if ((cur + ' ' + s).length <= WIDE_BUBBLE_MAX_CHARS) cur = `${cur} ${s}`;
         else { out.push(cur); cur = s; }
+    }
+    if (cur) out.push(cur);
+    return out;
+}
+
+function splitLong(text: string): string[] {
+    if (text.length <= BUBBLE_MAX_CHARS) return [text];
+    const sentences = text.split(/(?<=[.?!])\s+/).map((s) => s.trim()).filter(Boolean).flatMap((s) => (s.length > BUBBLE_MAX_CHARS ? splitAtCommas(s, BUBBLE_MAX_CHARS) : [s]));
+    const out: string[] = [];
+    let cur = '';
+    let inCur = 0;
+    for (const s of sentences) {
+        if (!cur) { cur = s; inCur = 1; continue; }
+        if (inCur < 2 && (cur + ' ' + s).length <= BUBBLE_MAX_CHARS) { cur = `${cur} ${s}`; inCur++; }
+        else { out.push(cur); cur = s; inCur = 1; }
     }
     if (cur) out.push(cur);
     return out;
@@ -167,6 +240,13 @@ export interface RenderOptions {
      * inside one his line breaks stay as he typed them, with nothing re-split at a sentence.
      */
     asTyped?: boolean;
+    /**
+     * The limits bubbles had before answer 93: split only past three hundred characters, a ceiling of
+     * four, the desk's typing gaps. For words that must not be refused for length: one of Ben's fixed
+     * lines sent on its own (desk.ts), and a quote delivery the render would otherwise hold
+     * (quoting/deliver-quote.ts), which has no shorten round to fall back on.
+     */
+    wideBubbles?: boolean;
 }
 
 /** Ben's two-line sign-off, which closes the four knowledge-base fixed lines (desk/fixed-lines.ts). */
@@ -175,8 +255,8 @@ export const RE_SIGN_OFF_PARAGRAPH = /^\s*thanks\s*\n\s*ben\s*$/i;
 
 /**
  * WhatsApp: the one reply split into bubbles at the breaks a person would use: the composer's
- * blank lines first, then sentence boundaries for anything over about three hundred characters.
- * Typing gaps of one to three seconds scaled to length. A ceiling reached returns the reply to
+ * blank lines first, then sentence boundaries (one or two sentences a bubble) and commas for
+ * anything over about 160 characters. Typing gaps of roughly each bubble's typing time. A ceiling reached returns the reply to
  * the composer to shorten rather than sending a wall. `asTyped` is the human path: blank lines
  * still break bubbles, nothing inside one is reflowed. Anything else the desk wrote leaves with no
  * dash used as punctuation, checked after the reflow, which is what turns a line-leading "- " into
@@ -187,10 +267,10 @@ export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderR
         // Ben's "Thanks / Ben" keeps its line break: folded, it reads as the customer thanking Ben.
         .map((p) => opts.asTyped ? p.split('\n').map((l) => l.trimEnd()).join('\n').trim() : RE_SIGN_OFF_PARAGRAPH.test(p) ? SIGN_OFF_LINES : withoutDashPunctuation(p.replace(/\s*\n\s*/g, ' ').trim()))
         .filter(Boolean);
-    const texts = opts.asTyped ? paragraphs : paragraphs.flatMap(splitLong);
-    const bubbles = texts.map((text) => ({ text, gapMs: typingGap(text) }));
+    const texts = opts.asTyped ? paragraphs : paragraphs.flatMap(opts.wideBubbles ? splitWide : splitLong);
+    const bubbles = texts.map((text) => ({ text, gapMs: opts.asTyped ? typedGap(text) : typingGap(text) }));
     if (!bubbles.length) return { ok: false, reason: 'empty', bubbles };
-    if (bubbles.length > BUBBLE_CEILING) return { ok: false, reason: 'ceiling', bubbles };
+    if (bubbles.length > (opts.asTyped || opts.wideBubbles ? TYPED_BUBBLE_CEILING : BUBBLE_CEILING)) return { ok: false, reason: 'ceiling', bubbles };
     return { ok: true, bubbles };
 }
 

@@ -7,7 +7,7 @@
  * desk has one door.
  */
 import { randomUUID } from 'node:crypto';
-import { answeredByReply, appendTurn, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type TurnWait, type CaseFileDeps } from './case-file';
+import { answeredByReply, appendTurn, messagesOf, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type TurnWait, type CaseFileDeps } from './case-file';
 import { Identity, e164Of, type ResolveResult } from './identity';
 import { MemoryCaseFileStore, type CaseFileStore } from './store';
 import type { InboundTurn } from './whatsapp-adapter';
@@ -198,11 +198,35 @@ export class Gateway {
         this.store.put(file);
         return this.deskPass(file, async (f) => {
             try {
-                return await this.desk.handleTurn(f, turn);
+                const folded = this.foldQueued(f, wait, turn);
+                if (!folded) return alreadyAnswered(f, wait, turn);
+                if (folded !== turn) this.log(`one customer turn from ${messagesOf(folded).length} messages on case ${f.id}: bursts queued behind a pass answered together`);
+                return await this.desk.handleTurn(f, folded);
             } finally {
                 dropWaits(f, [wait]);
             }
         });
+    }
+
+    /**
+     * The turn a wait's pass answers, taken when the pass starts rather than when the burst closed
+     * (the Kiran thread, 16 Sep 2026): every message of this wait that no reply has answered since,
+     * and every message of the same party's later bursts on this channel that are already queued
+     * behind this pass, as one turn. A queued burst taken in here finds nothing left when its own
+     * pass starts, and sends nothing. Null when a reply already answers every message of this wait
+     * and nothing is queued.
+     */
+    private foldQueued(file: CaseFile, wait: TurnWait, turn: Turn): Turn | null {
+        const ids = new Set(messagesOf(turn));
+        for (const w of file.waits ?? []) {
+            if (w === wait || !w.handedAt || w.holder !== this.holder || w.partyId !== wait.partyId || w.channel !== wait.channel) continue;
+            for (const id of w.turnIds) ids.add(id);
+        }
+        const turns = file.turns.filter((t) => ids.has(t.id) && t.direction === 'inbound' && !answeredByReply(file, t.id));
+        if (!turns.length) return null;
+        const own = messagesOf(turn);
+        if (turns.length === own.length && turns.every((t, i) => t.id === own[i])) return turn;
+        return customerTurnOf(turns);
     }
 
     /** One desk pass on a file, after any pass already running or queued on it; the file is put when the pass is done, even when it throws. */
@@ -315,6 +339,18 @@ function dropWaits(file: CaseFile, gone: TurnWait[]): void {
     if (!file.waits || !gone.length) return;
     file.waits = file.waits.filter((w) => !gone.includes(w));
     if (!file.waits.length) delete file.waits;
+}
+
+/** A wait whose messages a reply already answers, because an earlier pass took them in: nothing is sent. */
+function alreadyAnswered(file: CaseFile, wait: TurnWait, turn: Turn): DeskResult {
+    const ids = messagesOf(turn);
+    const reply = [...file.turns].reverse().find((t) => t.direction === 'outbound' && t.answers?.some((id) => ids.includes(id)));
+    const note = `already answered: ${reply?.runId ? `run ${reply.runId}` : 'an earlier reply'} took these messages in, so nothing goes on them again`;
+    const guards = Object.fromEntries((['figure', 'date_time_duration', 'commitment_fault', 'business_claim', 'disclosure', 'one_reply', 'ask_ledger', 'regulated'] as GuardName[]).map((g) => [g, { result: 'pass', note: 'no reply was written; the reply that answered these messages carries the guards' }])) as Record<GuardName, GuardVerdict>;
+    return {
+        runId: `run_${randomUUID()}`, decision: 'none', partyId: wait.partyId, channel: null, windowState: 'open', templateId: null, bubbles: [], factIds: [], kbIds: [], guards, approver: null,
+        hold: file.hold, delivered: false, stageAfter: file.stage, calls: [], note, summary: null, error: null, landedTurnId: null, composerCalls: 0, chase: null,
+    };
 }
 
 /** An earlier message of a burst: the run that answered the burst, with nothing sent on this message itself. */
