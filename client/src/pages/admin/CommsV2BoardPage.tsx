@@ -531,7 +531,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
     const lastInboundTurnId = [...data.turns].reverse().find((t) => t.direction === 'inbound')?.id ?? null;
 
     return (
-        <div data-testid="case-file-detail-scroll" className="flex h-full flex-col overflow-y-auto">
+        <div className="flex h-full flex-col overflow-y-auto">
             <div className="shrink-0 border-b pb-3">
                 <p className="text-sm font-semibold">{data.party?.name || data.party?.address || 'Unknown'}</p>
                 <p className="text-xs text-muted-foreground">{STAGE_LABELS[data.stage]}{showMode ? ` · ${data.mode}` : ''}</p>
@@ -540,7 +540,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
                 )}
             </div>
 
-            <div className="flex-1 space-y-2 overflow-y-auto py-3">
+            <div className="min-h-[12rem] flex-1 space-y-2 overflow-y-auto py-3">
                 <h4 className="mb-1 flex items-center gap-1 text-xs font-semibold uppercase text-muted-foreground">
                     <MessageSquare className="h-3 w-3" /> Turns
                 </h4>

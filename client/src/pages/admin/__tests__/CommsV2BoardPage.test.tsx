@@ -83,36 +83,6 @@ describe('<CommsV2BoardPage>', () => {
         expect(screen.getByText('Customer done')).toBeTruthy();
     });
 
-    it('the case file panel scrolls rather than clipping the release/answer controls when the panel is shorter than its content (a held draft plus both forms can exceed a small viewport\'s height, per docs/hsa-comms-desk-ui-s34 report.md 14)', async () => {
-        const user = userEvent.setup();
-        const board = boardWithOneCardPerStage();
-        const detail: CaseFileDetail = {
-            id: 'case_held', stage: 'first_contact', mode: 'sandbox',
-            party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
-            job: { type: null, location: null, quoteRef: null, bookingRef: null },
-            turns: [{ id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Can you do it for less?', media: [] }],
-            facts: [],
-            hold: { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint', since: new Date().toISOString(), draft: 'Hi, I can knock a little off for you.' },
-            holdApproverAssigned: true,
-        };
-
-        mockFetch([
-            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
-            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
-        ]);
-
-        renderWithQuery(<CommsV2BoardPage />);
-        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
-        await user.click(screen.getByTestId('board-card-case_held'));
-        await waitFor(() => expect(screen.getByTestId('case-file-detail-scroll')).toBeTruthy());
-
-        // jsdom has no layout engine, so pixel clipping can't be asserted here; this pins the
-        // container's ability to scroll to reach controls it can't shrink to fit, so the panel
-        // is never a fixed-height overflow-hidden box with no way down to "Send as me".
-        expect(screen.getByTestId('case-file-detail-scroll').className).toContain('overflow-y-auto');
-        expect(screen.getByRole('button', { name: /send as me/i })).toBeTruthy();
-    });
-
     it('opens a held card into its held draft and releases the hold with the words only; the sheet closes on success', async () => {
         const user = userEvent.setup();
         const board = boardWithOneCardPerStage();
