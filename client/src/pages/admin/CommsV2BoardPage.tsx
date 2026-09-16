@@ -172,10 +172,12 @@ function TurnMediaView({ media }: { media: TurnMedia }) {
 /** A call turn's bubble body: what happened, the summary, and the transcript behind a toggle. Minimal on purpose; the bubble's design comes later. */
 function CallTurnBody({ turnId, call }: { turnId: string; call: NonNullable<Turn['call']> }) {
     const [open, setOpen] = useState(false);
+    const missed = call.outcome === 'missed';
     return (
         <div data-testid={`call-turn-${turnId}`}>
             <p className="text-xs text-muted-foreground">{call.headline}</p>
-            <p data-testid={`call-summary-${turnId}`}>{call.summary ?? 'No summary yet'}</p>
+            {/* A missed call never gets a transcript, and a summary only when the telephony side wrote one. */}
+            {call.summary || !missed ? <p data-testid={`call-summary-${turnId}`}>{call.summary ?? 'No summary yet'}</p> : null}
             {call.transcript ? (
                 <>
                     <button
@@ -188,7 +190,7 @@ function CallTurnBody({ turnId, call }: { turnId: string; call: NonNullable<Turn
                     </button>
                     {open && <p data-testid={`call-transcript-${turnId}`} className="mt-1 whitespace-pre-wrap text-xs">{call.transcript}</p>}
                 </>
-            ) : (
+            ) : missed ? null : (
                 <p className="mt-1 text-xs text-muted-foreground">No transcript yet</p>
             )}
         </div>

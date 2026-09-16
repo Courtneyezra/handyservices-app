@@ -475,6 +475,7 @@ describe('<CommsV2BoardPage>', () => {
             turns: [
                 { id: 'c1', at, channel: 'call', direction: 'inbound', kind: 'call_transcript', body: '[call: they rang us and were answered, 2 min]\n[Caller]: my gutter is overflowing', media: [], call: { outcome: 'answered_inbound', headline: 'call: they rang us and were answered, 2 min', summary: 'Overflowing gutter at the back', transcript: '[Caller]: my gutter is overflowing' } },
                 { id: 'c2', at, channel: 'call', direction: 'inbound', kind: 'call_transcript', body: '[call: they rang us and were answered, 1 min]\n(no transcript)', media: [], call: { outcome: 'answered_inbound', headline: 'call: they rang us and were answered, 1 min', summary: null, transcript: null } },
+                { id: 'c3', at, channel: 'call', direction: 'inbound', kind: 'call_transcript', body: '[missed call, rang 20 s: nobody spoke to them]', media: [], call: { outcome: 'missed', headline: 'missed call, rang 20 s: nobody spoke to them', summary: null, transcript: null } },
             ],
             facts: [],
             hold: null,
@@ -500,5 +501,9 @@ describe('<CommsV2BoardPage>', () => {
         expect(screen.getByTestId('call-summary-c2').textContent).toBe('No summary yet');
         expect(screen.getByTestId('call-turn-c2').textContent).toContain('No transcript yet');
         expect(screen.getByTestId('call-turn-c2').textContent).not.toContain('(no transcript)');
+
+        // A missed call never gets a transcript: its bubble promises neither one nor a summary.
+        expect(screen.getByTestId('call-turn-c3').textContent).toBe('missed call, rang 20 s: nobody spoke to them');
+        expect(screen.queryByTestId('call-summary-c3')).toBeNull();
     });
 });

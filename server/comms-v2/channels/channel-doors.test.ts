@@ -16,6 +16,7 @@ import { emptyKb } from '../desk/scoping-tools';
 import { recordingNotifier } from '../quoting/ben-notifier';
 import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore } from '../quoting/quote-store';
+import { callViewOf } from '../api/board';
 import { SANDBOX_EMAIL } from './channel-doors';
 import { EMAIL_DEFAULT_SUBJECT } from './email-adapter';
 
@@ -136,6 +137,12 @@ describe('the channel doors', () => {
         expect(c).toMatchObject({ channel: 'sms', delivered: true, templateId: null });
         expect(c.bubbles[0]).toMatch(/good to speak just now about the bathroom fan/);
         expect(c.evidence.summary).toMatch(/asked for media/);
+        // The door's summary stands in for the telephony side's, so the call's bubble on Ben's board carries it.
+        const summed = await post('/start', { door: 'call', outcome: 'answered_inbound', transcript: TRANSCRIPT, summary: '  Dead bathroom extractor fan, photos to follow  ', name: 'Sam', seed: { whatsapp: true } });
+        expect(summed.status).toBe(200);
+        const file = summed.json.state.caseFile;
+        const callTurn = file.turns.find((t: any) => t.kind === 'call_transcript');
+        expect(callViewOf(file, callTurn)).toMatchObject({ outcome: 'answered_inbound', summary: 'Dead bathroom extractor fan, photos to follow', transcript: TRANSCRIPT });
         expect((await post('/call', { transcript: 'short' })).status).toBe(400);
         expect((await post('/start', { door: 'call', outcome: 'nope' })).status).toBe(400);
         expect((await post('/start', { door: 'call', transcript: TRANSCRIPT })).status).toBe(400);
