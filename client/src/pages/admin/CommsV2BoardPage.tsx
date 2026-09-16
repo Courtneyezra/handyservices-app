@@ -531,7 +531,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
     const lastInboundTurnId = [...data.turns].reverse().find((t) => t.direction === 'inbound')?.id ?? null;
 
     return (
-        <div className="flex h-full flex-col">
+        <div data-testid="case-file-detail-scroll" className="flex h-full flex-col overflow-y-auto">
             <div className="shrink-0 border-b pb-3">
                 <p className="text-sm font-semibold">{data.party?.name || data.party?.address || 'Unknown'}</p>
                 <p className="text-xs text-muted-foreground">{STAGE_LABELS[data.stage]}{showMode ? ` · ${data.mode}` : ''}</p>
