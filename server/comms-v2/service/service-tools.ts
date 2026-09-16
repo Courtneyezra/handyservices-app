@@ -151,9 +151,12 @@ const RE_AREA_NOUN = /^(?:my|our|your|this|that|the)$/i;
 const RE_AREA_NOUN_AFTER = /^\s+(?:local\s+)?(?:area|town|village|city|postcode|neighbourhood|part\s+of)\b/i;
 // A lone lowercase word is a place only when the question ends on it ("do you cover beeston?").
 const RE_ENDS_QUESTION = /^\s*(?:[?.!,;]|$|(?:and|or|area|please|at\s+all)\b)/i;
-/** Words that follow "cover" or "come to" and are not places: money, pronouns, and the jobs themselves. */
+/** Words that follow "cover" or "come to" and are not places: money, pronouns, visits, days and months, and the jobs themselves. */
 const NOT_A_PLACE = new Set([
     'a', 'an', 'it', 'its', 'these', 'those', 'them', 'me', 'us', 'mine', 'ours', 'yours', 'all', 'any', 'anything', 'everything', 'both', 'some', 'up', 'over', 'out', 'fix', 'do', 'see', 'look', 'have', 'quote', 'give',
+    'assess', 'check', 'help', 'measure', 'price', 'estimate', 'inspect', 'survey', 'view', 'value', 'sort',
+    'monday', 'mondays', 'tuesday', 'tuesdays', 'wednesday', 'wednesdays', 'thursday', 'thursdays', 'friday', 'fridays', 'saturday', 'saturdays', 'sunday', 'sundays',
+    'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december', 'christmas', 'easter',
     'cost', 'costs', 'price', 'prices', 'parts', 'materials', 'labour', 'labor', 'fee', 'fees', 'charge', 'charges', 'callout', 'call-out', 'vat', 'insurance', 'damage', 'damages', 'expenses', 'travel',
     'plumbing', 'electrics', 'electrical', 'leaks', 'leak', 'roofing', 'roofs', 'painting', 'decorating', 'tiling', 'carpentry', 'gardening', 'flooring', 'plastering', 'repairs', 'jobs', 'work', 'emergencies', 'emergency', 'weekends', 'evenings', 'nights', 'holidays', 'gas', 'boilers', 'asbestos',
 ]);

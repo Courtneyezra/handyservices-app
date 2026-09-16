@@ -152,6 +152,15 @@ describe('asksAboutOurArea', () => {
         'Is that your area of expertise?',
         'We have a dust cover over the sofa, can you work around it?',
         'Are you insured?',
+        'Do you cover Saturdays?',
+        'do you work in December?',
+        'Could you come out to Monday?',
+        'Can you come to assess?',
+        'Could you come to help?',
+        'can you come to check',
+        'Can you come to measure?',
+        'could you come to price',
+        'can you come to estimate?',
     ])('does not match: %s', (text) => {
         expect(asksAboutOurArea(text)).toBe(false);
     });
