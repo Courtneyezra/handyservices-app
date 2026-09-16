@@ -7,7 +7,7 @@
  * bookkeeping of what the business has said: the ask ledger and the call offer. What still refuses
  * him is what the sender owns: a shut window, a wall of bubbles, a hold that is someone else's.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appendTurn, everAsked, open, hold as setHold, type ApproverSlot, type CaseFile, type Party } from './case-file';
 import { truncateWords } from '../channels/envelope';
 import { BEN } from './guards';
@@ -511,5 +511,50 @@ describe('a template send on a shut window: only when the wording is true for th
         expect(out.ok).toBe(false);
         if (out.ok) return;
         expect(out.reason).toMatch(/only ben may answer/);
+    });
+});
+
+// The live refusal of 16 Sep 2026: every person's send through the real live deliverer was held
+// with "spine.senders.null.enabled is not true", because a `human:*` row has no switch key and the
+// deliverer read it as the switch. Only faked deliverers had carried a human send live before.
+describe('a person\'s live send goes through the real live deliverer', () => {
+    afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.resetModules(); });
+    function live(on: boolean): Array<{ approver: string; body: string }> {
+        const outbox: Array<{ approver: string; body: string }> = [];
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: on ? { comms_v2: { enabled: true } } : {} }) }));
+        vi.doMock('../../outbound', () => ({ sendCustomerMessage: async (i: { approver: string; body: string }) => { outbox.push(i); return { ok: true, sid: `SM${outbox.length}`, attempts: [], fellBack: false }; } }));
+        return outbox;
+    }
+
+    it('Ben\'s own answer from the card is delivered under his approver while the desk\'s switch is on', async () => {
+        const outbox = live(true);
+        const { file } = fixture();
+        deskRepliedAndHeld(file);
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'It is £85 fitted, Sam.', mode: 'live' }, { now: now() });
+        expect(out).toMatchObject({ ok: true });
+        expect(outbox).toEqual([expect.objectContaining({ approver: BEN_APPROVER, body: 'It is £85 fitted, Sam.' })]);
+        expect(file.hold).toBeNull();
+    });
+
+    it('the held draft he sends with one tap is delivered under his approver while the desk\'s switch is on', async () => {
+        const outbox = live(true);
+        const { file } = fixture();
+        setHold(file, { approver: BEN, reason: 'money: How much', exception: 'money', draft: 'A new tap is £85 fitted.' }, { now: now('2026-09-11T10:00:01.000Z') });
+        const out = await sendHeldDraft({ file, approver: BEN, person: BEN_PERSON, mode: 'live' }, { now: now() });
+        expect(out).toMatchObject({ ok: true });
+        expect(outbox).toEqual([expect.objectContaining({ approver: BEN_APPROVER, body: 'A new tap is £85 fitted.' })]);
+    });
+
+    it('both still refuse, naming the desk\'s own switch, while it is off', async () => {
+        const outbox = live(false);
+        const { file } = fixture();
+        setHold(file, { approver: BEN, reason: 'money: How much', exception: 'money', draft: 'A new tap is £85 fitted.' }, { now: now('2026-09-11T10:00:01.000Z') });
+        const answer = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'It is £85 fitted, Sam.', mode: 'live' }, { now: now() });
+        const draft = await sendHeldDraft({ file, approver: BEN, person: BEN_PERSON, mode: 'live' }, { now: now() });
+        for (const out of [answer, draft]) {
+            expect(out.ok).toBe(false);
+            if (!out.ok) expect(out.reason).toContain('spine.senders.comms_v2.enabled is not true');
+        }
+        expect(outbox).toEqual([]);
     });
 });

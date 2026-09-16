@@ -351,6 +351,28 @@ describe('liveDeliverer', () => {
         }
         vi.doUnmock('../../spine/config');
     });
+    it('gates a person\'s send on the desk\'s own switch, since a human row has no switch key of its own', async () => {
+        const approvers: string[] = [];
+        let senders: Record<string, { enabled: boolean }> = { comms_v2: { enabled: true } };
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders }) }));
+        vi.doMock('../../outbound', () => ({ sendCustomerMessage: async (i: { approver: string }) => { approvers.push(i.approver); return { ok: true, sid: 'SM1', attempts: [], fellBack: false }; } }));
+        const common = { to: '+447700900942', channel: 'whatsapp' as const, transport: 'twilio' as const, bubbles: [{ text: 'Your quote is ready.', gapMs: 0 }], template: null, purpose: 'service_reply' as const };
+        expect(await liveDeliverer.deliver({ ...common, runId: 'h1', approver: 'human:ben@example.com' })).toMatchObject({ ok: true, sid: 'SM1' });
+        senders = {};
+        const off = await liveDeliverer.deliver({ ...common, runId: 'h2', approver: 'human:ben@example.com' });
+        expect(off.ok).toBe(false);
+        if (!off.ok) expect(off.reason).toBe('spine.senders.comms_v2.enabled is not true; the new desk stays in the sandbox until it is');
+        expect(approvers).toEqual(['human:ben@example.com']);
+        // A sender with a switch of its own is still refused while that switch is off, and the desk's own row while the desk's is.
+        senders = { comms_v2: { enabled: true }, rules_ask: { enabled: false } };
+        const keyedOff = await liveDeliverer.deliver({ ...common, runId: 'k1', approver: 'rules.ask' });
+        expect(keyedOff).toMatchObject({ ok: false, reason: 'spine.senders.rules_ask.enabled is not true; the new desk stays in the sandbox until it is' });
+        senders = { comms_v2: { enabled: false } };
+        expect(await liveDeliverer.deliver({ ...common, runId: 'd1', approver: DESK_APPROVER })).toMatchObject({ ok: false, reason: 'spine.senders.comms_v2.enabled is not true; the new desk stays in the sandbox until it is' });
+        expect(approvers).toEqual(['human:ben@example.com']);
+        vi.doUnmock('../../outbound');
+        vi.doUnmock('../../spine/config');
+    });
     it('labels, gates and records each send under its own purpose: a reply as a service reply, a chase or an escalation never as one', async () => {
         const calls: Array<{ purpose?: string; context?: string; contentSid?: string }> = [];
         vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));

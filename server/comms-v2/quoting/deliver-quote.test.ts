@@ -6,10 +6,12 @@
  *   second variable) under the person who licensed the send, and the quote leaves draft;
  *   with it not approved, the delivery holds for Ben and the quote stays a draft;
  *   live, the template reaches the deliverer with its content SID and the link;
+ *   live on an open window, Ben's priced quote goes through the real live deliverer under his
+ *   `human:*` approver and is gated on the desk's own switch, not refused for his row having none;
  *   the price screen hands a quote to the new desk only while the new desk is live and a case file
  *   carries the quote, and every other quote gets null back for the old path.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { open } from '../desk/case-file';
 import { noFixedLineSource } from '../desk/fixed-lines';
 import { FakeModelClient } from '../desk/models';
@@ -80,6 +82,57 @@ describe('deliverPricedQuote on a shut window', () => {
         expect(out).toMatchObject({ ok: true, sent: true });
         expect(seen).toHaveLength(1);
         expect(seen[0]).toMatchObject({ channel: 'whatsapp', to: '+447700900942', approver: APPROVER, purpose: 'service_reply', template: { name: 'quote_ready_link', contentSid: 'HX_quote_ready_link', variables: { '1': 'Sam', '2': priced.quoteUrl } } });
+    });
+});
+
+describe('deliverPricedQuote through the real live deliverer', () => {
+    afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.resetModules(); });
+    const composing = new FakeModelClient({ composer: ({ user }) => ({ reply: `Your quote is ready: ${/https:\/\/test\.local\/\S+/.exec(user)?.[0] ?? ''}\n\nAny questions, just reply here.`, factIds: [], kbIds: [] }) });
+    const wire = (outbox: Array<{ approver: string; body: string }>) => vi.doMock('../../outbound', () => ({ sendCustomerMessage: async (i: { approver: string; body: string }) => { outbox.push(i); return { ok: true, sid: `SM${outbox.length}`, attempts: [], fellBack: false }; } }));
+
+    // The live refusal of 16 Sep 2026 (quote d3yjctxm): with the desk's switch on, a quote Ben priced
+    // was held with "spine.senders.null.enabled is not true", because the deliverer read the switch
+    // of his `human:*` row, which has none. No other live test reached the real deliverer.
+    it('sends a quote Ben priced on an open window under his human approver while the desk\'s switch is on', async () => {
+        const outbox: Array<{ approver: string; body: string }> = [];
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
+        wire(outbox);
+        const { file, store, priced } = await pricedThread('2026-09-14T11:50:00.000Z');
+        const out = await deliverPricedQuote({ file, priced, approver: APPROVER, mode: 'live', now, deps: { client: composing, templates: approved, fixedLines: noFixedLineSource, quoting: { store } } });
+        expect(file.hold?.reason ?? null).toBeNull();
+        expect(out).toMatchObject({ ok: true, sent: true });
+        expect(outbox.length).toBeGreaterThan(0);
+        expect(new Set(outbox.map((o) => o.approver))).toEqual(new Set([APPROVER]));
+        expect(outbox.map((o) => o.body).join('\n')).toContain(priced.quoteUrl);
+        expect((await store.read(priced.record.slug))?.isDraft).toBe(false);
+    });
+
+    it('the live price screen\'s send gets a 200 back, not a 409 hold, through the same real deliverer', async () => {
+        const outbox: Array<{ approver: string; body: string }> = [];
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
+        wire(outbox);
+        const { file, store, priced } = await pricedThread('2026-09-14T11:50:00.000Z');
+        const cases = new MemoryCaseFileStore();
+        cases.put(file);
+        const sent = await sendPricedQuoteThroughDesk(
+            { slug: priced.record.slug, approver: APPROVER, quoteUrl: priced.quoteUrl, totals: priced.totals },
+            { liveState: async () => ({ live: true, off: [] }), gateway: async () => ({ store: cases }), deskDeps: { client: composing, templates: approved, fixedLines: noFixedLineSource, quoting: { store } }, now },
+        );
+        expect(sent).toMatchObject({ status: 200, json: { ok: true, sent: true, desk: 'comms_v2', mode: 'freeform' } });
+        expect(new Set(outbox.map((o) => o.approver))).toEqual(new Set([APPROVER]));
+        expect(file.hold).toBeNull();
+    });
+
+    it('still holds it, naming the desk\'s own switch, while that switch is off', async () => {
+        const outbox: Array<{ approver: string; body: string }> = [];
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: {} }) }));
+        wire(outbox);
+        const { file, store, priced } = await pricedThread('2026-09-14T11:50:00.000Z');
+        const out = await deliverPricedQuote({ file, priced, approver: APPROVER, mode: 'live', now, deps: { client: composing, templates: approved, fixedLines: noFixedLineSource, quoting: { store } } });
+        expect(out).toMatchObject({ ok: true, sent: false });
+        expect(file.hold?.reason).toBe(`quote ${priced.record.slug} priced; the send was refused (spine.senders.comms_v2.enabled is not true; the new desk stays in the sandbox until it is)`);
+        expect(outbox).toEqual([]);
+        expect((await store.read(priced.record.slug))?.isDraft).toBe(true);
     });
 });
 

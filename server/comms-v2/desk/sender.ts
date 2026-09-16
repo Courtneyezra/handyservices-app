@@ -371,7 +371,13 @@ export const liveDeliverer: Deliverer = {
         if (!entry) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused`, delivered, label };
         const { getSpineConfig } = await import('../../spine/config');
         const cfg = await getSpineConfig();
-        if (!entry.switchKey || cfg.senders?.[entry.switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${entry.switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered, label };
+        // The desk's own switch gates every send, whoever licensed it. A row with a switch key of its
+        // own must have that switch on as well; a person's `human:*` row has none by design (nothing
+        // may stop a person replying), and reading that missing key as the switch refused every send
+        // Ben pressed on the live desk ("spine.senders.null.enabled is not true").
+        const switches = [registryEntryFor(DESK_APPROVER)?.switchKey ?? null, ...(entry.switchKey ? [entry.switchKey] : [])];
+        const off = switches.find((key) => !key || cfg.senders?.[key]?.enabled !== true);
+        if (off !== undefined) return { ok: false, reason: `spine.senders.${off}.enabled is not true; the new desk stays in the sandbox until it is`, delivered, label };
         if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send, which is the only path that checks the opt-out ledger, carries WhatsApp and SMS only`, delivered, label };
         const { sendCustomerMessage } = await import('../../outbound');
         let sid: string | null = null;
