@@ -284,7 +284,9 @@ export class Desk implements DeskLike {
         if (turn.direction !== 'inbound') return this.nothing(file, party.personId, runId, calls, 'not a customer turn');
         // A customer who has just asked us to stop hears nothing back, not even an acknowledgement: the
         // ledger is written by the old inbound path, and the provider sends its own STOP reply (server/opt-out.ts).
-        const optOut = detectOptOut(turn.body);
+        // A burst is read message by message: "Sorry wrong number" then "STOP" joined is no whole-message keyword.
+        const said = turn.burst ? file.turns.filter((t) => t.direction === 'inbound' && isTurnOf(t, turn)).map((t) => t.body) : [turn.body];
+        const optOut = said.map((body) => detectOptOut(body)).find((m) => m) ?? detectOptOut(turn.body);
         if (optOut) return this.nothing(file, party.personId, runId, calls, `the customer asked us to stop ("${optOut.keyword}", ${optOut.scope}): no reply, no model call`);
         const log = this.deps.log ?? (() => undefined);
         // Ben's note of what the draft is missing, true as of this turn: a photo that has just landed is no longer his to request.
