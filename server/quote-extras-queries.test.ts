@@ -9,7 +9,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { extrasPickCountQuery } from './quote-extras-queries';
+import { extrasPickCountQuery, newlyPickedExtraLabels } from './quote-extras-queries';
 
 const compile = (labels: string[]) => new PgDialect().sqlToQuery(extrasPickCountQuery(labels));
 
@@ -36,5 +36,45 @@ describe('the extras pick-count query binds the label list as one array paramete
         const q = compile(['Extra socket']);
         expect(q.sql).toContain('UPDATE quote_extras_catalog');
         expect(q.sql).toContain('SET pick_count = pick_count + 1');
+    });
+});
+
+describe('a pick counts once per quote, not once per save', () => {
+    const extra = (label: string) => ({
+        label,
+        description: `${label} — fitted on the day`,
+        priceInPence: 4500,
+    });
+
+    it('a create counts every picked label: no stored quote', () => {
+        expect(newlyPickedExtraLabels([extra('Extra socket'), extra('Cable tidy')], null))
+            .toEqual(['Extra socket', 'Cable tidy']);
+    });
+
+    it('re-saving a quote whose extras are unchanged counts nothing', () => {
+        const picked = [extra('Extra socket'), extra('Cable tidy')];
+        const stored = [extra('Extra socket'), extra('Cable tidy')];
+        expect(newlyPickedExtraLabels(picked, stored)).toEqual([]);
+    });
+
+    it('an extra added during an edit counts once, and only that one', () => {
+        const stored = [extra('Extra socket'), extra('Cable tidy')];
+        const picked = [extra('Extra socket'), extra('Cable tidy'), extra('Soundbar bracket')];
+        expect(newlyPickedExtraLabels(picked, stored)).toEqual(['Soundbar bracket']);
+    });
+
+    it('dropping an extra during an edit counts nothing: pick_count never falls', () => {
+        const stored = [extra('Extra socket'), extra('Cable tidy')];
+        expect(newlyPickedExtraLabels([extra('Extra socket')], stored)).toEqual([]);
+    });
+
+    it('a quote stored with no extras counts every picked label', () => {
+        expect(newlyPickedExtraLabels([extra('Extra socket')], undefined)).toEqual(['Extra socket']);
+        expect(newlyPickedExtraLabels([extra('Extra socket')], [])).toEqual(['Extra socket']);
+    });
+
+    it('nothing picked leaves an empty list, so no query runs', () => {
+        expect(newlyPickedExtraLabels([], [extra('Extra socket')])).toEqual([]);
+        expect(newlyPickedExtraLabels(undefined, null)).toEqual([]);
     });
 });

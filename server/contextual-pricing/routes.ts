@@ -35,6 +35,7 @@ import { selectContentForQuote } from '../content-library/selector';
 import { trackQuoteCreated } from '../posthog';
 import { calculateMultiLineCost, checkMargin, calculateCostFromWTBP } from '../margin-engine';
 import { incrementExtrasPickCount } from '../quote-extras-catalog';
+import { newlyPickedExtraLabels } from '../quote-extras-queries';
 import { quoteValidityMs } from '../quotes';
 import { normalizeQuoteImageUrl } from '../quote-image-utils';
 import { uploadQuotePhotoToS3, uploadQuoteVideoToS3, uploadSurveyAudioToS3, isS3Configured } from '../s3-media';
@@ -2980,13 +2981,14 @@ router.post('/api/pricing/create-contextual-quote', async (req, res) => {
       });
     }
 
-    // 7a. Bump the catalog pick-count for any extras that were chosen — fire-and-forget.
-    // Don't block the response if telemetry fails, but DO say so: a swallowed failure here is
-    // exactly how a malformed query kept pick counts at zero unnoticed.
-    if (input.optionalExtras && input.optionalExtras.length > 0) {
-      const labels = input.optionalExtras.map((x) => x.label);
-      void incrementExtrasPickCount(labels).catch((err) => {
-        console.error('[extras-catalog] pick-count update FAILED for', labels, '-', err);
+    // 7a. Bump the catalog pick-count for any extras this quote newly picked — fire-and-forget.
+    // A pick counts once per quote, so an in-place edit only counts labels the stored quote did
+    // not already carry. Don't block the response if telemetry fails, but DO say so: a swallowed
+    // failure here is exactly how a malformed query kept pick counts at zero unnoticed.
+    const newlyPicked = newlyPickedExtraLabels(input.optionalExtras, editingQuote?.optionalExtras);
+    if (newlyPicked.length > 0) {
+      void incrementExtrasPickCount(newlyPicked).catch((err) => {
+        console.error('[extras-catalog] pick-count update FAILED for', newlyPicked, '-', err);
       });
     }
 
