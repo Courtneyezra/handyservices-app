@@ -133,6 +133,18 @@ export interface Turn {
      * SMS, a download that failed), so the desk knows they tried rather than reading an empty turn.
      */
     mediaFailed?: number;
+    /**
+     * Inbound only: what the customer sent that the desk cannot open, as they would call it ("voice
+     * note", "document"), one entry each, so it is not mistaken for a photo that failed to arrive.
+     */
+    unopened?: string[];
+}
+
+/** A turn's failure fields from an adapter's failures: photos and videos that did not arrive are counted, anything else is named. */
+export function failedMediaFields(failures: ReadonlyArray<{ what?: string }>): Pick<Turn, 'mediaFailed' | 'unopened'> {
+    const failed = failures.filter((f) => !f.what).length;
+    const unopened = failures.flatMap((f) => (f.what ? [f.what] : []));
+    return { ...(failed ? { mediaFailed: failed } : {}), ...(unopened.length ? { unopened } : {}) };
 }
 
 /**
@@ -148,10 +160,16 @@ export function mediaCountLabel(media: readonly Pick<TurnMedia, 'kind'>[]): stri
     }).filter(Boolean).join(' and ');
 }
 
-/** The thread's note for media a turn carried that never reached us; empty when there was none. */
+/** The thread's note for media a turn carried that never reached us or cannot be opened; empty when there was none. */
 export function mediaFailedNote(turn: Turn): string {
     const n = turn.mediaFailed ?? 0;
-    return n > 0 ? `[${n} photo${n > 1 ? 's or videos' : ' or video'} sent that did not reach us]` : '';
+    const notes = n > 0 ? [`[${n} photo${n > 1 ? 's or videos' : ' or video'} sent that did not reach us]`] : [];
+    const kinds = Array.from(new Set(turn.unopened ?? []));
+    if (kinds.length) {
+        const counted = kinds.map((k) => { const c = turn.unopened!.filter((u) => u === k).length; return `${c} ${k}${c > 1 ? 's' : ''}`; });
+        notes.push(`[${counted.join(' and ')} sent, which you cannot open]`);
+    }
+    return notes.join(' ');
 }
 
 /** The ids of the messages a turn the desk is answering carries: each message of a burst, or the turn itself. */

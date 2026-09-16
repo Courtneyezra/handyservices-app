@@ -40,8 +40,15 @@ export interface InboundTurn {
     providerMessageId: string | null;
     via: InboundVia;
     /** Media the adapter could not fetch, by provider reference, with the reason. Never silent. */
-    mediaFailures: Array<{ ref: string; reason: string }>;
+    mediaFailures: MediaFailure[];
 }
+
+/**
+ * One attachment that never reached the desk. `what` is set when it was not a photo or a video at
+ * all (a voice note, a document), in the customer's words, so the thread says what they sent
+ * rather than calling it a photo that failed to arrive.
+ */
+export interface MediaFailure { ref: string; reason: string; what?: string }
 
 export interface AdapterDeps {
     fetch?: typeof fetch;
@@ -67,6 +74,23 @@ export function mediaKindOf(mime: string | null | undefined): 'image' | 'video' 
     if (m.startsWith('image/')) return 'image';
     if (m.startsWith('video/')) return 'video';
     return null;
+}
+
+/** What an attachment that is neither a photo nor a video is, as the customer would call it on WhatsApp. */
+export function unopenedKindOf(mime: string | null | undefined): string {
+    const m = (mime ?? '').toLowerCase().split(';')[0].trim();
+    if (m.startsWith('audio/')) return 'voice note';
+    if (m === 'text/vcard' || m === 'text/x-vcard') return 'contact card';
+    return m ? 'document' : 'file';
+}
+
+/**
+ * A shared location as the thread reads it. WhatsApp sends a pin as coordinates with no words, and a
+ * named place with its name and address; the address is what the desk can use, so it is kept.
+ */
+export function sharedLocationText(place: { name?: unknown; address?: unknown }): string {
+    const where = [place.name, place.address].map((v) => String(v ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    return where.length ? `[location shared: ${Array.from(new Set(where)).join(', ')}]` : '[location pin shared, with no address]';
 }
 
 /** `+44...` from `whatsapp:+44...`, `44...@c.us` or bare digits. */
@@ -105,6 +129,8 @@ async function download(url: string, headers: Record<string, string>, deps: Adap
 
 export interface TwilioInboundBody {
     From?: string; Body?: string; MessageSid?: string; ProfileName?: string; NumMedia?: string | number;
+    /** A shared location: coordinates always, a place's name and address when it has them. */
+    Latitude?: string; Longitude?: string; Address?: string; Label?: string;
     [key: string]: unknown;
 }
 
@@ -114,6 +140,7 @@ export async function fromTwilio(body: TwilioInboundBody, deps: AdapterDeps = {}
     const address = e164FromWhatsApp(body.From);
     if (!address) throw new Error('Twilio inbound without a WhatsApp From');
     const turn: InboundTurn = { channel: 'whatsapp', address, name: body.ProfileName?.trim() || null, text: String(body.Body ?? '').trim(), media: [], at: now().toISOString(), providerMessageId: body.MessageSid ?? null, via: 'twilio', mediaFailures: [] };
+    if (body.Latitude !== undefined && body.Latitude !== '') turn.text = [turn.text, sharedLocationText({ name: body.Label, address: body.Address })].filter(Boolean).join(' ');
     const n = Number(body.NumMedia ?? 0) || 0;
     const auth = deps.twilio === undefined
         ? (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN ? { accountSid: process.env.TWILIO_ACCOUNT_SID, authToken: process.env.TWILIO_AUTH_TOKEN } : null)
@@ -122,7 +149,7 @@ export async function fromTwilio(body: TwilioInboundBody, deps: AdapterDeps = {}
         const url = String(body[`MediaUrl${i}`] ?? '');
         const declared = String(body[`MediaContentType${i}`] ?? '');
         if (!url) continue;
-        if (!mediaKindOf(declared)) { turn.mediaFailures.push({ ref: url, reason: `unsupported media type ${declared || 'unknown'}` }); continue; }
+        if (!mediaKindOf(declared)) { turn.mediaFailures.push({ ref: url, reason: `unsupported media type ${declared || 'unknown'}`, what: unopenedKindOf(declared) }); continue; }
         try {
             const headers: Record<string, string> = auth ? { authorization: `Basic ${Buffer.from(`${auth.accountSid}:${auth.authToken}`).toString('base64')}` } : {};
             const got = await download(url, headers, deps);
@@ -145,6 +172,7 @@ export interface MetaMessage {
     text?: { body?: string };
     image?: { id?: string; mime_type?: string; caption?: string };
     video?: { id?: string; mime_type?: string; caption?: string };
+    location?: { latitude?: number; longitude?: number; name?: string; address?: string };
     [key: string]: unknown;
 }
 
@@ -187,6 +215,11 @@ export async function fromMeta(payload: MetaWebhookPayload, deps: AdapterDeps = 
                         turn.mediaFailures.push({ ref, reason: err?.message ?? String(err) });
                     }
                 }
+            } else if (m.type === 'location') turn.text = sharedLocationText(m.location ?? {});
+            else if (m.type === 'audio' || m.type === 'document' || m.type === 'contacts') {
+                const part = (m as any)[m.type] ?? {};
+                turn.text = String(part.caption ?? '').trim();
+                turn.mediaFailures.push({ ref: String(part.id ?? m.type), reason: `${m.type} is not a photo or a video`, what: m.type === 'audio' ? 'voice note' : m.type === 'contacts' ? 'contact card' : 'document' });
             } else turn.text = String((m as any)[m.type ?? '']?.caption ?? '').trim() || `[${m.type ?? 'message'}]`;
             out.push(turn);
         }
@@ -211,7 +244,7 @@ export function fromDoor(input: DoorInbound, deps: AdapterDeps = {}): InboundTur
     if (!address) throw new Error('door inbound without a WhatsApp address');
     const turn: InboundTurn = { channel: 'whatsapp', address, name: input.name?.trim() || null, text: input.text.trim(), media: [], at: input.at ?? now().toISOString(), providerMessageId: null, via: 'door', mediaFailures: [] };
     for (const m of input.media ?? []) {
-        if (!mediaKindOf(m.mime)) { turn.mediaFailures.push({ ref: m.mime, reason: `unsupported media type ${m.mime}` }); continue; }
+        if (!mediaKindOf(m.mime)) { turn.mediaFailures.push({ ref: m.mime, reason: `unsupported media type ${m.mime}`, what: unopenedKindOf(m.mime) }); continue; }
         turn.media.push(writeMedia(m.bytes, m.mime, deps));
     }
     return turn;

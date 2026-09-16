@@ -14,7 +14,7 @@ import { DEFAULT_FIXED_LINES, noFixedLineSource } from '../desk/fixed-lines';
 import { FakeModelClient } from '../desk/models';
 import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved, type TemplateStatusSource } from '../desk/sender';
-import type { InboundTurn } from '../desk/whatsapp-adapter';
+import { fromMeta, fromTwilio, type InboundTurn } from '../desk/whatsapp-adapter';
 import { recordingNotifier } from '../quoting/ben-notifier';
 import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore } from '../quoting/quote-store';
@@ -470,6 +470,46 @@ describe('the channel desk on a call', () => {
         }
         // A turn that lost nothing carries no note.
         expect(b.file.turns[0].mediaFailed).toBeUndefined();
+    });
+    it('a WhatsApp voice note reaches the thread as a voice note the desk cannot open, never as a photo that did not arrive, and a shared location reaches it with its address', async () => {
+        const seen: string[] = [];
+        const { gateway } = rig({
+            router: ({ user }) => { seen.push(user); return routeScoping(); },
+            specialist: () => ({ facts: [], jobUnknowns: [], answeredSubjects: [] }),
+            composer: ({ user }) => { seen.push(user); return { reply: 'Thanks. Could you type it out for me?', factIds: [], kbIds: [] }; },
+        });
+        const at = (m: string) => ({ now: () => new Date(`2026-09-11T10:${m}:00.000Z`), fetch: (async () => { throw new Error('nothing is fetched'); }) as unknown as typeof fetch });
+        const voice = await fromTwilio({ From: 'whatsapp:+447700900942', Body: '', MessageSid: 'SM_v', ProfileName: 'Sam', NumMedia: '1', MediaUrl0: 'https://media.example.invalid/v', MediaContentType0: 'audio/ogg' }, at('00'));
+        const a = await gateway.inbound(voice, { whatsapp: true });
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.turn).toMatchObject({ body: '', media: [], unopened: ['voice note'] });
+        expect(a.turn.mediaFailed).toBeUndefined();
+        expect(seen.filter((u) => u.includes('>> ')).length).toBeGreaterThanOrEqual(2);
+        for (const user of seen.filter((u) => u.includes('>> '))) {
+            expect(user.split('>> ')[1].split('\n')[0]).toMatch(/: \[1 voice note sent, which you cannot open\]$/);
+            expect(user).not.toContain('photo or video');
+        }
+        seen.length = 0;
+        const pin = await fromTwilio({ From: 'whatsapp:+447700900942', Body: '', MessageSid: 'SM_l', ProfileName: 'Sam', NumMedia: '0', Latitude: '52.93', Longitude: '-1.21', Label: 'Beeston Library', Address: 'Foster Ave, Beeston NG9 1AE' }, at('05'));
+        const b = await gateway.inbound(pin);
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.turn).toMatchObject({ body: '[location shared: Beeston Library, Foster Ave, Beeston NG9 1AE]' });
+        const pinThreads = seen.filter((u) => u.includes('>> '));
+        expect(pinThreads.length).toBeGreaterThanOrEqual(2);
+        for (const user of pinThreads) expect(user.split('>> ')[1].split('\n')[0]).toMatch(/^\w+: \[location shared: Beeston Library, Foster Ave, Beeston NG9 1AE\]$/);
+        // A dropped pin has no words at all, and the thread says so rather than showing an empty turn.
+        const dropped = await fromTwilio({ From: 'whatsapp:+447700900942', Body: '', MessageSid: 'SM_d', NumMedia: '0', Latitude: '52.93', Longitude: '-1.21' }, at('06'));
+        expect(dropped.text).toBe('[location pin shared, with no address]');
+    });
+    it('a Meta voice note, document and location are named for what they are', async () => {
+        const [voice, doc, place] = await fromMeta({ object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: { messages: [
+            { from: '447700900942', id: 'w1', timestamp: '1789120800', type: 'audio', audio: { id: 'a1', mime_type: 'audio/ogg; codecs=opus' } },
+            { from: '447700900942', id: 'w2', timestamp: '1789120801', type: 'document', document: { id: 'd1', caption: 'the old invoice' } },
+            { from: '447700900942', id: 'w3', timestamp: '1789120802', type: 'location', location: { latitude: 52.93, longitude: -1.21, address: 'NG9 2AB' } },
+        ] } }] }] }, { meta: null });
+        expect(voice).toMatchObject({ text: '', mediaFailures: [{ what: 'voice note' }] });
+        expect(doc).toMatchObject({ text: 'the old invoice', mediaFailures: [{ what: 'document' }] });
+        expect(place).toMatchObject({ text: '[location shared: NG9 2AB]', mediaFailures: [] });
     });
     it('a first SMS reply held for Ben carries no invitation, so the next real reply still carries it, and only that once (1.4)', async () => {
         const { gateway } = rig({
