@@ -273,8 +273,9 @@ app.get('/api/health', (req, res) => {
 // older than 10 min, missing or unreadable — point a platform healthcheck here.
 // 16 Sep 2026: a fresh heartbeat is not a desk that can answer. `desk` is the newest real customer
 // turn's verdict on the desk's models (server/comms-v2/desk/model-health.ts, no model call made
-// here), status and canAnswer only: the detail is admin-only on /admin/staff; while it is failing, status reads 'cannot_answer' and ok is false, still with 200: the
-// platform healthcheck gates deploys on the code, and a deploy is how a key fix goes out.
+// here), status and canAnswer only: the detail is admin-only on /admin/staff. While it is failing,
+// status reads 'cannot_answer' and ok is false, still with 200: the platform healthcheck gates
+// deploys on the code, and a deploy is how a key fix goes out.
 app.get('/api/health/comms-worker', async (_req, res) => {
     try {
         const { getHeartbeatHealth, publicCommsHealth, withDeskHealth } = await import('./comms-worker-heartbeat');
