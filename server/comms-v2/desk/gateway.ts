@@ -7,7 +7,7 @@
  * desk has one door.
  */
 import { randomUUID } from 'node:crypto';
-import { answeredByReply, appendTurn, messagesOf, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type TurnWait, type CaseFileDeps } from './case-file';
+import { answeredByReply, appendTurn, coveredByReply, messagesOf, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type TurnWait, type CaseFileDeps } from './case-file';
 import { Identity, e164Of, type ResolveResult } from './identity';
 import { MemoryCaseFileStore, type CaseFileStore } from './store';
 import type { InboundTurn } from './whatsapp-adapter';
@@ -149,7 +149,8 @@ export class Gateway {
 
     /**
      * A delivery's turn already on the file, to the desk again unless the desk has handled it: a
-     * reply answers it or a run recorded its result on it. Checked inside the file's queue, so a
+     * reply to its party covers it (one answering it or a later turn, or a person's own words after
+     * it) or a run recorded its result on it. Checked inside the file's queue, so a
      * pass still running on it counts; null when there was nothing to do.
      */
     protected handAgain(file: CaseFile, turn: Turn): Promise<DeskResult | null> {
@@ -357,9 +358,9 @@ export class Gateway {
     }
 }
 
-/** Whether the desk has handled a turn: a reply answers it, or a run recorded its result on it. */
+/** Whether the desk has handled a turn: a reply to its party covers it, or a run recorded its result on it. */
 function deskHandled(file: CaseFile, turn: Turn): boolean {
-    return !!turn.handledBy || answeredByReply(file, turn.id);
+    return !!turn.handledBy || coveredByReply(file, turn);
 }
 
 /** Takes waits off the file; the key goes with the last one, so a file with nothing waiting reads as it did before waits were recorded. */

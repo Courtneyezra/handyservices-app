@@ -192,7 +192,9 @@ email that spends every attempt is kept as failed, logged at error level and pag
 carries a delivery id (`resend:<email id>`) that the gateway records on the turn (`Turn.deliveryId`)
 and refuses to land twice (`duplicate`), so a redelivery, an attempt racing another, or a restart
 between the desk taking the email and the row being marked adds no second turn. The desk runs on
-that turn again only while it is unhandled: no reply answers it and no desk run recorded its result
+that turn again only while it is unhandled: no reply to the party covers it (`coveredByReply`, the
+one-reply guard's position rule, so a reply to a later turn or a person's own words after it count)
+and no desk run recorded its result
 on it (`Turn.handledBy`, written in the same put as the run's reply; a hold or a deliberate
 no-reply is a result). So a desk run that throws after the turn landed is run again on the next
 attempt, through the file's one pass queue, and a run that finished is never run twice. The

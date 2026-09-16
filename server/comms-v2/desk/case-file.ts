@@ -125,7 +125,7 @@ export interface Turn {
     /**
      * A delivery's turn only: the desk run that returned a result on it, whatever it decided (a
      * reply, a hold, nothing). A delivery handed over again whose turn has neither this nor a reply
-     * answering it goes to the desk again (channels/channel-gateway.ts).
+     * covering it (`coveredByReply`) goes to the desk again (channels/channel-gateway.ts).
      */
     handledBy?: string;
 }
@@ -406,16 +406,26 @@ export function lastTurn(file: CaseFile): Turn | null {
  * True when nothing has been sent to the party yet. The one-reply guard's question.
  */
 export function customerTurnUnanswered(file: CaseFile, partyId: string): boolean {
+    const upTo = answeredUpTo(file, partyId);
+    return upTo === null || file.turns.some((t, i) => i > upTo && t.partyId === partyId && t.direction === 'inbound');
+}
+
+/** Whether the replies to the turn's party cover this turn, by `customerTurnUnanswered`'s position rule. */
+export function coveredByReply(file: CaseFile, turn: Turn): boolean {
+    const upTo = answeredUpTo(file, turn.partyId);
+    return upTo !== null && file.turns.findIndex((t) => t.id === turn.id) <= upTo;
+}
+
+/** The position of the newest turn the replies to a party answer; null when nothing has been sent to them. */
+function answeredUpTo(file: CaseFile, partyId: string): number | null {
     const index = new Map(file.turns.map((t, i) => [t.id, i]));
-    let replied = false;
-    let answeredTo = -1;
+    let answeredTo: number | null = null;
     file.turns.forEach((t, i) => {
         if (t.partyId !== partyId || t.direction !== 'outbound') return;
-        replied = true;
         const upTo = t.answers ? Math.max(-1, ...t.answers.map((id) => index.get(id) ?? i)) : i;
-        answeredTo = Math.max(answeredTo, upTo);
+        answeredTo = Math.max(answeredTo ?? -1, upTo);
     });
-    return !replied || file.turns.some((t, i) => i > answeredTo && t.partyId === partyId && t.direction === 'inbound');
+    return answeredTo;
 }
 
 /** Whether a reply on the file records answering this message (`Turn.answers`). */

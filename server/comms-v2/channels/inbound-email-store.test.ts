@@ -314,6 +314,33 @@ describe('through the intake: one turn and one desk run per email', () => {
         expect(replies(cases)).toHaveLength(1);
     });
 
+    for (const later of ['the desk answering a later email', 'a person replying on the card'] as const) {
+        it(`a desk run that threw, then ${later} before the retry: the retry marks the row done with no desk run and no hold`, async () => {
+            const cases = new CaseRows();
+            const { desk, runs } = deskCounting({ throwOnce: true });
+            const g = await gatewayOn(cases, desk);
+            const h = harness(throughIntake);
+            await h.queue.store(EMAIL_ID, envelope());
+            expect(await h.queue.attempt(EMAIL_ID)).toBe('retrying');
+            const file = g.store.all()[0];
+            const first = file.turns[0];
+            if (later === 'the desk answering a later email') {
+                const t2 = appendTurn(file, { at: '2026-09-16T09:30:00.000Z', channel: 'email', kind: 'text', body: 'Any news?', media: [], partyId: first.partyId, direction: 'inbound', runId: null, approver: null });
+                if (!t2.ok) throw new Error(t2.reason);
+                appendTurn(file, { at: '2026-09-16T09:31:00.000Z', channel: 'email', kind: 'text', body: 'Thanks, we are on it.', media: [], partyId: first.partyId, direction: 'outbound', runId: 'run_later', approver: 'agent.comms_v2', answers: [t2.value.id] });
+            } else {
+                appendTurn(file, { at: '2026-09-16T09:31:00.000Z', channel: 'email', kind: 'text', body: 'Hi Sam, I will pop round on Friday.', media: [], partyId: first.partyId, direction: 'outbound', runId: 'run_human', approver: 'human:ben@example.invalid' });
+            }
+            g.store.put(file);
+            h.advance(RETRY_DELAYS_MS[0]);
+            expect((await h.queue.retryDue()).handed).toBe(1);
+            expect(h.row().status).toBe('done');
+            expect(runs).toHaveLength(1);
+            expect(file.hold).toBeNull();
+            expect(replies(cases)).toHaveLength(1);
+        });
+    }
+
     it('a held turn is handled: the row is done with no reply, and a later hand-over reads the recorded result and runs nothing', async () => {
         const cases = new CaseRows();
         const { desk, runs } = deskCounting({ decision: 'hold' });
