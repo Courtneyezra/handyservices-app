@@ -371,7 +371,12 @@ export const liveDeliverer: Deliverer = {
         if (!entry) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused`, delivered, label };
         const { getSpineConfig } = await import('../../spine/config');
         const cfg = await getSpineConfig();
-        if (!entry.switchKey || cfg.senders?.[entry.switchKey]?.enabled !== true) return { ok: false, reason: `spine.senders.${entry.switchKey}.enabled is not true; the new desk stays in the sandbox until it is`, delivered, label };
+        // The switch read here is the desk's own, whoever licensed the send: a person's `human:*`
+        // row carries no switch key (nothing may stop a person replying), and reading the approver's
+        // key instead refused every send Ben pressed on the live desk. The approver's own row is
+        // still gated inside the one outbound send.
+        const deskSwitch = registryEntryFor(DESK_APPROVER)?.switchKey;
+        if (!deskSwitch || cfg.senders?.[deskSwitch]?.enabled !== true) return { ok: false, reason: `spine.senders.${deskSwitch}.enabled is not true; the new desk stays in the sandbox until it is`, delivered, label };
         if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send, which is the only path that checks the opt-out ledger, carries WhatsApp and SMS only`, delivered, label };
         const { sendCustomerMessage } = await import('../../outbound');
         let sid: string | null = null;
