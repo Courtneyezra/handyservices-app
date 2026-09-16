@@ -119,6 +119,9 @@ describe('the Service specialist on the desk', () => {
         'Hi, are you covering Beeston?',
         'Does your area include West Bridgford?',
         'Would you be able to come to Beeston?',
+        'Are you able to cover Beeston? need a tap fixed',
+        'do you cover beeston as well? shelves need putting up',
+        "We're in Stapleford - do you cover that far out?",
     ])('an everyday coverage wording the router sent to Scoping still reaches Service and is answered from the areas-covered row: %s', async (text) => {
         const AREAS = 'We cover Nottingham and the surrounding areas, Beeston and West Bridgford included.';
         const areasKb = { async list() { return [{ id: 'kb-areas', topic: 'Which areas do you cover?', approvedWords: AREAS }]; } };

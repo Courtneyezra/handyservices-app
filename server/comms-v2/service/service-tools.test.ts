@@ -143,6 +143,11 @@ describe('asksAboutOurArea', () => {
         'Do you cover all of Nottingham?',
         'Do you cover the whole of Nottingham?',
         'Do you cover out towards Ilkeston?',
+        'Are you able to cover Beeston? need a tap fixed',
+        'do you cover beeston as well? shelves need putting up',
+        'Do you cover beeston too? leaking tap',
+        "We're in Stapleford - do you cover that far out?",
+        'do you guys come out this far?',
     ])('matches a coverage question: %s', (text) => {
         expect(asksAboutOurArea(text)).toBe(true);
     });
@@ -186,6 +191,12 @@ describe('asksAboutOurArea', () => {
         'do you cover south facing walls',
         'Are you anywhere near finished?',
         'Is there anywhere you go for parts?',
+        'are you able to cover the cost?',
+        'Are you able to cover up the pipes too?',
+        'do you cover plastering too?',
+        'do you cover skirting as well as the doors?',
+        'Would you go that far as to replace it?',
+        "the crack didn't go that far",
     ])('does not match: %s', (text) => {
         expect(asksAboutOurArea(text)).toBe(false);
     });
