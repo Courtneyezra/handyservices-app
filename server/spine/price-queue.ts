@@ -143,17 +143,30 @@ async function selectWaitingRows(): Promise<DraftRowShape[]> {
     return rows.map((x) => x?.row).filter(Boolean);
 }
 
-/** The newest non-superseded quote_estimates row per draft, one query. Empty when the table is absent. */
+/**
+ * The newest non-superseded quote_estimates row per draft, as one query. Exported for the test.
+ *
+ * The id list has to reach Postgres as ONE bound array parameter, hence `sql.param`. Interpolating
+ * the JS array straight into the template does NOT bind an array: drizzle expands it in place into
+ * `($1, $2, ...)`, which Postgres reads as a record, and the cast that follows fails the whole
+ * query with "cannot cast type record to text[]" — a 500 on every load of Ben's to-price list as
+ * soon as one draft is waiting (a single id expands to `($1)::text[]` and fails just the same).
+ */
+export async function estimatesQuery(quoteIds: string[]) {
+    const { sql } = await import('drizzle-orm');
+    return sql`select distinct on (e.draft_quote_id) e.draft_quote_id as quote_id, to_jsonb(e) as row
+        from quote_estimates e
+        where e.draft_quote_id = any(${sql.param(quoteIds)}::text[])
+        order by e.draft_quote_id, (e.superseded_at is null) desc, e.created_at desc`;
+}
+
+/** Those rows by quote id. Empty when the table is absent. */
 async function selectEstimatesFor(quoteIds: string[]): Promise<Map<string, EstimateRowShape | null>> {
     const out = new Map<string, EstimateRowShape | null>();
     if (!quoteIds.length) return out;
     try {
         const { db } = await import('../db');
-        const { sql } = await import('drizzle-orm');
-        const r: any = await db.execute(sql`select distinct on (e.draft_quote_id) e.draft_quote_id as quote_id, to_jsonb(e) as row
-            from quote_estimates e
-            where e.draft_quote_id = any(${quoteIds}::text[])
-            order by e.draft_quote_id, (e.superseded_at is null) desc, e.created_at desc`);
+        const r: any = await db.execute(await estimatesQuery(quoteIds));
         const rows: any[] = Array.isArray(r) ? r : (r?.rows ?? []);
         for (const x of rows) if (x?.quote_id && x?.row) out.set(String(x.quote_id), x.row);
     } catch (error: any) {
