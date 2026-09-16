@@ -13,7 +13,8 @@
  * third lapse would be 15.76% over the first price, and pointing a customer at that page was the
  * path that turned out to answer 410; the admin renew keeps the price. This is neither: the uplift
  * is always taken from the original, which the row keeps under `pricing_suggestions.reissue` the
- * first time the desk reissues it, so a second and a third expiry land on the same figure.
+ * first time the desk reissues it, so a second and a third expiry land on the same figure. Once the
+ * desk has reissued a quote, the page's own refresh prices from that original too (`planSelfRefresh`).
  *
  * Rounding is applied to the total, never per line: rounding each line up would put up to £1 per
  * line on the customer's total, so a four-line quote could reach 5% plus £4. The total is the
@@ -61,6 +62,7 @@ export function allocatePence(parts: number[], total: number): number[] {
 /** The row fields the plan reads beyond the quote record's own. */
 export interface ReissueRowLike extends QuoteRowLike {
     regenerationCount?: number | null;
+    extensionCount?: number | null;
     materialsCostWithMarkupPence?: number | null;
     pricingLayerBreakdown?: unknown;
 }
@@ -100,6 +102,38 @@ export type ReissuePlanOutcome = { ok: true; plan: ReissuePlan } | { ok: false; 
  *   - a quote whose lines do not add up to its total, or carry a line with no price.
  */
 export function planReissue(row: ReissueRowLike, input: ReissuePlanInput): ReissuePlanOutcome {
+    const priced = priceFromOriginal(row, input);
+    if (!priced.ok) return priced;
+    const { original, existing, patch, expiresAt } = priced;
+    const issue: ReissueIssue = { fromExpiresAt: iso(row.expiresAt), at: input.now.toISOString(), runId: input.runId, totalPence: patch.basePrice as number, expiresAt: expiresAt.toISOString(), by: REISSUED_BY };
+    const record: ReissueRecord = { original, issues: [...(existing?.issues ?? []), issue] };
+    return { ok: true, plan: {
+        patch: { ...patch, regenerationCount: (row.regenerationCount ?? 0) + 1, pricingSuggestions: { ...((row.pricingSuggestions as Record<string, unknown> | null) ?? {}), reissue: record } },
+        record, issue, previousTotalPence: row.basePrice as number,
+    } };
+}
+
+export type SelfRefreshOutcome = { ok: true; patch: Record<string, unknown> } | { ok: false; reason: string };
+
+/**
+ * The customer's own refresh on the quote page (`POST /api/personalized-quotes/:slug/reissue`), for
+ * a quote the desk has reissued: the same figure the desk sets, the original plus the uplift, so a
+ * refresh never takes the total past it and the desk can still reissue the row after it. The desk's
+ * record is left as it is: the refresh is no reissue of the desk's, so no run is owed a message.
+ * Null for a quote the desk never reissued, which the page refreshes as it always has.
+ */
+export function planSelfRefresh(row: ReissueRowLike, input: Omit<ReissuePlanInput, 'runId'>): SelfRefreshOutcome | null {
+    if (!reissueRecordOf(row)) return null;
+    const priced = priceFromOriginal(row, input);
+    if (!priced.ok) return priced;
+    return { ok: true, patch: { ...priced.patch, regenerationCount: (row.regenerationCount ?? 0) + 1, extensionCount: (row.extensionCount ?? 0) + 1 } };
+}
+
+type PricedFromOriginal =
+    | { ok: true; original: ReissueRecord['original']; existing: ReissueRecord | null; patch: Record<string, unknown>; expiresAt: Date }
+    | { ok: false; reason: string };
+
+function priceFromOriginal(row: ReissueRowLike, input: Omit<ReissuePlanInput, 'runId'>): PricedFromOriginal {
     const status = statusOfRow(row, input.now);
     if (status !== 'expired') return { ok: false, reason: `the quote is ${status}; only an expired quote is reissued` };
     const total = int(row.basePrice);
@@ -143,20 +177,16 @@ export function planReissue(row: ReissueRowLike, input: ReissuePlanInput): Reiss
         ? newItems.reduce((a, l) => a + Number(l.materialsPence ?? 0), 0)
         : Math.round(((int(row.materialsCostWithMarkupPence) ?? 0) * newTotal) / original.totalPence);
     const expiresAt = new Date(input.now.getTime() + input.validityMs(newTotal));
-    const issue: ReissueIssue = { fromExpiresAt: iso(row.expiresAt), at: input.now.toISOString(), runId: input.runId, totalPence: newTotal, expiresAt: expiresAt.toISOString(), by: REISSUED_BY };
-    const record: ReissueRecord = { original, issues: [...(existing?.issues ?? []), issue] };
     const breakdown = row.pricingLayerBreakdown && typeof row.pricingLayerBreakdown === 'object' ? (row.pricingLayerBreakdown as Record<string, unknown>) : null;
     const patch: Record<string, unknown> = {
         basePrice: newTotal,
         materialsCostWithMarkupPence: materialsTotal,
         depositAmountPence: depositFor(newTotal, materialsTotal, input.depositPercent),
         expiresAt,
-        regenerationCount: (row.regenerationCount ?? 0) + 1,
-        pricingSuggestions: { ...((row.pricingSuggestions as Record<string, unknown> | null) ?? {}), reissue: record },
         ...(items.length ? { pricingLineItems: newItems } : {}),
         ...(breakdown ? { pricingLayerBreakdown: { ...breakdown, finalPricePence: newTotal, materialsWithMarginPence: materialsTotal, labourPence: newTotal - materialsTotal } } : {}),
     };
-    return { ok: true, plan: { patch, record, issue, previousTotalPence: total } };
+    return { ok: true, original, existing, patch, expiresAt };
 }
 
 /**

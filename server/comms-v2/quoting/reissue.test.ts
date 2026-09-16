@@ -4,7 +4,7 @@
  * scaled to that total to the penny, and the claim is a compare-and-set that one run wins.
  */
 import { describe, expect, it } from 'vitest';
-import { allocatePence, planReissue, reissueLine, reissuedTotalPence, reissueRecordOf, type ReissueRowLike } from './reissue';
+import { allocatePence, planReissue, planSelfRefresh, reissueLine, reissuedTotalPence, reissueRecordOf, type ReissueRowLike } from './reissue';
 import { MemoryQuoteStore } from './quote-store';
 import { quoteRecordOf } from './quote-record';
 
@@ -151,5 +151,60 @@ describe('the store claims a reissue once, always from the original', () => {
         store.optOuts.set('447700900942', 'marketing');
         expect(await store.optedOut('+447700900942')).toBe('marketing');
         expect(await store.optedOut('+447700900943')).toBeNull();
+    });
+});
+
+describe('the customer\'s own refresh on the quote page', () => {
+    const lapsed = (r: ReissueRowLike) => new Date(Date.parse(String(r.expiresAt)) + 60_000);
+    const pageRefresh = (r: ReissueRowLike, at: Date) => {
+        const out = planSelfRefresh(r, { now: at, depositPercent: 25, validityMs: () => 48 * 3_600_000 });
+        if (!out?.ok) throw new Error(out ? out.reason : 'not a desk-reissued quote');
+        Object.assign(r, { ...out.patch, expiresAt: (out.patch.expiresAt as Date).toISOString() });
+    };
+
+    it('after a desk reissue, a lapse and a refresh on the page stay at the original plus 5%', async () => {
+        const store = new MemoryQuoteStore();
+        store.rows.set('abcd1234', { ...(row([10_000]) as any) });
+        const r = store.rows.get('abcd1234')!;
+        const out = await store.reissue('abcd1234', { now, runId: 'run_1' });
+        if (!out.ok) throw new Error(out.reason);
+        expect(r.basePrice).toBe(10_500);
+        pageRefresh(r, lapsed(r));
+        expect(r.basePrice).toBe(10_500);
+        expect((r.pricingLineItems as any[])[0].pricePence).toBe(10_500);
+        expect(r.extensionCount).toBe(1);
+        pageRefresh(r, lapsed(r));
+        expect(r.basePrice).toBe(10_500);
+        expect(r.extensionCount).toBe(2);
+        // The desk's record is untouched: no run is owed a message for the page's refresh.
+        expect(reissueRecordOf(r)!.issues.map((i) => i.runId)).toEqual(['run_1']);
+    });
+
+    it('a refresh on the page, then the desk\'s reissue on the next lapse, is still the original plus 5%', async () => {
+        const store = new MemoryQuoteStore();
+        store.rows.set('abcd1234', { ...(row([10_000]) as any) });
+        const r = store.rows.get('abcd1234')!;
+        const first = await store.reissue('abcd1234', { now, runId: 'run_1' });
+        if (!first.ok) throw new Error(first.reason);
+        pageRefresh(r, lapsed(r));
+        const again = await store.reissue('abcd1234', { now: lapsed(r), runId: 'run_2' });
+        if (!again.ok) throw new Error(again.reason);
+        expect(again.issue.totalPence).toBe(10_500);
+        expect(r.basePrice).toBe(10_500);
+        expect(reissueRecordOf(r)!.original.totalPence).toBe(10_000);
+    });
+
+    it('never prices a refresh the desk could not: a live quote or a moved total is refused', () => {
+        const once = planReissue(row([10_000]), plan);
+        if (!once.ok) throw new Error(once.reason);
+        const after = { ...row([10_000]), ...(once.plan.patch as any), expiresAt: '2026-09-15T00:00:00.000Z' };
+        const refused = (r: ReissueRowLike, at = now) => { const o = planSelfRefresh(r, { ...plan, now: at }); return o && !o.ok ? o.reason : null; };
+        expect(refused({ ...after, basePrice: 11_025 })).toMatch(/not the one the desk last reissued it at/);
+        expect(refused({ ...after, expiresAt: '2026-09-20T00:00:00.000Z' })).toMatch(/is sent/);
+    });
+
+    it('leaves a quote the desk never reissued to the page\'s own refresh, as before', () => {
+        expect(planSelfRefresh(row([10_000]), plan)).toBeNull();
+        expect(planSelfRefresh(row([10_500], { extensionCount: 1 }), plan)).toBeNull();
     });
 });

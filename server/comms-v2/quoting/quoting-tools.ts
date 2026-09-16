@@ -256,13 +256,13 @@ export function recordQuoteFacts(file: CaseFile, q: QuoteRecord, deps: QuotingDe
         draft: 'draft: with Ben to price', sent: 'sent: the customer has the link', accepted: 'accepted: the deposit is paid',
         revoked: 'revoked by Ben', superseded: 'superseded by a newer quote', expired: 'expired: the price lock has passed',
     };
-    ids.status = once(QUOTE_FACT.status, statusText[q.status], 'status')?.id ?? null;
+    ids.status = currentOnce(file, q.slug, QUOTE_FACT.status, statusText[q.status], 'status', d)?.id ?? null;
     if (q.status === 'sent' || q.status === 'accepted') {
         ids.link = once(QUOTE_FACT.link, quoteUrlFor(q.slug, d.baseUrl), 'link')?.id ?? null;
         // Keyed by the figure's own citation, not its label: two lines may share a label, and keying
         // by that collapsed the second into the first and gave its price as the other's.
         for (const f of figureLabels(q)) {
-            const fact = figureOnce(file, q.slug, `${QUOTE_FACT.line}:${f.citation}`, pounds(f.amountPence), f.citation, d);
+            const fact = currentOnce(file, q.slug, `${QUOTE_FACT.line}:${f.citation}`, pounds(f.amountPence), f.citation, d);
             if (fact) ids.lines[f.citation] = fact.id;
         }
     }
@@ -279,12 +279,13 @@ export function recordQuoteFacts(file: CaseFile, q: QuoteRecord, deps: QuotingDe
 }
 
 /**
- * A figure is recorded again whenever it differs from the newest one for its line, even when an
- * older fact carried the same amount: the newest `quote_line:<label>` for a quote is its current
- * figure (case-file.ts `isSupersededFigure`), so a price that went £100.00, £105.00 and back to
- * £100.00 must end on a £100.00 fact rather than finding the first one and leaving £105.00 newest.
+ * A figure or the status is recorded again whenever it differs from the newest one for its key, even
+ * when an older fact carried the same value: the newest `quote_line:<label>` for a quote is its
+ * current figure (case-file.ts `isSupersededFigure`) and the newest `quote_status` its current
+ * status, so a price that went £100.00, £105.00 and back to £100.00 must end on a £100.00 fact, and
+ * a quote that went sent, expired and sent again on its reissue must end on a sent one.
  */
-function figureOnce(file: CaseFile, slug: string, key: string, value: string, line: string, d: ResolvedQuotingDeps): Fact | null {
+function currentOnce(file: CaseFile, slug: string, key: string, value: string, line: string, d: ResolvedQuotingDeps): Fact | null {
     let newest: Fact | null = null;
     for (const f of file.facts) if (f.key === key && f.source.kind === 'quote_line' && f.source.quoteRef === slug) newest = f;
     if (newest && newest.value === value) return newest;

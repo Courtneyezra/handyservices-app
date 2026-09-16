@@ -54,8 +54,6 @@ export interface QuoteRecord {
     photoUrls: string[];
     /** The desk's own reissues of this quote (reissue.ts), kept on the row under `pricing_suggestions.reissue`. */
     reissue: ReissueRecord | null;
-    /** How many times the customer has refreshed it on their own quote page (`extension_count`). */
-    selfRefreshes: number;
 }
 
 /** The row fields this module reads, in the column names drizzle gives them. */
@@ -76,7 +74,6 @@ export interface QuoteRowLike {
     pricingLineItems?: unknown;
     pricingSuggestions?: unknown;
     customerPhotoUrls?: unknown;
-    extensionCount?: number | null;
 }
 
 // ---------------------------------------------------------------- the desk's reissue record
@@ -163,7 +160,6 @@ export function quoteRecordOf(row: QuoteRowLike, now: Date = new Date()): QuoteR
         checkThis: (suggestions?.lines ?? []).filter((l) => l?.checkThis).length,
         photoUrls: strings(row.customerPhotoUrls),
         reissue: reissueRecordOf(row),
-        selfRefreshes: int(row.extensionCount) ?? 0,
     };
 }
 

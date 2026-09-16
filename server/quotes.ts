@@ -28,6 +28,7 @@ import { computeDateFeesPence } from "./scheduling-fees";
 import { isWelcomeGiftEligible, resolveWelcomeGift } from "./welcome-gift";
 import { resolveOrCreateProperty } from "./properties";
 import { resolveOrCreateClient } from "./clients";
+import { planSelfRefresh } from "./comms-v2/quoting/reissue";
 import { successResponse, errorResponse, sendSuccess, sendError, sendNotFound, sendBadRequest, sendServerError } from "./lib/api-response";
 import { bookQuoteAsJob } from "./ops/actions";
 
@@ -2538,7 +2539,8 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/renew', async (req, res) =
 // each time and is capped at REISSUE_MAX_SELF, after which it's admin-only. Only
 // permitted once the quote has actually expired and before it's booked, so the
 // surcharge is a real cost of letting the price-lock lapse rather than a way to
-// re-price a live quote.
+// re-price a live quote. A quote the comms desk has reissued never compounds: it
+// is refreshed at the original price plus 5% (comms-v2/quoting/reissue.ts).
 quotesRouter.post('/api/personalized-quotes/:slug/reissue', async (req, res) => {
     try {
         const { slug } = req.params;
@@ -2571,17 +2573,24 @@ quotesRouter.post('/api/personalized-quotes/:slug/reissue', async (req, res) => 
             });
         }
 
-        const patch = computeReissuePatch(quote, REISSUE_SURCHARGE);
+        // A quote the comms desk has reissued is priced from what the customer first saw, as the desk prices it.
+        const { getPricingSettings } = await import('./pricing-settings');
+        const { depositPercent } = await getPricingSettings();
+        const fromOriginal = planSelfRefresh(quote, { now: new Date(), depositPercent, validityMs: quoteValidityMs });
+        if (fromOriginal && !fromOriginal.ok) {
+            console.warn(`[reissue] ${slug} not refreshed on the page: ${fromOriginal.reason}`);
+            return res.status(409).json({ error: "This quote can't be refreshed here. Message us and we'll sort a fresh one.", cannotRefresh: true });
+        }
+        const patch: Record<string, any> = fromOriginal?.patch ?? {
+            ...computeReissuePatch(quote, REISSUE_SURCHARGE),
+            extensionCount: selfReissues + 1,
+            regenerationCount: (quote.regenerationCount || 0) + 1,
+        };
         // Band on the post-surcharge price so the refreshed window matches the band.
-        const newExpiresAt = new Date(Date.now() + quoteValidityMs(patch.basePrice ?? quote.basePrice));
+        const newExpiresAt: Date = patch.expiresAt ?? new Date(Date.now() + quoteValidityMs(patch.basePrice ?? quote.basePrice));
 
         await db.update(personalizedQuotes)
-            .set({
-                ...patch,
-                expiresAt: newExpiresAt,
-                extensionCount: selfReissues + 1,
-                regenerationCount: (quote.regenerationCount || 0) + 1,
-            })
+            .set({ ...patch, expiresAt: newExpiresAt })
             .where(eq(personalizedQuotes.id, quote.id));
 
         res.json({

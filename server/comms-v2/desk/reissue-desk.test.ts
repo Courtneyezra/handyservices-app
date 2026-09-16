@@ -18,6 +18,7 @@ import { MemoryQuoteStore } from '../quoting/quote-store';
 import { markQuoteSent, priceQuote, reissueExpiredQuote, reissueNotes } from '../quoting/quoting-tools';
 import { reissueRecordOf } from '../quoting/reissue';
 import { QUOTE_FACT } from '../quoting/quote-record';
+import { quoteStateOf } from '../quoting/quoting-specialist';
 
 const ADDRESS = '+447700900942';
 const LINE = "Your previous quote has expired, so I've updated it. The new price is £126.00.";
@@ -178,6 +179,30 @@ describe('an expired quote, when the customer writes back', () => {
         await say('yes go ahead');
         expect(row.basePrice).toBe(12_000);
         expect(file.hold?.reason).toContain('acceptance in chat');
+    });
+
+    it('a yes in chat stays on Ben\'s card when a harmless message follows: no reissue over it', async () => {
+        let accepting = true;
+        const { say, row, file } = await expired({ reading: () => ({ concerns: [], beyondQuoteLine: false, acceptanceInChat: accepting, notReady: false }) });
+        await say('yes go ahead');
+        accepting = false;
+        const out = await say('hello?');
+        expect(out.text).not.toMatch(/expired|£/);
+        expect(row.basePrice).toBe(12_000);
+        expect(reissueRecordOf(row)).toBeNull();
+        expect(file.hold?.reason).toContain('not reissued automatically: acceptance in chat');
+        expect(file.releases).toEqual([]);
+    });
+
+    it('the file\'s newest quote status reads sent once the quote is reissued, on that turn and after', async () => {
+        const { say, file, slug } = await expired();
+        await say('what does that include again?');
+        const statuses = () => file.facts.filter((f) => f.key === QUOTE_FACT.status).map((f) => f.value);
+        expect(statuses().slice(-2)).toEqual(['expired: the price lock has passed', 'sent: the customer has the link']);
+        expect(quoteStateOf(file)?.status).toBe('sent: the customer has the link');
+        await say('and one more thing');
+        expect(statuses()[statuses().length - 1]).toBe('sent: the customer has the link');
+        expect(quoteStateOf(file)).toMatchObject({ slug, status: 'sent: the customer has the link' });
     });
 
     it('a thread already held for Ben on something else is not reissued', async () => {

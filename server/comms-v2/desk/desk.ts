@@ -432,10 +432,13 @@ export class Desk implements DeskLike {
                         if (claim && !claim.ok && claim.claimedButLost) {
                             recordReissue(file, { slug: quoting.reissue!.slug, issue: claim.claimedButLost.issue, previousTotalPence: claim.claimedButLost.previousTotalPence, sentAt: null, notSent: claim.why }, this.quotingDeps());
                         }
-                        const why = claim && !claim.ok ? `; not reissued automatically: ${claim.why}` : '';
+                        const blockers = quoting.reissue?.blockers.length ? quoting.reissue.blockers.join('; ') : null;
+                        const why = claim && !claim.ok && !blockers ? `; not reissued automatically: ${claim.why}` : '';
                         // Restated on the desk's own card for this quote; on any other card it is a promise to keep, noted as ever.
                         const ownCard = file.hold?.reason.startsWith(STALE_HOLD) && !file.hold.notedOn ? STALE_HOLD : undefined;
                         this.holdFor(file, null, `${STALE_HOLD} (${staleQuote}): no figure may be read from it and the customer has been told Ben will come back to them on it${why}`, null, ownCard);
+                        // What the customer asked Ben is noted as theirs, so the card is no longer the desk's to restate, clear or reissue over.
+                        if (blockers) noteOnHold(file, { reason: `not reissued automatically: ${blockers}` });
                     }
                 }
                 fixedLines.push(...(await channelFixedLines(file, party, turn, this.deps.fixedLines ?? knowledgeBaseFixedLines, this.now())));
