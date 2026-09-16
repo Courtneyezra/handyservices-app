@@ -247,14 +247,20 @@ export function forwardToCommsV2(event: IntakeEvent, env: NodeJS.ProcessEnv = pr
     void forwardNow(event).catch((err) => console.error(`[comms-v2 intake] ${event.kind} failed: ${err?.message ?? err}`));
 }
 
+/** The label for a decision log line, from the purpose the gateway now in use was built for: never a fixed word, so a mode change is felt here too. */
+export function deliveryLabelFor(purpose: Purpose | 'any' | undefined): string {
+    return purpose && purpose !== 'any' && INTAKE_DESK_MODE[purpose] === 'live' ? 'live delivery' : 'dry run';
+}
+
 /** The same forward, awaited: the tests use it. */
 export async function forwardNow(event: IntakeEvent): Promise<IntakeReport> {
     const gateway = await liveChannelGateway();
     const { envelopes, skipped } = await envelopesOf(event);
+    const deliveryLabel = deliveryLabelFor(builtIntakeGateway()?.purpose);
     let forwarded = 0;
     for (const envelope of envelopes) {
         const out = await gateway.inbound(envelope);
-        if (out.kind === 'handled') { forwarded++; console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: ${out.result.decision}${out.result.channel ? ` on ${out.result.channel}` : ''} (dry run)`); }
+        if (out.kind === 'handled') { forwarded++; console.log(`[comms-v2 intake] ${event.kind} -> case ${out.file.id}: ${out.result.decision}${out.result.channel ? ` on ${out.result.channel}` : ''} (${deliveryLabel})`); }
         else skipped.push(out.kind === 'candidates' ? 'identity returned candidates' : out.reason);
     }
     return { forwarded, skipped };

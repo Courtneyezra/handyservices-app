@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CaseFile, Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import { ChannelGateway } from './channel-gateway';
-import { INTAKE_DESK_MODE, INTAKE_ENV, INTAKE_REQUIREMENTS, builtIntakeGateway, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, liveChannelGateway, resetLiveChannelGateway } from './intake';
+import { INTAKE_DESK_MODE, INTAKE_ENV, INTAKE_REQUIREMENTS, builtIntakeGateway, deliveryLabelFor, envelopesOf, forwardNow, forwardToCommsV2, intakeEnabled, liveChannelGateway, resetLiveChannelGateway } from './intake';
 
 const turns: Turn[] = [];
 const fakeDesk: DeskLike = {
@@ -86,6 +86,12 @@ describe('the intake switch', () => {
         expect(turns.length).toBe(before + 1);
         expect(turns[turns.length - 1]).toMatchObject({ channel: 'sms', body: 'my gate has dropped' });
         resetLiveChannelGateway();
+    });
+    it('labels the decision log with the gateway\'s real delivery mode, never a fixed word', () => {
+        expect(deliveryLabelFor('sandbox')).toBe('dry run');
+        expect(deliveryLabelFor('live')).toBe('live delivery');
+        expect(deliveryLabelFor('any')).toBe('dry run');
+        expect(deliveryLabelFor(undefined)).toBe('dry run');
     });
 });
 
