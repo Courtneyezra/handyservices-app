@@ -135,6 +135,19 @@ export interface Turn {
     mediaFailed?: number;
 }
 
+/**
+ * How many of each kind a turn carried, as the thread shows it: "1 photo", "2 videos", "1 photo and
+ * 1 video"; empty for none. A burst can carry both, and naming only the first kind told the router
+ * and composer a video was a photo.
+ */
+export function mediaCountLabel(media: readonly Pick<TurnMedia, 'kind'>[]): string {
+    return (['image', 'video'] as const).map((kind) => {
+        const n = media.filter((m) => m.kind === kind).length;
+        const noun = kind === 'image' ? 'photo' : 'video';
+        return n ? `${n} ${noun}${n > 1 ? 's' : ''}` : '';
+    }).filter(Boolean).join(' and ');
+}
+
 /** The thread's note for media a turn carried that never reached us; empty when there was none. */
 export function mediaFailedNote(turn: Turn): string {
     const n = turn.mediaFailed ?? 0;
