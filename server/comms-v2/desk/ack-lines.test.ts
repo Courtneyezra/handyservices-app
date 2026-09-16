@@ -129,6 +129,32 @@ describe('a thanks for media that is late', () => {
         expect(file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
     });
 
+    it('adds no late thanks for a video a person has already replied to from the board', async () => {
+        let user = '';
+        const { gateway, clock } = desk({
+            router: () => routeScoping({ turnKind: 'answer' }),
+            specialist: noFacts,
+            composer: (call) => {
+                user = call.user;
+                return call.n === 1
+                    ? { reply: 'Hi Sam, a dripping kitchen tap, no problem.', factIds: [], kbIds: [] }
+                    : { reply: "Yes, that's fine.", factIds: [], kbIds: [] };
+            },
+        }, '2026-09-15T19:00:00.000Z');
+        const first = await gateway.inbound(message('My kitchen tap drips. NG3 3EG', '2026-09-15T19:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        const file = first.file;
+        videoLeftUnanswered(file, '2026-09-15T19:06:09.000Z');
+        const reply = appendTurn(file, { at: '2026-09-15T19:30:00.000Z', channel: 'whatsapp', direction: 'outbound', partyId: file.parties[0].personId, kind: 'text', body: 'Thanks for the video, I can come Tuesday.', media: [], runId: 'run_ben', approver: 'human:ben@handyservices.app' });
+        if (!reply.ok) throw new Error(reply.reason);
+
+        clock.t = Date.parse('2026-09-16T04:38:49.000Z');
+        const next = await gateway.inbound(message('I have more work, can I send a video?', '2026-09-16T04:38:49.000Z'));
+        if (next.kind !== 'handled') throw new Error(next.kind);
+        expect(user).not.toContain('came in earlier');
+        expect(next.result.bubbles.map((b) => b.text)).toEqual(["Yes, that's fine."]);
+    });
+
     it('sends the composer back once when it thanks for the late video itself', async () => {
         let retryUser = '';
         const { gateway, clock } = desk({

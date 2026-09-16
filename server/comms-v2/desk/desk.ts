@@ -484,13 +484,16 @@ function scopingProposal(specialists: SpecialistReturn[]): Proposal | null {
 /**
  * The newest photo or video from this party that is not part of the turn being answered and came in
  * longer ago than LATE_MEDIA_MS: the media a thanks owed now would be late for. Null when the turn
- * itself brought media (that thanks is on time and covers the rest) or nothing is that old, so a
+ * itself brought media (that thanks is on time and covers the rest), nothing is that old, or any
+ * message, a person's from the board included, has already gone to the party since it came in, so a
  * customer who says a video is coming and sends it still gets one reply covering both.
  */
 function lateMediaOf(file: CaseFile, turn: Turn, now: Date): { media: TurnMedia[]; at: Date } | null {
     if (turn.media.length) return null;
-    const last = [...file.turns].reverse().find((t) => t.direction === 'inbound' && t.partyId === turn.partyId && t.media.length > 0);
+    const i = file.turns.findLastIndex((t) => t.direction === 'inbound' && t.partyId === turn.partyId && t.media.length > 0);
+    const last = file.turns[i];
     if (!last || isTurnOf(last, turn)) return null;
+    if (file.turns.slice(i + 1).some((t) => t.direction === 'outbound' && t.partyId === turn.partyId)) return null;
     const at = new Date(last.at);
     return now.getTime() - at.getTime() > LATE_MEDIA_MS ? { media: last.media, at } : null;
 }
