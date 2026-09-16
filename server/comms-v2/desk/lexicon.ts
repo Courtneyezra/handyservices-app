@@ -23,6 +23,14 @@ export function moneyQuestionMatch(text: string): string | null {
     return m ? m[0] : null;
 }
 
+/** Haggling, a discount or terms of payment: money that is Ben's whatever the quote says, never a plain ask of its own price. */
+export const RE_HAGGLE = /\b(?:discount(?:s|ed)?|cheap(?:er|est)?|(?:for|any) less\b|knock(?:ed)?\s+\w+(?:\s+\w+)?\s+off|best (?:price|deal|offer|you can do|you could do)|better (?:price|deal|offer)|lower|reduc(?:e|ed|tion)|negotiat\w*|mates'? rates|cash (?:price|in hand)|price match|match (?:it|that|the|their)|beat (?:it|that|the|their)|too (?:expensive|much|dear|pricey|steep)|expensive|pricey|instal(?:l)?ments?|payment plan|pay (?:monthly|later|in parts|in stages|weekly))\b/i;
+
+export function haggleMatch(text: string): string | null {
+    const m = RE_HAGGLE.exec(text);
+    return m ? m[0] : null;
+}
+
 const MONTH = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 const WEEKDAY = '(?:mon|tues|wednes|thurs|fri|satur|sun)day';
 const WEEKDAY_ABBR = '(?:mon|tues?|weds?|thur?s?|fri|sat|sun)';

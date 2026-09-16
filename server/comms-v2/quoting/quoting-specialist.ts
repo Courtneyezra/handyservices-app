@@ -26,6 +26,7 @@
 import { z } from 'zod/v4';
 import { isReady, type CaseFile, type ModelCallRecord, type Party, type Turn, isTurnOf } from '../desk/case-file';
 import type { Proposal, SpecialistReturn } from '../desk/desk-types';
+import { haggleMatch } from '../desk/lexicon';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { Route, RouterOutput } from '../desk/router';
 import { CUSTOMER_TYPES, type DraftIntake } from './draft-quote';
@@ -232,15 +233,21 @@ export function quotingOwnsThread(file: CaseFile): boolean {
  * The exemption is keyed on that liveness, not on the stage: the stage stays `quoted` after the
  * quote expires, is revoked or is superseded, and there is then no line to answer a figure from, so
  * the ordinary rule that money goes to Ben (2.7) applies again. An empty set is no exemption.
+ *
+ * One exception to that (the captain's ruling, "reissue for plain asks"): on an expired quote, a
+ * plain ask of the quote's own price is Quoting's too, so the reissue answers it; a turn that
+ * haggles, asks a discount or payment terms (`haggleMatch`) stays Ben's with no reissue, and the
+ * Quoting reading blocks the reissue on anything beyond the quote's own lines.
  */
-export function applyQuotingRoute(file: CaseFile, turn: Turn, out: RouterOutput, liveFigureRefs: ReadonlySet<string> = new Set()): { moneyToQuoting: boolean } {
+export function applyQuotingRoute(file: CaseFile, turn: Turn, out: RouterOutput, liveFigureRefs: ReadonlySet<string> = new Set(), expiredRefs: ReadonlySet<string> = new Set()): { moneyToQuoting: boolean } {
     if (turn.kind === 'portal_action') {
         out.subjects = ['quoting'];
         out.exception = null;
         out.turnKind = 'acknowledgement';
         return { moneyToQuoting: false };
     }
-    if (out.exception === 'money' && file.job.quoteRef && liveFigureRefs.has(file.job.quoteRef)) {
+    const ref = file.job.quoteRef;
+    if (out.exception === 'money' && ref && (liveFigureRefs.has(ref) || (expiredRefs.has(ref) && !haggleMatch(turn.body)))) {
         out.exception = null;
         if (!out.subjects.includes('quoting')) out.subjects.unshift('quoting');
         // Said so, whichever raised it: the exception is gone and Quoting owes the hold if its own
@@ -384,7 +391,9 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
                 if (applied.beyondQuoteLine) blockers.push('money beyond a quote line');
                 if (reading.output.acceptanceInChat) blockers.push('acceptance in chat');
             }
-            if (route.belts.money || route.moneyToQuoting) blockers.push('a money question');
+            if (route.moneyToQuoting) {
+                if (!concerns.length && !blockers.length) blockers.push('a money question the quote does not answer');
+            } else if (route.belts.money) blockers.push('a money question');
             return { specialist: 'quoting', factIds, proposal: stale, brief: briefLines(proposal), calls, error, reissue: { slug: q.slug, blockers, concerns, notReady } };
         }
         const readiness = quoteReadiness(file);

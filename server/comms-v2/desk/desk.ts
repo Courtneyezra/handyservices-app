@@ -51,7 +51,7 @@ import { reviewedKb, type KbReader } from './scoping-tools';
 import { channelFixedLines, MOVE_TO_WHATSAPP_SUBJECT } from '../channels/channel-lines';
 import { templateChoiceFor } from '../channels/templates';
 import { STALE_HOLD, afterReissue, quote as quoteGather, quoteStateOf, quotingClock, quotingOwnsThread, quotingSummary, type QuotingReturn, type QuotingSpecialistDeps, type ReissueCandidate } from '../quoting/quoting-specialist';
-import { liveFigureQuotes, recordReissue, reissueExpiredQuote, resolveQuotingDeps } from '../quoting/quoting-tools';
+import { quotesOnFile, recordReissue, reissueExpiredQuote, resolveQuotingDeps } from '../quoting/quoting-tools';
 import { reissueLine, type ReissueIssue } from '../quoting/reissue';
 import { pounds } from '../quoting/quote-record';
 import { refreshBenToRequest } from '../quoting/ben-to-request';
@@ -293,11 +293,12 @@ export class Desk implements DeskLike {
         // 1. Route. The quotes a figure may be read from now are read once for the turn: the
         // router's money exemption (5.3 replaces 2.7) stands only while the file's quote is one of
         // them, and the figure guard resolves a cited line against the same set.
-        let liveQuoteRefs = await liveFigureQuotes(file, this.quotingDeps()).catch((e: any) => {
+        const quoteRefs = await quotesOnFile(file, this.quotingDeps()).catch((e: any) => {
             log(`quoting: the quote could not be read (${e?.message ?? e})`);
-            return new Set<string>() as ReadonlySet<string>;
+            return { live: new Set<string>() as ReadonlySet<string>, expired: new Set<string>() as ReadonlySet<string> };
         });
-        const route: Route = await routeTurn(file, turn, client, liveQuoteRefs);
+        let liveQuoteRefs = quoteRefs.live;
+        const route: Route = await routeTurn(file, turn, client, liveQuoteRefs, quoteRefs.expired);
         calls.push(route.call);
         if (file.stage === 'first_contact') setStage(file, 'scoping', 'first customer turn routed', this.fileDeps());
         // A reading that failed (out of schema, refused, unreachable) cannot rule out a complaint or a refund: fail closed to Ben.
@@ -431,6 +432,10 @@ export class Desk implements DeskLike {
                     } else {
                         if (claim && !claim.ok && claim.claimedButLost) {
                             recordReissue(file, { slug: quoting.reissue!.slug, issue: claim.claimedButLost.issue, previousTotalPence: claim.claimedButLost.previousTotalPence, sentAt: null, notSent: claim.why }, this.quotingDeps());
+                        }
+                        if (route.moneyToQuoting) {
+                            fixedLines.push(await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                            this.holdFor(file, 'money', `money on an expired quote: ${matchFor(route, 'money', turn.body)}`);
                         }
                         const blockers = quoting.reissue?.blockers.length ? quoting.reissue.blockers.join('; ') : null;
                         const why = claim && !claim.ok && !blockers ? `; not reissued automatically: ${claim.why}` : '';

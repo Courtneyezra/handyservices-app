@@ -228,8 +228,13 @@ export { readQuoteLine, readQuoteScope };
  * quote is no longer live, which is read_quote_line's own rule asked of the file's quote.
  */
 export async function liveFigureQuotes(file: CaseFile, deps: QuotingDeps = {}): Promise<ReadonlySet<string>> {
+    return (await quotesOnFile(file, deps)).live;
+}
+
+/** The file's quote read once for a turn: live for figures, or expired (the one state the desk may reissue from). */
+export async function quotesOnFile(file: CaseFile, deps: QuotingDeps = {}): Promise<{ live: ReadonlySet<string>; expired: ReadonlySet<string> }> {
     const q = await loadQuote(file, deps);
-    return new Set(q && quoteLiveForFigures(q) ? [q.slug] : []);
+    return { live: new Set(q && quoteLiveForFigures(q) ? [q.slug] : []), expired: new Set(q?.status === 'expired' ? [q.slug] : []) };
 }
 
 // ---------------------------------------------------------------- record_quote_facts

@@ -101,7 +101,7 @@ function threadFor(file: CaseFile, turn: Turn): string {
     return lines.join('\n');
 }
 
-export async function route(file: CaseFile, turn: Turn, client: ModelClient, liveFigureRefs: ReadonlySet<string> = new Set()): Promise<Route> {
+export async function route(file: CaseFile, turn: Turn, client: ModelClient, liveFigureRefs: ReadonlySet<string> = new Set(), expiredRefs: ReadonlySet<string> = new Set()): Promise<Route> {
     const belts = { regulated: regulatedMatch(turn.body), money: moneyQuestionMatch(turn.body) };
     const user = [
         `Stage now: ${file.stage}. Job type known: ${file.job.type ? 'yes' : 'no'}. Location known: ${file.job.location ? 'yes' : 'no'}.`,
@@ -123,7 +123,7 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient, liv
     // raised it, the belt or the model, beside anything else the model read.
     const moneyRaised = !!belts.money || out.exception === 'money' || listedExceptions.includes('money');
     const handed: RouterOutput = { ...out, exception: moneyRaised ? 'money' : out.exception };
-    const quoting = applyQuotingRoute(file, turn, handed, liveFigureRefs);
+    const quoting = applyQuotingRoute(file, turn, handed, liveFigureRefs, expiredRefs);
     out.subjects = handed.subjects;
     out.turnKind = handed.turnKind;
     // The belts: regulated and money are holds the model cannot unsay. Each adds to what the model

@@ -316,4 +316,69 @@ describe('an expired quote, when the customer writes back', () => {
         expect(file.hold?.reason).toContain('not reissued automatically');
         expect(reissueTurns(file)).toHaveLength(0);
     });
+
+    describe('a money-shaped write-back ("reissue for plain asks")', () => {
+        const total = () => ({ concerns: [{ kind: 'total', label: null }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false });
+
+        it.each([
+            'is that price still ok?',
+            'how much is it now?',
+            'is the £120 still ok?',
+            'is the £120 still right?',
+            'what was the total again?',
+        ])('a plain ask of the quote\'s own price is answered by the reissue: %s', async (text) => {
+            const { say, row, file } = await expired({ reading: total });
+            const out = await say(text);
+            expect(out.result.decision).toBe('send');
+            expect(out.text).toContain(LINE);
+            expect(row.basePrice).toBe(12_600);
+            expect(file.hold).toBeNull();
+            expect(reissueRecordOf(row)!.issues).toHaveLength(1);
+        });
+
+        it.each([
+            'can you do it for less?',
+            'any discount?',
+            "what's your best price?",
+            'is £120 the best you can do?',
+            'can I pay in instalments, how much a month?',
+            'is the £120 still ok, or can you knock a bit off?',
+        ])('haggling, a discount or payment terms stays with Ben and nothing is reissued: %s', async (text) => {
+            const { say, row, file } = await expired({ reading: total });
+            const out = await say(text);
+            expect(out.text).not.toMatch(/expired|£126/);
+            expect(row.basePrice).toBe(12_000);
+            expect(reissueRecordOf(row)).toBeNull();
+            expect(file.hold?.exception).toBe('money');
+            expect(reissueNotes(file)).toEqual([]);
+        });
+
+        it('money beyond the quote\'s own lines stays with Ben and nothing is reissued', async () => {
+            const { say, row, file } = await expired({ reading: () => ({ concerns: [], beyondQuoteLine: true, acceptanceInChat: false, notReady: false }) });
+            const out = await say('how much extra to fix the shower as well?');
+            expect(out.text).not.toMatch(/expired|£126/);
+            expect(row.basePrice).toBe(12_000);
+            expect(reissueRecordOf(row)).toBeNull();
+            expect(file.hold?.exception).toBe('money');
+            expect(file.hold?.reason).toContain('money beyond a quote line');
+        });
+
+        it('a price ask the quote reading does not tie to the quote stays with Ben', async () => {
+            const { say, row, file } = await expired({ reading: () => ({ concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
+            await say('how much for a new boiler cupboard door?');
+            expect(row.basePrice).toBe(12_000);
+            expect(file.hold?.exception).toBe('money');
+            expect(file.hold?.reason).toContain('a money question the quote does not answer');
+        });
+
+        it('a plain ask that cannot be reissued for another reason still reaches Ben as money', async () => {
+            const { store, say, row, file } = await expired({ reading: total });
+            store.optOuts.set('447700900942', 'marketing');
+            const out = await say('is that price still ok?');
+            expect(out.text).not.toMatch(/expired|£126/);
+            expect(row.basePrice).toBe(12_000);
+            expect(file.hold?.exception).toBe('money');
+            expect(file.hold?.reason).toContain('opted out (marketing)');
+        });
+    });
 });

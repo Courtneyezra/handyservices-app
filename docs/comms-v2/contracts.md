@@ -336,7 +336,13 @@ before with the reason on the card, when the turn or the thread has anything els
 acceptance in chat, any router exception, any other hold), when the reply's window is shut (no
 approved template carries the sentence), when the customer has any standing opt-out or the ledger
 cannot say, and when the row cannot be priced from the original with certainty (a refresh on the page
-or an edit since). A reissue whose reply did not go holds for Ben with the new price and link named.
+or an edit since). A plain ask of the quote's own price ("is that price still ok?", "is the £120 still
+right?") is not money for Ben here: the router hands it to Quoting (`applyQuotingRoute`) and the
+reissue answers it ("reissue for plain asks", 16 September 2026). Haggling, a discount or payment
+terms (`haggleMatch` in `desk/lexicon.ts`), or money the Quoting reading finds beyond the quote's
+own lines or cannot tie to the quote, stays money for Ben with no reissue, a plain ask included when
+the same message haggles; a plain ask that is not reissued for any other reason also goes to Ben as
+money. A reissue whose reply did not go holds for Ben with the new price and link named.
 The card records each one (`quote_reissued`, internal): the new figure, the one before, that it was
 automatic, and when it was sent or why not. Facts are append-only, so the price before a reissue
 stays on the file; only the newest `quote_line:<label>` for a quote is shown to the composer or
