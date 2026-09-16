@@ -19,6 +19,7 @@ import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './model
 import type { Route } from './router';
 import { composerChannelLines } from '../channels/composer-lines';
 import type { ShortenBrief } from './sender';
+import { withoutDashPunctuation } from './dashes';
 
 export const composerOutputSchema = z.object({
     /** The one reply. A blank line separates bubbles. */
@@ -88,7 +89,7 @@ export const COMPOSER_SYSTEM = [
     '- When the brief says Ben has priced and sent the quote, you are writing the delivery, not a reply: tell them the quote is ready, give the link exactly as the brief spells it, and say to reply here with any questions. Do not answer their last message again, and give no figure, no timing and no other promise.',
     '- Fixed lines: include each one given, keeping its meaning and its first-person words, woven into the reply naturally.',
     '',
-    'Plain hyphens only; never an em dash. Return the JSON object only: reply, factIds (the ids of the facts you used), kbIds (the knowledge-base ids you cited, usually none).',
+    'No dash as punctuation: never " - " between words, never an em dash or an en dash. Where a dash would join two thoughts, use a comma or a full stop instead. A hyphenated word (follow-up) is fine. Return the JSON object only: reply, factIds (the ids of the facts you used), kbIds (the knowledge-base ids you cited, usually none).',
 ].join('\n');
 
 function threadFor(file: CaseFile, turn: Turn): string {
@@ -162,7 +163,8 @@ export async function compose(input: ComposeInput, client: ModelClient): Promise
         // Only facts the composer was shown count as cited; a made-up id, or one of Ben's own, is dropped.
         const known = new Set(customerVisibleFacts(input.file).map((f) => f.id));
         res.output.factIds = Array.from(new Set(res.output.factIds.filter((id) => known.has(id))));
-        res.output.reply = res.output.reply.replace(/\u2014|\u2013/g, '-').trim();
+        // The house rule holds whatever the model wrote: a dash used as punctuation becomes a comma.
+        res.output.reply = withoutDashPunctuation(res.output.reply).trim();
     }
     return res;
 }

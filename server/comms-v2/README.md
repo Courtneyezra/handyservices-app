@@ -199,8 +199,15 @@ reaches, and it never touches the quote row. The list is answered again at the m
 not served as the draft left it: an entry `quote_readiness` wrote, recognised word for word against
 `READINESS_WORDINGS`, is recomputed from the file, so a photo sent two turns after the draft stops
 being asked for, while the intake model's own labels stand as written - including one that merely
-opens with "photo", which the file cannot recompute. The stored fact is never rewritten - it
-records what the draft was built without.
+opens with "photo", which the file cannot recompute. The stored fact is kept true too: the desk calls
+`refreshBenToRequest` at the start of every customer turn, so a photo that lands after the draft no
+longer reads on the file (and Ben's board) as "photo (asked once, none sent)"; once nothing is left
+it reads `NOTHING_TO_REQUEST`, which the screen shows as no list.
+
+Nothing the desk writes reaches a customer with a dash used as punctuation (`desk/dashes.ts`, the
+house rule in `brand-voice/whatsapp-comms.md`): the composer is told to use a comma or a full stop,
+its reply, a fixed line and every non-typed render are rewritten, and the verbatim rail compares a
+reviewed row's words the same way. Hyphenated words stay; a person's own words go as typed.
 
 The quote delivery carries a first contact of its own on purpose. Where a form lead's
 acknowledgement held for Ben and never went, the delivery is the first message they will ever

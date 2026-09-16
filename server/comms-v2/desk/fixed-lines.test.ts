@@ -4,7 +4,8 @@
  * his "Thanks / Ben" sign-off, and `first_contact_ack` may introduce him in the first person.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_FIXED_LINES, KB_BACKED, type FixedLineKind } from './fixed-lines';
+import { DEFAULT_FIXED_LINES, KB_BACKED, fixedLine, type FixedLineKind } from './fixed-lines';
+import { hasDashPunctuation } from './dashes';
 
 const SIGN_OFF = /\n\nThanks\nBen$/;
 const entries = Object.entries(DEFAULT_FIXED_LINES) as Array<[FixedLineKind, string]>;
@@ -21,7 +22,15 @@ describe('the default fixed lines', () => {
         for (const [kind, text] of entries) expect(SIGN_OFF.test(text), kind).toBe(KB_BACKED.has(kind));
     });
 
-    it('keeps the house voice: no em dashes', () => {
-        for (const [kind, text] of entries) expect(text, kind).not.toMatch(/[—–]/);
+    it('keeps the house voice: no em dashes, and no hyphen used as a dash', () => {
+        for (const [kind, text] of entries) {
+            expect(text, kind).not.toMatch(/[—–]/);
+            expect(hasDashPunctuation(text), kind).toBe(false);
+        }
+    });
+
+    it('sends a reviewed row\'s words with its dashes made commas, and the row still cited', async () => {
+        const line = await fixedLine('complaint', { async reviewed() { return { id: 'kb-complaint', words: "Sorry to hear that - leave it with me.\n\nThanks\nBen" }; } });
+        expect(line).toEqual({ kind: 'complaint', text: "Sorry to hear that, leave it with me.\n\nThanks\nBen", kbId: 'kb-complaint' });
     });
 });

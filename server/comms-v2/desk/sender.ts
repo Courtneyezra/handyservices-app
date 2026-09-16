@@ -24,6 +24,7 @@
  */
 import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type SendRecord, type CaseFileDeps, type WhatsAppTransport } from './case-file';
 import { KB_BACKED, type FixedLine } from './fixed-lines';
+import { withoutDashPunctuation } from './dashes';
 import type { GuardOutcome } from './guards';
 import { isHumanApprover, type Approver } from '../../approver';
 import { renderEmail } from '../channels/email-adapter';
@@ -177,12 +178,14 @@ export const RE_SIGN_OFF_PARAGRAPH = /^\s*thanks\s*\n\s*ben\s*$/i;
  * blank lines first, then sentence boundaries for anything over about three hundred characters.
  * Typing gaps of one to three seconds scaled to length. A ceiling reached returns the reply to
  * the composer to shorten rather than sending a wall. `asTyped` is the human path: blank lines
- * still break bubbles, nothing inside one is reflowed.
+ * still break bubbles, nothing inside one is reflowed. Anything else the desk wrote leaves with no
+ * dash used as punctuation, checked after the reflow, which is what turns a line-leading "- " into
+ * one between words (dashes.ts).
  */
 export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderResult {
     const paragraphs = reply.replace(/\r\n/g, '\n').split(/\n\s*\n+/)
         // Ben's "Thanks / Ben" keeps its line break: folded, it reads as the customer thanking Ben.
-        .map((p) => opts.asTyped ? p.split('\n').map((l) => l.trimEnd()).join('\n').trim() : RE_SIGN_OFF_PARAGRAPH.test(p) ? SIGN_OFF_LINES : p.replace(/\s*\n\s*/g, ' ').trim())
+        .map((p) => opts.asTyped ? p.split('\n').map((l) => l.trimEnd()).join('\n').trim() : RE_SIGN_OFF_PARAGRAPH.test(p) ? SIGN_OFF_LINES : withoutDashPunctuation(p.replace(/\s*\n\s*/g, ' ').trim()))
         .filter(Boolean);
     const texts = opts.asTyped ? paragraphs : paragraphs.flatMap(splitLong);
     const bubbles = texts.map((text) => ({ text, gapMs: typingGap(text) }));
@@ -191,10 +194,10 @@ export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderR
     return { ok: true, bubbles };
 }
 
-/** Per channel: WhatsApp bubbles; SMS one message of at most two segments; email a letter with a greeting and a sign-off (channels/). Every one of them honours `asTyped`: a person's own words are never reflowed, rewritten or wrapped. */
+/** Per channel: WhatsApp bubbles; SMS one message of at most two segments; email a letter with a greeting and a sign-off (channels/). Every one of them honours `asTyped`: a person's own words are never reflowed, rewritten or wrapped. Whatever else goes out carries no dash used as punctuation. */
 export function render(channel: ReplyChannel, reply: string, opts: RenderOptions & { name?: string | null } = {}): RenderResult {
-    if (channel === 'sms') return renderSms(reply, opts);
-    if (channel === 'email') return renderEmail(reply, opts);
+    if (channel === 'sms') return renderSms(opts.asTyped ? reply : withoutDashPunctuation(reply), opts);
+    if (channel === 'email') return renderEmail(opts.asTyped ? reply : withoutDashPunctuation(reply), opts);
     return renderWhatsApp(reply, opts);
 }
 

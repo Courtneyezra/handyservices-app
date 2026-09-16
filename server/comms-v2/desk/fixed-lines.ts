@@ -25,6 +25,8 @@
  * with his "Thanks / Ben" sign-off; the short lines are woven into a reply and carry none.
  * `first_contact_ack` introduces him in the first person ("Ben here"), which is not the third person.
  */
+import { withoutDashPunctuation } from './dashes';
+
 export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp' | 'first_contact_ack' | 'no_source' | 'not_converging' | 'change_of_details' | 'callback_to_ben';
 
 export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
@@ -37,7 +39,7 @@ export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     date_change_to_ben: 'Let me check on the date and come straight back to you.',
     held_ack: "Thanks, leave it with me and I'll come back to you.",
     move_to_whatsapp: "If it's easier, you can message us on WhatsApp on this same number.",
-    first_contact_ack: 'Thanks for your enquiry - Ben here from Handy Services.',
+    first_contact_ack: 'Thanks for your enquiry, Ben here from Handy Services.',
     no_source: 'Let me check on that one and come straight back to you.',
     not_converging: 'Let me look at this properly and come back to you.',
     change_of_details: "Thanks, I've noted that and I'll update your details.",
@@ -76,10 +78,15 @@ export const noFixedLineSource: FixedLineSource = { async reviewed() { return nu
 
 export interface FixedLine { kind: FixedLineKind; text: string; kbId: string | null }
 
+/**
+ * The line for a kind. A reviewed row's words go out with any dash used as punctuation made a comma,
+ * the house rule every customer text keeps (dashes.ts); the verbatim rail compares the row's words
+ * the same way (guards.ts), so the line still counts as the row's.
+ */
 export async function fixedLine(kind: FixedLineKind, source: FixedLineSource = knowledgeBaseFixedLines): Promise<FixedLine> {
     if (KB_BACKED.has(kind)) {
         const row = await source.reviewed(kind as KbFixedLineKind);
-        if (row) return { kind, text: row.words, kbId: row.id };
+        if (row) return { kind, text: withoutDashPunctuation(row.words), kbId: row.id };
     }
     return { kind, text: DEFAULT_FIXED_LINES[kind], kbId: null };
 }

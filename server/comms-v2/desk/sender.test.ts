@@ -96,7 +96,8 @@ describe('renderWhatsApp', () => {
         const words = 'Morning Sam, two things:\n- replace the washer\n- check the isolator valve\n\nI will bring both.';
         const composed = renderWhatsApp(words);
         expect(composed.ok).toBe(true);
-        expect(composed.bubbles.map((b) => b.text)).toEqual(['Morning Sam, two things: - replace the washer - check the isolator valve', 'I will bring both.']);
+        // Folded, the list's hyphens would sit between words as dashes, which no customer text carries.
+        expect(composed.bubbles.map((b) => b.text)).toEqual(['Morning Sam, two things: replace the washer, check the isolator valve', 'I will bring both.']);
 
         const typed = renderWhatsApp(words, { asTyped: true });
         expect(typed.ok).toBe(true);

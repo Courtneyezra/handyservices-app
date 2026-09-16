@@ -15,8 +15,8 @@
  * gateway that is not already there: a quote no comms-v2 thread drafted has nothing to find, so
  * asking must cost nothing.
  */
-import type { CaseFile } from '../desk/case-file';
-import { QUOTE_FACT } from './quote-record';
+import type { CaseFile, CaseFileDeps } from '../desk/case-file';
+import { QUOTE_FACT, newestFact } from './quote-record';
 import { READINESS_WORDINGS, quoteReadiness } from './quoting-tools';
 
 /**
@@ -31,12 +31,12 @@ import { READINESS_WORDINGS, quoteReadiness } from './quoting-tools';
  * first-word match would take that for the readiness photo and drop a photo Ben still needs the
  * moment any other photo arrives. The model's own labels ("which tap", "wall material") cannot be
  * recomputed from the file, so they stand as written until Ben clears them himself. Two stored
- * entries about one subject resolve to the one current wording, which is shown once. Nothing is
- * rewritten: the fact records what the draft was built without.
+ * entries about one subject resolve to the one current wording, which is shown once. The stored
+ * note itself is brought up to date on each customer turn (`refreshBenToRequest`).
  */
 export function benToRequest(file: CaseFile): string[] {
-    const fact = [...file.facts].reverse().find((f) => f.key === QUOTE_FACT.benToRequest);
-    if (!fact) return [];
+    const fact = newestFact(file, QUOTE_FACT.benToRequest);
+    if (!fact || fact.value === NOTHING_TO_REQUEST) return [];
     const stored = fact.value.split(';').map((s) => s.trim()).filter(Boolean);
     const still = new Map(quoteReadiness(file).missing.map((m) => [READINESS_WORDINGS.get(m)!, m]));
     const out: string[] = [];
@@ -46,6 +46,28 @@ export function benToRequest(file: CaseFile): string[] {
         if (current && !out.includes(current)) out.push(current);
     }
     return out;
+}
+
+/** What the note reads once the customer has since supplied everything it named. A fact needs a value, and this one is never shown as something to request. */
+export const NOTHING_TO_REQUEST = 'nothing: the customer has since sent what was missing';
+
+/**
+ * The `ben_to_request` note made true again: a photo that lands after the draft was built, or access
+ * given since, leaves the note saying "photo (asked once, none sent)" to anyone reading the file on
+ * Ben's board. The desk calls this on every customer turn, so the note says what `benToRequest`
+ * would. Rewritten in place, with its time moved on: the note is Ben's own, never cited in a reply,
+ * and a second row beside the stale one would leave the stale one on the file for him to read.
+ * True when it changed.
+ */
+export function refreshBenToRequest(file: CaseFile, deps: CaseFileDeps = {}): boolean {
+    const fact = newestFact(file, QUOTE_FACT.benToRequest);
+    if (!fact) return false;
+    const current = benToRequest(file);
+    const value = current.length ? current.join('; ') : NOTHING_TO_REQUEST;
+    if (value === fact.value) return false;
+    fact.value = value;
+    fact.at = (deps.now ?? (() => new Date()))().toISOString();
+    return true;
 }
 
 /** The case file carrying this quote, the one the price screen reads for it. */

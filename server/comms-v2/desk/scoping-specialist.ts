@@ -24,18 +24,44 @@ export const specialistOutputSchema = z.object({
         /** Short, in the customer's words where possible. Never a figure. */
         value: z.string().min(1).max(200),
     })).max(12),
-    /** Short labels of what is still unknown about the job (e.g. "which tap", "size", "material"). Empty when enough is known to price. */
-    jobUnknowns: z.array(z.string().min(1).max(40)).max(4),
+    /**
+     * Short labels of what is still unknown about the job (e.g. "which tap", "size", "material"). Empty when enough is known to price.
+     * Unbounded here on purpose: a label one word too long once failed the whole pass live, facts and all. `clampJobUnknowns` shortens them after.
+     */
+    jobUnknowns: z.array(z.string()),
     /** Subjects the customer answered in this turn: postcode, access, media (a photo arrived or was declined), job. */
     answeredSubjects: z.array(z.enum(['job', 'postcode', 'access', 'media'])).max(4),
 });
 export type SpecialistOutput = z.infer<typeof specialistOutputSchema>;
 
+/** The longest a job unknown may be once read, and how many the proposal carries. */
+export const JOB_UNKNOWN_MAX_CHARS = 40;
+export const JOB_UNKNOWNS_MAX = 4;
+
+/**
+ * The model's job unknowns as the proposal carries them: trimmed, a label over the limit cut back at
+ * a word boundary, empty and repeated ones dropped, at most four. Never a reason to lose the pass.
+ */
+export function clampJobUnknowns(labels: readonly string[]): string[] {
+    const out: string[] = [];
+    for (const raw of labels) {
+        let label = raw.replace(/\s+/g, ' ').trim();
+        if (label.length > JOB_UNKNOWN_MAX_CHARS) {
+            const cut = label.slice(0, JOB_UNKNOWN_MAX_CHARS + 1);
+            const space = cut.lastIndexOf(' ');
+            label = (space > 0 ? cut.slice(0, space) : label.slice(0, JOB_UNKNOWN_MAX_CHARS)).replace(/[\s,;:.(\-–—]+$/, '');
+        }
+        if (label && !out.includes(label)) out.push(label);
+        if (out.length === JOB_UNKNOWNS_MAX) break;
+    }
+    return out;
+}
+
 const SYSTEM = [
     'You are the Scoping specialist for a small handyman business\'s desk. You never write to the customer. You read the thread and return facts about the job with no prose.',
     'Facts, each with a short value: job_type (what the job is, e.g. "leaking kitchen tap", "replace one fence panel"; when there are several jobs, list them in one value), job_detail (a detail that matters for pricing, one per fact), location (a postcode, an outward code like NG9, or a named area, exactly as they gave it), access (parking, keys, someone home), prefers_text ("true" when they say text only or cannot take calls), already_rung ("true" when they say they already called us), media_declined ("true" when they decline to send photos), customer_name (if they give it), promise_of_more ("true" when they promise to send something later).',
     'Only what the thread supports. Never invent. Never a figure of money.',
-    'jobUnknowns: up to four short labels of what a handyman would still check before pricing this job (e.g. "which of the three jobs first", "tap type", "panel size", "wall or ceiling", "how many"). Most jobs have at least one until the customer has described it properly; empty only when the job is clear enough to price.',
+    'jobUnknowns: up to four short labels, each under 40 characters, of what a handyman would still check before pricing this job (e.g. "which of the three jobs first", "tap type", "panel size", "wall or ceiling", "how many"). Most jobs have at least one until the customer has described it properly; empty only when the job is clear enough to price.',
     'answeredSubjects: which of job, postcode, access, media the customer dealt with in the newest turn. A turn that answers the pending question, or engages with it (asks which one we mean, asks for clarification, gives a partial answer), counts as answering it. A photo arriving or being declined counts as media.',
     'Reply with the JSON object only.',
 ].join('\n');
@@ -90,7 +116,7 @@ export async function scope(file: CaseFile, turn: Turn, party: Party, client: Mo
                 if (rec.ok) factIds.push(rec.value.id);
             }
             for (const s of res.output.answeredSubjects) answered(file, s, deps);
-            jobUnknowns = res.output.jobUnknowns;
+            jobUnknowns = clampJobUnknowns(res.output.jobUnknowns);
         } else error = res.error;
     }
     if (turn.media.length) answered(file, 'media', deps);

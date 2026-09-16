@@ -21,6 +21,7 @@
 import { askedUnanswered, customerWroteSinceLastReply, everAsked, ledgerEntry, release as releaseHold, sameApprover, type ApproverSlot, type CaseFile, type Fact, type Outcome, type Party, type Turn } from './case-file';
 import type { GuardName, GuardVerdict } from './desk-types';
 import type { FixedLine } from './fixed-lines';
+import { withoutDashPunctuation } from './dashes';
 import { RE_BEN_COMES_BACK, RE_BUSINESS_CLAIM, RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_DISCLOSURE, RE_FIGURE, RE_THANKS_MEDIA, ordinalDays, regulatedMatch, sentencesOf, textAsks } from './lexicon';
 import { dateChangeMatch } from '../scheduling/scheduling-tools';
 
@@ -126,11 +127,12 @@ export function checkCommitment(input: GuardInput): GuardVerdict {
 }
 
 /**
- * Whitespace and the quote marks a composer substitutes, normalised, so a row's words match
- * however they were typed. The words themselves are still the row's: nothing else is relaxed.
+ * Whitespace, the quote marks a composer substitutes and a dash used as punctuation (which the
+ * desk always sends as a comma, dashes.ts) normalised, so a row's words match however they were
+ * typed. The words themselves are still the row's: nothing else is relaxed.
  */
 function verbatimKey(s: string): string {
-    return s.toLowerCase().replace(/[\u2018\u2019\u02bc`]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2013\u2014]/g, '-').replace(/\s+/g, ' ').trim();
+    return withoutDashPunctuation(s).toLowerCase().replace(/[\u2018\u2019\u02bc`]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2013\u2014]/g, '-').replace(/\s+/g, ' ').trim();
 }
 
 /**
@@ -170,7 +172,11 @@ export function checkBusinessClaim(input: GuardInput): GuardVerdict {
         const m = RE_BUSINESS_CLAIM.exec(s);
         if (!m) continue;
         if (fixed.some((f) => f.includes(s.toLowerCase()) || s.toLowerCase().includes(f))) continue;
-        const supported = input.kbRows.some((row) => row.reviewed && input.kbIds.includes(row.id) && (row.approvedWords.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(row.approvedWords.toLowerCase())));
+        const supported = input.kbRows.some((row) => {
+            // The row's words as the desk sends them: any dash in them went out as a comma.
+            const words = withoutDashPunctuation(row.approvedWords).toLowerCase();
+            return row.reviewed && input.kbIds.includes(row.id) && (words.includes(s.toLowerCase()) || s.toLowerCase().includes(words));
+        });
         if (!supported) return fail(`a claim about the business with no reviewed knowledge-base citation supporting it: "${s}"`);
     }
     return pass();
