@@ -326,6 +326,7 @@ describe('an expired quote, when the customer writes back', () => {
             'is the £120 still ok?',
             'is the £120 still right?',
             'what was the total again?',
+            'Hi, is the £120.00 still ok? Thanks',
         ])('a plain ask of the quote\'s own price is answered by the reissue: %s', async (text) => {
             const { say, row, file } = await expired({ reading: total });
             const out = await say(text);
@@ -343,6 +344,15 @@ describe('an expired quote, when the customer writes back', () => {
             'is £120 the best you can do?',
             'can I pay in instalments, how much a month?',
             'is the £120 still ok, or can you knock a bit off?',
+            'would you do it for £100?',
+            'can you come down on the price?',
+            'the price is a bit high, any wiggle room?',
+            "£100 and it's a deal?",
+            "is the price still ok? it's a bit steep",
+            'can you do £110 cash?',
+            'could I pay half now and half later, is the £120 still ok?',
+            'is £100 still ok?',
+            'is the price still ok if you add the shower too?',
         ])('haggling, a discount or payment terms stays with Ben and nothing is reissued: %s', async (text) => {
             const { say, row, file } = await expired({ reading: total });
             const out = await say(text);
@@ -355,7 +365,12 @@ describe('an expired quote, when the customer writes back', () => {
 
         it('money beyond the quote\'s own lines stays with Ben and nothing is reissued', async () => {
             const { say, row, file } = await expired({ reading: () => ({ concerns: [], beyondQuoteLine: true, acceptanceInChat: false, notReady: false }) });
-            const out = await say('how much extra to fix the shower as well?');
+            const extra = await expired({ reading: () => ({ concerns: [], beyondQuoteLine: true, acceptanceInChat: false, notReady: false }) });
+            const asked = await extra.say('how much extra to fix the shower as well?');
+            expect(asked.text).not.toMatch(/expired|£126/);
+            expect(extra.row.basePrice).toBe(12_000);
+            expect(extra.file.hold?.exception).toBe('money');
+            const out = await say('how much is it now?');
             expect(out.text).not.toMatch(/expired|£126/);
             expect(row.basePrice).toBe(12_000);
             expect(reissueRecordOf(row)).toBeNull();
@@ -365,7 +380,7 @@ describe('an expired quote, when the customer writes back', () => {
 
         it('a price ask the quote reading does not tie to the quote stays with Ben', async () => {
             const { say, row, file } = await expired({ reading: () => ({ concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) });
-            await say('how much for a new boiler cupboard door?');
+            await say('what is the price now?');
             expect(row.basePrice).toBe(12_000);
             expect(file.hold?.exception).toBe('money');
             expect(file.hold?.reason).toContain('a money question the quote does not answer');

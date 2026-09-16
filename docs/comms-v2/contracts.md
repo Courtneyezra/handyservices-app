@@ -338,10 +338,12 @@ approved template carries the sentence), when the customer has any standing opt-
 cannot say, and when the row cannot be priced from the original with certainty (a refresh on the page
 or an edit since). A plain ask of the quote's own price ("is that price still ok?", "is the £120 still
 right?") is not money for Ben here: the router hands it to Quoting (`applyQuotingRoute`) and the
-reissue answers it ("reissue for plain asks", 16 September 2026). Haggling, a discount or payment
-terms (`haggleMatch` in `desk/lexicon.ts`), or money the Quoting reading finds beyond the quote's
-own lines or cannot tie to the quote, stays money for Ben with no reissue, a plain ask included when
-the same message haggles; a plain ask that is not reissued for any other reason also goes to Ben as
+reissue answers it ("reissue for plain asks", 16 September 2026). Only a message that is nothing
+but such an ask qualifies (`plainPriceAsk` in `desk/lexicon.ts`: every clause a plain ask or a
+greeting, any figure one the file recorded as the quote's total, nothing `haggleMatch` reads). Any
+other money-shaped turn (a counter-offer, "come down", "too steep", cash, payment terms, extras), or
+money the Quoting reading finds beyond the quote's own lines or cannot tie to the quote, stays money
+for Ben with no reissue, a plain ask included when the same message carries any of it; a plain ask that is not reissued for any other reason also goes to Ben as
 money. A reissue whose reply did not go holds for Ben with the new price and link named.
 The card records each one (`quote_reissued`, internal): the new figure, the one before, that it was
 automatic, and when it was sent or why not. Facts are append-only, so the price before a reissue

@@ -26,7 +26,7 @@
 import { z } from 'zod/v4';
 import { isReady, type CaseFile, type ModelCallRecord, type Party, type Turn, isTurnOf } from '../desk/case-file';
 import type { Proposal, SpecialistReturn } from '../desk/desk-types';
-import { haggleMatch } from '../desk/lexicon';
+import { plainPriceAsk } from '../desk/lexicon';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { Route, RouterOutput } from '../desk/router';
 import { CUSTOMER_TYPES, type DraftIntake } from './draft-quote';
@@ -235,9 +235,10 @@ export function quotingOwnsThread(file: CaseFile): boolean {
  * the ordinary rule that money goes to Ben (2.7) applies again. An empty set is no exemption.
  *
  * One exception to that (the captain's ruling, "reissue for plain asks"): on an expired quote, a
- * plain ask of the quote's own price is Quoting's too, so the reissue answers it; a turn that
- * haggles, asks a discount or payment terms (`haggleMatch`) stays Ben's with no reissue, and the
- * Quoting reading blocks the reissue on anything beyond the quote's own lines.
+ * message that is nothing but a plain ask of the quote's own price (`plainPriceAsk`, any figure in
+ * it one the file recorded as the quote's total) is Quoting's too, so the reissue answers it; any
+ * other money-shaped turn stays Ben's with no reissue, and the Quoting reading still blocks the
+ * reissue on anything beyond the quote's own lines.
  */
 export function applyQuotingRoute(file: CaseFile, turn: Turn, out: RouterOutput, liveFigureRefs: ReadonlySet<string> = new Set(), expiredRefs: ReadonlySet<string> = new Set()): { moneyToQuoting: boolean } {
     if (turn.kind === 'portal_action') {
@@ -247,7 +248,7 @@ export function applyQuotingRoute(file: CaseFile, turn: Turn, out: RouterOutput,
         return { moneyToQuoting: false };
     }
     const ref = file.job.quoteRef;
-    if (out.exception === 'money' && ref && (liveFigureRefs.has(ref) || (expiredRefs.has(ref) && !haggleMatch(turn.body)))) {
+    if (out.exception === 'money' && ref && (liveFigureRefs.has(ref) || (expiredRefs.has(ref) && plainPriceAsk(turn.body, quotedTotals(file))))) {
         out.exception = null;
         if (!out.subjects.includes('quoting')) out.subjects.unshift('quoting');
         // Said so, whichever raised it: the exception is gone and Quoting owes the hold if its own
@@ -255,6 +256,10 @@ export function applyQuotingRoute(file: CaseFile, turn: Turn, out: RouterOutput,
         return { moneyToQuoting: true };
     }
     return { moneyToQuoting: false };
+}
+
+function quotedTotals(file: CaseFile): number[] {
+    return file.facts.filter((f) => f.key === `${QUOTE_FACT.line}:${TOTAL_LABEL}`).map((f) => Math.round(Number(f.value.replace(/[£,\s]/g, '')) * 100));
 }
 
 function emptyProposal(): Proposal {
