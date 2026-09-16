@@ -68,7 +68,7 @@ export interface DeskDeps extends CaseFileDeps {
      * (quoting/background-draft.ts) and the file is put again when the draft finishes; the live
      * intake passes it. Unset, the draft is awaited inside the pass.
      */
-    persist?: (file: CaseFile) => void;
+    persist?: (file: CaseFile) => void | Promise<void>;
 }
 
 /** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
@@ -104,8 +104,20 @@ export class Desk implements DeskLike {
             persist,
             log: this.deps.log,
             // The same hold the inline failure raises; the reply that turn has already gone, so no line is added to it.
+            onDrafted: (file) => this.releaseDraftFailedHold(file),
             onFailed: (file, reason) => this.holdFor(file, null, `${DRAFT_FAILED_HOLD} (${reason}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, null, DRAFT_FAILED_HOLD),
         };
+    }
+
+    /**
+     * A quote the desk failed to draft earlier exists now, so the hold that told Ben to build it
+     * himself is answered: the desk releases it in its own words and the card points at the price
+     * screen, rather than leaving him to make a second quote by hand.
+     */
+    private releaseDraftFailedHold(file: CaseFile): void {
+        if (!file.hold?.reason.startsWith(DRAFT_FAILED_HOLD) || file.hold.notedOn || !file.job.quoteRef) return;
+        const priceScreen = quoteStateOf(file)?.priceScreen;
+        releaseHold(file, file.hold.approver, `the desk drafted quote ${file.job.quoteRef} on a later turn and Ben has been notified${priceScreen ? `: ${priceScreen}` : ''}`, this.fileDeps());
     }
 
     /**
@@ -128,7 +140,7 @@ export class Desk implements DeskLike {
         }
         const route: Route = { subjects: ['quoting'], proposedStage: file.stage, party: 'customer', turnKind: 'other', exceptions: [], belts: { regulated: null, money: null }, moneyToQuoting: false, error: null,
             call: { role: 'router', model: 'none', effort: null, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costPence: 0, durationMs: 0 } };
-        const r = await quoteGather(file, turn, party, route, this.client, this.quotingDeps());
+        const r = await quoteGather(file, turn, party, route, this.client, { ...this.quotingDeps(), recoverSince: lost.since });
         if (r?.error && r.proposal.hold?.reason === 'draft_failed') {
             markDraftFailed(file, turn.id, r.error, this.fileDeps());
             this.background.onFailed(file, r.error);
@@ -263,13 +275,7 @@ export class Desk implements DeskLike {
             } else {
                 const quoting = await quoteGather(file, turn, party, route, client, this.quotingDeps());
                 if (quoting) { calls.push(...quoting.calls); specialists.push(quoting); if (quoting.error) log(`quoting: ${quoting.error}`); }
-                // A quote the desk failed to draft earlier exists now, so the hold that told Ben to
-                // build it himself is answered: the desk releases it in its own words and the card
-                // points at the price screen, rather than leaving him to make a second quote by hand.
-                if (file.hold?.reason.startsWith(DRAFT_FAILED_HOLD) && !file.hold.notedOn && file.job.quoteRef) {
-                    const priceScreen = quoteStateOf(file)?.priceScreen;
-                    releaseHold(file, file.hold.approver, `the desk drafted quote ${file.job.quoteRef} on a later turn and Ben has been notified${priceScreen ? `: ${priceScreen}` : ''}`, this.fileDeps());
-                }
+                this.releaseDraftFailedHold(file);
                 // Every exception the turn raised carries its own fixed line; the hold records the gravest.
                 for (const e of exceptions.filter((x) => ANSWER_THE_REST.has(x))) {
                     fixedLines.push(await fixedLine(FIXED_LINE_FOR[e], this.deps.fixedLines ?? knowledgeBaseFixedLines));

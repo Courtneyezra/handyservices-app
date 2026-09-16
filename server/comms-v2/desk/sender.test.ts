@@ -101,12 +101,17 @@ describe('renderWhatsApp', () => {
         const noComma = `A ${'very '.repeat(40)}long sentence.`;
         expect(renderWhatsApp(noComma).bubbles.map((b) => b.text)).toEqual([noComma]);
     });
-    it('caps a reply at three bubbles, while a person\'s words and wide bubbles keep four', () => {
+    it('caps every reply at three bubbles, a person\'s words and wide bubbles included', () => {
         const four = 'One.\n\nTwo.\n\nThree.\n\nFour.';
         expect(BUBBLE_CEILING).toBe(3);
-        expect(renderWhatsApp(four).ok).toBe(false);
-        expect(renderWhatsApp(four, { asTyped: true }).ok).toBe(true);
-        expect(renderWhatsApp(four, { wideBubbles: true }).ok).toBe(true);
+        for (const opts of [{}, { asTyped: true }, { wideBubbles: true }]) {
+            const r = renderWhatsApp(four, opts);
+            expect(r.ok).toBe(false);
+            if (!r.ok) expect(r.reason).toBe('ceiling');
+            expect(renderWhatsApp('One.\n\nTwo.\n\nThree.', opts).bubbles).toHaveLength(3);
+        }
+        const sentence = 'This sentence is exactly long enough to matter for the split rule here.';
+        expect(renderWhatsApp(Array.from({ length: 16 }, () => sentence).join(' '), { wideBubbles: true }).ok).toBe(false);
         const ben = `${'This is one of the sentences Ben reviewed for the knowledge base. '.repeat(4).trim()}`;
         expect(renderWhatsApp(ben, { wideBubbles: true }).bubbles).toHaveLength(1);
     });

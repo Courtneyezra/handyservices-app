@@ -201,6 +201,8 @@ export interface QuotingSpecialistDeps extends QuotingDeps {
      * reply. Unset, the draft is awaited inside the pass, as the sandbox door and the tests run it.
      */
     background?: BackgroundDraftHooks;
+    /** A draft a restart lost is being started again, from when it was first started (background-draft.ts `draftToRecover`). */
+    recoverSince?: string | null;
 }
 
 /** The quote is sent or accepted: Scoping is done and the thread is Quoting's. */
@@ -322,7 +324,7 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         const intake: DraftIntake = { customerName: party.name, postcode: file.job.location, customerType: out.customerType, missing, lines: out.lines.map((l) => ({ ...l })) };
         if (deps.background) {
             // Off the reply path: the draft notifies Ben when it is ready, and a failure holds for him then.
-            startBackgroundDraft(file, turn.id, () => draftQuote(file, party, intake, deps), deps.background, { now: deps.now, newId: deps.newId });
+            startBackgroundDraft(file, turn.id, (saved) => draftQuote(file, party, intake, deps, { since: deps.recoverSince, beforeNotify: saved }), deps.background, { now: deps.now, newId: deps.newId });
             proposal.drafting = true;
             const p = emptyProposal();
             p.ready = true;

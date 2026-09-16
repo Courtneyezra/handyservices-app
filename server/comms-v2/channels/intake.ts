@@ -142,7 +142,7 @@ async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
     const notifier = purpose === 'live' ? (await import('../quoting/ben-notifier')).liveBenNotifier() : undefined;
     const modelHealth = await intakeModelHealth(purpose);
     // The quote is drafted off the reply path, and the store is where a finished draft is put (quoting/background-draft.ts).
-    const desk = new Desk({ mode, log, persist: (file) => store.put(file), ...(modelHealth ? { modelHealth } : {}), quoting: { store: quotes, drafter: chainDrafter(quotes, purpose), ...(notifier ? { notifier } : {}) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
+    const desk = new Desk({ mode, log, persist: (file) => { store.put(file); return store.flush(); }, ...(modelHealth ? { modelHealth } : {}), quoting: { store: quotes, drafter: chainDrafter(quotes, purpose), ...(notifier ? { notifier } : {}) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
     log(`gateway built for the ${purpose} desk (${mode === 'live' ? 'live delivery' : 'dry run'})`);
     const { CUSTOMER_TURN_QUIET_MS } = await import('../desk/turn-window');
     return new ChannelGateway({ desk: new ChannelDesk(desk, { mode, log }), identity, store, presence: messagesPresence, log, quietMs: CUSTOMER_TURN_QUIET_MS });

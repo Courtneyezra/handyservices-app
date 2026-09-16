@@ -488,6 +488,7 @@ describe('the desk', () => {
             accept: (slug, now) => store.accept(slug, now),
             addPhotos: (slug, urls) => store.addPhotos(slug, urls),
             deleteSandbox: (contacts) => store.deleteSandbox(contacts),
+        findDraft: (contacts, since) => store.findDraft(contacts, since),
         };
         const logs: string[] = [];
         const { gateway } = desk({

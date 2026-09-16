@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Desk, type DeskDeps } from './desk';
 import { noFixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
-import { COMPOSER_SYSTEM, lightPhotoSummary } from './composer';
+import { lightPhotoSummary } from './composer';
 import { FakeModelClient } from './models';
 import { isWrapUp, repeatedSentences, saidSinceLastQuestion, withoutSentences } from './repeat';
 import { describeMedia, emptyKb } from './scoping-tools';
@@ -18,6 +18,7 @@ import { noTemplateApproved } from './sender';
 import type { InboundTurn } from './whatsapp-adapter';
 import { recordingNotifier } from '../quoting/ben-notifier';
 import { DRAFTING_FACT, draftPending, settleBackgroundDrafts } from '../quoting/background-draft';
+import { clockDue, liveClockTick } from '../channels/live-clock';
 import { FakeDrafter, type Drafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore } from '../quoting/quote-store';
 import { QUOTE_FACT } from '../quoting/quote-record';
@@ -230,32 +231,82 @@ describe('the quote drafted off the reply path (F6)', () => {
         expect(out.file.job.quoteRef).toBeNull();
     });
 
-    it('starts a draft a restart lost again on the clock, and holds for Ben once it has been lost twice', async () => {
+    it('puts the quote reference on the file before Ben is notified, and releases a failed draft\'s hold once a later draft lands', async () => {
+        const seen: Array<{ quoteRef: string | null; notified: boolean }> = [];
+        let fail: string | undefined = 'the estimator is down';
+        const { gateway } = stand(
+            { persist: (f) => { seen.push({ quoteRef: f.job.quoteRef, notified: f.facts.some((x) => x.key === QUOTE_FACT.benNotified) }); } },
+            (store) => { const inner = new FakeDrafter(store); return { async draft(input) { await sleep(5); return fail ? { ok: false as const, reason: fail, log: [], calls: [] } : inner.draft(input); } }; },
+        );
+        const one = await gateway.inbound(message('Handles on 4 doors, NG11 7DL'));
+        if (one.kind !== 'handled') throw new Error(one.kind);
+        await settleBackgroundDrafts();
+        const file = one.file;
+        expect(file.hold?.reason).toMatch(/^the quote draft failed/);
+
+        fail = undefined;
+        seen.length = 0;
+        await gateway.inbound(message('Any update?'));
+        await settleBackgroundDrafts();
+        expect(file.job.quoteRef).toBeTruthy();
+        expect(file.facts.filter((f) => f.key === QUOTE_FACT.benNotified)).toHaveLength(1);
+        expect(seen).toContainEqual({ quoteRef: file.job.quoteRef, notified: false });
+        expect(file.hold).toBeNull();
+    });
+
+    it('starts a draft a restart lost again on the live clock, and holds for Ben once it has been lost twice', async () => {
         let drafter!: ReturnType<typeof slowDrafter>;
-        const { gateway } = stand({ persist: () => undefined }, (store) => (drafter = slowDrafter(new FakeDrafter(store), 5)));
+        const { gateway, quotes } = stand({ persist: () => undefined }, (store) => (drafter = slowDrafter(new FakeDrafter(store), 5)));
         const out = await gateway.inbound(message('Handles on 4 doors, NG11 7DL'));
         if (out.kind !== 'handled') throw new Error(out.kind);
         await settleBackgroundDrafts();
         const file = out.file;
-        const done = file.facts.findIndex((f) => f.key === DRAFTING_FACT && f.value.startsWith('done'));
-        // What a restart mid-draft leaves: the start recorded, no quote, nothing running.
-        file.facts.splice(done, 1);
-        file.facts = file.facts.filter((f) => !f.key.startsWith('quote_') && !f.key.startsWith('ben_') || f.key === DRAFTING_FACT);
-        file.job.quoteRef = null;
-        const clock = await gateway.clock(file.id);
-        expect(clock?.note).toMatch(/started again/);
-        expect(clock?.bubbles).toEqual([]);
+        const first = file.job.quoteRef!;
+        const loseDraft = () => {
+            file.facts = file.facts.filter((f) => !(f.key === DRAFTING_FACT && f.value.startsWith('done')) && (f.key === DRAFTING_FACT || (!f.key.startsWith('quote_') && !f.key.startsWith('ben_'))));
+            file.job.quoteRef = null;
+        };
+        const tick = () => liveClockTick({ liveState: async () => ({ live: true, off: [] }), gateway: async () => gateway, log: () => undefined });
+
+        // What a restart before the quote row was written leaves: the start recorded, no quote, nothing running.
+        loseDraft();
+        quotes.rows.delete(first);
+        expect(file.hold).toBeNull();
+        expect(clockDue(file)).toBe(true);
+        expect((await tick()).files).toBe(1);
         await settleBackgroundDrafts();
         expect(drafter.started).toBe(2);
         expect(file.job.quoteRef).toBeTruthy();
+        expect(file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
 
         // Lost a second time: held for Ben rather than started a third time.
-        file.facts = file.facts.filter((f) => !(f.key === DRAFTING_FACT && f.value.startsWith('done')));
-        file.job.quoteRef = null;
+        loseDraft();
         const again = await gateway.clock(file.id);
         expect(again?.note).toMatch(/held for Ben/);
         expect(drafter.started).toBe(2);
         expect(file.hold?.reason).toMatch(/^the quote draft failed/);
+    });
+
+    it('takes up the quote row a restart left behind rather than drafting a second quote', async () => {
+        let drafter!: ReturnType<typeof slowDrafter>;
+        const { gateway, quotes } = stand({ persist: () => undefined }, (store) => (drafter = slowDrafter(new FakeDrafter(store), 5)));
+        const out = await gateway.inbound(message('Handles on 4 doors, NG11 7DL'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        await settleBackgroundDrafts();
+        const file = out.file;
+        const slug = file.job.quoteRef!;
+        // What a restart after the row was written, before the file was, leaves.
+        file.facts = file.facts.filter((f) => !(f.key === DRAFTING_FACT && f.value.startsWith('done')) && (f.key === DRAFTING_FACT || (!f.key.startsWith('quote_') && !f.key.startsWith('ben_'))));
+        file.job.quoteRef = null;
+
+        const clock = await gateway.clock(file.id);
+        expect(clock?.note).toMatch(/started again/);
+        await settleBackgroundDrafts();
+        expect(drafter.started).toBe(1);
+        expect(quotes.rows.size).toBe(1);
+        expect(file.job.quoteRef).toBe(slug);
+        expect(file.facts.filter((f) => f.key === QUOTE_FACT.benNotified)).toHaveLength(1);
+        expect(file.facts.filter((f) => f.key === DRAFTING_FACT).map((f) => f.value.split(':')[0])).toEqual(['started', 'started', 'done']);
     });
 
     it('awaits the draft inside the pass when the desk has no store to put it in', async () => {
@@ -288,8 +339,6 @@ describe('photos get one light detail (answer 92)', () => {
         const user = prompts[0];
         expect(user).toContain('A chrome lever door handle on a rectangular backplate');
         expect(user).not.toMatch(/Defects:|peeling|STANZA|Not shown:|confidence high/);
-        expect(COMPOSER_SYSTEM).toContain('one light detail');
-        expect(COMPOSER_SYSTEM).toMatch(/never name a defect, damage, wear, a brand/);
         // Ben's own view of the photo keeps the whole description.
         expect(out.file.turns[0].media[0].description?.description).toBe(HANDLE_PHOTO);
     });

@@ -93,6 +93,7 @@ describe('the live quote store', () => {
             ['accept', () => liveQuoteStore.accept('abc123', new Date())],
             ['addPhotos', () => liveQuoteStore.addPhotos('abc123', ['https://example.test/a.jpg'])],
             ['deleteSandbox', () => liveQuoteStore.deleteSandbox(['+447700900942'])],
+            ['findDraft', () => liveQuoteStore.findDraft(['+447700900942'], new Date())],
         ];
         for (const [name, call] of calls) {
             const thrown = await onProduction(call);

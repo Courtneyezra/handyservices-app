@@ -44,11 +44,9 @@ export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 160;
 export const BUBBLE_CEILING = 3;
 /**
- * The limits bubbles had before answer 93: a person's typed reply (`asTyped`) is never refused for a
- * fourth paragraph, and words sent with `wideBubbles` are split only where they run past three
- * hundred characters, as they always were.
+ * Words sent with `wideBubbles` are split only where they run past three hundred characters, as they
+ * were before answer 93; still at most `BUBBLE_CEILING` bubbles.
  */
-export const TYPED_BUBBLE_CEILING = 4;
 export const WIDE_BUBBLE_MAX_CHARS = 300;
 /**
  * The pause before each bubble the desk writes, scaled to roughly the time a person takes to type it
@@ -199,11 +197,6 @@ function splitAtCommas(sentence: string, max: number): string[] {
     return out;
 }
 
-/**
- * One bubble over the soft ceiling split the way a person would: at sentence boundaries first, one or
- * two sentences a bubble, then a sentence still over the ceiling at its commas. Never mid-phrase: a
- * sentence with no comma to split at stays whole.
- */
 /** `wideBubbles`: split only past three hundred characters, at sentence boundaries, as before answer 93. */
 function splitWide(text: string): string[] {
     if (text.length <= WIDE_BUBBLE_MAX_CHARS) return [text];
@@ -219,6 +212,11 @@ function splitWide(text: string): string[] {
     return out;
 }
 
+/**
+ * One bubble over the soft ceiling split the way a person would: at sentence boundaries first, one or
+ * two sentences a bubble, then a sentence still over the ceiling at its commas. Never mid-phrase: a
+ * sentence with no comma to split at stays whole.
+ */
 function splitLong(text: string): string[] {
     if (text.length <= BUBBLE_MAX_CHARS) return [text];
     const sentences = text.split(/(?<=[.?!])\s+/).map((s) => s.trim()).filter(Boolean).flatMap((s) => (s.length > BUBBLE_MAX_CHARS ? splitAtCommas(s, BUBBLE_MAX_CHARS) : [s]));
@@ -241,10 +239,10 @@ export interface RenderOptions {
      */
     asTyped?: boolean;
     /**
-     * The limits bubbles had before answer 93: split only past three hundred characters, a ceiling of
-     * four, the desk's typing gaps. For words that must not be refused for length: one of Ben's fixed
-     * lines sent on its own (desk.ts), and a quote delivery the render would otherwise hold
-     * (quoting/deliver-quote.ts), which has no shorten round to fall back on.
+     * The bubble width before answer 93: split only past three hundred characters, still at most
+     * three bubbles, the desk's typing gaps. For words the soft limit bends for: one of Ben's reviewed
+     * fixed lines sent on its own and the held acknowledgement (desk.ts), and a quote delivery that
+     * cannot fit three bubbles of about 160 characters (quoting/deliver-quote.ts).
      */
     wideBubbles?: boolean;
 }
@@ -270,7 +268,7 @@ export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderR
     const texts = opts.asTyped ? paragraphs : paragraphs.flatMap(opts.wideBubbles ? splitWide : splitLong);
     const bubbles = texts.map((text) => ({ text, gapMs: opts.asTyped ? typedGap(text) : typingGap(text) }));
     if (!bubbles.length) return { ok: false, reason: 'empty', bubbles };
-    if (bubbles.length > (opts.asTyped || opts.wideBubbles ? TYPED_BUBBLE_CEILING : BUBBLE_CEILING)) return { ok: false, reason: 'ceiling', bubbles };
+    if (bubbles.length > BUBBLE_CEILING) return { ok: false, reason: 'ceiling', bubbles };
     return { ok: true, bubbles };
 }
 
