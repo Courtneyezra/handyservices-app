@@ -72,7 +72,9 @@ describe('QuoteIntakeCard', () => {
         expect(screen.getByText('leaking tap + loose door handle')).toBeInTheDocument();
         expect(screen.getByText('Waiting on postcode')).toBeInTheDocument();
         expect(screen.getByText('Waiting on name')).toBeInTheDocument();
-        expect(screen.getByDisplayValue('Fix leaking kitchen tap')).toBeInTheDocument();
+        // The card's editable fields (lines, customer type) are seeded from the artifact in an effect,
+        // one commit after the card itself appears — so wait for them rather than reading them synchronously.
+        expect(await screen.findByDisplayValue('Fix leaking kitchen tap')).toBeInTheDocument();
         expect(screen.getByDisplayValue('Refit loose door handle')).toBeInTheDocument();
         expect(screen.getByRole('combobox')).toHaveValue('landlord');
         expect(screen.queryByText('legacy intake')).toBeNull();
