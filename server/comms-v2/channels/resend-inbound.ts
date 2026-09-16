@@ -28,7 +28,7 @@ import type { InboundEnvelope } from './envelope';
 import { fromInboundEmail, parseEmailAddress, type InboundEmail } from './email-adapter';
 import { canonical } from '../desk/identity';
 import { isRefused, sniffImageMime, writeInboundMedia, type MediaWriteDeps } from './media';
-import { mediaKindOf } from '../desk/whatsapp-adapter';
+import { mediaKindOf, unopenedKindOf } from '../desk/whatsapp-adapter';
 
 export const RESEND_API_URL = 'https://api.resend.com';
 
@@ -202,7 +202,7 @@ export async function envelopeFromResend(emailId: string, deps: ResendInboundDep
     for (const a of attachments) {
         const ref = a.filename || a.id;
         const kind = mediaKindOf(a.content_type);
-        if (!kind) { env.mediaFailures.push({ ref, reason: `not a photo or a video (${a.content_type || 'unknown type'})` }); continue; }
+        if (!kind) { env.mediaFailures.push({ ref, reason: `not a photo or a video (${a.content_type || 'unknown type'})`, what: /^audio\//i.test(a.content_type ?? '') ? 'audio file' : unopenedKindOf(a.content_type) }); continue; }
         if (kind === 'image' && a.content_disposition === 'inline' && a.size < MIN_INLINE_IMAGE_BYTES) continue;
         if (a.size > MAX_EMAIL_MEDIA_BYTES) { env.mediaFailures.push({ ref, reason: `too large (${a.size} bytes, max ${MAX_EMAIL_MEDIA_BYTES})` }); continue; }
         if (env.media.length >= MAX_EMAIL_MEDIA) { env.mediaFailures.push({ ref, reason: `more than ${MAX_EMAIL_MEDIA} photos and videos on one email` }); continue; }

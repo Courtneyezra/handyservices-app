@@ -155,7 +155,7 @@ describe("Resend's received email as a turn", () => {
             expect(fs.readFileSync(m.path).length).toBe(m.bytes);
         }
         expect(env.mediaFailures).toEqual([
-            { ref: 'quote.pdf', reason: 'not a photo or a video (application/pdf)' },
+            { ref: 'quote.pdf', reason: 'not a photo or a video (application/pdf)', what: 'document' },
             { ref: 'fake.jpg', reason: 'not a recognised image (jpeg, png, webp or heic), checked by its bytes' },
             { ref: 'huge.mov', reason: `too large (${MAX_EMAIL_MEDIA_BYTES + 1} bytes, max ${MAX_EMAIL_MEDIA_BYTES})` },
             { ref: 'gone.png', reason: 'download failed: HTTP 403' },

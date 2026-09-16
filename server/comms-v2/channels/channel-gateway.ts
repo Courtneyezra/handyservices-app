@@ -16,7 +16,7 @@
  * Whether a number is on WhatsApp comes from a `WhatsAppPresence` source. The sandbox door's is
  * the scenario seed alone; the live intake's reads the messages the business already holds.
  */
-import { appendTurn, open, partyOf, recordFact, type CaseFile, type Turn } from '../desk/case-file';
+import { appendTurn, failedMediaFields, open, partyOf, recordFact, type CaseFile, type Turn } from '../desk/case-file';
 import { Gateway, type GatewayDeps, type InboundOutcome, type SeedInput } from '../desk/gateway';
 import { canonical, e164Of, type ResolveResult } from '../desk/identity';
 import type { InboundEnvelope } from './envelope';
@@ -103,7 +103,7 @@ export class ChannelGateway extends Gateway {
 
         const address = env.channel === 'email' ? resolved.canonical.replace(/^email:/, '') : (e164Of(resolved.canonical) ?? env.address);
         const kind: Turn['kind'] = env.kind ?? (env.media.length ? 'media' : 'text');
-        const turnBody = { at: env.at, channel: env.channel, kind, body: env.text, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(callId ? { callId } : {}), ...(opts.deliveryId ? { deliveryId: opts.deliveryId } : {}), ...(env.mediaFailures.length ? { mediaFailed: env.mediaFailures.length } : {}) };
+        const turnBody = { at: env.at, channel: env.channel, kind, body: env.text, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(callId ? { callId } : {}), ...(opts.deliveryId ? { deliveryId: opts.deliveryId } : {}), ...failedMediaFields(env.mediaFailures) };
         let file: CaseFile | null = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {
