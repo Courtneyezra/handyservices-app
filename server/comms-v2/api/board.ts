@@ -12,6 +12,7 @@ import {
 import { slotAssigned, type ApproverAssignments } from './approvers';
 import { benToRequest } from '../quoting/ben-to-request';
 import { CALL_SUMMARY_KEY, callOutcomeOnFile, type CallOutcome } from '../channels/call-adapter';
+import { reissueNotes, type ReissueNote } from '../quoting/quote-record';
 
 export type BoardMode = 'sandbox' | 'live';
 
@@ -34,6 +35,8 @@ export interface BoardCard {
     replyChannel: ReplyChannel | null;
     openedAt: string;
     benToRequest: string[];
+    /** The desk's newest automatic reissue of the file's quote: the new figure, the one before, and when the customer was told (or why not). */
+    quoteReissue: ReissueNote | null;
 }
 
 /**
@@ -104,7 +107,14 @@ export function cardOf(file: CaseFile, assignments: ApproverAssignments = {}): B
         replyChannel: replyChannelOf(file),
         openedAt: file.openedAt,
         benToRequest: benToRequest(file),
+        quoteReissue: newestReissue(file),
     };
+}
+
+/** The newest reissue the file records for the quote it names now. */
+export function newestReissue(file: CaseFile): ReissueNote | null {
+    const notes = reissueNotes(file).filter((n) => n.slug === file.job.quoteRef);
+    return notes.length ? notes[notes.length - 1] : null;
 }
 
 export interface BoardFilter {

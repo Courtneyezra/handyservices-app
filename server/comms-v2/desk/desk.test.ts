@@ -453,24 +453,29 @@ describe('the desk', () => {
         // expired whenever this runs.
         store.rows.get(first.file.job.quoteRef!)!.expiresAt = '2026-09-12T10:00:00.000Z';
         clock.t += 72 * 3_600_000;
-        return { gateway, clock, slug: first.file.job.quoteRef!, user: () => composerUser };
+        return { gateway, clock, store, slug: first.file.job.quoteRef!, user: () => composerUser };
     }
 
-    it('a question about an expired quote holds the thread for Ben, so the callback the reply promises is one he is asked for', async () => {
-        const { gateway, clock, slug, user } = await expiredQuote('Let me check on that and come straight back to you.');
+    it('a question about a revoked quote holds the thread for Ben, so the callback the reply promises is one he is asked for', async () => {
+        const { gateway, clock, store, slug, user } = await expiredQuote('Let me check on that and come straight back to you.');
+        store.rows.get(slug)!.revokedAt = '2026-09-12T11:00:00.000Z';
         const out = await gateway.inbound(turn('what does that include again?', new Date(clock.t).toISOString()));
         if (out.kind !== 'handled') throw new Error(out.kind);
-        expect(user()).toContain(`quoting: ${slug} is expired`);
+        expect(user()).toContain(`quoting: ${slug} is revoked`);
         expect(user()).toContain('say you will come back to them on the quote');
-        expect(out.file.hold?.reason).toContain(`the quote is no longer live (${slug} is expired)`);
+        expect(out.file.hold?.reason).toContain(`the quote is no longer live (${slug} is revoked)`);
+        expect(store.rows.get(slug)!.basePrice).toBe(12000);
         expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
         expect(out.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/£/);
     });
 
     it('money on an expired quote goes back to Ben: the fixed line and the money hold, because no line is left to answer from', async () => {
-        const { gateway, clock, user } = await expiredQuote(DEFAULT_FIXED_LINES.money_to_ben);
+        const { gateway, clock, store, slug, user } = await expiredQuote(DEFAULT_FIXED_LINES.money_to_ben);
         const out = await gateway.inbound(turn('can you do it any cheaper?', new Date(clock.t).toISOString()));
         if (out.kind !== 'handled') throw new Error(out.kind);
+        // Money is Ben's, so the quote is not reissued behind his back.
+        expect(store.rows.get(slug)!.basePrice).toBe(12000);
+        expect(out.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/expired/);
         expect(user()).toContain(DEFAULT_FIXED_LINES.money_to_ben);
         expect(out.file.hold?.exception).toBe('money');
         expect(out.file.hold?.reason).toContain('money');

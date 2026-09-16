@@ -16,6 +16,12 @@
  *
  * Holds (design.md, "Who handles what"): any money question beyond a quote line, and acceptance,
  * which stays human permanently: a "yes" in chat is pointed at the quote page and held for Ben.
+ *
+ * An expired quote is reissued (reissue.ts): the turn is read as on a live quote, and when it asks
+ * nothing Ben must answer the specialist offers the desk a reissue (`QuotingReturn.reissue`). The
+ * desk claims it only once every other hold on the turn and the thread is known, and then asks
+ * `afterReissue` for the brief the reply is written from. Revoked and superseded quotes, and an
+ * expired one the desk does not reissue, hold for Ben as before.
  */
 import { z } from 'zod/v4';
 import { isReady, type CaseFile, type ModelCallRecord, type Party, type Turn, isTurnOf } from '../desk/case-file';
@@ -23,8 +29,8 @@ import type { Proposal, SpecialistReturn } from '../desk/desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { Route, RouterOutput } from '../desk/router';
 import { CUSTOMER_TYPES, type DraftIntake } from './draft-quote';
-import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factsWithPrefix, figureLabels, newestFact, quoteLiveForFigures, readQuoteLine, type QuoteRecord, type QuoteStatus } from './quote-record';
-import { chase, draftQuote, loadQuote, quoteReadiness, recordQuoteFacts, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
+import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factsWithPrefix, figureLabels, lastIssue, newestFact, pounds, quoteLiveForFigures, readQuoteLine, type QuoteRecord, type QuoteStatus } from './quote-record';
+import { chase, draftQuote, loadQuote, quoteReadiness, recordQuoteFacts, recordReissue, reissueRecorded, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
 import { draftPending, startBackgroundDraft, type BackgroundDraftHooks } from './background-draft';
 
 // ---------------------------------------------------------------- the two structured outputs
@@ -137,6 +143,8 @@ export interface QuotingProposal {
     acceptanceInChat: boolean;
     notReady: boolean;
     acceptedNow: boolean;
+    /** The desk reissued the expired quote this turn: the new total, its fact, and the link the reply opens with. */
+    reissued?: { amount: string; factId: string; link: string } | null;
 }
 
 /** The composer's brief from the proposal: the first line is the one-line evidence token, the rest instructions. Never a sentence for the customer. */
@@ -167,7 +175,12 @@ export function briefLines(p: QuotingProposal): string[] {
         out.push(`quoting: ${p.quoteRef} is ${p.status}`);
         out.push(`the quote is ${p.status} (fact ${ids.status ?? 'none'}): no figure may be read from it; say you will come back to them on the quote`);
     } else {
-        out.push(`quoting: ${p.quoteRef} ${p.status}; ${ids.figures.length} figures on the file`);
+        out.push(p.reissued
+            ? `quoting: ${p.quoteRef} expired and was reissued at ${p.reissued.amount} (fact ${p.reissued.factId}); ${ids.figures.length} figures on the file`
+            : `quoting: ${p.quoteRef} ${p.status}; ${ids.figures.length} figures on the file`);
+        if (p.reissued) {
+            out.push(`the reply already opens with a fixed line saying their previous quote expired, that the new price is ${p.reissued.amount} and giving the link ${p.reissued.link}: do not repeat the expiry, the price or the link, and do not apologise for it; answer anything else they asked from the facts below, and if they asked nothing else, one short line saying to reply here with any questions`);
+        }
         if (p.acceptedNow) {
             out.push(`they accepted the quote on the quote page (fact ${ids.status ?? 'none'}) and Ben has been told: thank them, say you have it and will be in touch about the day; no date, no time, no other promise, no question`);
         } else if (p.acceptanceInChat || p.beyondQuoteLine) {
@@ -241,7 +254,68 @@ function emptyProposal(): Proposal {
     return { nextQuestion: null, offerCall: false, mentionPhotos: false, thankForMedia: false, ready: false, hold: null };
 }
 
-export async function quote(file: CaseFile, turn: Turn, party: Party, route: Route, client: ModelClient, deps: QuotingSpecialistDeps = {}): Promise<SpecialistReturn | null> {
+/**
+ * An expired quote the desk may reissue this turn. `blockers` are what the specialist's own reading
+ * of the turn found for Ben (money beyond a line, acceptance in chat, a reading that failed); the
+ * desk adds the rest (every other hold, the window, the opt-out ledger) and claims it only when
+ * none is left. `concerns` and `notReady` are the reading, kept for the brief after the reissue.
+ */
+export interface ReissueCandidate {
+    slug: string;
+    blockers: string[];
+    concerns: QuestionOutput['concerns'];
+    notReady: boolean;
+}
+
+/** Quoting's return: a specialist return, plus the reissue it offers when the file's quote has expired. */
+export type QuotingReturn = SpecialistReturn & {
+    reissue?: ReissueCandidate;
+    /** A reissue on the row this file has no record of telling the customer about, for Ben's card (`unannouncedReissue`). */
+    unannounced?: string;
+};
+
+/** The hold reason the desk writes for a quote that is no longer live, and the one it reads back to clear its own card once the quote is reissued. */
+export const STALE_HOLD = 'the quote is no longer live';
+
+interface TurnReading { output: QuestionOutput | null; error: string | null; record: ModelCallRecord | null }
+
+/** The question model over the newest turn, against the quote's own labels. Skipped (no call) for a pause, an acknowledgement, a promise of more or an empty turn. */
+async function readTurn(file: CaseFile, turn: Turn, route: Route, q: QuoteRecord, client: ModelClient): Promise<TurnReading> {
+    const skipModel = route.turnKind === 'short_pause' || route.turnKind === 'acknowledgement' || route.turnKind === 'promise_of_more' || !turn.body.trim();
+    if (skipModel) return { output: null, error: null, record: null };
+    // The quote's own labels, each once. Never the citations the facts are keyed by: those carry
+    // a line's position, which the model has no way to map onto the customer's words, so it
+    // would pick one. Named by a title two lines share, the read refuses and the turn is Ben's.
+    const labels = Array.from(new Set(figureLabels(q).map((f) => f.label)));
+    const user = [
+        `Quote ${q.slug}, status ${q.status}. Labels on it: ${labels.join('; ') || 'none'}. Not included: ${q.lines.flatMap((l) => l.notIncluded).join('; ') || 'nothing listed'}. Assumptions: ${q.lines.flatMap((l) => l.assumptions).join('; ') || 'none'}.`,
+        'Thread, oldest first (the newest turn is marked >>):',
+        threadFor(file, turn),
+    ].join('\n');
+    const res = await client.structured({ role: 'specialist', model: SPECIALIST_MODEL, effort: 'medium', system: QUESTION_SYSTEM, user, schema: questionOutputSchema, maxTokens: 600 });
+    return { output: res.output, error: res.output ? null : (res.error ?? 'the question model returned nothing'), record: res.record };
+}
+
+/**
+ * The reading, applied to a quote as the customer holds it: the concerns it names by the quote's own
+ * labels, and whether it asks money beyond a line. On a quote live for figures, any amount asked for
+ * under a name the quote does not carry (a labour or materials half, a deposit on a quote with none,
+ * a label two lines share) is money beyond a quote line and goes to Ben, rather than being answered
+ * with another line's figure. Asked of the label the model returned, never of a clamped copy: a
+ * line's label runs to 120 characters and the brief clamps at 60. A total and a deposit are named by
+ * their kind, so "the total price" asks about the same one figure.
+ */
+function applyReading(q: QuoteRecord, out: QuestionOutput): { concerns: QuestionOutput['concerns']; beyondQuoteLine: boolean } {
+    const asked = out.concerns.slice(0, 6);
+    const named = asked.map((c) => ({ kind: c.kind, label: c.kind === 'total' ? TOTAL_LABEL : c.kind === 'deposit' ? DEPOSIT_LABEL : c.label }));
+    const offQuote = quoteLiveForFigures(q) ? named.filter((c) => FIGURE_KINDS.has(c.kind) && c.label && !readQuoteLine(q, c.label).ok) : [];
+    return {
+        concerns: named.filter((c) => !offQuote.includes(c)).map((c) => ({ kind: c.kind, label: c.label ? clamp(c.label, 60) : null })),
+        beyondQuoteLine: out.beyondQuoteLine || offQuote.length > 0,
+    };
+}
+
+export async function quote(file: CaseFile, turn: Turn, party: Party, route: Route, client: ModelClient, deps: QuotingSpecialistDeps = {}): Promise<QuotingReturn | null> {
     const d = resolveQuotingDeps(deps);
     const calls: ModelCallRecord[] = [];
     const factIds: string[] = [];
@@ -293,7 +367,25 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
             if (ids.status) factIds.push(ids.status);
             const stale = emptyProposal();
             stale.hold = { reason: 'stale_quote', match: `${q.slug} is ${q.status}` };
-            return { specialist: 'quoting', factIds, proposal: stale, brief: briefLines(proposal), calls, error };
+            if (q.status !== 'expired') return { specialist: 'quoting', factIds, proposal: stale, brief: briefLines(proposal), calls, error };
+            // Expired: read the turn as it would be read on the quote live again, so whatever Ben
+            // must answer (money beyond a line, a yes in chat) still reaches him and blocks the reissue.
+            const live: QuoteRecord = { ...q, status: 'sent' };
+            const reading = await readTurn(file, turn, route, live, client);
+            if (reading.record) calls.push(reading.record);
+            const blockers: string[] = [];
+            let concerns: QuestionOutput['concerns'] = [];
+            let notReady = proposal.notReady;
+            if (reading.error) { error = reading.error; blockers.push(`the turn could not be read (${reading.error})`); }
+            if (reading.output) {
+                const applied = applyReading(live, reading.output);
+                concerns = applied.concerns;
+                notReady = notReady || reading.output.notReady;
+                if (applied.beyondQuoteLine) blockers.push('money beyond a quote line');
+                if (reading.output.acceptanceInChat) blockers.push('acceptance in chat');
+            }
+            if (route.belts.money || route.moneyToQuoting) blockers.push('a money question');
+            return { specialist: 'quoting', factIds, proposal: stale, brief: briefLines(proposal), calls, error, reissue: { slug: q.slug, blockers, concerns, notReady } };
         }
         const readiness = quoteReadiness(file);
         const user = [
@@ -351,43 +443,17 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
     if (proposal.acceptedNow) {
         return { specialist: 'quoting', factIds, proposal: emptyProposal(), brief: briefLines(proposal), calls, error };
     }
-    const skipModel = route.turnKind === 'short_pause' || route.turnKind === 'acknowledgement' || route.turnKind === 'promise_of_more' || !turn.body.trim();
     let questionAnswered = false;
-    if (!skipModel) {
-        // The quote's own labels, each once. Never the citations the facts are keyed by: those carry
-        // a line's position, which the model has no way to map onto the customer's words, so it
-        // would pick one. Named by a title two lines share, the read refuses and the turn is Ben's.
-        const labels = Array.from(new Set(figureLabels(q).map((f) => f.label)));
-        const user = [
-            `Quote ${q.slug}, status ${q.status}. Labels on it: ${labels.join('; ') || 'none'}. Not included: ${q.lines.flatMap((l) => l.notIncluded).join('; ') || 'nothing listed'}. Assumptions: ${q.lines.flatMap((l) => l.assumptions).join('; ') || 'none'}.`,
-            'Thread, oldest first (the newest turn is marked >>):',
-            threadFor(file, turn),
-        ].join('\n');
-        const res = await client.structured({ role: 'specialist', model: SPECIALIST_MODEL, effort: 'medium', system: QUESTION_SYSTEM, user, schema: questionOutputSchema, maxTokens: 600 });
-        calls.push(res.record);
-        if (res.output) {
-            const asked = res.output.concerns.slice(0, 6);
-            // A figure is a line of the quote. A price the turn asks for under a label the quote does
-            // not carry - the labour or materials half of a line, most often - is money beyond a
-            // quote line: it goes to Ben rather than being answered with the line's own figure under
-            // the wrong name, which would state an amount the customer's quote does not. Asked of the
-            // label the model returned, never of a clamped copy: a line's label runs to 120
-            // characters and the brief clamps at 60, so a truncated label would match no line and
-            // turn a question the quote answers (5.3) into a hold.
-            // A total and a deposit are named by their kind, so the label is the quote's own rather
-            // than the customer's words for it: "the total price" asks about the same one figure.
-            const named = asked.map((c) => ({ kind: c.kind, label: c.kind === 'total' ? TOTAL_LABEL : c.kind === 'deposit' ? DEPOSIT_LABEL : c.label }));
-            // Any amount asked for under a name the live quote does not carry - a labour or materials
-            // half, a deposit on a quote that has none, a label two lines share - is money beyond a
-            // quote line and goes to Ben, rather than being answered with another line's figure.
-            const offQuote = quoteLiveForFigures(q) ? named.filter((c) => FIGURE_KINDS.has(c.kind) && c.label && !readQuoteLine(q, c.label).ok) : [];
-            proposal.concerns = named.filter((c) => !offQuote.includes(c)).map((c) => ({ kind: c.kind, label: c.label ? clamp(c.label, 60) : null }));
-            proposal.beyondQuoteLine = res.output.beyondQuoteLine || offQuote.length > 0;
-            proposal.acceptanceInChat = res.output.acceptanceInChat && q.status === 'sent';
-            proposal.notReady = proposal.notReady || res.output.notReady;
-            questionAnswered = proposal.concerns.length > 0 || proposal.beyondQuoteLine;
-        } else error = res.error ?? 'the question model returned nothing';
-    }
+    const reading = await readTurn(file, turn, route, q, client);
+    if (reading.record) calls.push(reading.record);
+    if (reading.output) {
+        const applied = applyReading(q, reading.output);
+        proposal.concerns = applied.concerns;
+        proposal.beyondQuoteLine = applied.beyondQuoteLine;
+        proposal.acceptanceInChat = reading.output.acceptanceInChat && q.status === 'sent';
+        proposal.notReady = proposal.notReady || reading.output.notReady;
+        questionAnswered = proposal.concerns.length > 0 || proposal.beyondQuoteLine;
+    } else if (reading.error) error = reading.error;
     // A money exception is cleared for a live quote only because this reading replaces it (5.3 for a
     // figure on the quote, applyQuotingRoute). When the reading did not run or did not answer, it
     // stands again, whichever raised it: money beyond a quote line goes to Ben, never on one reading.
@@ -402,7 +468,43 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
     // no figure to answer from at all, so that is the one state money must certainly reach him in.
     if (proposal.beyondQuoteLine) p.hold = { reason: 'money', match: turn.body.slice(0, 80), acceptedInChat: proposal.acceptanceInChat };
     else if (proposal.acceptanceInChat) p.hold = { reason: 'acceptance', match: turn.body.slice(0, 80), acceptedInChat: true };
-    return { specialist: 'quoting', factIds, proposal: p, brief: briefLines(proposal), calls, error };
+    const unannounced = unannouncedReissue(file, q, deps);
+    return { specialist: 'quoting', factIds, proposal: p, brief: briefLines(proposal), calls, error, ...(unannounced ? { unannounced } : {}) };
+}
+
+/**
+ * A reissue on the row that this file has no record of: the run that claimed it did not live to
+ * send (a restart between the write and the reply) or another process claimed it. The customer may
+ * be holding a link whose price moved without a word, so Ben is told, once: the note is recorded on
+ * the file as not sent, which is also what stops a second card for the same reissue. Nothing is sent
+ * about it again, because the run that claimed it may yet have told them.
+ */
+function unannouncedReissue(file: CaseFile, q: QuoteRecord, deps: QuotingSpecialistDeps): string | null {
+    const last = lastIssue(q.reissue);
+    if (!last || q.status !== 'sent' || reissueRecorded(file, q.slug, last.runId)) return null;
+    const previous = q.reissue!.issues.length > 1 ? q.reissue!.issues[q.reissue!.issues.length - 2].totalPence : q.reissue!.original.totalPence;
+    const why = 'this file has no record of the message telling the customer';
+    recordReissue(file, { slug: q.slug, issue: last, previousTotalPence: previous, sentAt: null, notSent: why }, deps);
+    return `quote ${q.slug} was reissued automatically at ${pounds(last.totalPence)} (run ${last.runId}) and ${why}: check they have the new price and link`;
+}
+
+/**
+ * The return for the turn the desk reissued the expired quote on: the quote is live again, so the
+ * reply answers from it like any sent quote, opening with the fixed line the desk puts ahead of the
+ * composer's words (reissue.ts `reissueLine`). No model call: the turn was read before the reissue.
+ */
+export function afterReissue(file: CaseFile, q: QuoteRecord, candidate: ReissueCandidate, reissued: { totalFactId: string; link: string; factIds: string[] }, deps: QuotingSpecialistDeps = {}): QuotingReturn {
+    const ids = recordQuoteFacts(file, q, deps);
+    const figures = figureLabels(q).flatMap((f) => (ids.lines[f.citation] ? [{ label: f.label, factId: ids.lines[f.citation], shared: f.shared }] : []));
+    const proposal: QuotingProposal = {
+        phase: 'sent', quoteRef: q.slug, status: q.status, drafted: false, draftError: null,
+        answerFrom: { figures, scope: ids.scope, notIncluded: ids.notIncluded, assumptions: ids.assumptions, link: ids.link, status: ids.status },
+        concerns: candidate.concerns, beyondQuoteLine: false, acceptanceInChat: false, notReady: candidate.notReady, acceptedNow: false,
+        reissued: { amount: pounds(q.totalPence!), factId: reissued.totalFactId, link: reissued.link },
+    };
+    const p = emptyProposal();
+    p.ready = true;
+    return { specialist: 'quoting', factIds: Array.from(new Set(reissued.factIds)), proposal: p, brief: briefLines(proposal), calls: [], error: null };
 }
 
 /** The clock: a draft the customer has not received is chased for Ben (4.5). Never a customer send. */

@@ -12,7 +12,7 @@
  * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
  */
 import { z } from 'zod/v4';
-import { ASK_SUBJECTS, customerVisibleFacts, type CaseFile, type Party, type ReplyChannel, type Turn, isTurnOf } from './case-file';
+import { ASK_SUBJECTS, customerVisibleFacts, isSupersededFigure, type CaseFile, type Party, type ReplyChannel, type Turn, isTurnOf } from './case-file';
 import type { FixedLine } from './fixed-lines';
 import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
@@ -160,7 +160,8 @@ export function buildComposerUser(input: ComposeInput): string {
     // A diary fact is only citable while this run looked it up: an older booked date was true when it was
     // written and the diary may have moved since, so it is left off the list rather than dangled and refused.
     const lookedUp = new Set(specialists.flatMap((s) => s.factIds));
-    const citable = customerVisibleFacts(file).filter((f) => f.source.kind !== 'diary' || lookedUp.has(f.id));
+    // A quote figure the quote has moved on from (a price before a reissue) is left off too.
+    const citable = customerVisibleFacts(file).filter((f) => (f.source.kind !== 'diary' || lookedUp.has(f.id)) && !isSupersededFigure(file, f));
     lines.push('Facts on the file (id: key = value):');
     lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.source.kind === 'media_description' ? withoutWords(lightPhotoSummary(f.value), unmentioned) : f.source.kind === 'thread' ? withoutWords(f.value, unmentioned) : f.value}`).join('\n') : '(none yet)');
     lines.push('');

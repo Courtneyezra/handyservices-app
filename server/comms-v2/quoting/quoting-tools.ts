@@ -16,17 +16,23 @@
  *   record_quote_facts the quote's lines, total, deposit, link and scope onto the file, once, each cited as its line
  *   price_quote       Ben's prices through the price screen's own write; the desk's stage moves to quoted when his send lands
  *   record_acceptance the human event: refuses any witness but a human; flips the stage and notifies Ben
+ *   reissue_quote     an expired quote back live at the original price plus 5% (reissue.ts), claimed by one run;
+ *                     the desk decides whether a turn may ask for it and tells the customer in the same reply
  *
  * Nothing here composes a sentence for the customer.
  */
 import { randomUUID } from 'node:crypto';
 import { STAGES, isReady, setStage, type CaseFile, type CaseFileDeps, type Fact, type Party } from '../desk/case-file';
-import { ledgerEntry, factFor } from '../desk/case-file';
+import { ledgerEntry, factFor, recordFact } from '../desk/case-file';
 import { mediaDeclined, mediaReceived } from '../desk/scoping-tools';
 import { acceptedNotice, chaseNotice, readyToPriceNotice, recordingNotifier, type BenNotice, type BenNotifier } from './ben-notifier';
 import { chainDrafter, type DraftIntake, type DraftOutcome, type Drafter } from './draft-quote';
 import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factOnce, factsWithPrefix, figureLabels, newestFact, pounds, quoteLiveForFigures, quoteRecordOf, quoteSource, quoteUrlFor, readQuoteLine, readQuoteScope, type QuoteRecord, type QuoteStatus } from './quote-record';
 import { liveQuoteStore, type PriceInput, type QuoteStore } from './quote-store';
+import type { ReissueIssue } from './reissue';
+import { reissueLineOf, reissueNotes, reissueRecorded, type ReissueNote } from './quote-record';
+
+export { reissueLineOf, reissueNotes, reissueRecorded, type ReissueNote };
 
 export interface QuotingDeps extends CaseFileDeps {
     store?: QuoteStore;
@@ -248,7 +254,7 @@ export function recordQuoteFacts(file: CaseFile, q: QuoteRecord, deps: QuotingDe
     const once = (key: string, value: string, line: string): Fact | null => factOnce(file, { key, value, source: quoteSource(q.slug, line), by: BY }, d.file);
     const statusText: Record<QuoteStatus, string> = {
         draft: 'draft: with Ben to price', sent: 'sent: the customer has the link', accepted: 'accepted: the deposit is paid',
-        revoked: 'revoked by Ben', superseded: 'superseded by a newer quote', expired: 'expired: Ben to reissue',
+        revoked: 'revoked by Ben', superseded: 'superseded by a newer quote', expired: 'expired: the price lock has passed',
     };
     ids.status = once(QUOTE_FACT.status, statusText[q.status], 'status')?.id ?? null;
     if (q.status === 'sent' || q.status === 'accepted') {
@@ -256,7 +262,7 @@ export function recordQuoteFacts(file: CaseFile, q: QuoteRecord, deps: QuotingDe
         // Keyed by the figure's own citation, not its label: two lines may share a label, and keying
         // by that collapsed the second into the first and gave its price as the other's.
         for (const f of figureLabels(q)) {
-            const fact = once(`${QUOTE_FACT.line}:${f.citation}`, pounds(f.amountPence), f.citation);
+            const fact = figureOnce(file, q.slug, `${QUOTE_FACT.line}:${f.citation}`, pounds(f.amountPence), f.citation, d);
             if (fact) ids.lines[f.citation] = fact.id;
         }
     }
@@ -272,7 +278,66 @@ export function recordQuoteFacts(file: CaseFile, q: QuoteRecord, deps: QuotingDe
     return ids;
 }
 
+/**
+ * A figure is recorded again whenever it differs from the newest one for its line, even when an
+ * older fact carried the same amount: the newest `quote_line:<label>` for a quote is its current
+ * figure (case-file.ts `isSupersededFigure`), so a price that went £100.00, £105.00 and back to
+ * £100.00 must end on a £100.00 fact rather than finding the first one and leaving £105.00 newest.
+ */
+function figureOnce(file: CaseFile, slug: string, key: string, value: string, line: string, d: ResolvedQuotingDeps): Fact | null {
+    let newest: Fact | null = null;
+    for (const f of file.facts) if (f.key === key && f.source.kind === 'quote_line' && f.source.quoteRef === slug) newest = f;
+    if (newest && newest.value === value) return newest;
+    const r = recordFact(file, { key, value, source: quoteSource(slug, line), by: BY }, d.file);
+    return r.ok ? r.value : null;
+}
+
 export { TOTAL_LABEL, DEPOSIT_LABEL, pounds };
+
+// ---------------------------------------------------------------- reissue_quote
+
+export type ReissueQuoteOutcome =
+    | { ok: true; record: QuoteRecord; issue: ReissueIssue; previousTotalPence: number; totalFactId: string; link: string; factIds: string[] }
+    /** `claimed`: the row was reissued by this run but could not be read back live, so the customer has a new price nobody told them. */
+    | { ok: false; reason: string; raced: boolean; claimed: boolean; issue?: ReissueIssue; previousTotalPence?: number };
+
+/**
+ * reissue_quote: the file's expired quote back live at its original price plus the uplift, claimed
+ * by `runId` (the store's compare-and-set), then read back and its current figures recorded on the
+ * file, so the reply that tells the customer cites the new Total as a line of the live quote.
+ * Nothing here sends; the desk puts the sentence in the reply this same run sends.
+ */
+export async function reissueExpiredQuote(file: CaseFile, runId: string, deps: QuotingDeps = {}): Promise<ReissueQuoteOutcome> {
+    const d = resolveQuotingDeps(deps);
+    const slug = file.job.quoteRef;
+    if (!slug) return { ok: false, reason: 'no quote on the file', raced: false, claimed: false };
+    if (!d.store.reissue) return { ok: false, reason: 'this quote store cannot reissue a quote', raced: false, claimed: false };
+    const r = await d.store.reissue(slug, { now: d.now(), runId });
+    if (!r.ok) return { ok: false, reason: r.reason, raced: !!r.raced, claimed: false };
+    const claimed = { raced: false, claimed: true, issue: r.issue, previousTotalPence: r.previousTotalPence };
+    const row = await d.store.read(slug).catch(() => null);
+    if (!row) return { ok: false, reason: `quote ${slug} was reissued but could not be read back`, ...claimed };
+    const record = quoteRecordOf(row, d.now());
+    if (record.status !== 'sent' || record.totalPence !== r.issue.totalPence) return { ok: false, reason: `quote ${slug} was reissued but reads back ${record.status} at ${record.totalPence == null ? 'no total' : pounds(record.totalPence)}`, ...claimed };
+    const ids = recordQuoteFacts(file, record, deps);
+    const totalFactId = ids.lines[TOTAL_LABEL];
+    if (!totalFactId || !ids.link) return { ok: false, reason: `quote ${slug} was reissued but its total or link could not be recorded`, ...claimed };
+    const factIds = [ids.status, ids.link, ...Object.values(ids.lines), ...ids.scope, ...ids.notIncluded, ...ids.assumptions].filter((x): x is string => !!x);
+    return { ok: true, record, issue: r.issue, previousTotalPence: r.previousTotalPence, totalFactId, link: quoteUrlFor(slug, d.baseUrl), factIds };
+}
+
+/**
+ * Records a reissue on the file, once per claiming run: `sentAt` when the reply carrying it landed,
+ * `notSent` with the reason when it did not (the thread is then held for Ben). Internal: the
+ * composer never sees it (case-file.ts INTERNAL_FACT_KEYS).
+ */
+export function recordReissue(file: CaseFile, input: { slug: string; issue: ReissueIssue; previousTotalPence: number; sentAt: string | null; notSent: string | null }, deps: QuotingDeps = {}): Fact | null {
+    const d = resolveQuotingDeps(deps);
+    const outcome = input.sentAt ? `sent ${input.sentAt}` : `not sent: ${input.notSent ?? 'unknown'}`;
+    const value = [pounds(input.issue.totalPence), `was ${pounds(input.previousTotalPence)}`, 'automatic', outcome].join(' | ');
+    return factOnce(file, { key: QUOTE_FACT.reissued, value, source: quoteSource(input.slug, reissueLineOf(input.issue.runId)), by: BY }, d.file);
+}
+
 
 // ---------------------------------------------------------------- price_quote (Ben)
 

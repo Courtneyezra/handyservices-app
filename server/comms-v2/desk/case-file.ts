@@ -454,11 +454,24 @@ export function recordFact(file: CaseFile, input: { key: string; value: string; 
  * (`customerVisibleFacts`). Any new fact written for Ben's eyes belongs in this list on the day it
  * is written.
  */
-export const INTERNAL_FACT_KEYS: readonly string[] = ['ben_notified', 'ben_chased', 'ben_to_request', 'quote_accepted', 'quote_drafting'];
+export const INTERNAL_FACT_KEYS: readonly string[] = ['ben_notified', 'ben_chased', 'ben_to_request', 'quote_accepted', 'quote_drafting', 'quote_reissued'];
 
 /** True when the fact was written for Ben, not for the customer. Matches the key and any `key:label` form. */
 export function isInternalFact(fact: Pick<Fact, 'key'>): boolean {
     return INTERNAL_FACT_KEYS.some((k) => fact.key === k || fact.key.startsWith(`${k}:`));
+}
+
+/**
+ * A quote figure the quote has moved on from. Facts are append-only, so when a line's amount changes
+ * (the desk reissuing an expired quote at a new price, most often) the old `quote_line:<label>` fact
+ * stays beside the new one; the newest for a key on a quote is that quote's current figure, and
+ * only it is shown to the composer or accepted by the figure guard.
+ */
+export function isSupersededFigure(file: CaseFile, fact: Fact): boolean {
+    if (fact.source.kind !== 'quote_line' || !fact.key.startsWith('quote_line:')) return false;
+    const ref = fact.source.quoteRef;
+    const at = file.facts.indexOf(fact);
+    return file.facts.some((f, i) => i > at && f.key === fact.key && f.source.kind === 'quote_line' && f.source.quoteRef === ref);
 }
 
 /** The facts a customer reply may be written from: everything on the file except Ben's own. */

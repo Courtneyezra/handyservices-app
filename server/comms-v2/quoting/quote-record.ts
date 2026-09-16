@@ -52,6 +52,10 @@ export interface QuoteRecord {
     suggestedTotalPence: number | null;
     checkThis: number;
     photoUrls: string[];
+    /** The desk's own reissues of this quote (reissue.ts), kept on the row under `pricing_suggestions.reissue`. */
+    reissue: ReissueRecord | null;
+    /** How many times the customer has refreshed it on their own quote page (`extension_count`). */
+    selfRefreshes: number;
 }
 
 /** The row fields this module reads, in the column names drizzle gives them. */
@@ -72,7 +76,45 @@ export interface QuoteRowLike {
     pricingLineItems?: unknown;
     pricingSuggestions?: unknown;
     customerPhotoUrls?: unknown;
+    extensionCount?: number | null;
 }
+
+// ---------------------------------------------------------------- the desk's reissue record
+
+/** One line as the customer first saw it. */
+export interface OriginalLine { lineId: string; pricePence: number; materialsPence: number }
+
+/** One reissue the desk made: which lapse it answered, the figure it set, and the run that claimed it. */
+export interface ReissueIssue {
+    /** The expiry this reissue answered: the row's `expires_at` when it was claimed. */
+    fromExpiresAt: string | null;
+    at: string;
+    /** The desk run that claimed it, and the only run that may tell the customer. */
+    runId: string;
+    totalPence: number;
+    expiresAt: string;
+    by: string;
+}
+
+/** What the row keeps under `pricing_suggestions.reissue`. */
+export interface ReissueRecord {
+    /** The quote as the customer first saw it: every reissue is taken from this, never from a previous one. */
+    original: { totalPence: number; lines: OriginalLine[] };
+    issues: ReissueIssue[];
+}
+
+export function reissueRecordOf(row: Pick<QuoteRowLike, 'pricingSuggestions'>): ReissueRecord | null {
+    const r = (row.pricingSuggestions as { reissue?: unknown } | null | undefined)?.reissue as ReissueRecord | undefined;
+    if (!r || typeof r !== 'object' || !r.original || !Array.isArray(r.issues)) return null;
+    if (!Number.isInteger(r.original.totalPence) || !Array.isArray(r.original.lines)) return null;
+    return r;
+}
+
+/** The newest reissue on the row, or null. */
+export function lastIssue(record: ReissueRecord | null): ReissueIssue | null {
+    return record?.issues.length ? record.issues[record.issues.length - 1] : null;
+}
+
 
 const iso = (v: Date | string | null | undefined): string | null => (v == null ? null : v instanceof Date ? v.toISOString() : String(v));
 const int = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : null);
@@ -120,6 +162,8 @@ export function quoteRecordOf(row: QuoteRowLike, now: Date = new Date()): QuoteR
         suggestedTotalPence: int(suggestions?.totals?.suggestedPence),
         checkThis: (suggestions?.lines ?? []).filter((l) => l?.checkThis).length,
         photoUrls: strings(row.customerPhotoUrls),
+        reissue: reissueRecordOf(row),
+        selfRefreshes: int(row.extensionCount) ?? 0,
     };
 }
 
@@ -237,6 +281,7 @@ export const QUOTE_FACT = {
     benToRequest: 'ben_to_request', // Ben's own: what the draft is missing, for him to request
 
     accepted: 'quote_accepted',
+    reissued: 'quote_reissued',     // Ben's: the desk reissued an expired quote (reissue.ts)
 } as const;
 
 export function quoteSource(quoteRef: string, line: string): FactSource {
@@ -269,4 +314,40 @@ export function quoteUrlFor(slug: string, baseUrl: string = process.env.BASE_URL
 /** Ben's price screen for a draft. */
 export function priceScreenUrlFor(slug: string, baseUrl: string = process.env.BASE_URL || 'https://handyservices.app'): string {
     return `${baseUrl.replace(/\/$/, '')}/admin/price/${slug}`;
+}
+
+// ---------------------------------------------------------------- the desk's reissues on the file
+
+/** The citation line a reissue's own fact carries: the run that claimed it, which is how a later turn knows whether the customer was told. */
+export const reissueLineOf = (runId: string): string => `reissue:${runId}`;
+
+/** What Ben's card reads about a reissue: the figure, the one before it, that it was automatic, and whether and when the customer was told. */
+export interface ReissueNote {
+    slug: string;
+    runId: string;
+    amount: string;
+    previous: string;
+    automatic: true;
+    /** When the message telling the customer was sent; null when it was not. */
+    sentAt: string | null;
+    /** Why the customer was not told, when they were not. */
+    notSent: string | null;
+    at: string;
+}
+
+/** Whether the file already records what became of the reissue `runId` claimed. */
+export function reissueRecorded(file: CaseFile, slug: string, runId: string): boolean {
+    const line = reissueLineOf(runId);
+    return factsWithPrefix(file, QUOTE_FACT.reissued).some((f) => f.source.kind === 'quote_line' && f.source.quoteRef === slug && f.source.line === line);
+}
+
+/** Every reissue the file records, oldest first, as Ben's card shows them. */
+export function reissueNotes(file: CaseFile): ReissueNote[] {
+    return factsWithPrefix(file, QUOTE_FACT.reissued).flatMap((f) => {
+        if (f.source.kind !== 'quote_line' || !f.source.line.startsWith('reissue:')) return [];
+        const [amount, was, , ...rest] = f.value.split(' | ');
+        const outcome = rest.join(' | ');
+        const sent = /^sent (.+)$/.exec(outcome);
+        return [{ slug: f.source.quoteRef, runId: f.source.line.slice('reissue:'.length), amount, previous: (was ?? '').replace(/^was /, ''), automatic: true as const, sentAt: sent ? sent[1] : null, notSent: sent ? null : outcome.replace(/^not sent: /, '') || null, at: f.at }];
+    });
 }
