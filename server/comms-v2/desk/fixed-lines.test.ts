@@ -4,7 +4,9 @@
  * his "Thanks / Ben" sign-off, and `first_contact_ack` may introduce him in the first person.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_FIXED_LINES, KB_BACKED, fixedLine, type FixedLineKind } from './fixed-lines';
+import { DEFAULT_FIXED_LINES, KB_BACKED, fixedLine, heldAckLine, lateMediaAckLine, mediaNoun, type FixedLineKind } from './fixed-lines';
+import type { TurnMedia } from './case-file';
+import { RE_DATE_TIME_DURATION, RE_THANKS_MEDIA } from './lexicon';
 import { hasDashPunctuation } from './dashes';
 
 const SIGN_OFF = /\n\nThanks\nBen$/;
@@ -32,5 +34,42 @@ describe('the default fixed lines', () => {
     it('sends a reviewed row\'s words with its dashes made commas, and the row still cited', async () => {
         const line = await fixedLine('complaint', { async reviewed() { return { id: 'kb-complaint', words: "Sorry to hear that - leave it with me.\n\nThanks\nBen" }; } });
         expect(line).toEqual({ kind: 'complaint', text: "Sorry to hear that, leave it with me.\n\nThanks\nBen", kbId: 'kb-complaint' });
+    });
+});
+
+const photo = (id: string): TurnMedia => ({ id, kind: 'image', mime: 'image/jpeg', path: null, url: null, description: null });
+const video = (id: string): TurnMedia => ({ id, kind: 'video', mime: 'video/mp4', path: null, url: null, description: null });
+
+describe('the held acknowledgement names what arrived', () => {
+    it('names a video, a photo, several, and both; a turn with no media gets the line as it stands', () => {
+        expect(heldAckLine({ media: [video('v')] }).text).toBe("Thanks for the video, leave it with me and I'll come back to you.");
+        expect(heldAckLine({ media: [photo('p')] }).text).toBe("Thanks for the photo, leave it with me and I'll come back to you.");
+        expect(heldAckLine({ media: [photo('p1'), photo('p2')] }).text).toBe("Thanks for the photos, leave it with me and I'll come back to you.");
+        expect(heldAckLine({ media: [photo('p'), video('v')] }).text).toBe("Thanks for the photo and the video, leave it with me and I'll come back to you.");
+        expect(heldAckLine({ media: [] })).toEqual({ kind: 'held_ack', text: DEFAULT_FIXED_LINES.held_ack, kbId: null });
+        expect(mediaNoun([])).toBeNull();
+    });
+
+    it('stays a line that sends without Ben\'s review', () => {
+        expect(KB_BACKED.has('held_ack')).toBe(false);
+        expect(heldAckLine({ media: [video('v')] }).kbId).toBeNull();
+    });
+});
+
+describe('the late thanks for media', () => {
+    // 20:07 BST on 15 Sep, answered at 06:38 BST the next morning.
+    const sent = new Date('2026-09-15T19:06:09.000Z');
+    it('says the media came in yesterday, earlier or the other day, and that the reply is late, in words the date guard allows', () => {
+        const yesterday = lateMediaAckLine([video('v')], sent, new Date('2026-09-16T04:38:49.000Z'));
+        expect(yesterday).toEqual({ kind: 'late_media_ack', text: "Thanks for the video you sent yesterday, sorry I'm only getting back to you on it now.", kbId: null });
+        expect(lateMediaAckLine([photo('p')], sent, new Date('2026-09-15T22:00:00.000Z')).text).toBe("Thanks for the photo you sent earlier, sorry I'm only getting back to you on it now.");
+        expect(lateMediaAckLine([photo('p'), photo('q')], sent, new Date('2026-09-19T09:00:00.000Z')).text).toBe("Thanks for the photos you sent the other day, sorry I'm only getting back to you on it now.");
+        // London days, not UTC: 23:30 UTC on the 15th is already the 16th in London.
+        expect(lateMediaAckLine([video('v')], new Date('2026-09-15T23:30:00.000Z'), new Date('2026-09-16T09:00:00.000Z')).text).toContain('sent earlier');
+        for (const text of [yesterday.text, DEFAULT_FIXED_LINES.late_media_ack]) {
+            expect(RE_DATE_TIME_DURATION.test(text), text).toBe(false);
+            expect(hasDashPunctuation(text), text).toBe(false);
+        }
+        expect(RE_THANKS_MEDIA.test(yesterday.text)).toBe(true);
     });
 });

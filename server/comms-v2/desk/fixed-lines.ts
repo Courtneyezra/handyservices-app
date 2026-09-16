@@ -24,10 +24,16 @@
  * answer the desk does not have says so in the first person. The four knowledge-base defaults close
  * with his "Thanks / Ben" sign-off; the short lines are woven into a reply and carry none.
  * `first_contact_ack` introduces him in the first person ("Ben here"), which is not the third person.
+ *
+ * Two lines say what arrived and when, from the turns themselves, so no model is needed to write
+ * them: the held acknowledgement names a photo or video the turn carried (`heldAckLine`), and a
+ * thanks for media that arrived well before the turn being answered says it is late and goes
+ * after the reply to what the customer has just said (`lateMediaAckLine`).
  */
+import type { Turn, TurnMedia } from './case-file';
 import { withoutDashPunctuation } from './dashes';
 
-export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp' | 'first_contact_ack' | 'no_source' | 'not_converging' | 'change_of_details' | 'callback_to_ben';
+export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp' | 'first_contact_ack' | 'no_source' | 'not_converging' | 'change_of_details' | 'callback_to_ben' | 'late_media_ack';
 
 export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     gas: "Thanks for getting in touch. We don't take on gas work, so a Gas Safe registered engineer is the one to call for this.\n\nThanks\nBen",
@@ -44,6 +50,7 @@ export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     not_converging: 'Let me look at this properly and come back to you.',
     change_of_details: "Thanks, I've noted that and I'll update your details.",
     callback_to_ben: "No problem, I'll give you a call back.",
+    late_media_ack: "Thanks for what you sent earlier, sorry I'm only getting back to you on it now.",
 };
 
 /** The four whose words are Ben's to review; a default for one of these sends in dry run only. The other kinds are Goal 1 wording and send live. */
@@ -89,4 +96,44 @@ export async function fixedLine(kind: FixedLineKind, source: FixedLineSource = k
         if (row) return { kind, text: withoutDashPunctuation(row.words), kbId: row.id };
     }
     return { kind, text: DEFAULT_FIXED_LINES[kind], kbId: null };
+}
+
+/** What arrived, as the customer would say it: "photo", "videos", "photos and the video"; null for no media. */
+export function mediaNoun(media: readonly TurnMedia[]): string | null {
+    const count = (kind: TurnMedia['kind'], one: string) => {
+        const n = media.filter((m) => m.kind === kind).length;
+        return n === 0 ? null : n === 1 ? one : `${one}s`;
+    };
+    const parts = [count('image', 'photo'), count('video', 'video')].filter((p): p is string => !!p);
+    return parts.length ? parts.join(' and the ') : null;
+}
+
+/**
+ * The held acknowledgement for a turn: the fixed line, naming the photo or video the turn carried
+ * ("Thanks for the video, leave it with me and I'll come back to you."). A turn with no media gets
+ * the line as it stands. It stays a Goal 1 line, not one of the four Ben reviews, so it sends live.
+ */
+export function heldAckLine(turn: Pick<Turn, 'media'>): FixedLine {
+    const noun = mediaNoun(turn.media);
+    const text = noun ? DEFAULT_FIXED_LINES.held_ack.replace(/^Thanks,/, `Thanks for the ${noun},`) : DEFAULT_FIXED_LINES.held_ack;
+    return { kind: 'held_ack', text, kbId: null };
+}
+
+/** Media that arrived longer ago than this before the turn being answered is thanked for as late. */
+export const LATE_MEDIA_MS = 30 * 60 * 1000;
+
+const londonDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+
+/**
+ * The thanks for media that arrived well before the turn being answered, saying when it came in
+ * words the date guard allows ("earlier", "yesterday", "the other day"; never a weekday or a time)
+ * and that the reply to it is late. The desk puts it after the composed reply, so what the
+ * customer has just asked is answered first.
+ */
+export function lateMediaAckLine(media: readonly TurnMedia[], sentAt: Date, now: Date): FixedLine {
+    const noun = mediaNoun(media);
+    if (!noun) return { kind: 'late_media_ack', text: DEFAULT_FIXED_LINES.late_media_ack, kbId: null };
+    const yesterday = londonDay(new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    const when = londonDay(sentAt) === londonDay(now) ? 'earlier' : londonDay(sentAt) === yesterday ? 'yesterday' : 'the other day';
+    return { kind: 'late_media_ack', text: `Thanks for the ${noun} you sent ${when}, sorry I'm only getting back to you on it now.`, kbId: null };
 }
