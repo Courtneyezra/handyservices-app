@@ -405,6 +405,34 @@ describe('the desk', () => {
         expect(a.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(2);
     });
 
+    it('a not-ready customer whose reply asks a question anyway: back to the composer once, then held for Ben (6.2, answer 8)', async () => {
+        const handlers = (second: string) => ({
+            router: ({ n }: { n: number }) => n === 2 ? routeScoping({ turnKind: 'not_ready' }) : routeScoping(),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'dripping bathroom tap' }]),
+            composer: ({ user, n }: { user: string; n: number }) => {
+                if (n === 1) return { reply: 'A dripping bathroom tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] };
+                if (n === 2) { expect(user).toContain('this turn: an acknowledgement only, no question'); return { reply: 'No problem at all. Is it the hot or the cold tap that drips?', factIds: [], kbIds: [] }; }
+                expect(user).toContain('an acknowledgement only');
+                return { reply: second, factIds: [], kbIds: [] };
+            },
+        });
+        const first = desk(handlers('No problem, just message whenever you are ready.'));
+        await first.gateway.inbound(turn('My bathroom tap drips', '2026-09-11T10:00:00.000Z'));
+        const b = await first.gateway.inbound(turn("Thanks, I'll get back to you next month", '2026-09-11T10:05:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.composerCalls).toBe(2);
+        expect(b.result.decision).toBe('send');
+        expect(b.result.bubbles.map((x) => x.text).join(' ')).toBe('No problem, just message whenever you are ready.');
+
+        const again = desk(handlers('No worries. Is it a mixer tap or two separate taps?'));
+        await again.gateway.inbound(turn('My bathroom tap drips', '2026-09-11T10:00:00.000Z'));
+        const c = await again.gateway.inbound(turn("Thanks, I'll get back to you next month", '2026-09-11T10:05:00.000Z'));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        expect(c.result.decision).toBe('hold');
+        expect(c.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(c.file.hold?.failures.join(' ')).toMatch(/no question/);
+    });
+
     it('a shut window with no approved template holds the reply as a pending draft; nothing freeform leaves', async () => {
         const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
         const { gateway } = desk({ router: () => routeScoping(), specialist: () => specialistFacts([]), composer: ({ n }) => ({ reply: n === 1 ? 'Hi there.\n\nWhat is the job?' : 'Still here, no rush.', factIds: [], kbIds: [] }) }, clock);

@@ -551,14 +551,19 @@ export class Desk implements DeskLike {
         // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too;
         // so is a composed reply that thanks for media the late line already thanks for, and one that offers
         // a call to a party who prefers text or has already rung (1.5): the brief says not to, and nothing
-        // else holds the composer to it. A call the customer asks for in this turn may be answered.
+        // else holds the composer to it. A call the customer asks for in this turn may be answered. A promise of
+        // more or a not-ready customer gets one acknowledgement and then quiet (2.5, 6.2, answers 8 and 19), so a
+        // question in that reply is checked the same way: it would ask them for something they have just put off.
+        const quietTurn = route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready';
         const noCallOffer = exceptions.includes('callback') || RE_CALL_ASKED.test(turn.body) ? null
             : party.prefersText ? 'they prefer text' : party.alreadyRung ? 'they have already rung us' : null;
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
             const n = scopingQuestionCount(text);
             const failures = [...g.failures];
-            if (n > 1) failures.push(`one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`);
-            const offer = noCallOffer ? offersCall(fixedLines.reduce((t, f) => t.split(f.text).join(' '), text)) : null;
+            const own = fixedLines.reduce((t, f) => t.split(f.text).join(' '), text);
+            if (quietTurn && scopingQuestionCount(own) > 0) failures.push(`an acknowledgement only, no question: they have ${route.turnKind === 'not_ready' ? 'said they are not ready yet' : 'promised to send more'}, so ask them nothing and use no question mark`);
+            else if (n > 1) failures.push(`one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`);
+            const offer = noCallOffer ? offersCall(own) : null;
             if (offer) failures.push(`do not offer or mention a call ("${offer}"): ${noCallOffer}`);
             if (lateAck && RE_THANKS_MEDIA.test(text)) failures.push('the photo or video came in earlier and a line after your reply thanks for it: do not thank for it yourself');
             return failures.length > g.failures.length ? { ok: false, guards: g.guards, failures } : g;
