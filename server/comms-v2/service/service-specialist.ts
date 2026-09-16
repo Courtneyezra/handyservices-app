@@ -33,8 +33,8 @@ export const serviceOutputSchema = z.object({
     answers: z.array(z.object({
         /** What they asked, as a short label (e.g. "insured?", "areas covered", "receipt for last job"). */
         asked: z.string().min(1).max(60),
-        /** kb: a candidate row answers it, by id. record: their own record answers it, by field. none: no source. */
-        source: z.enum(['kb', 'record', 'none']),
+        /** kb: a candidate row answers it, by id. record: their own record answers it, by field. job: it is about the customer's own job, Scoping's. none: no source. */
+        source: z.enum(['kb', 'record', 'job', 'none']),
         /** The knowledge-base row id, or the record field, or null. */
         id: z.string().max(80).nullable(),
     }).strict()).max(6),
@@ -47,7 +47,7 @@ export type ServiceOutput = z.infer<typeof serviceOutputSchema>;
 
 const SYSTEM = [
     'You are the Service specialist for a small handyman business\'s desk. You never write to the customer. You read the thread and the candidate knowledge-base rows and return selections only, no prose.',
-    'answers: one entry per thing the customer asked in the newest turn that is about the business, their own details, an invoice or receipt, or a finished job. source kb with the row id when a candidate row plainly answers it (the row must answer that question, not merely mention the topic); source record with the field (name, phone, email, address) when they ask what we have on file for them, including an email or address shown only as held; source none with id null when nothing given answers it. Never answer from your own knowledge of the business. Scoping questions about the job itself are not yours: leave them out.',
+    'answers: one entry per thing the customer asked in the newest turn: about the business, their own details, an invoice or receipt, a finished job, or the job they want doing. source kb with the row id when a candidate row plainly answers it (the row must answer that question, not merely mention the topic); source record with the field (name, phone, email, address) when they ask what we have on file for them, including an email or address shown only as held; source job with id null when it is about the job they want doing: whether we can do it (can you fix my leaking tap, could you put up these shelves), how, how long or what it involves. That is Scoping\'s, never a business question without a source, even when the same message also asks about the business. source none with id null when nothing given answers a question about the business. Never answer from your own knowledge of the business.',
     'changeOfDetails: when they ask to change their name, phone, email or address, the field and the new value exactly as they gave it; otherwise null.',
     'holdReason: complaint when they are unhappy with us or our work, refund when they want money back, trust_doubt when they doubt we are legitimate or a scam worry; otherwise null. "Are you insured" on its own is a factual question, not a trust doubt.',
     'Reply with the JSON object only.',
@@ -150,6 +150,12 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
     let hold: ServiceHold | null = res.output.holdReason ? { reason: res.output.holdReason, match: turn.body.slice(0, 80) } : null;
     if (!opts.scopingRan) brief.push('This turn: answer what they asked from the lines below. Ask nothing about the job.');
     for (const a of res.output.answers) {
+        // A question about their own job is Scoping's: when Scoping ran on this turn it is left to it,
+        // never held as no source. When Scoping did not run, nobody else answers it, so it falls through to Ben.
+        if (a.source === 'job' && opts.scopingRan) {
+            notes.push(`"${a.asked}" left to scoping`);
+            continue;
+        }
         if (a.source === 'kb') {
             // Only a row the lookup returned counts: an id the model made up is no source.
             const row = rows.find((r) => r.id === a.id);

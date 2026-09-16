@@ -60,6 +60,26 @@ describe('the Service specialist', () => {
         const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
         expect(out.proposal.hold?.reason).toBe('no_source');
     });
+    it('a mixed turn: the job half is left to Scoping when Scoping ran, so only the business half answers or holds', async () => {
+        const text = 'Are you insured, and can you fix a leaking tap?';
+        const jobHalf = { asked: 'can you fix a leaking tap?', source: 'job', id: null };
+        const answered = fixture(text);
+        const out = await serve(answered, answered.turns[0], answered.parties[0], new FakeModelClient({ specialist: () => ({ answers: [{ asked: 'insured?', source: 'kb', id: 'kb-insured' }, jobHalf], changeOfDetails: null, holdReason: null }) }), { kb }, { routed: true, scopingRan: true });
+        expect(out.proposal.hold).toBeNull();
+        expect(out.brief).toHaveLength(1);
+        expect(out.brief.join(' ')).not.toMatch(/leaking tap|will check/);
+        expect(out.note).toContain('"can you fix a leaking tap?" left to scoping');
+        const unanswered = fixture('Are you open Saturdays, and can you fix a leaking tap?');
+        const held = await serve(unanswered, unanswered.turns[0], unanswered.parties[0], new FakeModelClient({ specialist: () => ({ answers: [{ asked: 'open Saturdays?', source: 'none', id: null }, jobHalf], changeOfDetails: null, holdReason: null }) }), { kb: emptyKb }, { routed: true, scopingRan: true });
+        expect(held.proposal.hold).toEqual({ reason: 'no_source', match: 'open Saturdays?' });
+        expect(held.brief.join(' ')).not.toMatch(/leaking tap/);
+    });
+    it('a job question when Scoping did not run has nobody else to answer it: no source, held for Ben', async () => {
+        const file = fixture('Can you fix a leaking tap?');
+        const client = new FakeModelClient({ specialist: () => ({ answers: [{ asked: 'can you fix a leaking tap?', source: 'job', id: null }], changeOfDetails: null, holdReason: null }) });
+        const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
+        expect(out.proposal.hold).toEqual({ reason: 'no_source', match: 'can you fix a leaking tap?' });
+    });
     it('reads the customer\'s own record back as a fact with a customer-record source', async () => {
         const file = fixture('What number do you have for me?');
         const client = new FakeModelClient({ specialist: () => ({ answers: [{ asked: 'number on file', source: 'record', id: 'phone' }], changeOfDetails: null, holdReason: null }) });
