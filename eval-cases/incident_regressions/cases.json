@@ -169,6 +169,137 @@
     "paid": true,
     "slug": "booked3"
    }
+  },
+  {
+   "id": "ir-007-thanks-after-wrap-up-one-short-bubble",
+   "family": "incident_regressions",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "all 4 doors are already in place, u can park in driveway or outside",
+     "at": "2026-09-16T13:04:55.000Z",
+     "channel": "whatsapp"
+    },
+    {
+     "direction": "outbound",
+     "body": "Brilliant, thanks Sam.\nThat's everything I need for now. I'll put the quote together and send it over to you here.",
+     "at": "2026-09-16T13:05:09.000Z",
+     "channel": "whatsapp"
+    },
+    {
+     "direction": "inbound",
+     "body": "thanks",
+     "at": "2026-09-16T13:05:40.000Z",
+     "channel": "whatsapp"
+    }
+   ],
+   "candidate": {
+    "body": "No worries 👍",
+    "intent": "closing",
+    "priorSends": [
+     {
+      "body": "Brilliant, thanks Sam.\nThat's everything I need for now. I'll put the quote together and send it over to you here.",
+      "at": "2026-09-16T13:05:09.000Z"
+     }
+    ]
+   },
+   "expected": {
+    "mustNotContain": [
+     "quote together",
+     "pricing the quote",
+     "send it over",
+     "everything I need"
+    ],
+    "mustContain": [
+     "^.{1,40}$"
+    ],
+    "guardsMustNotTrip": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "notes": "Answer 90 (16 Sep 2026): a bare thanks after the quote has been promised gets one short bubble, a brief human reply, never a repeat of the previous message. The live desk sent the quote news four times in a minute."
+   },
+   "provenance": "16 Sep 2026 live comms-v2 thread (door handles): four near-identical wrap-ups; comms-v2 desk/repeat.ts and desk/kiran-case-study.test.ts"
+  },
+  {
+   "id": "ir-008-photo-one-light-detail",
+   "family": "incident_regressions",
+   "context": [
+    {
+     "direction": "outbound",
+     "body": "How many handles is it? A photo would help if easy, no pressure.",
+     "at": "2026-09-16T12:41:51.000Z",
+     "channel": "sms"
+    },
+    {
+     "direction": "inbound",
+     "body": "so these are old handles and hinges on 2 doors",
+     "media": [
+      "image",
+      "image",
+      "image"
+     ],
+     "at": "2026-09-16T12:59:11.000Z",
+     "channel": "whatsapp"
+    }
+   ],
+   "candidate": {
+    "body": "Thanks for the photos, I can see the old handles there.\n---\nSo new handles and hinges on the 2 doors.\n---\nAre the new ones already bought?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "mustNotContain": [
+     "worn",
+     "peeling",
+     "flaking",
+     "bare timber",
+     "exposed timber",
+     "recess",
+     "Stanza",
+     "tidied up",
+     "defect"
+    ],
+    "guardsMustNotTrip": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "notes": "Answer 92 (16 Sep 2026): one light detail, a short natural mention of what the photos show, never a full description, a defect, a brand read off a box or an offer of work nobody asked for. The live reply read the photo back like an inspection report and asked whether to tidy up timber the customer never mentioned."
+   },
+   "provenance": "16 Sep 2026 live comms-v2 thread (door handles): forced photo acknowledgement; comms-v2 desk/composer.ts lightPhotoSummary"
+  },
+  {
+   "id": "ir-009-bubbles-about-160-chars",
+   "family": "incident_regressions",
+   "context": [
+    {
+     "direction": "inbound",
+     "body": "this is new handles and hinges to be replaced on 2 existing handles and 2 new doors .. where there is drilled done",
+     "media": [
+      "image",
+      "image"
+     ],
+     "at": "2026-09-16T12:59:51.000Z",
+     "channel": "whatsapp"
+    },
+    {
+     "direction": "inbound",
+     "body": "in total there are 4 internal doors",
+     "at": "2026-09-16T13:00:43.000Z",
+     "channel": "whatsapp"
+    }
+   ],
+   "candidate": {
+    "body": "Got it, 4 doors in total.\n---\nNew handles and hinges on all of them, one with the bathroom lock.\n---\nAre the 2 new doors already hung?",
+    "intent": "ask_gap"
+   },
+   "expected": {
+    "mustContain": [
+     "^(?:(?!\\n)[\\s\\S]){0,160}(?:\\n---\\n(?:(?!\\n)[\\s\\S]){0,160}){0,2}$"
+    ],
+    "guardsMustNotTrip": true,
+    "voiceClean": true,
+    "noExceptions": true,
+    "notes": "Answer 93 (16 Sep 2026): about 160 characters, one or two sentences a bubble, at most three bubbles. The live reply sent a 229-character single sentence."
+   },
+   "provenance": "16 Sep 2026 live comms-v2 thread (door handles): bubbles too long; comms-v2 desk/sender.ts BUBBLE_MAX_CHARS"
   }
  ]
 }

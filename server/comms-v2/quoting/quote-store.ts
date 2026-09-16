@@ -11,6 +11,7 @@
  *   accept        the human event: depositPaidAt, as the Stripe webhook writes it live (answer 42:
  *                 payment paths are not validated live, so the sandbox records the event itself)
  *   addPhotos     a photo that arrives after the draft joins it, so Ben's screen shows it
+ *   findDraft     the desk's own draft for a contact written since a moment, for a draft a restart lost
  *   deleteSandbox the sandbox's own rows on the reserved contacts, for /reset
  *
  * The live store imports the database on first use, so a test with a memory store opens nothing -
@@ -48,6 +49,8 @@ export interface QuoteStore {
     markSent(slug: string): Promise<MarkSentOutcome>;
     accept(slug: string, now: Date): Promise<AcceptOutcome>;
     addPhotos(slug: string, urls: string[]): Promise<void>;
+    /** The newest draft the desk itself wrote for any of these contacts at or after `since`: its slug, or null. */
+    findDraft(contacts: string[], since: Date): Promise<string | null>;
     /** Every contact the sandbox customer is reachable on: the row's `phone` column holds whichever one the thread ran on, so an email thread writes its address there. */
     deleteSandbox(contacts: string[]): Promise<{ quotes: number; estimates: number; verdicts: number; runs: number }>;
 }
@@ -73,6 +76,21 @@ export const SOURCE_CHANNEL = 'comms_v2';
  */
 const isAddress = (contact: string): boolean => contact.includes('@');
 const contactKey = (contact: string): string => (isAddress(contact) ? contact.trim().toLowerCase() : contact.replace(/\D/g, ''));
+
+/** A row whose `phone` column is one of these contacts, as a SQL condition; null for no contact. */
+async function contactMatches(contacts: string[]) {
+    const { sql } = await import('drizzle-orm');
+    // A list in a template is bound as one placeholder per value, so `any($1, $2)` is rejected
+    // by the driver ("requires array on right side"). An `in` list is what those placeholders are.
+    const list = (values: string[]) => sql.join(values.map((v) => sql`${v}`), sql`, `);
+    const digits = contacts.filter((c) => !isAddress(c)).map(contactKey).filter(Boolean);
+    const addresses = contacts.filter(isAddress).map(contactKey);
+    const matches = [
+        digits.length ? sql`regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') in (${list(digits)})` : null,
+        addresses.length ? sql`lower(coalesce(phone, '')) in (${list(addresses)})` : null,
+    ].filter((m): m is NonNullable<typeof m> => m !== null);
+    return matches.length ? sql.join(matches, sql` or `) : null;
+}
 
 /**
  * The personalized_quotes row through the database, for a purpose (live-database.ts): the sandbox
@@ -167,20 +185,23 @@ export const databaseQuoteStore = (purpose: DatabasePurpose): QuoteStore => ({
         await db.update(personalizedQuotes).set({ customerPhotoUrls: next } as any).where(eq(personalizedQuotes.id, row.id));
     },
 
+    async findDraft(contacts, since) {
+        const db = await commsV2Db(READER, purpose);
+        const { sql } = await import('drizzle-orm');
+        const matches = await contactMatches(contacts);
+        if (!matches) return null;
+        const found: any = await db.execute(sql`select short_slug from personalized_quotes where created_by = ${CREATED_BY} and is_draft = true and created_at >= ${since.toISOString()}::timestamptz and (${matches}) order by created_at desc limit 1`);
+        const rows: Array<{ short_slug: string }> = Array.isArray(found) ? found : (found?.rows ?? []);
+        return rows[0]?.short_slug ?? null;
+    },
+
     async deleteSandbox(contacts) {
         const db = await commsV2Db(READER, purpose);
         const { sql } = await import('drizzle-orm');
-        // A list in a template is bound as one placeholder per value, so `any($1, $2)` is rejected
-        // by the driver ("requires array on right side"). An `in` list is what those placeholders are.
         const list = (values: string[]) => sql.join(values.map((v) => sql`${v}`), sql`, `);
-        const digits = contacts.filter((c) => !isAddress(c)).map(contactKey).filter(Boolean);
-        const addresses = contacts.filter(isAddress).map(contactKey);
-        const matches = [
-            digits.length ? sql`regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') in (${list(digits)})` : null,
-            addresses.length ? sql`lower(coalesce(phone, '')) in (${list(addresses)})` : null,
-        ].filter((m): m is NonNullable<typeof m> => m !== null);
-        if (!matches.length) return { quotes: 0, estimates: 0, verdicts: 0, runs: 0 };
-        const found: any = await db.execute(sql`select id, short_slug from personalized_quotes where created_by = ${CREATED_BY} and (${sql.join(matches, sql` or `)})`);
+        const matches = await contactMatches(contacts);
+        if (!matches) return { quotes: 0, estimates: 0, verdicts: 0, runs: 0 };
+        const found: any = await db.execute(sql`select id, short_slug from personalized_quotes where created_by = ${CREATED_BY} and (${matches})`);
         const rows: Array<{ id: string; short_slug: string }> = Array.isArray(found) ? found : (found?.rows ?? []);
         if (!rows.length) return { quotes: 0, estimates: 0, verdicts: 0, runs: 0 };
         const ids = rows.map((r) => r.id);
@@ -270,6 +291,17 @@ export class MemoryQuoteStore implements QuoteStore {
         if (!row || row.isDraft === false) return;
         const existing = Array.isArray(row.customerPhotoUrls) ? (row.customerPhotoUrls as string[]) : [];
         row.customerPhotoUrls = Array.from(new Set([...existing, ...urls]));
+    }
+
+    async findDraft(contacts: string[], since: Date) {
+        const wanted = new Set(contacts.map(contactKey).filter(Boolean));
+        let newest: { slug: string; at: number } | null = null;
+        for (const [slug, row] of Array.from(this.rows.entries())) {
+            const at = Date.parse(String(row.createdAt ?? ''));
+            if (row.createdBy !== CREATED_BY || row.isDraft === false || !wanted.has(contactKey(String(row.phone ?? ''))) || !(at >= since.getTime())) continue;
+            if (!newest || at >= newest.at) newest = { slug, at };
+        }
+        return newest?.slug ?? null;
     }
 
     async deleteSandbox(contacts: string[]) {

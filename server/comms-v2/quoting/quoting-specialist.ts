@@ -25,6 +25,7 @@ import type { Route, RouterOutput } from '../desk/router';
 import { CUSTOMER_TYPES, type DraftIntake } from './draft-quote';
 import { DEPOSIT_LABEL, QUOTE_FACT, TOTAL_LABEL, factsWithPrefix, figureLabels, newestFact, quoteLiveForFigures, readQuoteLine, type QuoteRecord, type QuoteStatus } from './quote-record';
 import { chase, draftQuote, loadQuote, quoteReadiness, recordQuoteFacts, resolveQuotingDeps, type QuotingDeps } from './quoting-tools';
+import { draftPending, startBackgroundDraft, type BackgroundDraftHooks } from './background-draft';
 
 // ---------------------------------------------------------------- the two structured outputs
 
@@ -92,6 +93,7 @@ export type QuestionOutput = z.infer<typeof questionOutputSchema>;
 const INTAKE_SYSTEM = [
     'You are the Quoting specialist for a small handyman business\'s desk. You never write to the customer. You turn the thread into the lines of a quote for Ben to price, with no prose and never a figure of money.',
     'lines: one per piece of work, title in plain words ("Replace one 6ft fence panel"), a category, qty, detail (what matters for pricing: size, material, access, what the customer supplies), assumptions the quote will state to the customer, and what is not included. Only what the thread supports; never invent.',
+    'Only work the customer asked for is a line. A defect, damage or wear seen only in a photo description is never a line; if Ben may want to ask about it, name it in missing instead.',
     'customerType: homeowner unless they say landlord, letting agent or business.',
     'missing: up to six short labels of what Ben may want to request before pricing (e.g. "which tap", "wall material", "photo of the panel"). Photos are optional: name them only when they would change the price.',
     'Reply with the JSON object only.',
@@ -122,6 +124,8 @@ export interface QuotingProposal {
     quoteRef: string | null;
     status: QuoteStatus | null;
     drafted: boolean;
+    /** The draft is running off the reply path (background-draft.ts): it is on its way to Ben, not built yet. */
+    drafting?: boolean;
     draftError: string | null;
     /**
      * Fact ids the composer should answer from, by what they are. A figure is named by the quote's
@@ -144,7 +148,10 @@ export function briefLines(p: QuotingProposal): string[] {
     const figureList = ids.figures.filter((f) => !f.shared).map((f) => `${f.label} = fact ${f.factId}`).join('; ');
     const sharedTitles = Array.from(new Set(ids.figures.filter((f) => f.shared).map((f) => f.label)));
     if (p.phase === 'draft') {
-        if (p.drafted) {
+        if (p.drafting) {
+            out.push('quoting: drafting the quote for Ben to price');
+            out.push('the quote is being put together for Ben to price: nothing about a price exists yet, so no figure; if this turn is a wrap-up, you will put the quote together and send it over, no timing');
+        } else if (p.drafted) {
             out.push(`quoting: drafted ${p.quoteRef} for Ben to price`);
             out.push('the quote is with Ben to price: nothing about a price exists yet, so no figure; if this turn is a wrap-up, you will put the quote together and send it over, no timing');
         } else {
@@ -188,7 +195,15 @@ export function briefLines(p: QuotingProposal): string[] {
 
 // ---------------------------------------------------------------- the specialist
 
-export interface QuotingSpecialistDeps extends QuotingDeps {}
+export interface QuotingSpecialistDeps extends QuotingDeps {
+    /**
+     * Drafts off the reply path (background-draft.ts): the pass starts the draft and goes on to its
+     * reply. Unset, the draft is awaited inside the pass, as the sandbox door and the tests run it.
+     */
+    background?: BackgroundDraftHooks;
+    /** A draft a restart lost is being started again, from when it was first started (background-draft.ts `draftToRecover`). */
+    recoverSince?: string | null;
+}
 
 /** The quote is sent or accepted: Scoping is done and the thread is Quoting's. */
 export function quotingOwnsThread(file: CaseFile): boolean {
@@ -251,6 +266,18 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         return { specialist: 'quoting', factIds, proposal: failed, brief: readBrief, calls, error };
     }
 
+    // A draft already running for this job: it is on its way to Ben, and a second one is never started.
+    if (!q && !file.job.quoteRef && draftPending(file.id)) {
+        const drafting: QuotingProposal = {
+            phase: 'draft', quoteRef: null, status: null, drafted: false, drafting: true, draftError: null,
+            answerFrom: { figures: [], scope: [], notIncluded: [], assumptions: [], link: null, status: null },
+            concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: route.turnKind === 'not_ready', acceptedNow: false,
+        };
+        const p = emptyProposal();
+        p.ready = true;
+        return { specialist: 'quoting', factIds, proposal: p, brief: briefLines(drafting), calls, error };
+    }
+
     const proposal: QuotingProposal = {
         phase: 'draft', quoteRef: q?.slug ?? file.job.quoteRef ?? null, status: q?.status ?? null, drafted: false, draftError: null,
         answerFrom: { figures: [], scope: [], notIncluded: [], assumptions: [], link: null, status: null },
@@ -295,6 +322,14 @@ export async function quote(file: CaseFile, turn: Turn, party: Party, route: Rou
         const out = clampIntake(res.output);
         const missing = Array.from(new Set([...readiness.missing, ...out.missing]));
         const intake: DraftIntake = { customerName: party.name, postcode: file.job.location, customerType: out.customerType, missing, lines: out.lines.map((l) => ({ ...l })) };
+        if (deps.background) {
+            // Off the reply path: the draft notifies Ben when it is ready, and a failure holds for him then.
+            startBackgroundDraft(file, turn.id, (saved) => draftQuote(file, party, intake, deps, { since: deps.recoverSince, beforeNotify: saved }), deps.background, { now: deps.now, newId: deps.newId });
+            proposal.drafting = true;
+            const p = emptyProposal();
+            p.ready = true;
+            return { specialist: 'quoting', factIds, proposal: p, brief: briefLines(proposal), calls, error };
+        }
         const drafted = await draftQuote(file, party, intake, deps);
         if (drafted.ok) { proposal.drafted = true; proposal.quoteRef = drafted.slug; proposal.status = 'draft'; factIds.push(...drafted.factIds); calls.push(...drafted.calls); }
         else { proposal.draftError = drafted.reason; error = error ? `${error}; ${drafted.reason}` : drafted.reason; }

@@ -42,16 +42,22 @@ export async function describeMedia(turn: Turn, deps: DescribeDeps = {}): Promis
     const now = deps.now ?? (() => new Date());
     const describe = deps.describe ?? describeWithGemini;
     const out: DescribeOutcome = { described: [], failures: [], calls: [] };
-    for (const m of turn.media) {
-        if (m.description) { out.described.push({ mediaId: m.id, kind: m.kind, description: m.description.description, confidence: m.description.confidence, model: m.description.model }); continue; }
-        if (!m.path) { out.failures.push({ mediaId: m.id, reason: 'the media has not been fetched' }); continue; }
+    // Described together, not one after another (three photos took 27 seconds in a row on 16 Sep 2026); recorded in the turn's order.
+    const results = await Promise.all(turn.media.map(async (m) => {
+        if (m.description || !m.path) return null;
         const t0 = Date.now();
         const r = await describe({ path: m.path, kind: m.kind, mimeType: m.mime, mediaId: m.id, customerContext: turn.body || null });
-        if (!r.ok) { out.failures.push({ mediaId: m.id, reason: r.reason }); continue; }
+        return { r, ms: Date.now() - t0 };
+    }));
+    turn.media.forEach((m, i) => {
+        if (m.description) { out.described.push({ mediaId: m.id, kind: m.kind, description: m.description.description, confidence: m.description.confidence, model: m.description.model }); return; }
+        if (!m.path) { out.failures.push({ mediaId: m.id, reason: 'the media has not been fetched' }); return; }
+        const { r, ms } = results[i]!;
+        if (!r.ok) { out.failures.push({ mediaId: m.id, reason: r.reason }); return; }
         m.description = { kind: m.kind, description: r.description, confidence: r.confidence, model: r.model, at: now().toISOString() };
         out.described.push({ mediaId: m.id, kind: m.kind, description: r.description, confidence: r.confidence, model: r.model });
-        out.calls.push(recordFromUsage('vision', r.model, null, r.usage ? { input_tokens: r.usage.inputTokens, output_tokens: r.usage.outputTokens } : null, r.durationMs || Date.now() - t0));
-    }
+        out.calls.push(recordFromUsage('vision', r.model, null, r.usage ? { input_tokens: r.usage.inputTokens, output_tokens: r.usage.outputTokens } : null, r.durationMs || ms));
+    });
     return out;
 }
 

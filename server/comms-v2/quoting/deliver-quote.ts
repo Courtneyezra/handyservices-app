@@ -192,7 +192,10 @@ export async function deliverPricedQuote(input: DeliverQuoteInput): Promise<Deli
     // (behaviour.md answer 43 is about who WROTE the words).
     const written = await composeQuoteSent(file, party, priced.quoteUrl, choice.channel, ack, now(), deps);
     if (!written.ok) return held(`${priceHold(slug)} the delivery message did not pass the guards (${written.failures.join('; ')})`, written.draft, written.failures, written.verdicts.guards, written.calls);
-    const rendered = render(choice.channel, written.reply, { name: party.name });
+    // Told the bubble shape, the composer keeps to it; a delivery that still runs over goes with the
+    // wider limits rather than holding the quote Ben has just priced for its length.
+    let rendered = render(choice.channel, written.reply, { name: party.name });
+    if (!rendered.ok && rendered.reason === 'ceiling' && choice.channel === 'whatsapp') rendered = render(choice.channel, written.reply, { name: party.name, wideBubbles: true });
     if (!rendered.ok) return held(`${priceHold(slug)} the delivery message could not be rendered (${rendered.reason})`, written.reply, [], written.verdicts.guards, written.calls);
     const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver, guards: written.verdicts, factIds: priced.factIds, kbIds: [], fixedLines: [], calls: written.calls, mode }, senderDeps);
     if (!sent.ok) return held(`${priceHold(slug)} the send was refused (${sent.reason})`, written.reply, [], written.verdicts.guards, written.calls);

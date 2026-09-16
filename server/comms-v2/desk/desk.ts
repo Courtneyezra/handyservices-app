@@ -39,13 +39,15 @@ import { chaseIfDue, clearChaseRecord, type ChaseState } from '../service/chase'
 import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY } from '../service/hold-reasons';
 import { serve, type ServiceSpecialistDeps } from '../service/service-specialist';
 import { asksAboutOurArea, asksToChangeDetails } from '../service/service-tools';
-import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
+import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, BUBBLE_SOFT_MAX_CHARS, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
 import { channelFixedLines, MOVE_TO_WHATSAPP_SUBJECT } from '../channels/channel-lines';
 import { templateChoiceFor } from '../channels/templates';
 import { quote as quoteGather, quoteStateOf, quotingClock, quotingOwnsThread, quotingSummary, type QuotingSpecialistDeps } from '../quoting/quoting-specialist';
 import { liveFigureQuotes } from '../quoting/quoting-tools';
 import { refreshBenToRequest } from '../quoting/ben-to-request';
+import { draftToRecover, markDraftFailed, type BackgroundDraftHooks } from '../quoting/background-draft';
+import { repeatedSentences, saidSinceLastQuestion, withoutSentences } from './repeat';
 
 export interface DeskDeps extends CaseFileDeps {
     client?: ModelClient;
@@ -61,6 +63,12 @@ export interface DeskDeps extends CaseFileDeps {
     log?: (line: string) => void;
     /** Told what each customer turn said about the desk's models (model-health.ts recordTurnModelHealth); the live intake passes it. */
     modelHealth?: (report: TurnReport) => Promise<unknown>;
+    /**
+     * Puts a file in the store the gateway reads. Given, the quote is drafted off the reply path
+     * (quoting/background-draft.ts) and the file is put again when the draft finishes; the live
+     * intake passes it. Unset, the draft is awaited inside the pass.
+     */
+    persist?: (file: CaseFile) => void | Promise<void>;
 }
 
 /** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
@@ -86,11 +94,65 @@ export class Desk implements DeskLike {
     }
 
     private fileDeps(): CaseFileDeps { return { now: this.now, newId: this.deps.newId }; }
-    private quotingDeps(): QuotingSpecialistDeps { return { ...this.deps.quoting, now: this.now, newId: this.deps.newId }; }
+    private quotingDeps(): QuotingSpecialistDeps { return { ...this.deps.quoting, now: this.now, newId: this.deps.newId, ...(this.background ? { background: this.background } : {}) }; }
+
+    /** The background draft's hooks, when the desk has a store to put a finished draft in. */
+    private get background(): BackgroundDraftHooks | null {
+        const persist = this.deps.persist;
+        if (!persist) return null;
+        return {
+            persist,
+            log: this.deps.log,
+            // The same hold the inline failure raises; the reply that turn has already gone, so no line is added to it.
+            onDrafted: (file) => this.releaseDraftFailedHold(file),
+            onFailed: (file, reason) => this.holdFor(file, null, `${DRAFT_FAILED_HOLD} (${reason}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, null, DRAFT_FAILED_HOLD),
+        };
+    }
+
+    /**
+     * A quote the desk failed to draft earlier exists now, so the hold that told Ben to build it
+     * himself is answered: the desk releases it in its own words and the card points at the price
+     * screen, rather than leaving him to make a second quote by hand.
+     */
+    private releaseDraftFailedHold(file: CaseFile): void {
+        if (!file.hold?.reason.startsWith(DRAFT_FAILED_HOLD) || file.hold.notedOn || !file.job.quoteRef) return;
+        const priceScreen = quoteStateOf(file)?.priceScreen;
+        releaseHold(file, file.hold.approver, `the desk drafted quote ${file.job.quoteRef} on a later turn and Ben has been notified${priceScreen ? `: ${priceScreen}` : ''}`, this.fileDeps());
+    }
+
+    /**
+     * A background draft a restart lost (quoting/background-draft.ts): started again from the turn it
+     * was started on, off the reply path, or held for Ben once it has been started as often as it
+     * may be. Never a customer send.
+     */
+    private async recoverDraft(file: CaseFile): Promise<string | null> {
+        if (!this.background) return null;
+        const lost = draftToRecover(file);
+        if (!lost) return null;
+        const turn = (lost.turnId ? file.turns.find((t) => t.id === lost.turnId) : null) ?? [...file.turns].reverse().find((t) => t.direction === 'inbound') ?? null;
+        const party = turn ? partyOf(file, turn.partyId) : null;
+        if (!turn || !party) return 'a lost quote draft has no customer turn to start from';
+        if (lost.exhausted) {
+            const reason = 'the draft was started and never finished, twice';
+            markDraftFailed(file, turn.id, reason, this.fileDeps());
+            this.background.onFailed(file, reason);
+            return `quote draft held for Ben: ${reason}`;
+        }
+        const route: Route = { subjects: ['quoting'], proposedStage: file.stage, party: 'customer', turnKind: 'other', exceptions: [], belts: { regulated: null, money: null }, moneyToQuoting: false, error: null,
+            call: { role: 'router', model: 'none', effort: null, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costPence: 0, durationMs: 0 } };
+        const r = await quoteGather(file, turn, party, route, this.client, { ...this.quotingDeps(), recoverSince: lost.since });
+        if (r?.error && r.proposal.hold?.reason === 'draft_failed') {
+            markDraftFailed(file, turn.id, r.error, this.fileDeps());
+            this.background.onFailed(file, r.error);
+            return `quote draft held for Ben: ${r.error}`;
+        }
+        return 'a quote draft lost to a restart was started again';
+    }
 
     /** A clock pass with no new message: the desk never chases the customer, so nothing goes to them; an unpriced draft is chased for Ben (4.5) and a held thread chases Ben, then the owner (7.5). */
     async clockPass(file: CaseFile): Promise<DeskResult> {
         const party = file.parties[0];
+        const recovered = await this.recoverDraft(file).catch((e: any) => `recovering a lost quote draft failed: ${e?.message ?? e}`);
         const chased = await quotingClock(file, this.quotingDeps());
         // The gateway (gateway.ts) answers a customer turn once it is due, and recovers one a restart
         // left behind before this pass runs; a tick can still land here while one is waiting out its
@@ -99,7 +161,7 @@ export class Desk implements DeskLike {
         const waitingNote = (file.waits ?? []).some((w) => w.partyId === party.personId)
             ? 'a customer turn is waiting out its quiet window; the desk never chases, so it answers once quiet'
             : 'no customer turn, nothing to reply to; the desk never chases the customer';
-        const base = this.nothing(file, party.personId, `run_${randomUUID()}`, [], `clock pass: ${waitingNote}; ${chased.note}`);
+        const base = this.nothing(file, party.personId, `run_${randomUUID()}`, [], `clock pass: ${waitingNote}; ${chased.note}${recovered ? `; ${recovered}` : ''}`);
         const chase = this.deps.service?.chase;
         if (!chase) return { ...base, chase: null };
         // A release from any surface, the board included, leaves the old record behind: clear it here,
@@ -213,13 +275,7 @@ export class Desk implements DeskLike {
             } else {
                 const quoting = await quoteGather(file, turn, party, route, client, this.quotingDeps());
                 if (quoting) { calls.push(...quoting.calls); specialists.push(quoting); if (quoting.error) log(`quoting: ${quoting.error}`); }
-                // A quote the desk failed to draft earlier exists now, so the hold that told Ben to
-                // build it himself is answered: the desk releases it in its own words and the card
-                // points at the price screen, rather than leaving him to make a second quote by hand.
-                if (file.hold?.reason.startsWith(DRAFT_FAILED_HOLD) && !file.hold.notedOn && file.job.quoteRef) {
-                    const priceScreen = quoteStateOf(file)?.priceScreen;
-                    releaseHold(file, file.hold.approver, `the desk drafted quote ${file.job.quoteRef} on a later turn and Ben has been notified${priceScreen ? `: ${priceScreen}` : ''}`, this.fileDeps());
-                }
+                this.releaseDraftFailedHold(file);
                 // Every exception the turn raised carries its own fixed line; the hold records the gravest.
                 for (const e of exceptions.filter((x) => ANSWER_THE_REST.has(x))) {
                     fixedLines.push(await fixedLine(FIXED_LINE_FOR[e], this.deps.fixedLines ?? knowledgeBaseFixedLines));
@@ -273,6 +329,9 @@ export class Desk implements DeskLike {
                     if (sched.proposal.hold) this.holdFor(file, sched.proposal.hold.reason === 'date_change' ? 'date_change' : null, `${sched.proposal.hold.reason}: ${sched.proposal.hold.match}`);
                 }
                 fixedLines.push(...(await channelFixedLines(file, party, turn, this.deps.fixedLines ?? knowledgeBaseFixedLines, this.now())));
+                // Ben's note of what the draft is missing, again now that Scoping has read this turn: access
+                // given in it is no longer his to request (the note was refreshed only before, on the turn before's facts).
+                refreshBenToRequest(file, this.fileDeps());
                 // Pauses, promises and a not-ready customer get an acknowledgement and no question.
                 if (scoping && exceptions.includes('callback')) scoping.proposal.offerCall = false;
                 if (scoping && (route.turnKind === 'short_pause' || route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready')) {
@@ -330,7 +389,7 @@ export class Desk implements DeskLike {
             if (again.output) {
                 const retry = await guardAttempt(withLateAck(again.output.reply), again.output.factIds, again.output.kbIds);
                 const g2 = withOneThing(retry.guards, again.output.reply);
-                if (g2.ok) { reply = withLateAck(again.output.reply); factIds = again.output.factIds; kbIds = retry.kbIds; guards = g2; }
+                if (g2.ok) { composed = again.output.reply; reply = withLateAck(composed); factIds = again.output.factIds; kbIds = retry.kbIds; guards = g2; }
                 else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed twice: ${g2.failures.join('; ')}`, again.output.reply, composerCalls, specialists, g2, summary);
             } else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed and the composer ${again.refused ? 'declined' : 'failed'} the retry`, reply, composerCalls, specialists, guards, summary);
         }
@@ -339,10 +398,42 @@ export class Desk implements DeskLike {
             return this.heldAck(file, party.personId, turn, runId, calls, `the fixed line failed the guards: ${guards.failures.join('; ')}`, reply, composerCalls, specialists, guards, summary);
         }
 
+        // 5b. Never a repeat of the previous message (behaviour.md answer 90). A reply that wraps up again when
+        // the business already wrapped up since it last asked this party anything (repeat.ts) goes back to the composer once with the sentences
+        // named; what it still repeats is taken out, and a reply left with nothing sends nothing. A
+        // fixed line is Ben's and is never taken out.
+        // A customer who asks about the quote is answered, even when the answer is the one they had.
+        const previous = fixedLineOnly || route.turnKind === 'question' ? [] : saidSinceLastQuestion(file, party.personId).map((t) => t.body);
+        const repeatsOf = (text: string): string[] => repeatedSentences(text, previous).filter((r) => !fixedLines.some((f) => f.text.includes(r)));
+        let repeated = repeatsOf(reply!);
+        if (repeated.length) {
+            const said = `said again: you have already said ${repeated.map((r) => `"${r}"`).join(' and ')}. Do not say that again in any words. If nothing new needs saying, write one short, warm acknowledgement of a few words and nothing else`;
+            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, failures: [said], now: this.now() }, client);
+            calls.push(again.record);
+            composerCalls++;
+            if (again.output) {
+                const retry = await guardAttempt(withLateAck(again.output.reply), again.output.factIds, again.output.kbIds);
+                const g = withOneThing(retry.guards, again.output.reply);
+                const still = repeatsOf(again.output.reply);
+                if (g.ok && !still.length) { composed = again.output.reply; reply = withLateAck(composed); factIds = again.output.factIds; kbIds = retry.kbIds; guards = g; repeated = []; }
+            }
+            if (repeated.length) {
+                const trimmed = withoutSentences(composed ?? reply!, repeated);
+                const kept = trimmed.trim() ? withOneThing((await guardAttempt(withLateAck(trimmed), factIds, kbIds)).guards, trimmed) : null;
+                const note = `the reply only wrapped up again, as already said (${repeated.join(' | ')}); nothing sent`;
+                if (!kept || !kept.ok) return { ...this.nothing(file, party.personId, runId, calls, kept ? `${note}; what was left failed the guards: ${kept.failures.join('; ')}` : note), factIds: [], kbIds: [], guards: guards.guards, composerCalls, summary };
+                log(`repeat: dropped ${repeated.length} sentence(s) the last message already said`);
+                composed = trimmed;
+                reply = withLateAck(trimmed);
+                guards = kept;
+            }
+        }
+
         // 6. Channel, window, render, template.
         const choice = chooseChannel(party, turn.channel, this.now());
         if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
-        let rendered = render(choice.channel, reply!, { name: party.name });
+        let rendered = render(choice.channel, reply!, { name: party.name, wideBubbles: fixedLineOnly });
+        let overflow = 'the reply';
         if (!rendered.ok && rendered.reason === 'ceiling' && !fixedLineOnly) {
             const shorter = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles), now: this.now() }, client);
             calls.push(shorter.record);
@@ -351,11 +442,21 @@ export class Desk implements DeskLike {
                 const shortReply = withLateAck(shorter.output.reply);
                 const short = await guardAttempt(shortReply, shorter.output.factIds, shorter.output.kbIds);
                 const shortGuards = withOneThing(short.guards, shorter.output.reply);
-                const r3 = render(choice.channel, shortReply, { name: party.name });
-                if (shortGuards.ok && r3.ok) { reply = shortReply; factIds = shorter.output.factIds; kbIds = short.kbIds; guards = shortGuards; rendered = r3; }
+                let r3 = render(choice.channel, shortReply, { name: party.name });
+                if (shortGuards.ok && !r3.ok && r3.reason === 'ceiling' && choice.channel === 'whatsapp') {
+                    r3 = render(choice.channel, shortReply, { name: party.name, softWidth: true });
+                    if (r3.ok) log(`render: the shortened reply still ran over ${BUBBLE_CEILING} bubbles at ${BUBBLE_MAX_CHARS} characters and went at ${BUBBLE_SOFT_MAX_CHARS}`);
+                }
+                if (shortGuards.ok && r3.ok) { composed = shorter.output.reply; reply = shortReply; factIds = shorter.output.factIds; kbIds = short.kbIds; guards = shortGuards; rendered = r3; }
+                else overflow = shortGuards.ok ? 'the shortened reply' : `the shortened reply failed the guards (${shortGuards.failures.join('; ')}) and the reply`;
+            } else overflow = `the composer ${shorter.refused ? 'declined' : 'failed'} the shorten and the reply`;
+            // A shorten that did not give a reply to send falls back to the reply that already passed the guards, split at 200, before any hold.
+            if (!rendered.ok && choice.channel === 'whatsapp') {
+                const r4 = render(choice.channel, reply!, { name: party.name, softWidth: true });
+                if (r4.ok) { rendered = r4; log(`render: the shorten gave no reply to send (${overflow}) and the reply went at ${BUBBLE_SOFT_MAX_CHARS}`); }
             }
         }
-        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
+        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `${overflow} stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten, even at ${BUBBLE_SOFT_MAX_CHARS} characters`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
         const window = windowOf(party, choice.channel, this.now());
         let template: TemplateSend | null = null;
         let templateWording: string | null = null;
@@ -421,7 +522,7 @@ export class Desk implements DeskLike {
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds, kbRows: await this.kbRows(kbIds, [line]), fixedLines: [line], proposedSubject: null, liveQuoteRefs: new Set() });
         const choice = chooseChannel(party, turn.channel, this.now());
         const window = choice.ok ? windowOf(party, choice.channel, this.now()) : null;
-        const rendered = choice.ok ? render(choice.channel, line.text, { name: party.name }) : null;
+        const rendered = choice.ok ? render(choice.channel, line.text, { name: party.name, wideBubbles: true }) : null;
         const base = { ...this.nothing(file, partyId, runId, calls, why, 'hold'), summary };
         if (!choice.ok || !window || !rendered?.ok || !guards.ok || window.state === 'shut') return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement not sent: ${!choice.ok ? choice.reason : !rendered?.ok ? `no render for ${choice.channel}` : !guards.ok ? guards.failures.join('; ') : 'window shut'}` };
         const bubbles: RenderedBubble[] = rendered.bubbles;

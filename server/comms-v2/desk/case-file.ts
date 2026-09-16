@@ -454,7 +454,7 @@ export function recordFact(file: CaseFile, input: { key: string; value: string; 
  * (`customerVisibleFacts`). Any new fact written for Ben's eyes belongs in this list on the day it
  * is written.
  */
-export const INTERNAL_FACT_KEYS: readonly string[] = ['ben_notified', 'ben_chased', 'ben_to_request', 'quote_accepted'];
+export const INTERNAL_FACT_KEYS: readonly string[] = ['ben_notified', 'ben_chased', 'ben_to_request', 'quote_accepted', 'quote_drafting'];
 
 /** True when the fact was written for Ben, not for the customer. Matches the key and any `key:label` form. */
 export function isInternalFact(fact: Pick<Fact, 'key'>): boolean {

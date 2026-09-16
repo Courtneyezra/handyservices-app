@@ -85,6 +85,31 @@ describe('deliverPricedQuote on a shut window', () => {
     });
 });
 
+describe('deliverPricedQuote on an open window', () => {
+    const SENTENCE = 'Everything on the page is itemised line by line, so you can see exactly what the visit covers before you book.';
+    const writing = (sentences: number) => new FakeModelClient({ composer: ({ user }) => ({ reply: `Your quote is ready: ${/https:\/\/test\.local\/\S+/.exec(user)?.[0] ?? ''}. ${Array.from({ length: sentences }, () => SENTENCE).join(' ')}`, factIds: [], kbIds: [] }) });
+    const open = '2026-09-14T11:50:00.000Z';
+
+    it('sends a message too long for three 160-character bubbles in at most three wider ones', async () => {
+        const { file, store, priced } = await pricedThread(open);
+        const out = await deliverPricedQuote({ file, priced, approver: APPROVER, mode: 'dry_run', now, deps: { client: writing(4), templates: approved, fixedLines: noFixedLineSource, quoting: { store } } });
+        expect(out).toMatchObject({ ok: true, sent: true });
+        if (!out.ok) return;
+        expect(out.result.bubbles.length).toBeGreaterThan(0);
+        expect(out.result.bubbles.length).toBeLessThanOrEqual(3);
+        expect(out.result.bubbles.some((b) => b.text.length > 160)).toBe(true);
+        expect(out.result.bubbles.map((b) => b.text).join(' ')).toContain(priced.quoteUrl);
+    });
+
+    it('holds rather than sending a fourth bubble when even wider ones cannot fit it', async () => {
+        const { file, store, priced } = await pricedThread(open);
+        const out = await deliverPricedQuote({ file, priced, approver: APPROVER, mode: 'dry_run', now, deps: { client: writing(12), templates: approved, fixedLines: noFixedLineSource, quoting: { store } } });
+        expect(out).toMatchObject({ ok: true, sent: false });
+        expect(file.hold?.reason).toMatch(/the delivery message could not be rendered \(ceiling\)/);
+        expect(file.sends).toHaveLength(0);
+    });
+});
+
 describe('deliverPricedQuote through the real live deliverer', () => {
     afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.resetModules(); });
     const composing = new FakeModelClient({ composer: ({ user }) => ({ reply: `Your quote is ready: ${/https:\/\/test\.local\/\S+/.exec(user)?.[0] ?? ''}\n\nAny questions, just reply here.`, factIds: [], kbIds: [] }) });

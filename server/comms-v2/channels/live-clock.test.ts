@@ -8,7 +8,7 @@ import type { CaseFile } from '../desk/case-file';
 import type { DeskResult } from '../desk/desk-types';
 import { clockDue, liveClockTick, runLiveClockTick, type ClockableGateway } from './live-clock';
 
-const file = (id: string, over: Partial<CaseFile> = {}): CaseFile => ({ id, stage: 'scoping', hold: null, job: { type: null, location: null, quoteRef: null, bookingRef: null }, ...over } as CaseFile);
+const file = (id: string, over: Partial<CaseFile> = {}): CaseFile => ({ id, stage: 'scoping', hold: null, job: { type: null, location: null, quoteRef: null, bookingRef: null }, facts: [], ...over } as CaseFile);
 const result = (action: 'none' | 'chased' | 'escalated' | 'refused'): DeskResult => ({ chase: action === 'none' ? null : { action } } as unknown as DeskResult);
 
 describe('the live clock', () => {
@@ -19,15 +19,17 @@ describe('the live clock', () => {
         expect(built).toBe(0);
     });
 
-    it('passes every held file, every file with a quote and every file with a chase record, never a finished job, and counts what the chase did', async () => {
+    it('passes every held file, every file with a quote, every file with a chase record and every file with a lost quote draft, never a finished job, and counts what the chase did', async () => {
         const files = [
             file('held', { hold: { since: '2026-09-14T10:00:00.000Z' } as any }),
             file('quoted', { job: { type: 'tap', location: 'NG9', quoteRef: 'abc12345', bookingRef: null } }),
             file('released', { chase: { caseId: 'released' } as any }),
+            file('lost', { facts: [{ key: 'quote_drafting', value: 'started: with the drafter', source: { kind: 'thread', turnId: 't1' } }] as any }),
+            file('drafted', { facts: [{ key: 'quote_drafting', value: 'started: with the drafter' }, { key: 'quote_drafting', value: 'failed: the estimator is down' }] as any }),
             file('quiet'),
             file('done', { stage: 'done', hold: { since: '2026-09-14T10:00:00.000Z' } as any }),
         ];
-        expect(files.filter(clockDue).map((f) => f.id)).toEqual(['held', 'quoted', 'released']);
+        expect(files.filter(clockDue).map((f) => f.id)).toEqual(['held', 'quoted', 'released', 'lost']);
         const clocked: string[] = [];
         const gateway: ClockableGateway = {
             store: { all: () => files },
@@ -39,8 +41,8 @@ describe('the live clock', () => {
         };
         const lines: string[] = [];
         const tick = await liveClockTick({ liveState: async () => ({ live: true, off: [] }), gateway: async () => gateway, log: (l) => lines.push(l) });
-        expect(clocked).toEqual(['held', 'quoted', 'released']);
-        expect(tick).toEqual({ ran: true, off: [], files: 3, chased: 0, refused: 1, errors: 1 });
+        expect(clocked).toEqual(['held', 'quoted', 'released', 'lost']);
+        expect(tick).toEqual({ ran: true, off: [], files: 4, chased: 0, refused: 1, errors: 1 });
         expect(lines.join('\n')).toMatch(/case quoted failed: the quote store is down/);
     });
 

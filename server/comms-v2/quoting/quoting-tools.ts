@@ -102,12 +102,28 @@ export async function loadQuote(file: CaseFile, deps: QuotingDeps = {}): Promise
 
 export type DraftQuoteOutcome = DraftOutcome & { factIds: string[]; notice: BenNotice | null; notified: boolean };
 
+export interface DraftQuoteOptions {
+    /** A draft started again after a restart: a quote row the desk wrote for this party since then is taken up rather than drafted twice. */
+    since?: string | null;
+    /** Awaited once the quote reference is on the file, before Ben is notified. */
+    beforeNotify?: () => Promise<void>;
+}
+
+/** The desk's own draft row for this party written since `since`, as the drafter would have returned it; null when there is none. */
+async function draftWrittenSince(party: Party, since: string, d: ResolvedQuotingDeps): Promise<DraftOutcome | null> {
+    const slug = await d.store.findDraft(party.channels.map((c) => c.address), new Date(since));
+    const row = slug ? await d.store.read(slug) : null;
+    if (!slug || !row) return null;
+    const record = quoteRecordOf(row, d.now());
+    return { ok: true, quoteId: record.id, slug, lines: record.lines.map((l) => l.label), checkThis: record.checkThis, suggestedTotalPence: record.suggestedTotalPence, estimatorFailed: null, estimateId: null, log: [`draft ${slug} was written before a restart and is taken up`], calls: [] };
+}
+
 /**
  * Drafts the quote for Ben the moment the job and location are known, through the existing chain.
  * Refuses when the file is not ready, and whenever the file's quote reference names a quote that
  * exists: one draft per job, and a change to it is Ben's (checklist cross-cutting 6).
  */
-export async function draftQuote(file: CaseFile, party: Party, intake: DraftIntake, deps: QuotingDeps = {}): Promise<DraftQuoteOutcome> {
+export async function draftQuote(file: CaseFile, party: Party, intake: DraftIntake, deps: QuotingDeps = {}, opts: DraftQuoteOptions = {}): Promise<DraftQuoteOutcome> {
     const d = resolveQuotingDeps(deps);
     const refuse = (reason: string): DraftQuoteOutcome => ({ ok: false, reason, log: [], calls: [], factIds: [], notice: null, notified: false });
     if (!isReady(file)) return refuse('not ready: the job type and the location are both needed before a draft');
@@ -116,7 +132,7 @@ export async function draftQuote(file: CaseFile, party: Party, intake: DraftInta
         if (existing) return refuse(`a quote already stands (${existing.slug}, ${existing.status}); one draft per job, changes are Ben's`);
     }
     if (!intake.lines.length) return refuse('an intake needs at least one line');
-    const out = await d.drafter.draft({ file, party, intake, now: d.now(), baseUrl: d.baseUrl });
+    const out = (opts.since ? await draftWrittenSince(party, opts.since, d) : null) ?? await d.drafter.draft({ file, party, intake, now: d.now(), baseUrl: d.baseUrl });
     if (!out.ok) return { ...out, factIds: [], notice: null, notified: false };
     file.job.quoteRef = out.slug;
     const factIds: string[] = [];
@@ -130,6 +146,7 @@ export async function draftQuote(file: CaseFile, party: Party, intake: DraftInta
     if (intake.missing.length) rec(QUOTE_FACT.benToRequest, intake.missing.join('; '), 'missing');
     for (const l of intake.lines) rec(`${QUOTE_FACT.scope}:${l.title}`, [l.qty > 1 ? `${l.qty} x ${l.title}` : l.title, l.detail].filter(Boolean).join(' - '), l.title);
     for (const l of intake.lines) for (const n of l.notIncluded) rec(`${QUOTE_FACT.notIncluded}:${l.title}`, n, l.title);
+    if (opts.beforeNotify) await opts.beforeNotify();
     // notify_ben: once, with the price screen link.
     const notice = readyToPriceNotice({ customerName: intake.customerName ?? party.name, postcode: intake.postcode, slug: out.slug, lines: out.lines, checkThis: out.checkThis, suggestedTotalPence: out.suggestedTotalPence, estimatorFailed: out.estimatorFailed, missing: intake.missing, at: d.now().toISOString(), baseUrl: d.baseUrl });
     const n = await notifyBen(file, notice, deps);

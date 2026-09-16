@@ -18,7 +18,7 @@ import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
 import type { Route } from './router';
 import { composerChannelLines } from '../channels/composer-lines';
-import { BUBBLE_CEILING, type ShortenBrief } from './sender';
+import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, type ShortenBrief } from './sender';
 import { withoutDashPunctuation } from './dashes';
 
 export const composerOutputSchema = z.object({
@@ -76,8 +76,9 @@ export const COMPOSER_SYSTEM = [
     '',
     'How to sound:',
     '- Like a person typing on WhatsApp: warm, plain, brief. Mirror the customer\'s language and register. Contractions are fine.',
-    '- Not a paragraph. Break the reply into bubbles the way a person separates messages: put a blank line between bubbles. Usually two or three bubbles, never more than four, each well under 300 characters. Each bubble is one thought.',
-    '- Acknowledge what they said in your own words before anything else (quote their job back to them naturally).',
+    '- Not a paragraph. Break the reply into bubbles the way a person separates messages: put a blank line between bubbles. Usually one to three bubbles, never more than three. Each bubble is one thought in one or two short sentences, about 160 characters at most.',
+    '- Acknowledge what they said in a few words of your own before anything else. Sum the job up back to them once, the first time it is clear; never repeat a summary of the job you have already given in the thread.',
+    '- Never say again what your last message already said, in any words. Never call a question the last one ("one last thing", "last bit from me"): just ask it.',
     '- You are Ben, writing in the first person. Never mention Ben, the office, the team or a colleague in the third person: when an answer is not yours to give yet, say you will check and come back to them, naming nobody.',
     '',
     'What to do this turn, from the proposal:',
@@ -86,20 +87,58 @@ export const COMPOSER_SYSTEM = [
     '- When it names a question, ask exactly that one question about the job and no other, and do not say that you have everything you need. One thing at a time: one question, about one thing, one question mark about the job in the whole reply. Never join two questions with "and" or "or".',
     '- If the proposal says offer a call, offer to give them a quick call (for example "happy to give you a quick call if that\'s easier"). If it says do not offer a call, do not mention calling or the phone at all.',
     '- If the proposal says mention photos once, add in passing that a photo would help if it\'s easy, no pressure. Not a question, no question mark.',
-    '- If the proposal says thank for media, thank them for the photo or video, once, and say what it shows in a few words if a description is on the file.',
+    '- If the proposal says thank for media, thank them for the photo or video, once, and mention one light detail of what it shows in a few natural words, the way a person glancing at it would ("I can see the old handles there"). Never describe it in full, and never name a defect, damage, wear, a brand, a model or a condition the customer did not mention themselves. Never ask whether they want work done that they did not ask for.',
     '- Subjects listed as "never ask again" must not be asked for or requested again in any form. If the customer has declined something, accept it in a few words without putting it in a question, and move on.',
     '- A short pause from the customer ("one sec") gets a very short "no rush" style reply and nothing else.',
     '- A promise of more ("I\'ll send photos tomorrow") gets one short acknowledgement that you will wait for it, and no question.',
-    '- When it is a wrap-up, say that is everything needed for now and that you will put the quote together and send it over. No timing. Say this only on a wrap-up turn, never beside a question.',
+    '- When it is a wrap-up, say that is everything needed for now and that you will put the quote together and send it over. No timing. Say this only on a wrap-up turn, never beside a question, and only once: if your last message already said it, write one short acknowledgement instead.',
+    '- An acknowledgement-only turn ("thanks", "ok") gets one short bubble, a brief human reply of a few words ("No worries 👍"). Nothing your last message already said, and not the quote news again.',
     '- When the brief says Ben has priced and sent the quote, you are writing the delivery, not a reply: tell them the quote is ready, give the link exactly as the brief spells it, and say to reply here with any questions. Do not answer their last message again, and give no figure, no timing and no other promise.',
     '- Fixed lines: include each one given, keeping its meaning and its first-person words, woven into the reply naturally.',
     '',
     'No dash as punctuation: never " - " between words, never an em dash or an en dash. Where a dash would join two thoughts, use a comma or a full stop instead. A hyphenated word (follow-up) is fine. Return the JSON object only: reply, factIds (the ids of the facts you used), kbIds (the knowledge-base ids you cited, usually none).',
 ].join('\n');
 
-function threadFor(file: CaseFile, turn: Turn): string {
+/**
+ * What the composer is told a photo shows: the plain opening of its description, without the parts
+ * written for Ben's eyes (`Defects:`, `Text seen:`, `Not shown:`, the confidence; server/spine/tools/
+ * describe-video.ts formatDescription). A reply mentions one light detail of a photo (behaviour.md
+ * answer 92), never an inspection report, a brand read off a box or work nobody asked for.
+ */
+export function lightPhotoSummary(description: string): string {
+    return description.split(/\s*\b(?:Defects|Text seen|Not shown):/)[0].replace(/\s*\(confidence \w+\)\s*$/i, '').trim();
+}
+
+const RE_TEXT_SEEN = /\bText seen:\s*(.*?)\.?(?=\s*(?:Not shown:|\(confidence\b|$))/;
+const words = (text: string): string[] => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1);
+
+/**
+ * The words a photo showed that nobody on the thread wrote: what the photo model read off a box or a
+ * label (`Text seen:`), less every word a customer typed. A brand is only ever one of these, and it
+ * also rides into the opening sentence and into a job detail the specialist took from the photo, so
+ * the composer is shown neither (answer 92: never a brand the customer did not mention).
+ */
+export function unmentionedPhotoText(file: CaseFile): Set<string> {
+    const descriptions = [
+        ...file.turns.flatMap((t) => t.media.map((m) => m.description?.description ?? '')),
+        ...file.facts.filter((f) => f.source.kind === 'media_description').map((f) => f.value),
+    ];
+    const read = descriptions.flatMap((d) => words(RE_TEXT_SEEN.exec(d)?.[1] ?? ''));
+    const typed = new Set(file.turns.filter((t) => t.direction === 'inbound').flatMap((t) => words(t.body ?? '')));
+    return new Set(read.filter((w) => !typed.has(w)));
+}
+
+function withoutWords(text: string, drop: Set<string>): string {
+    if (!drop.size) return text;
+    return text.split(/(\s+)/).filter((piece) => {
+        const w = words(piece);
+        return !(w.length && w.every((x) => drop.has(x)));
+    }).join('').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?)])/g, '$1').trim();
+}
+
+function threadFor(file: CaseFile, turn: Turn, unmentioned: Set<string>): string {
     return file.turns.slice(-16).map((t) => {
-        const media = t.media.length ? ` [${t.media.length} ${t.media[0].kind}${t.media.length > 1 ? 's' : ''}${t.media.map((m) => m.description ? `: ${m.description.description}` : '').join('')}]` : '';
+        const media = t.media.length ? ` [${t.media.length} ${t.media[0].kind}${t.media.length > 1 ? 's' : ''}${t.media.map((m) => m.description ? `: ${withoutWords(lightPhotoSummary(m.description.description), unmentioned)}` : '').join('')}]` : '';
         return `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? (file.parties.find((p) => p.personId === t.partyId)?.name ?? 'customer') : 'you'}: ${t.body}${media}`;
     }).join('\n');
 }
@@ -114,7 +153,8 @@ export function buildComposerUser(input: ComposeInput): string {
     lines.push(`Customer: ${party.name ?? 'unknown name'}. Stage: ${file.stage}. Prefers text only: ${party.prefersText ? 'yes' : 'no'}.`);
     lines.push(...composerChannelLines(file, party, turn, input.now ?? new Date(), input.channel, input.reserved));
     lines.push('Thread, oldest first (the turn to reply to is marked >>):');
-    lines.push(threadFor(file, turn));
+    const unmentioned = unmentionedPhotoText(file);
+    lines.push(threadFor(file, turn, unmentioned));
     lines.push('');
     // Ben's own facts carry the admin price screen and internal notes: they never reach the composer.
     // A diary fact is only citable while this run looked it up: an older booked date was true when it was
@@ -122,7 +162,7 @@ export function buildComposerUser(input: ComposeInput): string {
     const lookedUp = new Set(specialists.flatMap((s) => s.factIds));
     const citable = customerVisibleFacts(file).filter((f) => f.source.kind !== 'diary' || lookedUp.has(f.id));
     lines.push('Facts on the file (id: key = value):');
-    lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.value}`).join('\n') : '(none yet)');
+    lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.source.kind === 'media_description' ? withoutWords(lightPhotoSummary(f.value), unmentioned) : f.source.kind === 'thread' ? withoutWords(f.value, unmentioned) : f.value}`).join('\n') : '(none yet)');
     lines.push('');
     lines.push(`Turn kind: ${route.turnKind}. Subjects: ${route.subjects.join(', ')}. Exceptions: ${route.exceptions.join(', ') || 'none'}.`);
     if (proposal) {
@@ -131,7 +171,7 @@ export function buildComposerUser(input: ComposeInput): string {
         const question = q ? (q.subject === 'postcode' ? 'their location (postcode)' : q.subject === 'media' ? 'a photo, if easy, once' : q.subject === 'access' ? 'access (parking, someone in)' : `the job: ${q.unknowns.join(', ') || 'more detail'}`) : null;
         if (question) lines.push(`- this turn: ask one question about ${question}`);
         else if (proposal.ready && !['short_pause', 'promise_of_more', 'not_ready', 'acknowledgement'].includes(route.turnKind)) lines.push('- this turn: wrap up, nothing is left to ask; the job and the location are known, so say you will put the quote together and send it over');
-        else lines.push('- this turn: an acknowledgement only, no question');
+        else lines.push('- this turn: an acknowledgement only, no question: one short bubble of a few words, and nothing your last message already said');
         lines.push(`- offer a call: ${proposal.offerCall ? 'yes' : 'no, do not mention calling'}`);
         lines.push(`- mention photos once: ${proposal.mentionPhotos ? 'yes, say a photo would help if easy, not as a question' : 'no'}`);
         lines.push(`- thank for media: ${proposal.thankForMedia ? 'yes' : 'no'}`);
@@ -154,7 +194,7 @@ export function buildComposerUser(input: ComposeInput): string {
         lines.push('');
         lines.push(shorten.channel === 'sms'
             ? `Your previous reply came to ${shorten.measured} SMS segments, over the ${shorten.ceiling} one text message may use. Say the same in one text message under ${shorten.charBudget} characters. Previous reply:`
-            : `Your previous reply came to ${shorten.measured} bubbles, over the ceiling of ${shorten.ceiling}. Say the same in at most ${shorten.ceiling} short bubbles. Previous reply:`);
+            : `Your previous reply came to ${shorten.measured} bubbles, over the ceiling of ${shorten.ceiling}. Say the same in at most ${shorten.ceiling} short bubbles, a blank line between them, each one or two sentences of at most ${BUBBLE_MAX_CHARS} characters: a longer one is split in two and counts as two. Previous reply:`);
         lines.push(shorten.previous);
     }
     lines.push('');
