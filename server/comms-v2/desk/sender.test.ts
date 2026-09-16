@@ -199,7 +199,7 @@ describe('send', () => {
     const goal1Lines: FixedLine[] = (['money_to_ben', 'dates_with_quote', 'held_ack'] as const).map((kind) => ({ kind, text: DEFAULT_FIXED_LINES[kind], kbId: null }));
     // The acknowledgements that name what arrived are Goal 1 lines too, not ones Ben reviews: they send live.
     const video = [{ id: 'v1', kind: 'video' as const, mime: 'video/mp4', path: null, url: null, description: null }];
-    goal1Lines.push(heldAckLine({ media: video }), lateMediaAckLine(video, new Date('2026-09-10T19:06:00.000Z'), new Date('2026-09-11T11:00:00.000Z')));
+    goal1Lines.push(heldAckLine({ media: video }, { ledger: [] }), lateMediaAckLine(video, new Date('2026-09-10T19:06:00.000Z'), new Date('2026-09-11T11:00:00.000Z')));
 
     it('refuses without approver, run id, passed guards, a template on a shut window, a party on the file, or a run id already sent', async () => {
         const { file, party } = fixture();

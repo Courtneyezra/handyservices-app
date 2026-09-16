@@ -30,7 +30,7 @@
  * thanks for media that arrived well before the turn being answered says it is late and goes
  * after the reply to what the customer has just said (`lateMediaAckLine`).
  */
-import type { Turn, TurnMedia } from './case-file';
+import type { CaseFile, Turn, TurnMedia } from './case-file';
 import { withoutDashPunctuation } from './dashes';
 
 export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp' | 'first_contact_ack' | 'no_source' | 'not_converging' | 'change_of_details' | 'callback_to_ben' | 'late_media_ack';
@@ -110,11 +110,12 @@ export function mediaNoun(media: readonly TurnMedia[]): string | null {
 
 /**
  * The held acknowledgement for a turn: the fixed line, naming the photo or video the turn carried
- * ("Thanks for the video, leave it with me and I'll come back to you."). A turn with no media gets
- * the line as it stands. It stays a Goal 1 line, not one of the four Ben reviews, so it sends live.
+ * ("Thanks for the video, leave it with me and I'll come back to you."). A turn with no media, or a
+ * file whose media thanks is already spent, gets the line as it stands, so the ask-ledger guard
+ * never stops it. It stays a Goal 1 line, not one of the four Ben reviews, so it sends live.
  */
-export function heldAckLine(turn: Pick<Turn, 'media'>): FixedLine {
-    const noun = mediaNoun(turn.media);
+export function heldAckLine(turn: Pick<Turn, 'media'>, file: Pick<CaseFile, 'ledger'>): FixedLine {
+    const noun = file.ledger.find((l) => l.subject === 'media')?.thankedAt ? null : mediaNoun(turn.media);
     const text = noun ? DEFAULT_FIXED_LINES.held_ack.replace(/^Thanks,/, `Thanks for the ${noun},`) : DEFAULT_FIXED_LINES.held_ack;
     return { kind: 'held_ack', text, kbId: null };
 }

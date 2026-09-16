@@ -72,6 +72,19 @@ describe('the held acknowledgement after a failed router call', () => {
         expect(out.result.bubbles.map((b) => b.text)).toEqual(["Thanks for the photo, leave it with me and I'll come back to you."]);
     });
 
+    it('still sends, as the plain line, for a second media turn on a held file whose media was already thanked', async () => {
+        const { gateway } = desk(routerDown, '2026-09-16T04:41:07.000Z', { mode: 'live', sender: { deliverer: { async deliver() { return { ok: true as const, sid: null }; } } as any } });
+        const first = await gateway.inbound(message('here', '2026-09-16T04:41:07.000Z', photoIn));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
+        const second = await gateway.inbound(message('and the video', '2026-09-16T04:45:07.000Z', videoIn));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        expect(second.result.decision).toBe('hold');
+        expect(second.result.delivered).toBe(true);
+        expect(second.result.guards.ask_ledger.result).toBe('pass');
+        expect(second.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+    });
+
     it('falls back to the plain line for a turn with no media, and leaves the thanks owed', async () => {
         const { gateway } = desk(routerDown, '2026-09-16T04:41:07.000Z');
         const out = await gateway.inbound(message('Do you cover Nottingham?', '2026-09-16T04:41:07.000Z'));

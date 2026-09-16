@@ -41,18 +41,24 @@ const photo = (id: string): TurnMedia => ({ id, kind: 'image', mime: 'image/jpeg
 const video = (id: string): TurnMedia => ({ id, kind: 'video', mime: 'video/mp4', path: null, url: null, description: null });
 
 describe('the held acknowledgement names what arrived', () => {
+    const unthanked = { ledger: [] };
     it('names a video, a photo, several, and both; a turn with no media gets the line as it stands', () => {
-        expect(heldAckLine({ media: [video('v')] }).text).toBe("Thanks for the video, leave it with me and I'll come back to you.");
-        expect(heldAckLine({ media: [photo('p')] }).text).toBe("Thanks for the photo, leave it with me and I'll come back to you.");
-        expect(heldAckLine({ media: [photo('p1'), photo('p2')] }).text).toBe("Thanks for the photos, leave it with me and I'll come back to you.");
-        expect(heldAckLine({ media: [photo('p'), video('v')] }).text).toBe("Thanks for the photo and the video, leave it with me and I'll come back to you.");
-        expect(heldAckLine({ media: [] })).toEqual({ kind: 'held_ack', text: DEFAULT_FIXED_LINES.held_ack, kbId: null });
+        expect(heldAckLine({ media: [video('v')] }, unthanked).text).toBe("Thanks for the video, leave it with me and I'll come back to you.");
+        expect(heldAckLine({ media: [photo('p')] }, unthanked).text).toBe("Thanks for the photo, leave it with me and I'll come back to you.");
+        expect(heldAckLine({ media: [photo('p1'), photo('p2')] }, unthanked).text).toBe("Thanks for the photos, leave it with me and I'll come back to you.");
+        expect(heldAckLine({ media: [photo('p'), video('v')] }, unthanked).text).toBe("Thanks for the photo and the video, leave it with me and I'll come back to you.");
+        expect(heldAckLine({ media: [] }, unthanked)).toEqual({ kind: 'held_ack', text: DEFAULT_FIXED_LINES.held_ack, kbId: null });
         expect(mediaNoun([])).toBeNull();
     });
 
     it('stays a line that sends without Ben\'s review', () => {
         expect(KB_BACKED.has('held_ack')).toBe(false);
-        expect(heldAckLine({ media: [video('v')] }).kbId).toBeNull();
+        expect(heldAckLine({ media: [video('v')] }, unthanked).kbId).toBeNull();
+    });
+
+    it('names nothing once the file\'s media thanks is spent', () => {
+        const thanked = { ledger: [{ subject: 'media' as const, askedAt: null, answeredAt: null, thankedAt: '2026-09-16T04:41:08.000Z', askCount: 0 }] };
+        expect(heldAckLine({ media: [video('v')] }, thanked)).toEqual({ kind: 'held_ack', text: DEFAULT_FIXED_LINES.held_ack, kbId: null });
     });
 });
 
