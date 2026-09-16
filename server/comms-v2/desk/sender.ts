@@ -202,10 +202,29 @@ function splitAtCommas(sentence: string, max: number): string[] {
     return out;
 }
 
+/** A title before a name: the full stop never ends the sentence. */
+const RE_TITLE_END = /\b(?:Mr|Mrs|Ms|Dr)\.$/;
+/** A short form whose full stop ends the sentence only when a capital follows: "e.g. two or three", "approx. 2 hrs". */
+const RE_ABBREVIATION_END = /\b(?:e\.g|i\.e|approx|incl|etc|vs|no|St)\.$/i;
+
+/**
+ * The sentences of one paragraph, cut after a full stop, question or exclamation mark, except the
+ * full stop of a short form a sentence carries on past, so a bubble never ends on "e.g.".
+ */
+function sentencesIn(text: string): string[] {
+    const out: string[] = [];
+    for (const piece of text.split(/(?<=[.?!])\s+/).map((s) => s.trim()).filter(Boolean)) {
+        const prev = out[out.length - 1];
+        if (prev !== undefined && (RE_TITLE_END.test(prev) || (RE_ABBREVIATION_END.test(prev) && /^[a-z0-9£(]/.test(piece)))) out[out.length - 1] = `${prev} ${piece}`;
+        else out.push(piece);
+    }
+    return out;
+}
+
 /** `wideBubbles`: split only past three hundred characters, at sentence boundaries, as before answer 93. */
 function splitWide(text: string): string[] {
     if (text.length <= WIDE_BUBBLE_MAX_CHARS) return [text];
-    const sentences = text.split(/(?<=[.?!])\s+/).map((s) => s.trim()).filter(Boolean);
+    const sentences = sentencesIn(text);
     const out: string[] = [];
     let cur = '';
     for (const s of sentences) {
@@ -224,7 +243,7 @@ function splitWide(text: string): string[] {
  */
 function splitLong(text: string, max: number): string[] {
     if (text.length <= max) return [text];
-    const sentences = text.split(/(?<=[.?!])\s+/).map((s) => s.trim()).filter(Boolean).flatMap((s) => (s.length > max ? splitAtCommas(s, max) : [s]));
+    const sentences = sentencesIn(text).flatMap((s) => (s.length > max ? splitAtCommas(s, max) : [s]));
     const out: string[] = [];
     let cur = '';
     let inCur = 0;
