@@ -15,6 +15,7 @@ import { appendTurn, open, type CaseFile } from './case-file';
 import { customerTurnOf } from './turn-window';
 import { noFixedLineSource, DEFAULT_FIXED_LINES, type FixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
+import { asksForCall } from './lexicon';
 import { FakeModelClient } from './models';
 import { emptyKb } from './scoping-tools';
 import { noTemplateApproved } from './sender';
@@ -131,6 +132,27 @@ describe('the desk', () => {
             expect(r.decision).toBe('send');
             expect(r.bubbles.map((x) => x.text).join(' ')).not.toMatch(/\b(?:call|ring|phone)\b/i);
         }
+    });
+
+    it('"please don\'t call me, text only" is not a call asked for: a reply offering one on that turn goes back to the composer (1.6, round 26)', async () => {
+        for (const said of ["Please don't call me, text only", "Can you not ring me, I'm at work. Text is fine", 'No need to phone me, messages are easier', "don't give me a call, I can't answer at work"]) {
+            const { client, gateway } = desk({
+                router: () => routeScoping({ turnKind: 'answer' }),
+                specialist: ({ n }) => specialistFacts(n === 1 ? [{ key: 'job_type', value: 'sticking back door' }] : [{ key: 'prefers_text', value: 'true' }]),
+                composer: ({ n }) => ({ reply: n === 1 ? 'A sticking back door, got it.\n\nWhereabouts are you?' : n === 2 ? 'No problem at all. Happy to give you a quick call later if easier.' : "No problem, I'll keep it to messages.", factIds: [], kbIds: [] }),
+            });
+            await gateway.inbound(turn('My back door sticks', '2026-09-11T10:00:00.000Z'));
+            const b = await gateway.inbound(turn(said, '2026-09-11T10:02:00.000Z'));
+            if (b.kind !== 'handled') throw new Error(b.kind);
+            expect(b.result.decision, said).toBe('send');
+            expect(b.result.bubbles.map((x) => x.text), said).toEqual(["No problem, I'll keep it to messages."]);
+            expect(client.calls.filter((c) => c.role === 'composer')[2].user, said).toContain('do not offer or mention a call');
+        }
+    });
+
+    it('reads a call asked for, and a call turned down, in the customer\'s words (round 26)', () => {
+        for (const s of ['Can you call me?', 'call me back please', 'Why not call me?', "I'm not home but call me after 5", 'Give me a ring tomorrow', "I don't mind, just ring me", 'Not sure what it is so call me']) expect(asksForCall(s), s).toBe(true);
+        for (const s of ["Please don't call me", 'Please don’t call me', 'never ring me', "Don't bother to ring me", 'text only please']) expect(asksForCall(s), s).toBe(false);
     });
 
     it('a composer refusal takes the fixed acknowledgement and a hold, never a silent empty reply', async () => {
