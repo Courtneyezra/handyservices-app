@@ -271,10 +271,15 @@ app.get('/api/health', (req, res) => {
 // runs customer-facing loops alive?" from the DB row it stamps every 60s, so any process can
 // serve it. 200 with status 'ok' while fresh, 503 with status 'stale' once the heartbeat is
 // older than 10 min, missing or unreadable — point a platform healthcheck here.
+// 16 Sep 2026: a fresh heartbeat is not a desk that can answer. `desk` is the newest real customer
+// turn's verdict on the desk's models (server/comms-v2/desk/model-health.ts, no model call made
+// here), status and canAnswer only: the detail is admin-only on /admin/staff. While it is failing,
+// status reads 'cannot_answer' and ok is false, still with 200: the platform healthcheck gates
+// deploys on the code, and a deploy is how a key fix goes out.
 app.get('/api/health/comms-worker', async (_req, res) => {
     try {
-        const { getHeartbeatHealth } = await import('./comms-worker-heartbeat');
-        const health = await getHeartbeatHealth();
+        const { getHeartbeatHealth, publicCommsHealth, withDeskHealth } = await import('./comms-worker-heartbeat');
+        const health = publicCommsHealth(withDeskHealth(await getHeartbeatHealth(), await (await import('./comms-v2/desk/model-health')).deskModelHealth()));
         res.status(health.stale ? 503 : 200).json({ ...health, skippedLoopsInThisProcess: skippedLoops() });
     } catch (error: any) {
         res.status(503).json({ ok: false, status: 'stale', ageSeconds: null, stale: true, error: error?.message ?? String(error) });
