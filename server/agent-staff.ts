@@ -36,7 +36,7 @@ import {
     outcomeMetrics, outcomePatterns, recentDecisions, reconcileOutcomes, refreshOutcomes,
     exportApprovedExamples, getOutcomeLoopConfig, setOutcomeLoopConfig,
 } from './agent-outcomes';
-import { getHeartbeatHealth } from './comms-worker-heartbeat';
+import { getHeartbeatHealth, withDeskHealth } from './comms-worker-heartbeat';
 import { SPINE_STAFF } from './spine/staff';
 import { getSpineConfig, type SpineConfig } from './spine/config';
 import { spineModeFrom } from './spine/switch';
@@ -336,7 +336,9 @@ agentStaffRouter.get('/staff', async (_req, res) => {
             spineRunTallies(7),
         ]);
         const [comms, recovery, workerHeartbeat, verdicts, packTiers] = await Promise.all([
-            commsStats(), recoveryStats(), getHeartbeatHealth(),
+            commsStats(), recoveryStats(),
+            // 16 Sep 2026: with the desk's model verdict, as GET /api/health/comms-worker answers it.
+            Promise.all([getHeartbeatHealth(), import('./comms-v2/desk/model-health').then((m) => m.deskModelHealth())]).then(([hb, desk]) => withDeskHealth(hb, desk)),
             // Missing table (migration not applied yet) must not take the whole directory down.
             verdictStats(VERDICT_WINDOW_DAYS).catch((e: any) => { console.warn('[AgentStaff] verdict stats unavailable:', e?.message); return null; }),
             // Phase 3: per-pack intent tiers with the promotion evidence (server/spine/autonomy.ts).

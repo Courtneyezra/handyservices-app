@@ -172,6 +172,21 @@ export interface HeartbeatHealth extends HeartbeatAssessment {
     error?: string;
 }
 
+export interface CommsHealth extends Omit<HeartbeatHealth, 'status'> {
+    /**
+     * 'stale' (503) wins; then 'cannot_answer' (200) while the newest customer turn that needed the
+     * desk's models failed; otherwise 'ok'. `ok` is true only for 'ok'.
+     */
+    status: 'ok' | 'stale' | 'cannot_answer';
+    desk: import('./comms-v2/desk/model-health').DeskModelHealth;
+}
+
+/** The heartbeat and the desk's model verdict as one answer. Pure. */
+export function withDeskHealth(health: HeartbeatHealth, desk: import('./comms-v2/desk/model-health').DeskModelHealth): CommsHealth {
+    const status = health.stale ? 'stale' : desk.status === 'failing' ? 'cannot_answer' : 'ok';
+    return { ...health, ok: status === 'ok', status, desk };
+}
+
 /** For GET /api/health/comms-worker and the staff page. Never throws. */
 export async function getHeartbeatHealth(now: number = Date.now()): Promise<HeartbeatHealth> {
     const state = describeWorkerState();

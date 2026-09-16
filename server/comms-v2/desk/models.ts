@@ -40,6 +40,12 @@ export interface StructuredResult<T> {
     refused: boolean;
     /** A transport or parse failure, in one line. */
     error: string | null;
+    /**
+     * Where an error came from: `provider` when no answer came back (the request threw: any HTTP
+     * error, auth, a spend cap, an outage, a timeout), `output` when one came back unusable.
+     * Absent reads as `output`. model-health.ts decides on this, never on the error's words.
+     */
+    failure?: 'provider' | 'output';
 }
 
 export interface ModelClient {
@@ -92,15 +98,15 @@ export class AnthropicModelClient implements ModelClient {
             const record = recordFromUsage(call.role, call.model, call.effort, res.usage, Date.now() - t0);
             if (res.stop_reason === 'refusal') return { output: null, record, refused: true, error: 'the model declined the request' };
             const output = (res.parsed_output ?? null) as T | null;
-            if (output == null) return { output: null, record, refused: false, error: `no parseable output (stop_reason ${res.stop_reason ?? 'none'})` };
+            if (output == null) return { output: null, record, refused: false, error: `no parseable output (stop_reason ${res.stop_reason ?? 'none'})`, failure: 'output' };
             return { output, record, refused: false, error: null };
         } catch (err: any) {
-            return { output: null, record: emptyRecord(call.role, call.model, call.effort, Date.now() - t0), refused: false, error: err?.message ?? String(err) };
+            return { output: null, record: emptyRecord(call.role, call.model, call.effort, Date.now() - t0), refused: false, error: err?.message ?? String(err), failure: 'provider' };
         }
     }
 }
 
-/** A scripted client for tests: one handler per role, or a queue of outputs. */
+/** A scripted client for tests: one handler per role, or a queue of outputs. A handler's `{ error }` is a provider failure. */
 export class FakeModelClient implements ModelClient {
     readonly calls: Array<{ role: ModelCallRecord['role']; model: string; effort: Effort; system: string; user: string }> = [];
     constructor(private readonly handlers: Partial<Record<ModelCallRecord['role'], (call: { user: string; system: string; n: number }) => unknown | { refused: true } | { error: string }>>) {}
@@ -109,12 +115,12 @@ export class FakeModelClient implements ModelClient {
         const n = this.calls.filter((c) => c.role === call.role).length;
         const h = this.handlers[call.role];
         const record = { ...emptyRecord(call.role, call.model, call.effort, 1), inputTokens: 100, outputTokens: 50, costPence: computeCostPence({ inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0 }, call.model) };
-        if (!h) return { output: null, record, refused: false, error: `no fake handler for ${call.role}` };
+        if (!h) return { output: null, record, refused: false, error: `no fake handler for ${call.role}`, failure: 'provider' };
         const out = await h({ user: call.user, system: call.system, n });
         if (out && typeof out === 'object' && 'refused' in out) return { output: null, record, refused: true, error: 'the model declined the request' };
-        if (out && typeof out === 'object' && 'error' in out && Object.keys(out).length === 1) return { output: null, record, refused: false, error: String((out as { error: string }).error) };
+        if (out && typeof out === 'object' && 'error' in out && Object.keys(out).length === 1) return { output: null, record, refused: false, error: String((out as { error: string }).error), failure: 'provider' };
         const parsed = call.schema.safeParse(out);
-        if (!parsed.success) return { output: null, record, refused: false, error: `fake output does not fit the schema: ${parsed.error.message}` };
+        if (!parsed.success) return { output: null, record, refused: false, error: `fake output does not fit the schema: ${parsed.error.message}`, failure: 'output' };
         return { output: parsed.data, record, refused: false, error: null };
     }
 }

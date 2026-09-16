@@ -29,6 +29,7 @@ import { fixedLine, knowledgeBaseFixedLines, type FixedLine, type FixedLineSourc
 import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
 import { offersCall, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
+import { TurnModelWatch, type TurnReport } from './model-health';
 import type { Exception, HoldException, Route } from './router';
 import { matchFor, route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
@@ -56,6 +57,8 @@ export interface DeskDeps extends CaseFileDeps {
     sender?: SenderDeps;
     mode?: 'dry_run' | 'live';
     log?: (line: string) => void;
+    /** Told what each customer turn said about the desk's models (model-health.ts recordTurnModelHealth); the live intake passes it. */
+    modelHealth?: (report: TurnReport) => Promise<unknown>;
 }
 
 /** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
@@ -112,6 +115,20 @@ export class Desk implements DeskLike {
     }
 
     async handleTurn(file: CaseFile, turn: Turn): Promise<DeskResult> {
+        const watch = new TurnModelWatch(this.client);
+        const result = await this.runTurn(file, turn, watch);
+        const report = this.deps.modelHealth;
+        if (report && turn.direction === 'inbound') {
+            try {
+                await report({ outcome: watch.outcome(), at: this.now(), runId: result.runId, caseId: file.id, decision: result.decision });
+            } catch (error: any) {
+                (this.deps.log ?? console.error)(`model health: could not record the turn (${error?.message ?? error})`);
+            }
+        }
+        return result;
+    }
+
+    private async runTurn(file: CaseFile, turn: Turn, client: ModelClient): Promise<DeskResult> {
         const runId = `run_${randomUUID()}`;
         const calls: ModelCallRecord[] = [];
         const party = partyOf(file, turn.partyId);
@@ -133,7 +150,7 @@ export class Desk implements DeskLike {
             log(`quoting: the quote could not be read (${e?.message ?? e})`);
             return new Set<string>() as ReadonlySet<string>;
         });
-        const route: Route = await routeTurn(file, turn, this.client, liveQuoteRefs);
+        const route: Route = await routeTurn(file, turn, client, liveQuoteRefs);
         calls.push(route.call);
         if (file.stage === 'first_contact') setStage(file, 'scoping', 'first customer turn routed', this.fileDeps());
         // A reading that failed (out of schema, refused, unreachable) cannot rule out a complaint or a refund: fail closed to Ben.
@@ -173,9 +190,9 @@ export class Desk implements DeskLike {
             // the router read, so that change is recorded and held for Ben; Quoting gathers below once the
             // job and the location are known.
             const scopingRan = !quotingOwnsThread(file) && !(route.subjects.length === 1 && route.subjects[0] === 'service');
-            scoping = scopingRan ? await scope(file, turn, party, this.client, { ...this.deps.scoping, now: this.now }) : null;
+            scoping = scopingRan ? await scope(file, turn, party, client, { ...this.deps.scoping, now: this.now }) : null;
             if (scoping) { calls.push(...scoping.calls); specialists.push(scoping); if (scoping.error) log(`scoping: ${scoping.error}`); }
-            const service = await serve(file, turn, party, this.client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service') || asksToChangeDetails(turn.body), scopingRan });
+            const service = await serve(file, turn, party, client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service') || asksToChangeDetails(turn.body), scopingRan });
             calls.push(...service.calls);
             specialists.push(service);
             if (service.error) log(`service: ${service.error}`);
@@ -186,7 +203,7 @@ export class Desk implements DeskLike {
                 fixedLineOnly = true;
                 await fixedLineHold(fixedOnly.reason, fixedOnly.match);
             } else {
-                const quoting = await quoteGather(file, turn, party, route, this.client, this.quotingDeps());
+                const quoting = await quoteGather(file, turn, party, route, client, this.quotingDeps());
                 if (quoting) { calls.push(...quoting.calls); specialists.push(quoting); if (quoting.error) log(`quoting: ${quoting.error}`); }
                 // A quote the desk failed to draft earlier exists now, so the hold that told Ben to
                 // build it himself is answered: the desk releases it in its own words and the card
@@ -240,7 +257,7 @@ export class Desk implements DeskLike {
                     }
                 }
                 if (routedToScheduling || moveOfABooking) {
-                    const sched = await schedule(file, turn, party, this.client, schedulingDeps, { dateChange: exceptions.includes('date_change'), scheduling: route.subjects.includes('scheduling') }, partyLookup);
+                    const sched = await schedule(file, turn, party, client, schedulingDeps, { dateChange: exceptions.includes('date_change'), scheduling: route.subjects.includes('scheduling') }, partyLookup);
                     calls.push(...sched.calls);
                     specialists.push(sched);
                     if (sched.error) log(`scheduling: ${sched.error}`);
@@ -257,7 +274,7 @@ export class Desk implements DeskLike {
                 }
                 // 4. Compose, once; a guard failure sends it back once; the ceiling sends it back once.
                 const input: ComposeInput = { file, party, turn, route, specialists, fixedLines, now: this.now() };
-                const first = await compose(input, this.client);
+                const first = await compose(input, client);
                 calls.push(first.record);
                 composerCalls++;
                 if (first.output) { reply = first.output.reply; factIds = first.output.factIds; citedKbIds = first.output.kbIds; }
@@ -287,7 +304,7 @@ export class Desk implements DeskLike {
         let kbIds: string[] = attempt.kbIds;
         let guards: GuardOutcome = withOneThing(attempt.guards, reply!);
         if (!guards.ok && !fixedLineOnly) {
-            const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures, now: this.now() }, this.client);
+            const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: guards.failures, now: this.now() }, client);
             calls.push(again.record);
             composerCalls++;
             if (again.output) {
@@ -307,7 +324,7 @@ export class Desk implements DeskLike {
         if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
         let rendered = render(choice.channel, reply!, { name: party.name });
         if (!rendered.ok && rendered.reason === 'ceiling' && !fixedLineOnly) {
-            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles), now: this.now() }, this.client);
+            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles), now: this.now() }, client);
             calls.push(shorter.record);
             composerCalls++;
             if (shorter.output) {

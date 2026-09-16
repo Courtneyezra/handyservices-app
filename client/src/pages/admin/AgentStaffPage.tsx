@@ -106,6 +106,9 @@ export interface WorkerHeartbeat {
     staleAfterSeconds?: number;
     error?: string;
     thisProcess?: { role: 'worker' | 'passive'; pid: number; host: string; version: string | null };
+    status?: 'ok' | 'stale' | 'cannot_answer';
+    /** The newest real customer turn's verdict on the desk's models (server/comms-v2/desk/model-health.ts). */
+    desk?: { status: 'ok' | 'failing' | 'idle' | 'unknown'; lastTurnAt: string | null; lastOkAt: string | null; failingSince: string | null; failedTurns: number; reason: string | null; failedCall: { role: string; model: string } | null; error?: string };
 }
 /** Phase 3: one (pack, intent) row of the autonomy ladder with its promotion evidence (server/spine/autonomy.ts). */
 export interface PackTierRow {
@@ -288,7 +291,8 @@ export function WorkerHeartbeatStrip({ hb }: { hb: WorkerHeartbeat | null | unde
     }
     const stale = hb.stale ?? !hb.ok;
     const never = hb.ageSeconds == null;
-    const tone = stale ? 'border-red-300 bg-red-50 text-red-800' : 'border-emerald-300 bg-emerald-50 text-emerald-900';
+    const cannotAnswer = hb.desk?.status === 'failing';
+    const tone = stale || cannotAnswer ? 'border-red-300 bg-red-50 text-red-800' : 'border-emerald-300 bg-emerald-50 text-emerald-900';
     const staleMin = hb.staleAfterSeconds ? Math.round(hb.staleAfterSeconds / 60) : null;
     return (
         <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs', tone)} data-testid="worker-heartbeat">
@@ -299,6 +303,17 @@ export function WorkerHeartbeatStrip({ hb }: { hb: WorkerHeartbeat | null | unde
             <span>last beat <b>{ageText(hb.ageSeconds)}</b>{hb.host ? ` on ${hb.host}` : ''}{hb.version ? ` · build ${hb.version}` : ''}</span>
             {stale && staleMin != null && <span>(stale after {staleMin} min — sweeps, ticks and releases are OFF)</span>}
             {hb.error && <span className="italic">{hb.error}</span>}
+            {hb.desk && (
+                <span className="basis-full" data-testid="desk-model-health">
+                    {cannotAnswer
+                        ? <><b>Desk CANNOT ANSWER:</b> the last {hb.desk.failedTurns > 1 ? `${hb.desk.failedTurns} customer turns` : 'customer turn'} failed at the model{hb.desk.failedCall ? ` (${hb.desk.failedCall.role}, ${hb.desk.failedCall.model})` : ''}{hb.desk.failingSince ? ` since ${new Date(hb.desk.failingSince).toLocaleString('en-GB')}` : ''}: <span className="font-mono">{hb.desk.reason}</span></>
+                        : hb.desk.status === 'ok'
+                            ? <>Desk answering: the last customer turn got its model's answer{hb.desk.lastOkAt ? ` (${new Date(hb.desk.lastOkAt).toLocaleString('en-GB')})` : ''}.</>
+                            : hb.desk.status === 'idle'
+                                ? <>Desk model health: no customer turn recorded yet.</>
+                                : <>Desk model health unreadable{hb.desk.error ? `: ${hb.desk.error}` : ''}.</>}
+                </span>
+            )}
             {hb.thisProcess && (
                 <span className="ml-auto text-[11px] opacity-70">
                     this page is served by a <b>{hb.thisProcess.role}</b> process{hb.thisProcess.version ? ` · ${hb.thisProcess.version}` : ''}

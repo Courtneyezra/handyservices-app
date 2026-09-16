@@ -127,7 +127,9 @@ async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
     const mode = INTAKE_DESK_MODE[purpose];
     // Ben's quote notifications go to his phone only from the live desk, and only while it is live (quoting/ben-notifier.ts).
     const notifier = purpose === 'live' ? (await import('../quoting/ben-notifier')).liveBenNotifier() : undefined;
-    const desk = new Desk({ mode, log, quoting: { store: quotes, drafter: chainDrafter(quotes, purpose), ...(notifier ? { notifier } : {}) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
+    const { recordTurnModelHealth } = await import('../desk/model-health');
+    // Every customer turn this desk runs says whether its models answered: the health read and the page (desk/model-health.ts).
+    const desk = new Desk({ mode, log, modelHealth: (report) => recordTurnModelHealth(report), quoting: { store: quotes, drafter: chainDrafter(quotes, purpose), ...(notifier ? { notifier } : {}) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
     log(`gateway built for the ${purpose} desk (${mode === 'live' ? 'live delivery' : 'dry run'})`);
     const { CUSTOMER_TURN_QUIET_MS } = await import('../desk/turn-window');
     return new ChannelGateway({ desk: new ChannelDesk(desk, { mode, log }), identity, store, presence: messagesPresence, log, quietMs: CUSTOMER_TURN_QUIET_MS });
