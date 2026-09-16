@@ -38,6 +38,9 @@ describe('the intake switch', () => {
         expect(sms.envelopes[0]).toMatchObject({ channel: 'sms', address: '+447700900942', text: 'hi' });
         const wa = await envelopesOf({ kind: 'twilio_incoming', body: { From: 'whatsapp:+447700900942', Body: 'hi', NumMedia: '0' } });
         expect(wa.envelopes[0]).toMatchObject({ channel: 'whatsapp', via: 'twilio' });
+        // A received email arrives already read from Resend by the webhook (email-inbound.ts) and passes through as it is.
+        const envelope = { channel: 'email' as const, address: 'sam@example.com', name: null, text: 'hi', media: [], at: '2026-09-16T09:00:00.000Z', providerMessageId: '<m@x>', via: 'resend', mediaFailures: [] };
+        expect(await envelopesOf({ kind: 'email_received', envelope })).toEqual({ envelopes: [envelope], skipped: [] });
         const meta = await envelopesOf({ kind: 'meta_webhook', payload: { object: 'whatsapp_business_account', entry: [{ changes: [{ field: 'messages', value: { messages: [{ from: '447700900942', type: 'text', text: { body: 'yo' } }] } }] }] } });
         expect(meta.envelopes[0]).toMatchObject({ channel: 'whatsapp', via: 'meta', text: 'yo' });
         const form = await envelopesOf({ kind: 'web_form', lead: { customerName: 'P', phone: '07700900942', email: 'p@x.co', jobDescription: 'fan', postcode: 'NG9 2AB', source: 'web_quote', leadId: 'lead_1' } });

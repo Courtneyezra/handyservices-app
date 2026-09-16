@@ -153,6 +153,10 @@ const app = express();
 // IMPORTANT: Raw body middleware for Stripe webhook MUST come BEFORE express.json()
 // Stripe webhook signature verification requires the raw request body
 app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+// Resend's inbound email webhook verifies its Svix signature over the raw body, so it is never JSON-parsed.
+// It is outside the admin gate and signed; off unless COMMS_V2_EMAIL_INBOUND=1 and COMMS_V2_INTAKE=1.
+import { mountResendInbound } from './comms-v2/channels/email-inbound';
+mountResendInbound(app);
 
 // Meta WhatsApp webhook needs raw body for X-Hub-Signature-256 verification
 // The verify callback captures raw bytes before JSON parsing

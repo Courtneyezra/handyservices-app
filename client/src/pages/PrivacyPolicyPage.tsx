@@ -34,8 +34,13 @@
  * 14 Sep 2026: the comms-v2 composer (sandbox-only until cutover) runs on Anthropic's Fable 5.1,
  * whose provider terms require 30-day data retention (answer 30, docs/comms-v2/behaviour.md).
  * Noted on the Anthropic bullet below so the notice does not need revisiting at cutover.
+ *
+ * 16 Sep 2026: customers' emails to the business are received through Resend's inbound webhook
+ * (server/comms-v2/channels/email-inbound.ts, switched off until turned on deliberately), so Resend
+ * receives the whole of each email a customer sends, attachments included. The Resend bullet and
+ * the Messages line now say so.
  */
-const UPDATED = '14 September 2026';
+const UPDATED = '16 September 2026';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
     return (
@@ -71,7 +76,7 @@ export default function PrivacyPolicyPage() {
             <Section title="What we collect">
                 <ul className="list-disc space-y-1 pl-5">
                     <li><strong>Contact details</strong> — your name, phone number, email address and the address where work is needed.</li>
-                    <li><strong>Messages</strong> — WhatsApp and SMS conversations between you and us, including any photos or videos you send of the job.</li>
+                    <li><strong>Messages</strong> — WhatsApp, SMS and email conversations between you and us, including any photos or videos you send of the job.</li>
                     <li><strong>Calls</strong> — if you phone us, we may record the call and generate a written transcript so we can quote accurately and check the service you received.</li>
                     <li><strong>Enquiries</strong> — anything you submit through a form on our website.</li>
                     <li><strong>Job and payment records</strong> — quotes, bookings, invoices, and payment confirmations.</li>
@@ -121,7 +126,7 @@ export default function PrivacyPolicyPage() {
                     <li><strong>OpenAI</strong> — used by some older parts of our system to draft the wording of a quote message, and to transcribe voice notes recorded by our own team</li>
                     <li><strong>Amazon Web Services</strong> — stores call recordings and the photos and videos you send (S3, London region)</li>
                     <li><strong>Neon and Railway</strong> — host our database and our servers, where your record and your messages are kept</li>
-                    <li><strong>Resend</strong> — to send you email (booking confirmations, invoices and reminders)</li>
+                    <li><strong>Resend</strong> — to send you email (booking confirmations, invoices and reminders), and to receive the emails you send us. Resend receives the whole of each email you send us, including anything you attach, and passes it to our system</li>
                     <li><strong>Stripe</strong> — to take card payments (we never see or store your full card details)</li>
                     <li><strong>Pushover</strong> — sends alerts to our own phones so we notice your message; an alert can contain your name and a line of what you wrote</li>
                     <li><strong>PostHog</strong> — measures how our quote and booking pages are used, including a recording of the page you are on with text fields hidden</li>

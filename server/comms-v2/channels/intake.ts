@@ -4,7 +4,7 @@
  * `COMMS_V2_INTAKE` is read the way `COMMS_WORKER` is (server/worker-gate.ts): exactly '1' is on,
  * anything else is off. Off: nothing here runs and nothing old changes. On: each old inbound entry
  * point (the Twilio webhook for WhatsApp and SMS, the Meta WhatsApp webhook, the web form, a
- * finished call) also forwards its raw event here, where the matching adapter builds the gateway's
+ * finished call, and Resend's inbound email webhook behind its own switch, email-inbound.ts) also forwards its raw event here, where the matching adapter builds the gateway's
  * envelope and the channel gateway hands the turn to the desk. The old handler still runs today.
  * The desk here runs in dry run: it does everything up to delivery, nothing leaves. The cutover
  * that turns the old handler off and this desk's delivery on is a later task.
@@ -48,7 +48,9 @@ export type IntakeEvent =
     | { kind: 'meta_webhook'; payload: unknown }
     | { kind: 'web_form'; lead: { customerName?: string | null; phone?: string | null; email?: string | null; jobDescription?: string | null; postcode?: string | null; address?: string | null; source?: string | null; leadId?: string | null; photos?: Array<{ contentBase64?: string | null; mime?: string | null }> } }
     | { kind: 'call_finished'; callRecordId: string }
-    | { kind: 'call_transcribed'; callRecordId: string };
+    | { kind: 'call_transcribed'; callRecordId: string }
+    /** A received email, already read from Resend by the inbound email webhook (email-inbound.ts). */
+    | { kind: 'email_received'; envelope: InboundEnvelope };
 
 /** `attached` is on a call's report only: the turns a call already had that this forward filled in. */
 export interface IntakeReport { forwarded: number; attached?: number; skipped: string[] }
@@ -251,6 +253,8 @@ export async function envelopesOf(event: IntakeEvent, deps: { fetch?: typeof fet
             if (!env) skipped.push('an unanswered outbound call is recorded on the call row only');
             return { envelopes: env ? [env] : [], skipped };
         }
+        case 'email_received':
+            return { envelopes: [event.envelope], skipped };
     }
 }
 
