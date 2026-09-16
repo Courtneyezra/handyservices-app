@@ -433,6 +433,7 @@ export class Desk implements DeskLike {
         const choice = chooseChannel(party, turn.channel, this.now());
         if (!choice.ok) return { ...this.nothing(file, party.personId, runId, calls, choice.reason, 'hold'), summary };
         let rendered = render(choice.channel, reply!, { name: party.name, wideBubbles: fixedLineOnly });
+        let overflow = 'the reply';
         if (!rendered.ok && rendered.reason === 'ceiling' && !fixedLineOnly) {
             const shorter = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles), now: this.now() }, client);
             calls.push(shorter.record);
@@ -447,9 +448,15 @@ export class Desk implements DeskLike {
                     if (r3.ok) log(`render: the shortened reply still ran over ${BUBBLE_CEILING} bubbles at ${BUBBLE_MAX_CHARS} characters and went at ${BUBBLE_SOFT_MAX_CHARS}`);
                 }
                 if (shortGuards.ok && r3.ok) { composed = shorter.output.reply; reply = shortReply; factIds = shorter.output.factIds; kbIds = short.kbIds; guards = shortGuards; rendered = r3; }
+                else overflow = shortGuards.ok ? 'the shortened reply' : `the shortened reply failed the guards (${shortGuards.failures.join('; ')}) and the reply`;
+            } else overflow = `the composer ${shorter.refused ? 'declined' : 'failed'} the shorten and the reply`;
+            // A shorten that did not give a reply to send falls back to the reply that already passed the guards, split at 200, before any hold.
+            if (!rendered.ok && choice.channel === 'whatsapp') {
+                const r4 = render(choice.channel, reply!, { name: party.name, softWidth: true });
+                if (r4.ok) { rendered = r4; log(`render: the shorten gave no reply to send (${overflow}) and the reply went at ${BUBBLE_SOFT_MAX_CHARS}`); }
             }
         }
-        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `the reply stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
+        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `${overflow} stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten, even at ${BUBBLE_SOFT_MAX_CHARS} characters`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
         const window = windowOf(party, choice.channel, this.now());
         let template: TemplateSend | null = null;
         let templateWording: string | null = null;

@@ -221,12 +221,12 @@ describe('a reply over three bubbles at 160 (answer 93: soft)', () => {
     const OVER = `${LONG}\n\nWhat sort of things will be going on the shelf?\n\nHappy to give you a quick call if that's easier.`;
     const WALL = `${'This sentence is long enough to count. '.repeat(6).trim()}\n\nTwo.\n\nThree.`;
 
-    async function run(shortened: string) {
+    async function run(shortened: string, first = OVER) {
         const lines: string[] = [];
         const client = new FakeModelClient({
             router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry' }),
             specialist: () => ({ facts: [{ key: 'job_type', value: 'floating shelf' }], jobUnknowns: ['what goes on it'], answeredSubjects: [] }),
-            composer: ({ n }) => ({ reply: n === 1 ? OVER : shortened, factIds: [], kbIds: [] }),
+            composer: ({ n }) => ({ reply: n === 1 ? first : shortened, factIds: [], kbIds: [] }),
         });
         const desk = new Desk({ client, log: (l) => lines.push(l), fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, scoping: { describe: async () => ({ ok: false, reason: 'none' }) } });
         const out = await new Gateway({ desk }).inbound(message('I need a floating shelf put up'));
@@ -254,11 +254,28 @@ describe('a reply over three bubbles at 160 (answer 93: soft)', () => {
         expect(lines.some((l) => /went at 200/.test(l))).toBe(true);
     });
 
-    it('holds when the shortened reply runs over even at 200, never sending a fourth bubble', async () => {
+    it('falls back to the guarded reply at 200 when the shortened reply fails the guards, rather than holding', async () => {
+        const { out, lines, composers } = await run('Hi Sam.\n\nWhat goes on the shelf? And how long is it?');
+        expect(composers).toHaveLength(2);
+        expect(out.result.decision).toBe('send');
+        expect(out.file.hold).toBeNull();
+        expect(out.result.bubbles.map((b) => b.text)).toEqual([LONG, 'What sort of things will be going on the shelf?', "Happy to give you a quick call if that's easier."]);
+        expect(lines.some((l) => /failed the guards.*went at 200/.test(l))).toBe(true);
+    });
+
+    it('falls back to the guarded reply at 200 when the shortened reply runs over even at 200', async () => {
         const { out, composers } = await run(WALL);
         expect(composers).toHaveLength(2);
+        expect(out.result.decision).toBe('send');
+        expect(out.result.bubbles).toHaveLength(3);
+        expect(out.result.bubbles.map((b) => b.text)[0]).toBe(LONG);
+    });
+
+    it('holds when the reply and its shortened version both run over even at 200, never sending a fourth bubble', async () => {
+        const { out, composers } = await run(WALL, WALL);
+        expect(composers).toHaveLength(2);
         expect(out.result.decision).toBe('hold');
-        expect(out.file.hold?.reason).toMatch(/over the ceiling of 3 bubbles after one shorten/);
+        expect(out.file.hold?.reason).toMatch(/the shortened reply stayed over the ceiling of 3 bubbles after one shorten, even at 200/);
         expect(out.result.bubbles.length).toBeLessThanOrEqual(3);
         expect(out.file.turns.filter((t) => t.direction === 'outbound').every((t) => !t.body.includes('This sentence is long enough'))).toBe(true);
     });
