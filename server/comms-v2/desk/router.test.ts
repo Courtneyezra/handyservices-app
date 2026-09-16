@@ -236,5 +236,10 @@ describe('a photo and a video in one customer turn', () => {
         if (!sent.ok) throw new Error(sent.reason);
         const both = buildComposerUser({ file: form, party: form.parties[0], turn: sent.value, route: { turnKind: 'answer', subjects: ['scoping'], exceptions: [] }, specialists: [], fixedLines: [] });
         expect(both).toContain('>> Sam: Photo and video attached [1 photo and 1 video: photo, A wet cupboard base; video, Water dripping from a pipe joint]');
+        // A video the vision model could not describe is marked as not seen, beside the photo it did.
+        const part = appendTurn(form, { partyId: 'p1', direction: 'inbound', at: '2026-09-11T10:03:00.000Z', channel: 'form', kind: 'form', body: 'One more', media: [shot('m5', 'image', 'A wet cupboard base.'), { ...shot('m6', 'video', 'x'), description: null }] });
+        if (!part.ok) throw new Error(part.reason);
+        const partUser = buildComposerUser({ file: form, party: form.parties[0], turn: part.value, route: { turnKind: 'answer', subjects: ['scoping'], exceptions: [] }, specialists: [], fixedLines: [] });
+        expect(partUser).toContain('>> Sam: One more [1 photo and 1 video: photo, A wet cupboard base; 1 video not seen by you]');
     });
 });

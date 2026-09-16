@@ -578,6 +578,25 @@ describe('the desk', () => {
         expect(second.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
     });
 
+    it('a video nobody could describe is thanked for without a detail the desk never saw', async () => {
+        const video = [{ id: 'v1', kind: 'video' as const, mime: 'video/mp4', path: '/tmp/v1.mp4', url: 'https://example.test/v1.mp4', bytes: 4096 }];
+        let composerUser = '';
+        const { gateway } = desk({
+            router: () => routeScoping({ turnKind: 'answer' }),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'leaking pipe under the sink' }]),
+            composer: ({ user }) => {
+                composerUser = user;
+                return { reply: 'Thanks for the video.\n\nWhereabouts are you?', factIds: [], kbIds: [] };
+            },
+        });
+        // The vision model is down (the test desk's describe always fails), so the video has no description.
+        const out = await gateway.inbound(turn('', '2026-09-11T10:00:00.000Z', video));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(out.result.decision).toBe('send');
+        expect(composerUser).toContain('>> Sam: [1 video, not seen by you]');
+        expect(composerUser).toMatch(/thank for media: yes, but .*not seen.*do not say what it shows/);
+    });
+
     it('the held acknowledgement names the photo the turn brought and spends its one thanks, so the next turn is told not to thank again', async () => {
         const photo = [{ id: 'm1', kind: 'image' as const, mime: 'image/jpeg', path: '/tmp/m1.jpg', url: 'https://example.test/m1.jpg', bytes: 1024 }];
         let composerUser = '';
