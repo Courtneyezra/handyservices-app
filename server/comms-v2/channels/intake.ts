@@ -244,10 +244,10 @@ export async function envelopesOf(event: IntakeEvent, deps: { fetch?: typeof fet
             const { eq } = await import('drizzle-orm');
             const [call] = await db.select().from(calls).where(eq(calls.id, event.callRecordId)).limit(1);
             if (!call) { skipped.push('no call record'); return { envelopes: [], skipped }; }
-            const { describeCall } = await import('../../call-thread');
+            const { describeCall, nonFillerSummary } = await import('../../call-thread');
             const info = describeCall(call as any);
             const { fromFinishedCall } = await import('./call-adapter');
-            const env = fromFinishedCall({ phone: call.phoneNumber, name: call.customerName, direction: info.direction, missed: info.missed, transcript: call.transcription, durationSeconds: call.duration, at: (call.endTime ?? call.startTime)?.toISOString() ?? null, jobSummary: info.summary, callId: call.id });
+            const env = fromFinishedCall({ phone: call.phoneNumber, name: call.customerName, direction: info.direction, missed: info.missed, transcript: call.transcription, durationSeconds: call.duration, at: (call.endTime ?? call.startTime)?.toISOString() ?? null, jobSummary: nonFillerSummary(call.jobSummary), callId: call.id });
             if (!env) skipped.push('an unanswered outbound call is recorded on the call row only');
             return { envelopes: env ? [env] : [], skipped };
         }

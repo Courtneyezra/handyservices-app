@@ -73,6 +73,15 @@ describe('a call forwarded at hang-up and again once transcribed', () => {
         expect(gateway.store.all()[0].facts.filter((f) => f.key === 'call_summary')).toEqual([]);
     });
 
+    it('records no call summary from the classifier when the row has none of its own', async () => {
+        row.current = { ...bareRow(), transcription: TRANSCRIPT, classification: { kind: 'job_enquiry', whatsappAgreed: 'not_discussed', messagingObjection: false, jobSummary: 'Caller wants the extractor fan fixed; seems price sensitive', jobPhrase: 'the extractor fan', urgency: 'normal', callbackPromised: false, classifiedAt: '2026-09-16T09:02:00.000Z' } };
+        await forwardNow({ kind: 'call_finished', callRecordId: 'call_7' });
+        await forwardNow({ kind: 'call_transcribed', callRecordId: 'call_7' });
+        const [file] = gateway.store.all();
+        expect(file.turns[0].body).toContain('extractor fan has stopped');
+        expect(file.facts.filter((f) => f.key === 'call_summary')).toEqual([]);
+    });
+
     it('waits for the hang-up forward still reading its row, so the transcript is never refused for arriving first', async () => {
         let open!: () => void;
         row.gate = new Promise<void>((r) => { open = r; });
