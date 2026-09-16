@@ -46,6 +46,12 @@ export interface HumanReplyInput {
     words: string;
     /** Dry run lands the words on the thread; live delivers them through the one outbound send. The board passes the mode of the store it reads (api/store.ts). */
     mode?: 'dry_run' | 'live';
+    /**
+     * The words are the desk's own held draft, not typed by the person: rendered as the desk renders
+     * its own replies (bubbles of about 160 characters, answer 93; the email greeting and sign-off;
+     * SMS punctuation), and only as typed words are when that is all that fits.
+     */
+    deskDraft?: boolean;
 }
 
 /** What went, for the board to show back: not a desk turn, so it carries no guards and no route. */
@@ -99,7 +105,8 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     // Channel, render, window: as the sender renders a composed reply, with nothing reflowed or rewritten.
     const choice = chooseChannel(party, turn.channel, now());
     if (!choice.ok) return refuse(choice.reason);
-    const rendered = render(choice.channel, words, { asTyped: true });
+    let rendered = render(choice.channel, words, input.deskDraft ? { name: party.name } : { asTyped: true });
+    if (input.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(choice.channel, words, { name: party.name, softWidth: true });
     if (!rendered.ok) {
         if (rendered.reason === 'empty') return refuse('the reply rendered to nothing');
         const over = shortenBriefFor(choice.channel, words, rendered.bubbles);
@@ -132,13 +139,15 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
  * One tap send of the reply the desk held back, exactly as it stands. Firstmate decision
  * hsa-comms-v2-board-conversation-view: this is the same pipeline as Ben typing the words himself
  * (`humanReply` above), because a person choosing to release the desk's own draft carries the same
- * authority as a person typing his own — no separate render, window or approver check is invented
- * for it. Refuses first when there is no draft to send, then everything `humanReply` refuses.
+ * authority as a person typing his own — no separate window or approver check is invented for it.
+ * The words are the desk's, so they render as the desk's own replies do (`deskDraft`): split into
+ * bubbles, with the desk's punctuation rules, and otherwise unchanged. Refuses first when there is
+ * no draft to send, then everything `humanReply` refuses.
  */
 export async function sendHeldDraft(input: Omit<HumanReplyInput, 'words'>, deps: CaseFileDeps = {}): Promise<HumanReplyOutcome> {
     const draft = input.file.hold?.draft;
     if (!draft) return { ok: false, reason: 'there is no held draft to send' };
-    return humanReply({ ...input, words: draft }, deps);
+    return humanReply({ ...input, words: draft, deskDraft: true }, deps);
 }
 
 export interface SendWindowTemplateInput {
