@@ -254,7 +254,7 @@ export class Gateway {
     }
 
     /** One desk pass on a file, after any pass already running or queued on it; the file is put when the pass is done, even when it throws. */
-    private deskPass<T>(file: CaseFile, pass: (file: CaseFile) => Promise<T>): Promise<T> {
+    protected deskPass<T = DeskResult>(file: CaseFile, pass: (file: CaseFile) => Promise<T>): Promise<T> {
         const run = async () => {
             try {
                 return await pass(file);

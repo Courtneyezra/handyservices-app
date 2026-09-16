@@ -18,7 +18,7 @@ import type { InboundTurn } from '../desk/whatsapp-adapter';
 import { recordingNotifier } from '../quoting/ben-notifier';
 import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore } from '../quoting/quote-store';
-import { fromDoorCall } from './call-adapter';
+import { fromDoorCall, fromFinishedCall } from './call-adapter';
 import { EMAIL_SIGN_OFF, fromDoorEmail } from './email-adapter';
 import { ChannelDesk } from './channel-desk';
 import { ChannelGateway, type ChannelSeed } from './channel-gateway';
@@ -362,6 +362,44 @@ describe('the channel desk on a call', () => {
         expect(b.result.decision).toBe('send');
         expect(b.result.bubbles.map((x) => x.text).join(' ')).not.toMatch(/photo/i);
         expect(b.file.ledger.find((l) => l.subject === 'media')).toMatchObject({ askCount: 1 });
+    });
+    it('a live answered call reaches the desk before its transcript: nothing is read at hang-up, and the transcript that lands later is read for the job, the location and what Ben asked for, with nothing sent', async () => {
+        const users: string[] = [];
+        const { gateway, client } = rig({
+            specialist: ({ system }) => (/transcript of a phone call/.test(system)
+                ? read({ jobPhrase: 'the kitchen tap', jobType: 'dripping kitchen tap', location: 'NG9 2AB', benAskedFor: [{ subject: 'media', detail: 'a photo of the tap' }] })
+                : /lines of a quote/.test(system)
+                    ? { lines: [{ title: 'Fix dripping kitchen tap', category: 'plumbing', qty: 1, detail: 'dripping', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                    : /what it concerns/.test(system)
+                        ? { concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }
+                        : { facts: [], jobUnknowns: [], answeredSubjects: [] }),
+            router: () => routeScoping(),
+            composer: ({ user }) => { users.push(user); return { reply: 'Thanks Sam. Is there parking near you?', factIds: [], kbIds: [] }; },
+        });
+        const live = (transcript: string | null) => fromFinishedCall({ phone: '+447700900942', name: null, direction: 'inbound', missed: false, transcript, durationSeconds: 150, at: '2026-09-11T10:00:00.000Z', jobSummary: transcript ? 'Dripping kitchen tap' : null, callId: 'call_live_1' })!;
+        // Hang-up: the call row has no transcript yet (intake.ts `call_finished`).
+        const a = await gateway.inbound(live(null), { whatsapp: true });
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.result.decision).toBe('none');
+        expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(0);
+        // The batch transcription lands (intake.ts `call_transcribed`).
+        const b = await gateway.inbound(live('Agent: Handy Services, Ben speaking. Customer: Hi, my kitchen tap keeps dripping. Agent: Whereabouts are you? Customer: Beeston, NG9 2AB. Agent: Can you send me a photo of the tap on WhatsApp and I will price it up.'), {}, { attachOnly: true });
+        expect(b).toMatchObject({ kind: 'attached', changed: true });
+        const file = gateway.store.get(a.file.id)!;
+        expect(file.job).toMatchObject({ type: 'dripping kitchen tap', location: 'NG9 2AB' });
+        expect(file.stage).toBe('ready');
+        expect(file.ledger.find((l) => l.subject === 'media')).toMatchObject({ askCount: 1, answeredAt: null });
+        expect(file.sends).toEqual([]);
+        expect(file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+        // The same transcript again reads nothing more.
+        await gateway.inbound(live('Agent: Handy Services, Ben speaking. Customer: Hi, my kitchen tap keeps dripping. Agent: Whereabouts are you? Customer: Beeston, NG9 2AB. Agent: Can you send me a photo of the tap on WhatsApp and I will price it up.'), {}, { attachOnly: true });
+        expect(client.calls.filter((c) => /transcript of a phone call/.test(c.system))).toHaveLength(1);
+        // The customer then writes on WhatsApp: the desk neither asks for the photo Ben asked for nor for the location they gave on the phone.
+        const c = await gateway.inbound(wa('Hi, it\'s Sam from the call earlier', '2026-09-11T10:20:00.000Z'));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        expect(c.result.decision).toBe('send');
+        expect(users[0]).toMatch(/Never ask again.*photos/);
+        expect(users[0]).not.toContain('ask one question about their location');
     });
     it('every other channel\'s turn reaches the desk unchanged: an SMS is answered on SMS with the move-to-WhatsApp line once, then never again', async () => {
         const { gateway } = rig({

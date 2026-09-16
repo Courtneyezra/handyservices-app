@@ -26,6 +26,9 @@ export const TRANSCRIPT_MIN_CHARS = 40;
 /** The turn's body is capped here; the reader sees the whole transcript. */
 export const TRANSCRIPT_BODY_MAX = 6000;
 
+/** What an answered call's body says until its transcript lands. */
+export const NO_TRANSCRIPT = '(no transcript)';
+
 export const CALL_OUTCOME_KEY = 'call_outcome';
 export const CALL_SUMMARY_KEY = 'call_summary';
 
@@ -66,7 +69,7 @@ export function transcriptBody(outcome: CallOutcome, transcript: string | null |
     const dur = minutes(durationSeconds);
     if (outcome === 'missed') return `[missed call${dur ? `, rang ${dur}` : ''}: nobody spoke to them]`;
     const head = outcome === 'ben_rang' ? `[call: Ben rang them and they answered${dur ? `, ${dur}` : ''}]` : `[call: they rang us and were answered${dur ? `, ${dur}` : ''}]`;
-    if (!t) return `${head}\n(no transcript)`;
+    if (!t) return `${head}\n${NO_TRANSCRIPT}`;
     const body = t.length > TRANSCRIPT_BODY_MAX ? `${t.slice(0, TRANSCRIPT_BODY_MAX)}\n[transcript cut at ${TRANSCRIPT_BODY_MAX} characters]` : t;
     return `${head}\n${body}`;
 }
@@ -133,4 +136,10 @@ export function callOutcomeOnFile(file: CaseFile, turn: Turn): CallOutcome | nul
 /** The transcript itself, without the header line the body carries. */
 export function transcriptOf(turn: Turn): string {
     return turn.body.replace(/^\[[^\]]*\]\n?/, '').replace(/\n\[transcript cut at \d+ characters\]$/, '').trim();
+}
+
+/** The turn carries a transcript to read: not a missed call's line, not a call still waiting on transcription. */
+export function hasTranscript(turn: Turn): boolean {
+    const t = transcriptOf(turn);
+    return !!t && t !== NO_TRANSCRIPT;
 }
