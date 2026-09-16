@@ -249,3 +249,17 @@ under the person who licensed it rather than composed; with it not approved, Ben
 window holds for him and leaves the quote a draft he can price again, rather than delivering a
 generic re-open nudge while the file records every figure as live. The same holds for a guard
 failure and a refused send.
+
+## Answered 16 Sep (the Kiran thread case study)
+
+**90. A bare thanks after the quote was promised.** "One short bubble." It gets a brief human reply,
+never a repeat of the previous message (`server/comms-v2/desk/repeat.ts`).
+
+**91. Pacing.** "Longer gaps only." The 8-second quiet window stays; bubbles are spaced by roughly
+their typing time (`server/comms-v2/desk/sender.ts`).
+
+**92. Acknowledging photos.** "One light detail." A short natural mention of what the photos show,
+not a full description (`server/comms-v2/desk/composer.ts`).
+
+**93. Bubble size.** "About 160, 1-2 sentences." A soft ceiling of about 160 characters per
+WhatsApp bubble, still at most three bubbles per reply (`server/comms-v2/desk/sender.ts`).
