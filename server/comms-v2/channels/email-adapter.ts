@@ -44,12 +44,19 @@ export interface InboundEmail {
 
 // ---------------------------------------------------------------- the headers
 
+/** The longest From read, an RFC 5322 line; anything longer has no address, so the parse stays cheap. */
+export const EMAIL_FROM_MAX = 998;
+/** The most of a text or HTML part read, so a hostile body cannot stall the parse. */
+export const EMAIL_PART_MAX = 200 * 1024;
+
 /**
  * The address and display name from a From header: `sam@x.co`, `<sam@x.co>`, `Sam <sam@x.co>` or
  * `"Jones, Sam" <sam@x.co>`. The name is null when there is none or it is only the address again.
+ * A value longer than `EMAIL_FROM_MAX` gives an empty address.
  */
 export function parseEmailAddress(raw: string | null | undefined): { address: string; name: string | null } {
     const s = String(raw ?? '').trim();
+    if (s.length > EMAIL_FROM_MAX) return { address: '', name: null };
     const angled = s.match(/^(.*?)<\s*([^<>\s]+@[^<>\s]+)\s*>\s*$/);
     if (!angled) return { address: s, name: null };
     let name = angled[1].trim();
@@ -60,13 +67,13 @@ export function parseEmailAddress(raw: string | null | undefined): { address: st
 
 /** Every `<id>` in a Message-ID, In-Reply-To or References header, in order, once each. */
 export function messageIdsOf(...headers: Array<string | string[] | null | undefined>): string[] {
-    const out: string[] = [];
+    const out = new Set<string>();
     for (const h of headers) {
         for (const part of Array.isArray(h) ? h : [h ?? '']) {
-            for (const id of String(part).match(/<[^<>\s]+>/g) ?? []) if (!out.includes(id)) out.push(id);
+            for (const id of String(part).match(/<[^<>\s]+>/g) ?? []) out.add(id);
         }
     }
-    return out;
+    return Array.from(out);
 }
 
 // ---------------------------------------------------------------- the HTML part, as text
@@ -171,7 +178,7 @@ export function stripQuotedHistory(text: string): string {
     const normalised = text.replace(/\r\n/g, '\n');
     const out: string[] = [];
     for (const raw of normalised.split('\n')) {
-        const line = raw.replace(/\s+$/, '');
+        const line = raw.trimEnd();
         if (/^\s*>/.test(line) || RE_QUOTE_HEADER.test(line.trim())) break;
         out.push(line);
     }
@@ -190,8 +197,8 @@ export function fromInboundEmail(email: InboundEmail, deps: EmailAdapterDeps = {
     if (!key || !key.startsWith('email:')) throw new Error('inbound email without a sender address');
     const address = key.slice('email:'.length);
     const subject = (email.subject ?? '').trim() || null;
-    const plain = (email.text ?? '').trim();
-    const body = stripQuotedHistory(plain || htmlToText(email.html ?? ''));
+    const plain = (email.text ?? '').slice(0, EMAIL_PART_MAX).trim();
+    const body = stripQuotedHistory(plain || htmlToText((email.html ?? '').slice(0, EMAIL_PART_MAX)));
     const messageId = messageIdsOf(email.messageId)[0] ?? (email.messageId?.trim() || null);
     // The chain a reply carries: what this message referenced, what it answered, then itself.
     const references = messageIdsOf(email.references, email.inReplyTo).filter((id) => id !== messageId).concat(messageId ? [messageId] : []);

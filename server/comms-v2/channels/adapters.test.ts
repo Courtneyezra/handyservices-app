@@ -9,7 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { open, type CaseFile } from '../desk/case-file';
 import { CALL_OUTCOMES, callOutcomeOf, callOutcomeOnFile, fromDoorCall, fromFinishedCall, transcriptBody, transcriptOf, validateDoorCall, TRANSCRIPT_BODY_MAX } from './call-adapter';
-import { emailThreadingFor, fromDoorEmail, fromInboundEmail, htmlToText, messageIdsOf, parseEmailAddress, renderEmail, stripQuotedHistory } from './email-adapter';
+import { EMAIL_FROM_MAX, emailThreadingFor, fromDoorEmail, fromInboundEmail, htmlToText, messageIdsOf, parseEmailAddress, renderEmail, stripQuotedHistory } from './email-adapter';
 import { firstNameOf, truncateWords } from './envelope';
 import { fromDoorForm, fromWebForm } from './form-adapter';
 import { MAX_PHOTO_BYTES } from './media';
@@ -116,6 +116,22 @@ describe('the email adapter', () => {
         expect(htmlToText('<p>Hello.</p><style>a{}<!-- never closed')).toBe('Hello.');
         expect(htmlToText('<p>Hi</p><!-- never closed <p>gone</p>')).toBe('Hi');
         expect(htmlToText('<p>Kept</p><blockquote>unclosed <blockquote>q</blockquote> tail')).toBe('Kept\nunclosed tail');
+    });
+    it('reads a large hostile plain-text or HTML body, From and References quickly', () => {
+        const n = 300_000;
+        const started = Date.now();
+        const text = fromInboundEmail({ from: 'a@b.co', text: `Hello.\n${' '.repeat(n)}x\n${'\u2003'.repeat(n)}y` });
+        const html = fromInboundEmail({ from: 'a@b.co', html: `<p>Hello.</p><p>${'\u2003\f\v'.repeat(n)}x</p>` });
+        for (const from of [`<${'@'.repeat(n)} `, `a@${'.'.repeat(n)} `, `${'"'.repeat(n)}<a@b.co>`]) {
+            expect(() => fromInboundEmail({ from, text: 'hi' })).toThrow('inbound email without a sender address');
+        }
+        const refs = Array.from({ length: 50_000 }, (_, i) => `<r${i}@x>`).join(' ');
+        const threaded = fromInboundEmail({ from: 'a@b.co', text: 'hi', messageId: '<m@x>', references: `${refs} ${refs}` });
+        expect(Date.now() - started).toBeLessThan(2000);
+        expect(text.text).toBe('Hello.');
+        expect(html.text.startsWith('Hello.')).toBe(true);
+        expect(threaded.email?.references).toHaveLength(50_001);
+        expect(parseEmailAddress(`"${'J'.repeat(EMAIL_FROM_MAX)}" <j@x.co>`)).toEqual({ address: '', name: null });
     });
     it('strips history at the quote header or the first quoted line', () => {
         expect(stripQuotedHistory('new words\n\n-----Original Message-----\nFrom: x\nold')).toBe('new words');

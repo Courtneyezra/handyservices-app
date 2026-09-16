@@ -204,6 +204,9 @@ the email (`GET /emails/receiving/{id}`) and its attachments
   failed download is named on the turn's media failures. An inline image under 16 KB is taken as a
   signature or logo and skipped.
 
+Anyone can email the business, so the parse is linear in what it reads: each text or HTML part is
+read up to 200 KB, and a From longer than an RFC 5322 line (998 characters) has no address.
+
 The sandbox door (`fromDoorEmail`) still hands its media over as bytes.
 
 Resend receiving customers' full message bodies and attachments is recorded in
