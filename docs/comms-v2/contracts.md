@@ -404,7 +404,8 @@ alone tells Ben the new value could not be read. A question about the email or a
 it holds for Ben as `no_source`, naming the masked field. A proposal: a hold with its reason from the vocabulary
 (`complaint`, `refund`, `trust_doubt`, `no_source`, `not_converging`, `change_of_details`), or none.
 A brief for the composer naming the exact words and the id to cite. An id the lookup did not return
-is no source. Never a sentence for the customer.
+is no source. A question about the customer's own job is Scoping's: when Scoping ran on the turn it is
+left to it, so a mixed turn never holds the job half as `no_source`. Never a sentence for the customer.
 
 **Holds and what the customer hears.** Fixed line only, no composer, no specialist until Ben
 releases: complaint, refund, trust doubt, gas, not converging. Answer the rest, with the fixed line
