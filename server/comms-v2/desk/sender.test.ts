@@ -498,3 +498,28 @@ describe('shortenBriefFor', () => {
         if (ucs2.channel === 'sms') expect(ucs2.charBudget).toBeLessThan(gsm7.channel === 'sms' ? gsm7.charBudget : 0);
     });
 });
+
+describe('a bulleted list the composer wrote (round 23)', () => {
+    const texts = (r: { bubbles: { text: string }[] }) => r.bubbles.map((b) => b.text);
+
+    it('goes out as one sentence of comma-joined items, with no hyphen as punctuation and the words after it a new sentence', () => {
+        const reply = 'Thanks for the photos. Could you send me:\n- a photo of the whole tap\n- the rough size of the cupboard\nCheers';
+        const wa = renderWhatsApp(reply);
+        const sms = render('sms', reply);
+        expect(texts(wa)).toEqual(['Thanks for the photos. Could you send me: a photo of the whole tap, the rough size of the cupboard. Cheers']);
+        expect(texts(sms)).toEqual(['Thanks for the photos. Could you send me: a photo of the whole tap, the rough size of the cupboard. Cheers']);
+    });
+
+    it('drops dot and star markers, keeps question items whole and leaves a lower-case run-on alone', () => {
+        expect(texts(render('sms', 'No problem. Just a few bits:\n• the postcode\n• a photo of the door\n• roughly how wide it is')))
+            .toEqual(['No problem. Just a few bits: the postcode, a photo of the door, roughly how wide it is']);
+        expect(texts(renderWhatsApp('Thanks Sam. A couple of questions:\n* Is the leak from the tap body or underneath?\n* How old is the tap?')))
+            .toEqual(['Thanks Sam. A couple of questions: Is the leak from the tap body or underneath? How old is the tap?']);
+        expect(texts(renderWhatsApp('Great, that helps.\n- a photo of the fan\n- which room it is in\nand we will get it priced.')))
+            .toEqual(['Great, that helps. a photo of the fan, which room it is in and we will get it priced.']);
+    });
+
+    it('leaves a person\'s own list as typed', () => {
+        expect(texts(render('sms', 'Two things:\n- the washer\n- the valve', { asTyped: true }))).toEqual(['Two things:\n- the washer\n- the valve']);
+    });
+});
