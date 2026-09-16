@@ -36,7 +36,7 @@ import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, heldAckLine, knowledgeBaseFixedLines, lateMediaAckLine, LATE_MEDIA_MS, type FixedLine, type FixedLineSource } from './fixed-lines';
 import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
-import { asksProposed, offersCall, RE_CALL_ASKED, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
+import { asksForCall, asksProposed, offersCall, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
 import { TurnModelWatch, type TurnReport } from './model-health';
 import type { Exception, HoldException, Route } from './router';
@@ -503,7 +503,7 @@ export class Desk implements DeskLike {
         // more or a not-ready customer gets one acknowledgement and then quiet (2.5, 6.2, answers 8 and 19), so a
         // question in that reply is checked the same way: it would ask them for something they have just put off.
         const quietTurn = route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready';
-        const noCallOffer = exceptions.includes('callback') || RE_CALL_ASKED.test(turn.body) ? null
+        const noCallOffer = exceptions.includes('callback') || asksForCall(turn.body) ? null
             : party.prefersText ? 'they prefer text' : party.alreadyRung ? 'they have already rung us' : null;
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
             const n = scopingQuestionCount(text);

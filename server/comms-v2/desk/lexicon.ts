@@ -236,6 +236,21 @@ const RE_CALL_NEGATION = /\b(?:won'?t|will not|wont|(?:cannot|can'?t|can not)(?!
 /** The customer asking to be called: "call me", "can you ring me back", "give me a bell". */
 export const RE_CALL_ASKED = /\b(?:call|ring|phone|bell)\s+me\b|\bgive me a (?:quick )?(?:call|ring|bell|buzz)\b/i;
 
+// What turns those words round (round 26): "please don't call me", "can you not ring me", "no need to phone me",
+// "never ring me". "Why not call me?" still asks. Only the words since the clause's last "but", "so" or "and" count.
+const RE_CALL_REFUSED = /\b(?:don['’]?t|do not|(?<!\bwhy )not|never|no need (?:to|for you to)|stop)(?:\s+\S+){0,2}\s*$/i;
+
+/** The customer asks to be called, in a clause that does not turn it round ("please don't call me" is not an ask). */
+export function asksForCall(text: string): boolean {
+    for (const s of sentencesOf(text)) for (const clause of clausesOf(s)) {
+        const m = RE_CALL_ASKED.exec(clause);
+        if (!m) continue;
+        const before = clause.slice(0, m.index).split(/\b(?:but|so|and|then|though)\b/i).pop() ?? '';
+        if (!RE_CALL_REFUSED.test(before)) return true;
+    }
+    return false;
+}
+
 // A call that already happened or was already tried ("as we discussed on the phone", "great speaking to
 // you on the phone earlier", "we tried to call you back") is not an offer of one.
 const RE_CALL_PAST = /\b(?:discussed|said|mentioned|spoke|spoken|speaking|talked|talking|chatted|chatting|tried|missed|earlier|just now|yesterday|this morning)\b/i;
