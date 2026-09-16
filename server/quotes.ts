@@ -28,7 +28,7 @@ import { computeDateFeesPence } from "./scheduling-fees";
 import { isWelcomeGiftEligible, resolveWelcomeGift } from "./welcome-gift";
 import { resolveOrCreateProperty } from "./properties";
 import { resolveOrCreateClient } from "./clients";
-import { planSelfRefresh } from "./comms-v2/quoting/reissue";
+import { legacyRefreshRecord, planSelfRefresh } from "./comms-v2/quoting/reissue";
 import { successResponse, errorResponse, sendSuccess, sendError, sendNotFound, sendBadRequest, sendServerError } from "./lib/api-response";
 import { bookQuoteAsJob } from "./ops/actions";
 
@@ -2581,11 +2581,14 @@ quotesRouter.post('/api/personalized-quotes/:slug/reissue', async (req, res) => 
             console.warn(`[reissue] ${slug} not refreshed on the page: ${fromOriginal.reason}`);
             return res.status(409).json({ error: "This quote can't be refreshed here. Message us and we'll sort a fresh one.", cannotRefresh: true });
         }
-        const patch: Record<string, any> = fromOriginal?.patch ?? {
-            ...computeReissuePatch(quote, REISSUE_SURCHARGE),
-            extensionCount: selfReissues + 1,
-            regenerationCount: (quote.regenerationCount || 0) + 1,
-        };
+        let patch: Record<string, any>;
+        if (fromOriginal) patch = fromOriginal.patch;
+        else {
+            const compounded = computeReissuePatch(quote, REISSUE_SURCHARGE);
+            // As it always was, but the row keeps what the customer first saw, so the desk can still reissue from it.
+            const kept = legacyRefreshRecord(quote, compounded.basePrice ?? quote.basePrice);
+            patch = { ...compounded, extensionCount: selfReissues + 1, regenerationCount: (quote.regenerationCount || 0) + 1, ...(kept ? { pricingSuggestions: kept } : {}) };
+        }
         // Band on the post-surcharge price so the refreshed window matches the band.
         const newExpiresAt: Date = patch.expiresAt ?? new Date(Date.now() + quoteValidityMs(patch.basePrice ?? quote.basePrice));
 

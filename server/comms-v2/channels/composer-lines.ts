@@ -17,7 +17,7 @@
  * reserved words were there to carry.
  */
 import type { CaseFile, Party, ReplyChannel, Turn } from '../desk/case-file';
-import { chooseChannel } from '../desk/sender';
+import { BUBBLE_CEILING, chooseChannel } from '../desk/sender';
 
 /**
  * Whether the send being written is still the first contact a web-form enquiry is owed: they wrote
@@ -44,6 +44,7 @@ export function composerChannelLines(file: CaseFile, party: Party, turn: Turn, n
     if (reserved > 0) {
         lines.push('A line the desk writes goes ahead of your words in this send: do not introduce us and do not repeat that line.');
         if (channel === 'sms') lines.push('The characters named above are what is left of that one text for you, after that line.');
+        else if (channel === 'whatsapp') lines.push(`That line is one bubble of its own: write at most ${BUBBLE_CEILING - 1} bubbles yourself.`);
     }
     if (!sendOn && acknowledgesEnquiry(file, turn)) lines.push('They wrote on the web form, not WhatsApp, so this is the first message they receive from us: quote their enquiry back in your own words before anything else, in one line and with no figure.');
     return lines;

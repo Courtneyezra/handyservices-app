@@ -87,6 +87,7 @@ describe('the quoting door', () => {
         expect((await post('/price', {})).status).toBe(409);
         expect((await post('/accept', {})).status).toBe(409);
         expect((await get('/quote')).status).toBe(409);
+        expect((await post('/lapse', {})).status).toBe(409);
     });
 
     it('the ready turn drafts the quote without further prompting and records one push to Ben with the price screen link', async () => {
@@ -199,6 +200,22 @@ describe('the quoting door', () => {
         expect(Object.values(ps.guards).every((g) => g.result === 'pass')).toBe(true);
         const cited = r.json.state.caseFile.facts.find((f: any) => ps.factIds.includes(f.id));
         expect(cited).toMatchObject({ key: 'quote_line:Replace kitchen tap', value: '£120.00', source: { kind: 'quote_line', line: 'Replace kitchen tap' } });
+    });
+
+    it('lapse puts the sandbox quote past its lock, and the next message reissues it at the original plus 5% in one reply', async () => {
+        const lapsed = await post('/lapse', {});
+        expect(lapsed.status).toBe(200);
+        expect(lapsed.json.record.status).toBe('expired');
+        const r = await post('/message', { text: 'What does that include again?', channel: 'whatsapp' });
+        const ps = plannedSendOfResponse(r.json);
+        expect(ps.delivered).toBe(true);
+        expect(ps.hold).toBeNull();
+        expect(ps.bubbles[0]).toBe(`Your previous quote has expired, so I've updated it. The new price is £126.00. Here's your updated quote: https://test.local/quote/${lapsed.json.slug}`);
+        expect(ps.bubbles.join(' ')).not.toContain('£120.00');
+        expect(Object.values(ps.guards).every((g) => g.result === 'pass')).toBe(true);
+        const state = await get('/quote');
+        expect(state.json.record).toMatchObject({ status: 'sent', totalPence: 12600 });
+        expect(state.json.quote.status).toMatch(/^sent/);
     });
 
     it('money beyond a quote line holds for Ben', async () => {

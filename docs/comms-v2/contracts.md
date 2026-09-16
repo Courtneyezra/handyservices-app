@@ -326,7 +326,9 @@ fixed sentence: "Your previous quote has expired, so I've updated it. The new pr
 The original is kept on the row (`pricing_suggestions.reissue`), so a second and a third lapse land
 on the same figure. It is not the customer's own refresh on the quote page, which compounds, and the
 desk never points them there; once the desk has reissued a quote, that page's refresh prices from the
-same original too (`planSelfRefresh`), so neither path takes the total past it. The reissue is claimed by one run with a compare-and-set on the row
+same original too (`planSelfRefresh`), so neither path takes the total past it; a page refresh on a
+quote the desk never reissued still compounds as it always has, but keeps the original on the row, so
+a desk reissue after it is the original plus 5% again. The reissue is claimed by one run with a compare-and-set on the row
 and the reply is that run's alone, so one lapse is told at most once; a reissue on the row the file
 has no record of telling them about (a restart between the write and the reply, another process)
 holds for Ben once and is never told again. It does not happen, and the thread holds for Ben as

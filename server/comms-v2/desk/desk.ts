@@ -549,7 +549,12 @@ export class Desk implements DeskLike {
         let rendered = render(choice.channel, words(reply!), { name: party.name, wideBubbles: fixedLineOnly });
         let overflow = 'the reply';
         if (!rendered.ok && rendered.reason === 'ceiling' && !fixedLineOnly) {
-            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, shorten: shortenBriefFor(choice.channel, reply!, rendered.bubbles), now: this.now(), reserved: prefix ? prefix.length + 2 : 0 }, client);
+            // Measured on the composer's own words: the reissue sentence ahead of them is not its to shorten, only the room it leaves.
+            const own = render(choice.channel, reply!, { name: party.name });
+            const brief = shortenBriefFor(choice.channel, reply!, own.bubbles);
+            const room = prefix ? render(choice.channel, prefix, { name: party.name }).bubbles.length : 0;
+            const shorten = !prefix ? brief : brief.channel === 'sms' ? { ...brief, charBudget: Math.max(0, brief.charBudget - prefix.length - 2) } : { ...brief, measured: brief.measured + room, ceiling: BUBBLE_CEILING - room };
+            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, shorten, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 }, client);
             calls.push(shorter.record);
             composerCalls++;
             if (shorter.output) {

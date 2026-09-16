@@ -70,6 +70,12 @@ export interface QuoteStore {
      * thread goes to Ben as an expired quote always has.
      */
     reissue?(slug: string, input: { now: Date; runId: string }): Promise<ReissueOutcome>;
+    /**
+     * The sandbox's own clock for a quote: puts a sent quote the sandbox created past its price lock at
+     * `at`, so the door can drive an expired quote without touching any other row. Refuses a row the
+     * sandbox did not create on one of `contacts`.
+     */
+    lapseSandbox?(slug: string, contacts: string[], at: Date): Promise<{ ok: true } | { ok: false; status: number; reason: string }>;
     /** The strongest standing opt-out for a contact, or null. Optional: a store without it is read as unknown, and nothing is reissued. */
     optedOut?(contact: string): Promise<OptOutScope | null>;
     /** Every contact the sandbox customer is reachable on: the row's `phone` column holds whichever one the thread ran on, so an email thread writes its address there. */
@@ -242,6 +248,19 @@ export const databaseQuoteStore = (purpose: DatabasePurpose): QuoteStore => ({
         return { ok: true, issue: planned.plan.issue, previousTotalPence: planned.plan.previousTotalPence };
     },
 
+    async lapseSandbox(slug, contacts, at) {
+        const db = await commsV2Db(READER, 'sandbox');
+        const { personalizedQuotes: p } = await import('@shared/schema');
+        const { and, eq, isNull } = await import('drizzle-orm');
+        const [row] = await db.select({ id: p.id, phone: p.phone, createdBy: p.createdBy, isDraft: p.isDraft }).from(p).where(eq(p.shortSlug, slug)).limit(1);
+        if (!row) return { ok: false, status: 404, reason: `no quote ${slug}` };
+        const wanted = new Set(contacts.map(contactKey));
+        if (row.createdBy !== CREATED_BY || !wanted.has(contactKey(String(row.phone ?? '')))) return { ok: false, status: 403, reason: `quote ${slug} is not the sandbox's own` };
+        if (row.isDraft !== false) return { ok: false, status: 409, reason: `quote ${slug} is still a draft; price and send it first` };
+        await db.update(p).set({ expiresAt: new Date(at.getTime() - 60_000) } as any).where(and(eq(p.id, row.id), isNull(p.depositPaidAt), isNull(p.revokedAt)));
+        return { ok: true };
+    },
+
     async optedOut(contact) {
         const db = await commsV2Db(READER, purpose);
         const { commsOptOuts } = await import('@shared/schema');
@@ -380,6 +399,16 @@ export class MemoryQuoteStore implements QuoteStore {
         const patch = planned.plan.patch as Record<string, unknown>;
         Object.assign(now, { ...patch, expiresAt: (patch.expiresAt as Date).toISOString() });
         return { ok: true, issue: planned.plan.issue, previousTotalPence: planned.plan.previousTotalPence };
+    }
+
+    async lapseSandbox(slug: string, contacts: string[], at: Date): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+        const row = this.rows.get(slug);
+        if (!row) return { ok: false, status: 404, reason: `no quote ${slug}` };
+        const wanted = new Set(contacts.map(contactKey));
+        if (!wanted.has(contactKey(String(row.phone ?? '')))) return { ok: false, status: 403, reason: `quote ${slug} is not the sandbox's own` };
+        if (row.isDraft !== false) return { ok: false, status: 409, reason: `quote ${slug} is still a draft; price and send it first` };
+        if (!row.depositPaidAt && !row.revokedAt) row.expiresAt = new Date(at.getTime() - 60_000).toISOString();
+        return { ok: true };
     }
 
     async optedOut(contact: string): Promise<OptOutScope | null> {

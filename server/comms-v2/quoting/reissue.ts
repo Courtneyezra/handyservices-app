@@ -95,10 +95,10 @@ export type ReissuePlanOutcome = { ok: true; plan: ReissuePlan } | { ok: false; 
  * with Ben exactly as an expired quote was before this existed:
  *
  *   - a quote that is not expired (draft, sent, accepted, revoked, superseded);
- *   - a quote the customer has already refreshed on their own page and the desk never reissued,
- *     because that refresh compounded the price and the row no longer holds what they first saw;
- *   - a quote whose price has moved since the desk last reissued it (an admin edit, a refresh on
- *     the page), for the same reason;
+ *   - a quote the customer refreshed on their own page before any original was recorded, because
+ *     that refresh compounded the price and the row no longer holds what they first saw;
+ *   - a quote whose total is not the one last set from the original (an admin edit), for the same
+ *     reason;
  *   - a quote whose lines do not add up to its total, or carry a line with no price.
  */
 export function planReissue(row: ReissueRowLike, input: ReissuePlanInput): ReissuePlanOutcome {
@@ -106,7 +106,7 @@ export function planReissue(row: ReissueRowLike, input: ReissuePlanInput): Reiss
     if (!priced.ok) return priced;
     const { original, existing, patch, expiresAt } = priced;
     const issue: ReissueIssue = { fromExpiresAt: iso(row.expiresAt), at: input.now.toISOString(), runId: input.runId, totalPence: patch.basePrice as number, expiresAt: expiresAt.toISOString(), by: REISSUED_BY };
-    const record: ReissueRecord = { original, issues: [...(existing?.issues ?? []), issue] };
+    const record: ReissueRecord = { original, issues: [...(existing?.issues ?? []), issue], lastSetPence: issue.totalPence };
     return { ok: true, plan: {
         patch: { ...patch, regenerationCount: (row.regenerationCount ?? 0) + 1, pricingSuggestions: { ...((row.pricingSuggestions as Record<string, unknown> | null) ?? {}), reissue: record } },
         record, issue, previousTotalPence: row.basePrice as number,
@@ -118,15 +118,61 @@ export type SelfRefreshOutcome = { ok: true; patch: Record<string, unknown> } | 
 /**
  * The customer's own refresh on the quote page (`POST /api/personalized-quotes/:slug/reissue`), for
  * a quote the desk has reissued: the same figure the desk sets, the original plus the uplift, so a
- * refresh never takes the total past it and the desk can still reissue the row after it. The desk's
- * record is left as it is: the refresh is no reissue of the desk's, so no run is owed a message.
- * Null for a quote the desk never reissued, which the page refreshes as it always has.
+ * refresh never takes the total past it and the desk can still reissue the row after it. No issue is
+ * added (the refresh is no reissue of the desk's, so no run is owed a message); the record's
+ * `lastSetPence` follows the refresh. Null for a quote the desk never reissued, which the page
+ * refreshes as it always has (`legacyRefreshRecord`).
  */
 export function planSelfRefresh(row: ReissueRowLike, input: Omit<ReissuePlanInput, 'runId'>): SelfRefreshOutcome | null {
-    if (!reissueRecordOf(row)) return null;
+    const existing = reissueRecordOf(row);
+    if (!existing?.issues.length) return null;
     const priced = priceFromOriginal(row, input);
     if (!priced.ok) return priced;
-    return { ok: true, patch: { ...priced.patch, regenerationCount: (row.regenerationCount ?? 0) + 1, extensionCount: (row.extensionCount ?? 0) + 1 } };
+    const record: ReissueRecord = { ...existing, lastSetPence: priced.patch.basePrice as number };
+    return { ok: true, patch: {
+        ...priced.patch, regenerationCount: (row.regenerationCount ?? 0) + 1, extensionCount: (row.extensionCount ?? 0) + 1,
+        pricingSuggestions: { ...((row.pricingSuggestions as Record<string, unknown> | null) ?? {}), reissue: record },
+    } };
+}
+
+/**
+ * The page's own refresh of a quote the desk never reissued stays as it always was (5% on the current
+ * figure), but it is the moment the row stops holding what the customer first saw. So the first such
+ * refresh keeps that original on the row, and every one of them records the total it set, which is
+ * what lets the desk reissue from the original afterwards. Returns the `pricing_suggestions` value to
+ * write with the refresh, or null when there is nothing certain to keep: a row already refreshed
+ * before any record existed, or one whose lines do not add up to its total.
+ */
+export function legacyRefreshRecord(row: ReissueRowLike, refreshedTotalPence: number): Record<string, unknown> | null {
+    const existing = reissueRecordOf(row);
+    let original: ReissueRecord['original'];
+    if (existing) original = existing.original;
+    else {
+        if ((row.extensionCount ?? 0) > 0) return null;
+        const o = originalOf(row);
+        if (!o.ok) return null;
+        original = o.original;
+    }
+    const record: ReissueRecord = { original, issues: existing?.issues ?? [], lastSetPence: refreshedTotalPence };
+    return { ...((row.pricingSuggestions as Record<string, unknown> | null) ?? {}), reissue: record };
+}
+
+/** The row as the customer first saw it, read from a row nothing has repriced yet. */
+function originalOf(row: ReissueRowLike): { ok: true; original: ReissueRecord['original'] } | { ok: false; reason: string } {
+    const total = int(row.basePrice);
+    if (total == null || total <= 0) return { ok: false, reason: 'the quote has no total to reissue from' };
+    const items: any[] = Array.isArray(row.pricingLineItems) ? (row.pricingLineItems as any[]) : [];
+    const lines: OriginalLine[] = [];
+    for (let i = 0; i < items.length; i++) {
+        const l = items[i];
+        const price = int(l?.pricePence);
+        if (price == null) return { ok: false, reason: `line ${i + 1} has no price` };
+        lines.push({ lineId: String(l?.lineId ?? `card_${i + 1}`), pricePence: price, materialsPence: Math.max(0, Math.min(int(l?.materialsPence) ?? int(l?.materialsWithMarginPence) ?? 0, price)) });
+    }
+    if (lines.length && lines.reduce((a, l) => a + l.pricePence, 0) !== total) {
+        return { ok: false, reason: 'the quote\'s lines do not add up to its total, so a line cannot be scaled with certainty' };
+    }
+    return { ok: true, original: { totalPence: total, lines } };
 }
 
 type PricedFromOriginal =
@@ -140,25 +186,20 @@ function priceFromOriginal(row: ReissueRowLike, input: Omit<ReissuePlanInput, 'r
     if (total == null || total <= 0) return { ok: false, reason: 'the quote has no total to reissue from' };
     const items: any[] = Array.isArray(row.pricingLineItems) ? (row.pricingLineItems as any[]) : [];
     const existing = reissueRecordOf(row);
-    const last = lastIssue(existing);
     let original: ReissueRecord['original'];
     if (existing) {
-        if (!last || last.totalPence !== total) return { ok: false, reason: `the quote's total (${pounds(total)}) is not the one the desk last reissued it at${last ? ` (${pounds(last.totalPence)})` : ''}, so the price the customer first saw is not certain` };
+        const expected = existing.lastSetPence ?? lastIssue(existing)?.totalPence ?? null;
+        if (expected !== total) return { ok: false, reason: `the quote's total (${pounds(total)}) is not the one last set from the original${expected != null ? ` (${pounds(expected)})` : ''}, so the price the customer first saw is not certain` };
         original = existing.original;
-        if (original.lines.length !== items.length) return { ok: false, reason: 'the quote\'s lines have changed since the desk first reissued it' };
+        if (original.lines.length !== items.length) return { ok: false, reason: 'the quote\'s lines have changed since the original was recorded' };
+        if (original.lines.length && original.lines.reduce((a, l) => a + l.pricePence, 0) !== original.totalPence) {
+            return { ok: false, reason: 'the quote\'s lines do not add up to its total, so a line cannot be scaled with certainty' };
+        }
     } else {
         if ((row.extensionCount ?? 0) > 0) return { ok: false, reason: `the customer has refreshed this quote on their own page ${row.extensionCount} time(s), so the price they first saw is no longer on the row` };
-        const lines: OriginalLine[] = [];
-        for (let i = 0; i < items.length; i++) {
-            const l = items[i];
-            const price = int(l?.pricePence);
-            if (price == null) return { ok: false, reason: `line ${i + 1} has no price` };
-            lines.push({ lineId: String(l?.lineId ?? `card_${i + 1}`), pricePence: price, materialsPence: Math.max(0, Math.min(int(l?.materialsPence) ?? int(l?.materialsWithMarginPence) ?? 0, price)) });
-        }
-        original = { totalPence: total, lines };
-    }
-    if (original.lines.length && original.lines.reduce((a, l) => a + l.pricePence, 0) !== original.totalPence) {
-        return { ok: false, reason: 'the quote\'s lines do not add up to its total, so a line cannot be scaled with certainty' };
+        const o = originalOf(row);
+        if (!o.ok) return o;
+        original = o.original;
     }
 
     const newTotal = reissuedTotalPence(original.totalPence);
@@ -194,8 +235,9 @@ function priceFromOriginal(row: ReissueRowLike, input: Omit<ReissuePlanInput, 'r
  * quote has expired and what the updated price is, with the link. Ben's voice (brand-voice/
  * whatsapp-comms.md): first person, short, no dash as punctuation, British English. The figure is
  * written exactly as the quote's Total fact carries it, so the figure guard reads it as that line.
- * Two bursts, so WhatsApp shows the link on its own.
+ * One paragraph, so WhatsApp shows it as a single bubble and the reply keeps room under the bubble
+ * ceiling for the answer that follows it.
  */
 export function reissueLine(totalPence: number, link: string): string {
-    return `Your previous quote has expired, so I've updated it. The new price is ${pounds(totalPence)}.\n\nHere's your updated quote: ${link}`;
+    return `Your previous quote has expired, so I've updated it. The new price is ${pounds(totalPence)}. Here's your updated quote: ${link}`;
 }

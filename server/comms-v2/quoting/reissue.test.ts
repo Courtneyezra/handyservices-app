@@ -4,7 +4,7 @@
  * scaled to that total to the penny, and the claim is a compare-and-set that one run wins.
  */
 import { describe, expect, it } from 'vitest';
-import { allocatePence, planReissue, planSelfRefresh, reissueLine, reissuedTotalPence, reissueRecordOf, type ReissueRowLike } from './reissue';
+import { allocatePence, legacyRefreshRecord, planReissue, planSelfRefresh, reissueLine, reissuedTotalPence, reissueRecordOf, type ReissueRowLike } from './reissue';
 import { MemoryQuoteStore } from './quote-store';
 import { quoteRecordOf } from './quote-record';
 
@@ -89,12 +89,13 @@ describe('the reissued figure', () => {
         const once = planReissue(row([10_000]), plan);
         if (!once.ok) throw new Error(once.reason);
         const after = { ...row([10_000]), ...(once.plan.patch as any), expiresAt: '2026-09-15T00:00:00.000Z' };
-        expect(refused({ ...after, basePrice: 11_025, pricingLineItems: [{ lineId: 'card_1', pricePence: 11_025 }] })).toMatch(/not the one the desk last reissued it at \(£105\.00\)/);
+        expect(refused({ ...after, basePrice: 11_025, pricingLineItems: [{ lineId: 'card_1', pricePence: 11_025 }] })).toMatch(/not the one last set from the original \(£105\.00\)/);
     });
 
     it('says plainly that the quote expired and what the new price is, with the link, in Ben\'s voice', () => {
         const line = reissueLine(10_500, 'https://handyservices.app/quote/abcd1234');
-        expect(line).toBe("Your previous quote has expired, so I've updated it. The new price is £105.00.\n\nHere's your updated quote: https://handyservices.app/quote/abcd1234");
+        expect(line).toBe("Your previous quote has expired, so I've updated it. The new price is £105.00. Here's your updated quote: https://handyservices.app/quote/abcd1234");
+        expect(line).not.toContain('\n');
         expect(line).not.toMatch(/[–—]| - /);
         expect(line).not.toMatch(/\bBen\b/);
     });
@@ -199,7 +200,7 @@ describe('the customer\'s own refresh on the quote page', () => {
         if (!once.ok) throw new Error(once.reason);
         const after = { ...row([10_000]), ...(once.plan.patch as any), expiresAt: '2026-09-15T00:00:00.000Z' };
         const refused = (r: ReissueRowLike, at = now) => { const o = planSelfRefresh(r, { ...plan, now: at }); return o && !o.ok ? o.reason : null; };
-        expect(refused({ ...after, basePrice: 11_025 })).toMatch(/not the one the desk last reissued it at/);
+        expect(refused({ ...after, basePrice: 11_025 })).toMatch(/not the one last set from the original/);
         expect(refused({ ...after, expiresAt: '2026-09-20T00:00:00.000Z' })).toMatch(/is sent/);
     });
 
@@ -207,4 +208,53 @@ describe('the customer\'s own refresh on the quote page', () => {
         expect(planSelfRefresh(row([10_000]), plan)).toBeNull();
         expect(planSelfRefresh(row([10_500], { extensionCount: 1 }), plan)).toBeNull();
     });
+
+    /** The page's refresh of a quote the desk never reissued, as server/quotes.ts writes it: 5% on the current figure, plus the record it keeps. */
+    const legacyRefresh = (r: ReissueRowLike, at: Date) => {
+        const total = Math.round((r.basePrice as number) * 1.05);
+        const items = (r.pricingLineItems as any[]).map((l) => ({ ...l, pricePence: Math.round(l.pricePence * 1.05) }));
+        const kept = legacyRefreshRecord(r, total);
+        Object.assign(r, { basePrice: total, pricingLineItems: items, expiresAt: new Date(at.getTime() + 48 * 3_600_000).toISOString(), extensionCount: (r.extensionCount ?? 0) + 1, regenerationCount: (r.regenerationCount ?? 0) + 1, ...(kept ? { pricingSuggestions: kept } : {}) });
+    };
+
+    it('a refresh on the page of a quote the desk never reissued, then the desk\'s reissue, is still the original plus 5%', async () => {
+        const store = new MemoryQuoteStore();
+        store.rows.set('abcd1234', { ...(row([10_000]) as any) });
+        const r = store.rows.get('abcd1234')!;
+        legacyRefresh(r, now);
+        expect(r.basePrice).toBe(10_500);
+        expect(reissueRecordOf(r)).toEqual({ original: { totalPence: 10_000, lines: [{ lineId: 'card_1', pricePence: 10_000, materialsPence: 1_000 }] }, issues: [], lastSetPence: 10_500 });
+        const out = await store.reissue('abcd1234', { now: lapsed(r), runId: 'run_1' });
+        if (!out.ok) throw new Error(out.reason);
+        expect(out.issue.totalPence).toBe(10_500);
+        expect(r.basePrice).toBe(10_500);
+    });
+
+    it('two page refreshes before the desk (compounded, as the page always has) are brought back to the original plus 5%', async () => {
+        const store = new MemoryQuoteStore();
+        store.rows.set('abcd1234', { ...(row([10_000]) as any) });
+        const r = store.rows.get('abcd1234')!;
+        legacyRefresh(r, now);
+        legacyRefresh(r, lapsed(r));
+        expect(r.basePrice).toBe(11_025);
+        // Still the page's own compounding: no desk issue yet, so the page refreshes as today.
+        expect(planSelfRefresh(r, { ...plan, now: lapsed(r) })).toBeNull();
+        const out = await store.reissue('abcd1234', { now: lapsed(r), runId: 'run_1' });
+        if (!out.ok) throw new Error(out.reason);
+        expect(r.basePrice).toBe(10_500);
+    });
+
+    it('a row refreshed on the page before any record existed keeps today\'s behaviour and the desk still leaves it to Ben', () => {
+        const legacy = row([10_500], { extensionCount: 1 });
+        expect(legacyRefreshRecord(legacy, 11_025)).toBeNull();
+        expect(planReissue(legacy, plan)).toMatchObject({ ok: false });
+    });
+
+    it('an edit after a recorded refresh leaves the price uncertain', () => {
+        const r = row([10_000]);
+        legacyRefresh(r, now);
+        const edited = { ...r, basePrice: 9_000, pricingLineItems: [{ lineId: 'card_1', pricePence: 9_000 }], expiresAt: '2026-09-01T00:00:00.000Z' };
+        expect(planReissue(edited, plan)).toMatchObject({ ok: false, reason: expect.stringMatching(/not the one last set from the original \(£105\.00\)/) });
+    });
 });
+

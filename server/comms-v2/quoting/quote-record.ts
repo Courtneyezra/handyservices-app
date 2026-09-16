@@ -98,6 +98,13 @@ export interface ReissueRecord {
     /** The quote as the customer first saw it: every reissue is taken from this, never from a previous one. */
     original: { totalPence: number; lines: OriginalLine[] };
     issues: ReissueIssue[];
+    /**
+     * The total the last write that knew the original set: a desk reissue, or a refresh on the quote
+     * page. A row whose total is anything else was moved by something that did not (an edit), so the
+     * original can no longer be priced from with certainty. Absent on a record written before it
+     * existed, where the newest issue's total stands in.
+     */
+    lastSetPence?: number;
 }
 
 export function reissueRecordOf(row: Pick<QuoteRowLike, 'pricingSuggestions'>): ReissueRecord | null {
