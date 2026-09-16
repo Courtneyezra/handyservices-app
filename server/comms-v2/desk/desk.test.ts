@@ -172,6 +172,34 @@ describe('the desk', () => {
         expect(out.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
     });
 
+    it('a customer who writes STOP gets no reply at all, mid-thread or as a first message, and no model is asked (server/opt-out.ts)', async () => {
+        const { client, gateway } = desk({
+            router: () => routeScoping(),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'dripping tap' }]),
+            composer: () => ({ reply: 'Hi Sam, a dripping tap, no problem. Whereabouts are you?', factIds: [], kbIds: [] }),
+        });
+        const first = await gateway.inbound(turn('Hi, my tap will not stop dripping, can you help?', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.result.decision).toBe('send');
+        const before = client.calls.length;
+        const stop = await gateway.inbound(turn('STOP', '2026-09-11T10:05:00.000Z'));
+        if (stop.kind !== 'handled') throw new Error(stop.kind);
+        expect(stop.result.decision).toBe('none');
+        expect(stop.result.delivered).toBe(false);
+        expect(stop.result.bubbles).toEqual([]);
+        expect(stop.result.note).toMatch(/asked us to stop/);
+        expect(client.calls.length).toBe(before);
+        expect(stop.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
+
+        const fresh = desk({ router: () => { throw new Error('the router must not be called'); }, specialist: () => { throw new Error('no specialist'); }, composer: () => { throw new Error('no composer'); } });
+        const leave = await fresh.gateway.inbound({ ...turn('Please do not contact me again', '2026-09-11T11:00:00.000Z'), address: '+447700900943' });
+        if (leave.kind !== 'handled') throw new Error(leave.kind);
+        expect(leave.result.decision).toBe('none');
+        expect(leave.result.delivered).toBe(false);
+        expect(fresh.client.calls).toHaveLength(0);
+        expect(leave.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+    });
+
     it('a complaint holds the thread on its fixed line: the next turn gets the acknowledgement, no router, no specialist, no composer', async () => {
         const { client, gateway } = desk({
             router: ({ n }) => { if (n > 1) throw new Error('the router must not be called on a held thread'); return routeScoping({ exception: 'complaint', turnKind: 'other' }); },
