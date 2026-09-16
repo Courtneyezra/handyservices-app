@@ -154,8 +154,9 @@ const app = express();
 // Stripe webhook signature verification requires the raw request body
 app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
 // Resend's inbound email webhook verifies its Svix signature over the raw body, so it is never JSON-parsed.
-import { RESEND_INBOUND_PATH, resendInboundRawBody, resendInboundRouter } from './comms-v2/channels/email-inbound';
-app.use(RESEND_INBOUND_PATH, resendInboundRawBody());
+// It is outside the admin gate and signed; off unless COMMS_V2_EMAIL_INBOUND=1 and COMMS_V2_INTAKE=1.
+import { mountResendInbound } from './comms-v2/channels/email-inbound';
+mountResendInbound(app);
 
 // Meta WhatsApp webhook needs raw body for X-Hub-Signature-256 verification
 // The verify callback captures raw bytes before JSON parsing
@@ -517,7 +518,6 @@ import { commsSandboxRouter } from './spine/sandbox-routes';
 app.use('/api/comms-sandbox', requireAdmin, commsSandboxRouter); // T5: the comms sandbox — dry-run passes on the reserved drama number only, never a send
 import { createCommsV2ApiRouter } from './comms-v2/api/routes';
 app.use('/api/comms-v2', requireAdmin, createCommsV2ApiRouter()); // Goal 2: Ben's kanban board over the clean-sheet desk's case file, plus its sandbox door
-app.use(resendInboundRouter()); // comms-v2: Resend's inbound email webhook, outside the admin gate, signed; off unless COMMS_V2_EMAIL_INBOUND=1 and COMMS_V2_INTAKE=1
 import { variationRouter } from './spine/variation-routes';
 app.use(variationRouter); // P15/3: an extra found at the door → dispatch_variations + Route A + Ben's one-line price screen (auth per route inside)
 import { commsAgentConfigRouter } from './comms-agent-config-routes';

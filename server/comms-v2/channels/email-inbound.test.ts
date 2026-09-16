@@ -3,14 +3,15 @@
  * outside the admin gate with its body kept raw. A good signature lands one turn; a bad, missing or
  * stale one lands nothing; a replay of a delivery already taken lands nothing more.
  */
-import fs from 'node:fs';
 import http from 'node:http';
-import path from 'node:path';
 import express from 'express';
 import { Webhook } from 'svix';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboundEnvelope } from './envelope';
-import { EMAIL_INBOUND_ENV, emailInboundEnabled, RESEND_INBOUND_PATH, RESEND_INBOUND_SECRET_ENV, resendInboundRawBody, resendInboundRouter, SeenKeys, type EmailInboundDeps } from './email-inbound';
+import { EMAIL_INBOUND_ENV, emailInboundEnabled, mountResendInbound, RESEND_INBOUND_PATH, RESEND_INBOUND_SECRET_ENV, resendInboundRawBody, resendInboundRouter, SeenKeys, type EmailInboundDeps } from './email-inbound';
+import { envelopeFromResend, type ResendInboundDeps } from './resend-inbound';
+
+vi.mock('../../db', () => ({ db: {} }));
 
 const SECRET = `whsec_${Buffer.from('synthetic-signing-secret-for-tests').toString('base64')}`;
 const OTHER_SECRET = `whsec_${Buffer.from('some-other-endpoint-secret').toString('base64')}`;
@@ -205,18 +206,61 @@ describe('after the signature', () => {
     });
 });
 
-describe('the mount', () => {
-    const index = fs.readFileSync(path.join(__dirname, '../../index.ts'), 'utf8');
+describe('ignored mail', () => {
+    const API = 'https://api.resend.com';
+    const EMAIL_ID = '56761188-7520-42d8-8898-ff6fc54ce618';
+    function readFrom(email: Record<string, unknown>) {
+        const calls: string[] = [];
+        const fetch = (async (input: any) => {
+            calls.push(String(input));
+            return String(input) === `${API}/emails/receiving/${EMAIL_ID}` ? new Response(JSON.stringify(email)) : new Response('', { status: 404 });
+        }) as typeof globalThis.fetch;
+        return { calls, envelope: (id: string, d: ResendInboundDeps) => envelopeFromResend(id, { ...d, fetch }) };
+    }
+    const email = (from: string, headers: Record<string, string> = {}) => ({ object: 'email', id: EMAIL_ID, to: ['bookings@handyservices.example'], from, created_at: '2026-09-16T09:12:42.674Z', subject: 'Leaking tap', html: null, text: 'It drips.', headers: { from, ...headers }, message_id: '<CAF3x9@mail.example.com>', attachments: [] });
 
-    it('is outside the admin-gated /api/comms-v2 prefix and mounted without an admin guard', () => {
-        expect(RESEND_INBOUND_PATH.startsWith('/api/comms-v2')).toBe(false);
-        expect(index).toMatch(/^app\.use\(resendInboundRouter\(\)\);/m);
+    it('is answered 200 as ignored, logged with the reason only, marked seen and never forwarded', async () => {
+        const logs = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const { calls, envelope: build } = readFrom(email('Sam Jones <sam.jones@example.com>', { 'Auto-Submitted': 'auto-replied' }));
+        const { post, forward } = await start({ envelope: build });
+        const body = JSON.stringify(receivedEvent());
+        expect(await post(body, signed(body))).toEqual({ status: 200, json: { ok: true, ignored: 'auto_submitted' } });
+        expect(await post(body, signed(body))).toEqual({ status: 200, json: { ok: true, duplicate: true } });
+        expect(calls).toHaveLength(1);
+        expect(forward).not.toHaveBeenCalled();
+        expect(logs.mock.calls.map((c) => c.join(' '))).toEqual(['[comms-v2 email] received email ignored: auto_submitted']);
+        logs.mockRestore();
     });
 
-    it('keeps the body raw ahead of the global JSON parser', () => {
-        const raw = index.indexOf('app.use(RESEND_INBOUND_PATH, resendInboundRawBody());');
-        const json = index.indexOf("app.use(express.json({ limit: '10mb' }))");
-        expect(raw).toBeGreaterThan(-1);
-        expect(json).toBeGreaterThan(raw);
+    it('from an internal address is ignored; a customer email is forwarded', async () => {
+        const logs = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const env = { ...ON, INTERNAL_EMAIL_ADDRESSES: 'ben@handyservices.example' };
+        const internal = await start({ env, envelope: readFrom(email('"Ben" <Ben@HandyServices.example>')).envelope });
+        const body = JSON.stringify(receivedEvent());
+        expect((await internal.post(body, signed(body))).json).toEqual({ ok: true, ignored: 'internal_sender' });
+        expect(internal.forward).not.toHaveBeenCalled();
+        server?.close();
+        const customer = await start({ env, envelope: readFrom(email('Sam Jones <sam.jones@example.com>')).envelope });
+        expect((await customer.post(body, signed(body))).json).toEqual({ ok: true, accepted: true, media: 0, mediaFailures: 0 });
+        expect(customer.forward).toHaveBeenCalledWith(expect.objectContaining({ channel: 'email', address: 'sam.jones@example.com', name: 'Sam Jones', via: 'resend' }));
+        logs.mockRestore();
+    });
+});
+
+describe('the mount', () => {
+    it('answers a signed POST without a session, with the raw body, ahead of the JSON parser and any admin gate', async () => {
+        expect(RESEND_INBOUND_PATH.startsWith('/api/comms-v2')).toBe(false);
+        const forward = vi.fn((_e: InboundEnvelope) => {});
+        const app = express();
+        mountResendInbound(app, { env: ON, envelope: async () => envelope, forward });
+        app.use(express.json());
+        app.use((_req, res) => { res.status(401).json({ error: 'admin only' }); });
+        server = http.createServer(app);
+        await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+        const port = (server.address() as { port: number }).port;
+        const body = JSON.stringify(receivedEvent());
+        const res = await fetch(`http://127.0.0.1:${port}${RESEND_INBOUND_PATH}`, { method: 'POST', headers: { 'content-type': 'application/json', ...signed(body) }, body });
+        expect({ status: res.status, json: await res.json() }).toEqual({ status: 200, json: { ok: true, accepted: true, media: 0, mediaFailures: 0 } });
+        expect(forward).toHaveBeenCalledWith(envelope);
     });
 });

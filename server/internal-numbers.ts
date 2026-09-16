@@ -89,6 +89,27 @@ export function configuredInternalKeys(env: NodeJS.ProcessEnv = process.env): Se
 }
 
 /**
+ * Email addresses that are ours: Ben's, staff addresses and the business's own mailboxes. Like the
+ * numbers above they are placed as an environment variable where the app runs, never committed.
+ *
+ *   INTERNAL_EMAIL_ADDRESSES=ben@example.com,office@example.com
+ *
+ * One or more addresses separated by commas (spaces, semicolons and new lines also work), matched
+ * lowercased. Unset or empty means none. Read on every inbound email
+ * (server/comms-v2/channels/resend-inbound.ts), which ignores mail from any of them.
+ */
+export const INTERNAL_EMAILS_ENV = 'INTERNAL_EMAIL_ADDRESSES';
+
+export function configuredInternalEmails(env: NodeJS.ProcessEnv = process.env): Set<string> {
+    const out = new Set<string>();
+    for (const a of (env[INTERNAL_EMAILS_ENV] ?? '').split(/[,;\s]+/)) {
+        const k = a.trim().toLowerCase();
+        if (k.includes('@')) out.add(k);
+    }
+    return out;
+}
+
+/**
  * UK ranges that no customer can be reached on.
  *
  * Keyed on the national form (leading 0 stripped by commsPhoneKey), so 0800 1937191 reads as

@@ -103,6 +103,10 @@ describe('the email adapter', () => {
         // Outlook's reply header inside the HTML is cut by the text rule, as in a plain-text part.
         expect(fromInboundEmail({ from: 'a@b.co', html: '<p>Yes please.</p><hr><p>From: Handy Services<br>Sent: Monday</p>' }).text).toBe('Yes please.');
     });
+    it('drops each quote, innermost first, and keeps the words between two quotes', () => {
+        const html = '<p>See below.</p><blockquote>q1<blockquote>older</blockquote>still q1</blockquote><p>Thursday works.</p><blockquote>q2</blockquote><p>Sam</p>';
+        expect(htmlToText(html)).toBe('See below.\n\nThursday works.\n\nSam');
+    });
     it('strips history at the quote header or the first quoted line', () => {
         expect(stripQuotedHistory('new words\n\n-----Original Message-----\nFrom: x\nold')).toBe('new words');
         expect(stripQuotedHistory('new\n> old\n> older')).toBe('new');

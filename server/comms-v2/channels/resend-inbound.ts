@@ -17,10 +17,16 @@
  * a video is named on the turn's media failures and not downloaded; a photo is checked against its
  * own bytes (media.ts `sniffImageMime`), because anyone can email the business.
  *
+ * Automated and internal mail never becomes a turn (`ignoredReason`): an Auto-Submitted header other
+ * than "no", Precedence bulk, list or junk, a noreply, mailer-daemon or postmaster sender, or an
+ * address listed in INTERNAL_EMAIL_ADDRESSES (server/internal-numbers.ts). Such mail is answered as
+ * ignored and none of its attachments is downloaded.
+ *
  * The webhook route that calls this is email-inbound.ts. Nothing here reads a switch or logs a value.
  */
 import type { InboundEnvelope } from './envelope';
-import { fromInboundEmail, type InboundEmail } from './email-adapter';
+import { fromInboundEmail, parseEmailAddress, type InboundEmail } from './email-adapter';
+import { canonical } from '../desk/identity';
 import { isRefused, sniffImageMime, writeInboundMedia, type MediaWriteDeps } from './media';
 import { mediaKindOf } from '../desk/whatsapp-adapter';
 
@@ -84,22 +90,32 @@ export const MAX_EMAIL_MEDIA_BYTES = 40 * 1024 * 1024;
 /** An inline image smaller than this is a signature or a logo, not a picture of the job. */
 export const MIN_INLINE_IMAGE_BYTES = 16 * 1024;
 
-/** A header's value by name, whatever case the provider keyed it in. */
+/** A header's value by name, whatever case the provider keyed it in, unfolded onto one line. */
 export function headerOf(headers: Record<string, unknown> | null | undefined, name: string): string | null {
     const want = name.toLowerCase();
     for (const [k, v] of Object.entries(headers ?? {})) {
         if (k.toLowerCase() !== want) continue;
-        if (Array.isArray(v)) return v.map(String).join(' ');
-        return v == null ? null : String(v);
+        if (v == null) return null;
+        return (Array.isArray(v) ? v.map(String).join(' ') : String(v)).replace(/\r?\n[ \t]+/g, ' ');
     }
     return null;
 }
 
-/** Resend's received email as the adapter's input. The From header wins over the bare field because it keeps the display name. */
+/**
+ * The From to read: the header, because it keeps the display name, when it parses to an address
+ * and carries no RFC 2047 encoded word; otherwise Resend's own `from` field.
+ */
+function senderOf(email: ResendReceivedEmail): string {
+    const header = headerOf(email.headers, 'from');
+    if (header && !header.includes('=?') && canonical(parseEmailAddress(header).address)?.startsWith('email:')) return header;
+    return email.from;
+}
+
+/** Resend's received email as the adapter's input. */
 export function inboundEmailFromResend(email: ResendReceivedEmail): InboundEmail {
     const headers = email.headers ?? {};
     return {
-        from: headerOf(headers, 'from') || email.from,
+        from: senderOf(email),
         subject: email.subject ?? headerOf(headers, 'subject'),
         text: email.text,
         html: email.html,
@@ -110,8 +126,37 @@ export function inboundEmailFromResend(email: ResendReceivedEmail): InboundEmail
     };
 }
 
+const RE_AUTOMATED_SENDER = /^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|mailer[-_.]?daemon|postmaster)$/i;
+const IGNORED_PRECEDENCE = new Set(['bulk', 'list', 'junk']);
+
+/**
+ * Why a received email must not become a customer turn, or null when it may. The reason is a fixed
+ * label, never a value from the email, so it can be logged and answered.
+ */
+export function ignoredReason(email: ResendReceivedEmail, internalEmails: ReadonlySet<string>): string | null {
+    const autoSubmitted = (headerOf(email.headers, 'auto-submitted') ?? '').split(';')[0].trim().toLowerCase();
+    if (autoSubmitted && autoSubmitted !== 'no') return 'auto_submitted';
+    const precedence = (headerOf(email.headers, 'precedence') ?? '').trim().toLowerCase();
+    if (IGNORED_PRECEDENCE.has(precedence)) return `precedence_${precedence}`;
+    const key = canonical(parseEmailAddress(inboundEmailFromResend(email).from).address);
+    if (!key?.startsWith('email:')) return 'no_sender_address';
+    const address = key.slice('email:'.length);
+    if (RE_AUTOMATED_SENDER.test(address.split('@')[0].split('+')[0])) return 'automated_sender';
+    if (internalEmails.has(address)) return 'internal_sender';
+    return null;
+}
+
+/** A received email that is not a customer's turn, with the fixed reason. */
+export interface IgnoredEmail { ignored: string }
+
+export function isIgnored(r: InboundEnvelope | IgnoredEmail): r is IgnoredEmail {
+    return typeof (r as IgnoredEmail).ignored === 'string';
+}
+
 export interface ResendInboundDeps extends MediaWriteDeps {
     apiKey: string;
+    /** Where INTERNAL_EMAIL_ADDRESSES is read from; the process environment by default. */
+    env?: NodeJS.ProcessEnv;
     fetch?: typeof fetch;
     apiUrl?: string;
     now?: () => Date;
@@ -142,10 +187,14 @@ export async function listResendAttachments(emailId: string, deps: ResendInbound
  * The envelope for one received email: the email and its attachment list read from Resend, each
  * photo and video downloaded and written where every channel's media lands. A failed read of the
  * email or the list throws, so the webhook can answer non-2xx and Resend retries; a failed download
- * is one media failure on the turn.
+ * is one media failure on the turn. Mail `ignoredReason` refuses comes back as ignored, before any
+ * attachment is listed or downloaded.
  */
-export async function envelopeFromResend(emailId: string, deps: ResendInboundDeps): Promise<InboundEnvelope> {
+export async function envelopeFromResend(emailId: string, deps: ResendInboundDeps): Promise<InboundEnvelope | IgnoredEmail> {
     const email = await getJson<ResendReceivedEmail>(`/emails/receiving/${encodeURIComponent(emailId)}`, deps);
+    const { configuredInternalEmails } = await import('../../internal-numbers');
+    const ignored = ignoredReason(email, configuredInternalEmails(deps.env));
+    if (ignored) return { ignored };
     const env = fromInboundEmail(inboundEmailFromResend(email), { now: deps.now });
     env.via = 'resend';
     const attachments = email.attachments?.length ? await listResendAttachments(emailId, deps) : [];

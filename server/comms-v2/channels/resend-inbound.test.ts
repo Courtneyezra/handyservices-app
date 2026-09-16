@@ -7,8 +7,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { envelopeFromResend, headerOf, inboundEmailFromResend, listResendAttachments, MAX_EMAIL_MEDIA_BYTES, type ResendReceivedAttachment, type ResendReceivedEmail } from './resend-inbound';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { InboundEnvelope } from './envelope';
+import { envelopeFromResend, headerOf, inboundEmailFromResend, isIgnored, listResendAttachments, MAX_EMAIL_MEDIA_BYTES, type ResendInboundDeps, type ResendReceivedAttachment, type ResendReceivedEmail } from './resend-inbound';
+
+vi.mock('../../db', () => ({ db: {} }));
 
 const EMAIL_ID = '4ef9a417-02e9-4d39-ad75-9611e0fcc33c';
 const PNG = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(40 * 1024, 1)]);
@@ -73,12 +76,18 @@ function fakeResend(routes: Record<string, { status?: number; json?: unknown; by
 }
 
 const API = 'https://api.resend.com';
-const deps = (fetch: typeof globalThis.fetch) => ({ apiKey: 're_test_key', fetch, mediaDir: dir });
+const deps = (fetch: typeof globalThis.fetch, env: NodeJS.ProcessEnv = {}): ResendInboundDeps => ({ apiKey: 're_test_key', fetch, mediaDir: dir, env });
+
+async function turnOf(emailId: string, d: ResendInboundDeps): Promise<InboundEnvelope> {
+    const r = await envelopeFromResend(emailId, d);
+    if (isIgnored(r)) throw new Error(`ignored: ${r.ignored}`);
+    return r;
+}
 
 describe("Resend's received email as a turn", () => {
     it('reads the display-name From, the HTML part without the quoted reply, and the thread headers', async () => {
         const { fetch, calls } = fakeResend({ [`${API}/emails/receiving/${EMAIL_ID}`]: { json: receivedEmail() } });
-        const env = await envelopeFromResend(EMAIL_ID, deps(fetch));
+        const env = await turnOf(EMAIL_ID, deps(fetch));
         expect(env).toMatchObject({ channel: 'email', address: 'sam.jones@example.com', name: 'Jones, Sam', via: 'resend', kind: 'text', at: '2026-09-16T09:12:42.674Z', providerMessageId: '<CAF3x9@mail.example.com>' });
         expect(env.text).toBe('Subject: Re: Your enquiry\n\nHi Ben,\n\nPhotos of the leak attached & the tap is under the sink.\nThursday works.\n\nSam');
         expect(env.email).toEqual({ subject: 'Re: Your enquiry', messageId: '<CAF3x9@mail.example.com>', references: ['<first-1@mail.example.com>', '<reply-2@handyservices.example>', '<CAF3x9@mail.example.com>'] });
@@ -93,15 +102,28 @@ describe("Resend's received email as a turn", () => {
 
     it('falls back to the bare From when Resend gives no headers, with no name', async () => {
         const { fetch } = fakeResend({ [`${API}/emails/receiving/${EMAIL_ID}`]: { json: receivedEmail({ headers: null, text: 'New enquiry: fence panel down', html: null, subject: 'Fence' }) } });
-        const env = await envelopeFromResend(EMAIL_ID, deps(fetch));
+        const env = await turnOf(EMAIL_ID, deps(fetch));
         expect(env).toMatchObject({ address: 'sam.jones@example.com', name: null, text: 'Subject: Fence\n\nNew enquiry: fence panel down' });
         expect(env.email?.references).toEqual(['<CAF3x9@mail.example.com>']);
+    });
+
+    it('unfolds a folded From header and keeps its display name', async () => {
+        const { fetch } = fakeResend({ [`${API}/emails/receiving/${EMAIL_ID}`]: { json: receivedEmail({ headers: { ...receivedEmail().headers, from: '"Jones, Sam"\r\n <Sam.Jones@Example.com>' } }) } });
+        expect(await turnOf(EMAIL_ID, deps(fetch))).toMatchObject({ address: 'sam.jones@example.com', name: 'Jones, Sam' });
+    });
+
+    it("uses Resend's own from when the header carries an encoded word or no address", () => {
+        const encoded = receivedEmail({ from: 'José Ruiz <jose@example.com>', headers: { from: '=?UTF-8?Q?Jos=C3=A9_Ruiz?= <jose@example.com>' } });
+        expect(inboundEmailFromResend(encoded).from).toBe('José Ruiz <jose@example.com>');
+        const broken = receivedEmail({ from: 'jose@example.com', headers: { from: 'undisclosed-sender' } });
+        expect(inboundEmailFromResend(broken).from).toBe('jose@example.com');
     });
 
     it('reads headers whatever their case', () => {
         expect(headerOf({ 'In-Reply-To': '<a@b>' }, 'in-reply-to')).toBe('<a@b>');
         expect(headerOf({ References: ['<a@b>', '<c@d>'] }, 'references')).toBe('<a@b> <c@d>');
         expect(headerOf(null, 'from')).toBeNull();
+        expect(headerOf({ references: '<a@b>\r\n\t<c@d>' }, 'references')).toBe('<a@b> <c@d>');
     });
 
     it('downloads photos and videos from their signed URLs, checks a photo by its bytes, and names what it did not take', async () => {
@@ -125,7 +147,7 @@ describe("Resend's received email as a turn", () => {
             [cdn('a6')]: { bytes: MP4 },
             [cdn('a8')]: { status: 403 },
         });
-        const env = await envelopeFromResend(EMAIL_ID, deps(fetch));
+        const env = await turnOf(EMAIL_ID, deps(fetch));
         expect(env.kind).toBe('media');
         expect(env.media.map((m) => [m.kind, m.mime, m.bytes])).toEqual([['image', 'image/png', PNG.length], ['image', 'image/jpeg', JPEG.length], ['video', 'video/mp4', MP4.length]]);
         for (const m of env.media) {
@@ -162,5 +184,54 @@ describe("Resend's received email as a turn", () => {
     it('throws when Resend cannot be read, so the webhook answers non-2xx and Resend retries', async () => {
         const { fetch } = fakeResend({ [`${API}/emails/receiving/${EMAIL_ID}`]: { status: 500 } });
         await expect(envelopeFromResend(EMAIL_ID, deps(fetch))).rejects.toThrow('Resend /emails/receiving/:id failed: HTTP 500');
+    });
+});
+
+describe('automated and internal mail', () => {
+    const withAttachment = (over: Partial<ResendReceivedEmail>) => receivedEmail({ attachments: [{ id: 'x1', filename: 'x.png', size: PNG.length, content_type: 'image/png', content_id: null, content_disposition: 'attachment' }], ...over });
+
+    async function outcome(over: Partial<ResendReceivedEmail>, env: NodeJS.ProcessEnv = {}) {
+        const { fetch, calls } = fakeResend({
+            [`${API}/emails/receiving/${EMAIL_ID}`]: { json: withAttachment(over) },
+            [`${API}/emails/receiving/${EMAIL_ID}/attachments`]: { json: { object: 'list', has_more: false, data: [attachment('x1', 'x.png', 'image/png', PNG.length)] } },
+            [`https://inbound-cdn.resend.example/${EMAIL_ID}/attachments/x1`]: { bytes: PNG },
+        });
+        const r = await envelopeFromResend(EMAIL_ID, deps(fetch, env));
+        return { ignored: isIgnored(r) ? r.ignored : null, reads: calls.length };
+    }
+    const headers = (extra: Record<string, string>) => ({ headers: { ...receivedEmail().headers, ...extra } });
+
+    it('ignores an Auto-Submitted email other than "no", without reading its attachments', async () => {
+        expect(await outcome(headers({ 'Auto-Submitted': 'Auto-Replied; owner-email="x@example.com"' }))).toEqual({ ignored: 'auto_submitted', reads: 1 });
+        expect(await outcome(headers({ 'auto-submitted': 'auto-generated' }))).toEqual({ ignored: 'auto_submitted', reads: 1 });
+        expect(await outcome(headers({ 'Auto-Submitted': ' NO ' }))).toEqual({ ignored: null, reads: 3 });
+    });
+
+    it('ignores Precedence bulk, list and junk', async () => {
+        for (const p of ['bulk', 'List', ' junk ']) {
+            expect(await outcome(headers({ Precedence: p }))).toEqual({ ignored: `precedence_${p.trim().toLowerCase()}`, reads: 1 });
+        }
+        expect(await outcome(headers({ Precedence: 'first-class' }))).toEqual({ ignored: null, reads: 3 });
+    });
+
+    it('ignores noreply, no-reply, donotreply, mailer-daemon and postmaster senders', async () => {
+        for (const from of ['noreply@example.com', 'No-Reply <no-reply@example.com>', 'no_reply+bounce@example.com', 'donotreply@example.com', 'Mail Delivery Subsystem <MAILER-DAEMON@example.com>', 'postmaster@example.com']) {
+            expect(await outcome({ from, headers: { ...receivedEmail().headers, from } })).toEqual({ ignored: 'automated_sender', reads: 1 });
+        }
+    });
+
+    it('ignores a configured internal address, whatever its case and in display-name form', async () => {
+        const env = { INTERNAL_EMAIL_ADDRESSES: ' Office@Handyservices.example , ben@handyservices.example' };
+        const from = 'Handy Office <OFFICE@handyservices.example>';
+        expect(await outcome({ from, headers: { ...receivedEmail().headers, from } }, env)).toEqual({ ignored: 'internal_sender', reads: 1 });
+        expect(await outcome({}, env)).toEqual({ ignored: null, reads: 3 });
+    });
+
+    it('ignores mail with no readable sender', async () => {
+        expect(await outcome({ from: 'undisclosed-sender', headers: { ...receivedEmail().headers, from: 'undisclosed-sender' } })).toEqual({ ignored: 'no_sender_address', reads: 1 });
+    });
+
+    it("still turns a customer's email into a turn", async () => {
+        expect(await outcome({})).toEqual({ ignored: null, reads: 3 });
     });
 });

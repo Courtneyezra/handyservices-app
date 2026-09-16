@@ -177,15 +177,26 @@ answered 200 and adds no second turn. That memory is per process and lasts a day
 `COMMS_V2_INTAKE` is (exactly `1`). Off, it answers 404 and reads nothing. On but without the
 signing secret or `RESEND_API_KEY`, it answers 503. On, it forwards the turn to the intake, which
 takes it to the gateway in use (dry run until the desk is live, as for every other channel).
+That forward is not durable: the route answers 200 before the desk has taken the turn, so a turn
+the intake fails to take is lost. Inbound email must not be switched on until the durable
+store-and-retry (follow-up task `hsa-comms-v2-email-inbound-durable`) lands.
+
+Automated and internal mail never becomes a turn (`ignoredReason` in `channels/resend-inbound.ts`):
+an `Auto-Submitted` header other than `no`, `Precedence` bulk, list or junk, a noreply,
+mailer-daemon or postmaster sender, an address in `INTERNAL_EMAIL_ADDRESSES` (read through
+`server/internal-numbers.ts`, never committed), or a From with no readable address. It is answered
+200 as ignored, marked seen, logged with the reason only, and none of its attachments is downloaded.
 
 Resend's event carries metadata only, never the body or the attachment bytes. So the route reads
 the email (`GET /emails/receiving/{id}`) and its attachments
 (`GET /emails/receiving/{id}/attachments`) with `RESEND_API_KEY` before it answers
 (`channels/resend-inbound.ts`). A read that fails is a 502, so Resend retries. The adapter
 (`channels/email-adapter.ts`) turns that into the email turn:
-- The From header's display name and address (`"Jones, Sam" <sam@...>`); the address is lowercased.
-- The plain-text part, or the HTML part read as text when the client sent none. A `<blockquote>` or
-  Gmail quote block is dropped, and the quoted history is then stripped from the text.
+- The From header's display name and address (`"Jones, Sam" <sam@...>`), unfolded; the address is
+  lowercased. A From header that does not parse to an address or carries an encoded word gives way
+  to Resend's own `from` field.
+- The plain-text part, or the HTML part read as text when the client sent none. A `<blockquote>` (innermost
+  first, so words between two quotes are kept) or Gmail quote block is dropped, and the quoted history is then stripped from the text.
 - `Message-ID`, `In-Reply-To` and `References`, kept on the party's email channel so a reply joins
   the same thread.
 - Each photo or video, downloaded from its signed URL (the API key is never sent there). A photo is

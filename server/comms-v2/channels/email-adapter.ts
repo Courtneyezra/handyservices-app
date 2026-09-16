@@ -92,7 +92,10 @@ export function htmlToText(html: string): string {
     let s = html.replace(/\r\n/g, '\n');
     s = s.replace(/<!--[\s\S]*?-->/g, '');
     s = s.replace(/<(head|style|script|title)\b[\s\S]*?<\/\1\s*>/gi, '');
-    s = s.replace(/<blockquote\b[\s\S]*<\/blockquote\s*>/gi, '\n');
+    for (let prev = ''; prev !== s;) {
+        prev = s;
+        s = s.replace(/<blockquote\b(?:(?!<blockquote\b)[\s\S])*?<\/blockquote\s*>/gi, '\n');
+    }
     s = s.replace(/<div\b[^>]*class=["'][^"']*gmail_quote[\s\S]*$/i, '\n');
     s = s.replace(/\s*\n\s*/g, ' ');
     s = s.replace(/<br\s*\/?>/gi, '\n');

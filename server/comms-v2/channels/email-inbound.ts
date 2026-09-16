@@ -20,8 +20,14 @@
  *        inside the tolerance, or Resend retrying, adds no second turn. Also any other event type.
  *   409  the same email is being read right now; Resend retries later.
  *   502  Resend's API could not be read; nothing is marked seen, so Resend's retry reads it again.
+ *   200  ignored: automated or internal mail (resend-inbound.ts `ignoredReason`). It is marked seen,
+ *        logged with the reason only, and never forwarded; no attachment is downloaded.
  *   200  accepted: the envelope is built (email, attachments downloaded) and forwarded to the
  *        intake without waiting on the desk's turn.
+ *
+ * The forward is not durable: a turn the intake fails to take after the 200 is lost. Inbound email
+ * must not be switched on until the durable store-and-retry (follow-up task
+ * hsa-comms-v2-email-inbound-durable) lands.
  *
  * Seen deliveries are remembered in this process for a day, which covers Resend's retry schedule.
  * No value from an email is logged.
@@ -30,7 +36,7 @@ import express, { Router, type Request, type Response } from 'express';
 import { Webhook } from 'svix';
 import type { InboundEnvelope } from './envelope';
 import { forwardToCommsV2, intakeEnabled, INTAKE_ENV } from './intake';
-import { envelopeFromResend, type ResendEmailReceivedEvent, type ResendInboundDeps } from './resend-inbound';
+import { envelopeFromResend, isIgnored, type IgnoredEmail, type ResendEmailReceivedEvent, type ResendInboundDeps } from './resend-inbound';
 
 export const RESEND_INBOUND_PATH = '/api/webhooks/resend/inbound-email';
 export const EMAIL_INBOUND_ENV = 'COMMS_V2_EMAIL_INBOUND';
@@ -44,9 +50,18 @@ export function emailInboundEnabled(env: NodeJS.ProcessEnv = process.env): boole
     return intakeEnabled(env) && (env[EMAIL_INBOUND_ENV] ?? '').trim() === '1';
 }
 
-/** The raw-body parser the route needs, mounted by index.ts ahead of the global JSON parser. */
+/** The raw-body parser the route needs, mounted ahead of the global JSON parser. */
 export function resendInboundRawBody() {
     return express.raw({ type: () => true, limit: RESEND_INBOUND_BODY_LIMIT });
+}
+
+/**
+ * Mounts the webhook on the app: its raw-body parser and its router, with no admin guard. index.ts
+ * calls this before the global JSON parser and before any session or admin middleware.
+ */
+export function mountResendInbound(app: express.Express, deps: EmailInboundDeps = {}): void {
+    app.use(RESEND_INBOUND_PATH, resendInboundRawBody());
+    app.use(resendInboundRouter(deps));
 }
 
 const SEEN_MS = 24 * 60 * 60 * 1000;
@@ -74,7 +89,7 @@ export class SeenKeys {
 export interface EmailInboundDeps {
     env?: NodeJS.ProcessEnv;
     /** Builds the turn from a received email's id; the default reads Resend's API. */
-    envelope?: (emailId: string, deps: ResendInboundDeps) => Promise<InboundEnvelope>;
+    envelope?: (emailId: string, deps: ResendInboundDeps) => Promise<InboundEnvelope | IgnoredEmail>;
     /** Hands the turn to the intake; the default is the fire-and-forget forward. */
     forward?: (envelope: InboundEnvelope) => void;
     seen?: SeenKeys;
@@ -120,9 +135,9 @@ export function resendInboundRouter(deps: EmailInboundDeps = {}): Router {
         if (reading.has(emailId)) { res.status(409).json({ error: 'this email is being read; retry later' }); return; }
 
         reading.add(emailId);
-        let envelope: InboundEnvelope;
+        let envelope: InboundEnvelope | IgnoredEmail;
         try {
-            envelope = await build(emailId, { apiKey, mediaDir: deps.mediaDir });
+            envelope = await build(emailId, { apiKey, mediaDir: deps.mediaDir, env });
         } catch (err: any) {
             console.error(`[comms-v2 email] reading a received email from Resend failed: ${err?.message ?? err}`);
             res.status(502).json({ error: 'the received email could not be read from Resend' });
@@ -132,6 +147,11 @@ export function resendInboundRouter(deps: EmailInboundDeps = {}): Router {
         }
         seen.add(`email:${emailId}`);
         seen.add(`delivery:${id}`);
+        if (isIgnored(envelope)) {
+            console.log(`[comms-v2 email] received email ignored: ${envelope.ignored}`);
+            res.status(200).json({ ok: true, ignored: envelope.ignored });
+            return;
+        }
         forward(envelope);
         res.status(200).json({ ok: true, accepted: true, media: envelope.media.length, mediaFailures: envelope.mediaFailures.length });
     });
