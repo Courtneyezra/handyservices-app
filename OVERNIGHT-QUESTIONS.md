@@ -26,3 +26,23 @@ This checkout (`~/.treehouse/handyservices-app-4cf2b2/6/handyservices-app`) has 
 `npm run comms-v2:door` refuses to open. No live sandbox scenario can run until a non-production
 `.envrc` is placed for this run root. Until then, rounds are driven through the repo's own door
 and desk test suites (scripted model client).
+
+## 3. Shut window after a hold: does the desk's holding line count as answering the question? (16 Sep 2026)
+
+Round 14: a customer asks "How much would that be roughly?" on WhatsApp, and the desk holds for Ben
+with "Thanks, leave it with me and I'll come back to you." Ben opens the card 25 hours later. His
+answer and the held draft are both refused because the window is shut (answer 34, correct). The
+board's template send (`sendWindowTemplate` in `server/comms-v2/desk/human-reply.ts`) is refused too,
+as "no template is true for this thread", because any outbound turn after the question counts as
+answering it (`unansweredQuestion`, and the test "a question the desk has already answered", whose
+fixture is a holding line: "Let me check on the price and come straight back to you."). So on the most
+common late-hold thread, where no quote has been sent, nothing can reach the customer until they write
+again, and a thread held on a question stays silent for good.
+The registry's own trigger for `answer_ready_reopen_v1` is "the customer asked something and the
+24-hour window shut before the desk answered". A holding line that promises Ben will come back
+arguably has not answered anything, and "we have an answer for you" is true once Ben has one.
+behaviour.md (answers 13 and 34) says only "approved templates for the common cases".
+
+Needed: when the only outbound turns since the customer's question are the desk's holding line or
+acknowledgement, and the hold still stands, should Ben be offered `answer_ready_reopen_v1`? Or should
+he keep waiting for the customer to write again?
