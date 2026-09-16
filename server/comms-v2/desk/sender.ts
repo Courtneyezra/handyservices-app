@@ -44,9 +44,8 @@ export const WINDOW_HOURS = 24;
 export const BUBBLE_MAX_CHARS = 160;
 export const BUBBLE_CEILING = 3;
 /**
- * How far "about 160" bends: a reply that splits past three bubbles at 160 is split again at this
- * width before it goes back to the composer, so a paragraph a few characters over does not hold an
- * ordinary reply for Ben.
+ * How far "about 160" bends, as a last resort (`softWidth`): a composed reply still over three bubbles
+ * at 160 after the composer's one shorten is split again at this width before it is held for Ben.
  */
 export const BUBBLE_SOFT_MAX_CHARS = 200;
 /**
@@ -251,6 +250,8 @@ export interface RenderOptions {
      * cannot fit three bubbles of about 160 characters (quoting/deliver-quote.ts).
      */
     wideBubbles?: boolean;
+    /** Split at `BUBBLE_SOFT_MAX_CHARS` instead of 160, still at most three bubbles: the desk's last try after a shorten (desk.ts). */
+    softWidth?: boolean;
 }
 
 /** Ben's two-line sign-off, which closes the four knowledge-base fixed lines (desk/fixed-lines.ts). */
@@ -260,7 +261,7 @@ export const RE_SIGN_OFF_PARAGRAPH = /^\s*thanks\s*\n\s*ben\s*$/i;
 /**
  * WhatsApp: the one reply split into bubbles at the breaks a person would use: the composer's
  * blank lines first, then sentence boundaries (one or two sentences a bubble) and commas for
- * anything over about 160 characters (up to 200 when 160 would pass the ceiling). Typing gaps of roughly each bubble's typing time. A ceiling reached returns the reply to
+ * anything over about 160 characters (200 with `softWidth`). Typing gaps of roughly each bubble's typing time. A ceiling reached returns the reply to
  * the composer to shorten rather than sending a wall. `asTyped` is the human path: blank lines
  * still break bubbles, nothing inside one is reflowed. Anything else the desk wrote leaves with no
  * dash used as punctuation, checked after the reflow, which is what turns a line-leading "- " into
@@ -271,9 +272,8 @@ export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderR
         // Ben's "Thanks / Ben" keeps its line break: folded, it reads as the customer thanking Ben.
         .map((p) => opts.asTyped ? p.split('\n').map((l) => l.trimEnd()).join('\n').trim() : RE_SIGN_OFF_PARAGRAPH.test(p) ? SIGN_OFF_LINES : withoutDashPunctuation(p.replace(/\s*\n\s*/g, ' ').trim()))
         .filter(Boolean);
-    const split = (max: number) => paragraphs.flatMap((p) => splitLong(p, max));
-    let texts = opts.asTyped ? paragraphs : opts.wideBubbles ? paragraphs.flatMap(splitWide) : split(BUBBLE_MAX_CHARS);
-    if (!opts.asTyped && !opts.wideBubbles && texts.length > BUBBLE_CEILING) texts = split(BUBBLE_SOFT_MAX_CHARS);
+    const width = opts.softWidth ? BUBBLE_SOFT_MAX_CHARS : BUBBLE_MAX_CHARS;
+    const texts = opts.asTyped ? paragraphs : opts.wideBubbles ? paragraphs.flatMap(splitWide) : paragraphs.flatMap((p) => splitLong(p, width));
     const bubbles = texts.map((text) => ({ text, gapMs: opts.asTyped ? typedGap(text) : typingGap(text) }));
     if (!bubbles.length) return { ok: false, reason: 'empty', bubbles };
     if (bubbles.length > BUBBLE_CEILING) return { ok: false, reason: 'ceiling', bubbles };

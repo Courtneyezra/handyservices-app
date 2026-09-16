@@ -115,7 +115,7 @@ async function draftWrittenSince(party: Party, since: string, d: ResolvedQuoting
     const row = slug ? await d.store.read(slug) : null;
     if (!slug || !row) return null;
     const record = quoteRecordOf(row, d.now());
-    return { ok: true, quoteId: record.id, slug, lines: record.lines.map((l) => l.label), checkThis: 0, suggestedTotalPence: null, estimatorFailed: null, estimateId: null, log: [`draft ${slug} was written before a restart and is taken up`], calls: [] };
+    return { ok: true, quoteId: record.id, slug, lines: record.lines.map((l) => l.label), checkThis: record.checkThis, suggestedTotalPence: record.suggestedTotalPence, estimatorFailed: null, estimateId: null, log: [`draft ${slug} was written before a restart and is taken up`], calls: [] };
 }
 
 /**

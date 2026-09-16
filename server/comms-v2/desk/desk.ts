@@ -39,7 +39,7 @@ import { chaseIfDue, clearChaseRecord, type ChaseState } from '../service/chase'
 import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY } from '../service/hold-reasons';
 import { serve, type ServiceSpecialistDeps } from '../service/service-specialist';
 import { asksAboutOurArea, asksToChangeDetails } from '../service/service-tools';
-import { BUBBLE_CEILING, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
+import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, BUBBLE_SOFT_MAX_CHARS, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
 import { channelFixedLines, MOVE_TO_WHATSAPP_SUBJECT } from '../channels/channel-lines';
 import { templateChoiceFor } from '../channels/templates';
@@ -408,14 +408,14 @@ export class Desk implements DeskLike {
         let repeated = repeatsOf(reply!);
         if (repeated.length) {
             const said = `said again: you have already said ${repeated.map((r) => `"${r}"`).join(' and ')}. Do not say that again in any words. If nothing new needs saying, write one short, warm acknowledgement of a few words and nothing else`;
-            const again = await compose({ file, party, turn, route, specialists, fixedLines, failures: [said], now: this.now() }, client);
+            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, failures: [said], now: this.now() }, client);
             calls.push(again.record);
             composerCalls++;
             if (again.output) {
-                const retry = await guardAttempt(again.output.reply, again.output.factIds, again.output.kbIds);
+                const retry = await guardAttempt(withLateAck(again.output.reply), again.output.factIds, again.output.kbIds);
                 const g = withOneThing(retry.guards, again.output.reply);
                 const still = repeatsOf(again.output.reply);
-                if (g.ok && !still.length) { reply = again.output.reply; factIds = again.output.factIds; kbIds = retry.kbIds; guards = g; repeated = []; }
+                if (g.ok && !still.length) { reply = withLateAck(again.output.reply); factIds = again.output.factIds; kbIds = retry.kbIds; guards = g; repeated = []; }
             }
             if (repeated.length) {
                 const trimmed = withoutSentences(reply!, repeated);
@@ -440,7 +440,11 @@ export class Desk implements DeskLike {
                 const shortReply = withLateAck(shorter.output.reply);
                 const short = await guardAttempt(shortReply, shorter.output.factIds, shorter.output.kbIds);
                 const shortGuards = withOneThing(short.guards, shorter.output.reply);
-                const r3 = render(choice.channel, shortReply, { name: party.name });
+                let r3 = render(choice.channel, shortReply, { name: party.name });
+                if (shortGuards.ok && !r3.ok && r3.reason === 'ceiling' && choice.channel === 'whatsapp') {
+                    r3 = render(choice.channel, shortReply, { name: party.name, softWidth: true });
+                    if (r3.ok) log(`render: the shortened reply still ran over ${BUBBLE_CEILING} bubbles at ${BUBBLE_MAX_CHARS} characters and went at ${BUBBLE_SOFT_MAX_CHARS}`);
+                }
                 if (shortGuards.ok && r3.ok) { reply = shortReply; factIds = shorter.output.factIds; kbIds = short.kbIds; guards = shortGuards; rendered = r3; }
             }
         }

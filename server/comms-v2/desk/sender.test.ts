@@ -115,18 +115,21 @@ describe('renderWhatsApp', () => {
         const ben = `${'This is one of the sentences Ben reviewed for the knowledge base. '.repeat(4).trim()}`;
         expect(renderWhatsApp(ben, { wideBubbles: true }).bubbles).toHaveLength(1);
     });
-    it('lets a paragraph run a little over 160 rather than hold a three-paragraph reply over the ceiling (answer 93: soft)', () => {
+    it('splits at 160 by default and at 200 only when asked, never past three bubbles (answer 93: soft)', () => {
         const first = 'Hi Kiran, thanks for the message. So a floating shelf, about a metre long, on a plasterboard wall in the living room at NG9 2AB, with parking on the drive there too.';
         expect(first.length).toBeGreaterThan(BUBBLE_MAX_CHARS);
         const reply = `${first}\n\nWhat sort of things will be going on the shelf?\n\nHappy to give you a quick call if that's easier.`;
         const r = renderWhatsApp(reply);
-        expect(r.ok).toBe(true);
-        expect(r.bubbles.map((b) => b.text)).toEqual([first, 'What sort of things will be going on the shelf?', "Happy to give you a quick call if that's easier."]);
-        // A reply that fits at 160 is still split at 160.
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.reason).toBe('ceiling');
+        const soft = renderWhatsApp(reply, { softWidth: true });
+        expect(soft.ok).toBe(true);
+        expect(soft.bubbles.map((b) => b.text)).toEqual([first, 'What sort of things will be going on the shelf?', "Happy to give you a quick call if that's easier."]);
         expect(renderWhatsApp(first).bubbles.length).toBe(2);
-        // Well past about 160, the reply still goes back to the composer.
         const wall = `${'This sentence is long enough to count. '.repeat(6).trim()}\n\nTwo.\n\nThree.`;
-        expect(renderWhatsApp(wall).ok).toBe(false);
+        const over = renderWhatsApp(wall, { softWidth: true });
+        expect(over.ok).toBe(false);
+        expect(over.bubbles.length).toBeGreaterThan(3);
     });
     it('splits a bubble over about 160 characters at sentence boundaries, never mid-sentence', () => {
         const sentence = 'This sentence is exactly long enough to matter for the split rule here.';

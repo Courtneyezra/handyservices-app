@@ -14,9 +14,9 @@ import { lightPhotoSummary } from './composer';
 import { FakeModelClient } from './models';
 import { isWrapUp, repeatedSentences, saidSinceLastQuestion, withoutSentences } from './repeat';
 import { describeMedia, emptyKb } from './scoping-tools';
-import { noTemplateApproved } from './sender';
+import { BUBBLE_MAX_CHARS, noTemplateApproved, renderWhatsApp } from './sender';
 import type { InboundTurn } from './whatsapp-adapter';
-import { recordingNotifier } from '../quoting/ben-notifier';
+import { recordingNotifier, type BenNotice, type BenNotifier } from '../quoting/ben-notifier';
 import { DRAFTING_FACT, draftPending, settleBackgroundDrafts } from '../quoting/background-draft';
 import { clockDue, liveClockTick } from '../channels/live-clock';
 import { FakeDrafter, type Drafter } from '../quoting/draft-quote';
@@ -66,11 +66,11 @@ function kiranClient() {
     });
 }
 
-function stand(extra: Partial<DeskDeps> = {}, drafter?: (store: MemoryQuoteStore) => Drafter) {
+function stand(extra: Partial<DeskDeps> = {}, drafter?: (store: MemoryQuoteStore) => Drafter, notifier: BenNotifier = recordingNotifier) {
     const client = kiranClient();
     const quotes = new MemoryQuoteStore();
     const lines: string[] = [];
-    const deps: DeskDeps = { client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store: quotes, drafter: drafter ? drafter(quotes) : new FakeDrafter(quotes), notifier: recordingNotifier }, log: (l) => lines.push(l), ...extra };
+    const deps: DeskDeps = { client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store: quotes, drafter: drafter ? drafter(quotes) : new FakeDrafter(quotes), notifier }, log: (l) => lines.push(l), ...extra };
     const desk = new Desk(deps);
     const gateway = new Gateway({ desk, quietMs: QUIET_MS, log: (l) => lines.push(l) });
     return { client, gateway, quotes, lines };
@@ -158,6 +158,92 @@ describe('the Kiran thread: four near-identical wrap-ups', () => {
         if (asked.kind !== 'handled') throw new Error(asked.kind);
         expect(asked.result.decision).toBe('send');
         expect(asked.result.composerCalls).toBe(1);
+    });
+});
+
+describe('a repeat rewritten while a late photo is owed its thanks', () => {
+    it('keeps the late thanks after the rewrite, and marks the photo thanked only because it went', async () => {
+        const clock = { t: Date.parse('2026-09-16T10:00:00.000Z') };
+        const now = () => new Date(clock.t);
+        const composerUsers: string[] = [];
+        const client = new FakeModelClient({
+            router: ({ n }) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: n === 1 ? 'answer' : 'acknowledgement' }),
+            specialist: ({ system }) => (/lines of a quote/.test(system) ? intakeOutput : { facts: [{ key: 'job_type', value: 'handles on 4 doors' }, { key: 'location', value: 'NG11 7DL' }], jobUnknowns: [], answeredSubjects: [] }),
+            composer: ({ user, n }) => {
+                composerUsers.push(user);
+                if (n === 1) return { reply: WRAP_UP, factIds: [], kbIds: [] };
+                if (/said again:/.test(user)) return { reply: 'No worries at all, Sam 👍', factIds: [], kbIds: [] };
+                return { reply: `Cheers Sam.\n\n${WRAP_UP}`, factIds: [], kbIds: [] };
+            },
+        });
+        const quotes = new MemoryQuoteStore();
+        const desk = new Desk({ client, now, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, quoting: { store: quotes, drafter: new FakeDrafter(quotes), notifier: recordingNotifier } });
+        const gateway = new Gateway({ desk, now });
+        const one = await gateway.inbound({ ...message('Handles on 4 doors, NG11 7DL'), at: now().toISOString() });
+        if (one.kind !== 'handled') throw new Error(one.kind);
+        const file = one.file;
+        // A photo that reached the thread with no reply after it, well before the customer's next word.
+        const inbound = file.turns.find((t) => t.direction === 'inbound')!;
+        clock.t += 60_000;
+        file.turns.push({ ...inbound, id: 'turn_photo', at: now().toISOString(), body: '', media: [{ id: 'photo_1', kind: 'image', mime: 'image/jpeg', path: '/tmp/door.jpg', url: 'https://example.test/door.jpg', description: null }] } as typeof inbound);
+        clock.t += 45 * 60_000;
+
+        const thanks = await gateway.inbound({ ...message('ok thanks'), at: now().toISOString() });
+        if (thanks.kind !== 'handled') throw new Error(thanks.kind);
+        expect(thanks.result.decision).toBe('send');
+        const texts = thanks.result.bubbles.map((b) => b.text);
+        expect(texts[0]).toBe('No worries at all, Sam 👍');
+        expect(texts.at(-1)).toMatch(/^Thanks for the photo you sent earlier/);
+        expect(composerUsers.find((u) => /said again:/.test(u))).toContain('came in earlier');
+        expect(file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
+    });
+});
+
+describe('a reply over three bubbles at 160 (answer 93: soft)', () => {
+    const LONG = 'Hi Sam, thanks for the message. So a floating shelf, quite a long one, on a plasterboard wall in the living room downstairs, with parking on the drive there as well.';
+    const OVER = `${LONG}\n\nWhat sort of things will be going on the shelf?\n\nHappy to give you a quick call if that's easier.`;
+    const WALL = `${'This sentence is long enough to count. '.repeat(6).trim()}\n\nTwo.\n\nThree.`;
+
+    async function run(shortened: string) {
+        const lines: string[] = [];
+        const client = new FakeModelClient({
+            router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry' }),
+            specialist: () => ({ facts: [{ key: 'job_type', value: 'floating shelf' }], jobUnknowns: ['what goes on it'], answeredSubjects: [] }),
+            composer: ({ n }) => ({ reply: n === 1 ? OVER : shortened, factIds: [], kbIds: [] }),
+        });
+        const desk = new Desk({ client, log: (l) => lines.push(l), fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, scoping: { describe: async () => ({ ok: false, reason: 'none' }) } });
+        const out = await new Gateway({ desk }).inbound(message('I need a floating shelf put up'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        const composers = client.calls.filter((c) => c.role === 'composer');
+        return { out, lines, composers };
+    }
+
+    it('first sends it back to the composer, and keeps 160 when the shortened reply fits', async () => {
+        expect(renderWhatsApp(OVER).ok).toBe(false);
+        expect(renderWhatsApp(OVER, { softWidth: true }).ok).toBe(true);
+        const { out, lines, composers } = await run('Hi Sam, a floating shelf, no problem.\n\nWhat sort of things will be going on it?');
+        expect(composers).toHaveLength(2);
+        expect(composers[1].user).toMatch(/over the ceiling of 3/);
+        expect(out.result.decision).toBe('send');
+        expect(out.result.bubbles.every((b) => b.text.length <= BUBBLE_MAX_CHARS)).toBe(true);
+        expect(lines.some((l) => /went at 200/.test(l))).toBe(false);
+    });
+
+    it('splits at 200 only once the shortened reply still runs over, and says so in the log', async () => {
+        const { out, lines, composers } = await run(OVER);
+        expect(composers).toHaveLength(2);
+        expect(out.result.decision).toBe('send');
+        expect(out.result.bubbles.map((b) => b.text)).toEqual([LONG, 'What sort of things will be going on the shelf?', "Happy to give you a quick call if that's easier."]);
+        expect(lines.some((l) => /went at 200/.test(l))).toBe(true);
+    });
+
+    it('holds when the shortened reply runs over even at 200, never sending a fourth bubble', async () => {
+        const { out, composers } = await run(WALL);
+        expect(composers).toHaveLength(2);
+        expect(out.result.decision).toBe('hold');
+        expect(out.file.hold?.reason).toMatch(/over the ceiling of 3 bubbles after one shorten/);
+        expect(out.result.bubbles.length).toBeLessThanOrEqual(3);
+        expect(out.file.turns.filter((t) => t.direction === 'outbound').every((t) => !t.body.includes('This sentence is long enough'))).toBe(true);
     });
 });
 
@@ -289,7 +375,8 @@ describe('the quote drafted off the reply path (F6)', () => {
 
     it('takes up the quote row a restart left behind rather than drafting a second quote', async () => {
         let drafter!: ReturnType<typeof slowDrafter>;
-        const { gateway, quotes } = stand({ persist: () => undefined }, (store) => (drafter = slowDrafter(new FakeDrafter(store), 5)));
+        const notices: BenNotice[] = [];
+        const { gateway, quotes } = stand({ persist: () => undefined }, (store) => (drafter = slowDrafter(new FakeDrafter(store), 5)), { async notify(n) { notices.push(n); return { note: 'recorded' }; } });
         const out = await gateway.inbound(message('Handles on 4 doors, NG11 7DL'));
         if (out.kind !== 'handled') throw new Error(out.kind);
         await settleBackgroundDrafts();
@@ -306,6 +393,9 @@ describe('the quote drafted off the reply path (F6)', () => {
         expect(quotes.rows.size).toBe(1);
         expect(file.job.quoteRef).toBe(slug);
         expect(file.facts.filter((f) => f.key === QUOTE_FACT.benNotified)).toHaveLength(1);
+        expect(notices.map((n) => n.message)).toHaveLength(2);
+        expect(notices[1].message).toBe(notices[0].message);
+        expect(notices[1].message).toContain('Suggested total £120');
         expect(file.facts.filter((f) => f.key === DRAFTING_FACT).map((f) => f.value.split(':')[0])).toEqual(['started', 'started', 'done']);
     });
 
