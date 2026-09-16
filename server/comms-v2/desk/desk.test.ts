@@ -734,6 +734,17 @@ describe('the desk', () => {
         expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
     });
 
+    it('a haggle the router model misses on an expired quote still goes to Ben as money, with no reissue', async () => {
+        const { gateway, clock, slug, user } = await expiredQuote(DEFAULT_FIXED_LINES.money_to_ben);
+        const out = await gateway.inbound(turn('Is that the best you can do?', new Date(clock.t).toISOString()));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(user()).toContain(DEFAULT_FIXED_LINES.money_to_ben);
+        expect(out.file.hold?.exception).toBe('money');
+        expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+        expect(out.file.job.quoteRef).toBe(slug);
+        expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
+    });
+
     it('a quote read that fails leaves the turn answered instead of taking it down, with no figure readable', async () => {
         const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
         let failing = false;

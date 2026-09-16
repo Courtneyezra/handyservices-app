@@ -129,6 +129,25 @@ describe('lexicon', () => {
         expect(moneyQuestionMatch('Can you do it any cheaper?')).toBeTruthy();
         expect(moneyQuestionMatch('Hi, can I get a quote for a leaking tap?')).toBeNull();
     });
+    it('reads haggling in everyday words as money, but not job talk that looks like it', () => {
+        for (const body of [
+            'Is that the best you can do?', 'Any wiggle room on that?', "Bit steep isn't it", "That's a bit dear", "That's over my budget",
+            'Someone else quoted me 80 for it', 'Can you match 90?', 'Could you do mates rates?', 'Can I pay cash for less?', 'Can you do any better on that?',
+            'Can you go any lower?', 'Is there any room to move on that?', 'That seems a lot for a tap', 'Any chance of a deal if I book two jobs?',
+            'Do you do a pensioner rate?', 'Can you do it for 100?', 'Would you take 120?', 'Can you knock a tenner off?', 'Would you do 150 cash?',
+            'Too pricey for me', 'Can you meet me halfway?', 'Is that negotiable?', 'Can I pay in instalments?', 'Could you knock some off?',
+        ]) {
+            expect(moneyQuestionMatch(body), body).toBeTruthy();
+        }
+        for (const body of [
+            'Any news on the quote?', 'Can you match the paint colour?', 'Could you lower the shelf a bit?', "I'll take it", 'The drip is a lot worse today',
+            'Can you do any better than a patch repair?', "That's a lot better, thanks", "That's a lot of water", "It'll take 20 minutes",
+            'Can you do it for 2 hours on Friday?', 'Can you take 3 of the old doors away?', 'Dear Ben, my tap drips', 'Is there any room to move the wardrobe?',
+            'Could you knock the old tiles off?', 'Can you do it for 10am?', "We'll go lower on the shelf height", 'Sounds a lot like a washer',
+        ]) {
+            expect(moneyQuestionMatch(body), body).toBeNull();
+        }
+    });
     it('reads a call offer and its negation, and an ask of a subject outside a dismissive clause', () => {
         expect(offersCall('Happy to give you a quick call if easier.')).toBeTruthy();
         expect(offersCall("No problem, we won't call you, text is fine.")).toBeNull();
