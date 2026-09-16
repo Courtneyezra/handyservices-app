@@ -36,7 +36,7 @@ import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, heldAckLine, knowledgeBaseFixedLines, lateMediaAckLine, LATE_MEDIA_MS, type FixedLine, type FixedLineSource } from './fixed-lines';
 import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
-import { offersCall, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
+import { asksProposed, offersCall, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
 import { TurnModelWatch, type TurnReport } from './model-health';
 import type { Exception, HoldException, Route } from './router';
@@ -688,7 +688,7 @@ export class Desk implements DeskLike {
         const deps = this.fileDeps();
         const party = partyOf(file, partyId)!;
         for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(said, subject)) ledgerAsk(file, subject, deps);
-        if (proposal?.nextQuestion && said.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
+        if (proposal?.nextQuestion && asksProposed(said, proposal.nextQuestion.subject)) ledgerAsk(file, proposal.nextQuestion.subject, deps);
         if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(said)) ledgerAsk(file, 'media', deps);
         // The thanks is spent only where the words that went carried one: a thanks the ledger
         // records but the reply never made leaves the photo unacknowledged for good, which is the

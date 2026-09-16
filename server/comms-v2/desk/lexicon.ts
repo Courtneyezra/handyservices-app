@@ -193,6 +193,18 @@ export function textAsks(text: string, subject: string): boolean {
 }
 
 /**
+ * Whether a composed reply asked the question the brief proposed. A question in words the lexicon
+ * does not know still counts, but only a question about the job: an offer of a call ("is it OK if
+ * I give you a quick call?") or a question that asks for a different subject ("could you send a
+ * photo?") is not the proposed one, so the proposed subject is not spent on it and is asked later.
+ */
+export function asksProposed(text: string, subject: string): boolean {
+    if (textAsks(text, subject)) return true;
+    const others = ['media', 'postcode', 'access'].filter((o) => o !== subject);
+    return sentencesOf(text).some((s) => s.includes('?') && scopingQuestionCount(s) > 0 && !others.some((o) => sentenceAsks(s, o)));
+}
+
+/**
  * The same question of prose nobody composed to the desk's shape, read tightly: the subject word
  * and the asking phrase must fall in one clause. "I will be in touch later today, what is the best
  * number for you?" asks for neither access nor anything else. Where a human's phrasing is
