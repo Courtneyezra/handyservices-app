@@ -123,6 +123,14 @@ describe('lexicon', () => {
     it('reads a call offer and its negation, and an ask of a subject outside a dismissive clause', () => {
         expect(offersCall('Happy to give you a quick call if easier.')).toBeTruthy();
         expect(offersCall("No problem, we won't call you, text is fine.")).toBeNull();
+        expect(offersCall('Or I can ring you if that is easier?')).toBeTruthy();
+        expect(offersCall('We can chat over the phone if you prefer.')).toBeTruthy();
+        // A call that already happened, or was tried, is not an offer, and a question beside it is still about the job.
+        expect(offersCall('As we discussed on the phone, could you send a photo?')).toBeNull();
+        expect(offersCall('Great speaking to you on the phone.')).toBeNull();
+        expect(offersCall('We tried to call you back but no luck.')).toBeNull();
+        expect(scopingQuestionCount('As we discussed on the phone, could you send a photo?')).toBe(1);
+        expect(scopingQuestionCount('Would a quick call help?')).toBe(0);
         expect(textAsks('If it is easy, could you send a photo?', 'media')).toBe(true);
         expect(textAsks('No worries about photos, what size is the tile?', 'media')).toBe(false);
         expect(textAsks('Whereabouts are you?', 'postcode')).toBe(true);
