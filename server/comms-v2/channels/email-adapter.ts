@@ -2,11 +2,12 @@
  * The email adapter. Long-form in, one composed message out with a greeting and a sign-off, on
  * the same thread (Contract 5, render; docs/comms-v2/design.md "Five channels, one desk").
  *
- * In: there is no inbound email today, so the sandbox door is the only way in and this module
- * covers the door only: the sender's lowercase address, the subject and the new text with the
- * quoted history stripped, the media the door hands over as bytes, and the Message-ID kept so the
- * reply stays on the thread. A provider's own body shape lands with the webhook at cutover, written
- * against that provider's real payload rather than guessed at here.
+ * In: two ways, the sandbox door and Resend's inbound webhook (resend-inbound.ts maps Resend's
+ * received email onto `InboundEmail`). Either way the turn is the sender's lowercase address (a
+ * `"Sam Jones" <sam@example.com>` From gives the name as well), the subject, and the new text with
+ * the quoted history stripped: the plain-text part, or the HTML part read as text when a mail client
+ * sent no plain text. The thread's Message-ID, In-Reply-To and References are kept so the reply
+ * stays on the thread. Media arrives as bytes, from the door or downloaded by resend-inbound.ts.
  *
  * Out: `renderEmail` wraps the composer's one reply as a letter: "Hi <first name>," the
  * paragraphs, then the sign-off. It is one bubble, because an email is one message.
@@ -25,14 +26,81 @@ export const EMAIL_DEFAULT_SUBJECT = 'Your enquiry';
 
 // ---------------------------------------------------------------- the inbound shape
 
-/** An inbound email as the door hands it over: a bare address, the words, and the thread's message id. */
+/** An inbound email: the From (bare or with a display name), the words, and the thread's headers. */
 export interface InboundEmail {
     from: string;
     fromName?: string | null;
     subject?: string | null;
     text?: string | null;
+    /** The HTML part, read only when `text` has no words in it. */
+    html?: string | null;
     messageId?: string | null;
+    /** The In-Reply-To header: the message this one answers. */
+    inReplyTo?: string | null;
+    /** The References header, raw or already split. */
+    references?: string | string[] | null;
     at?: string | null;
+}
+
+// ---------------------------------------------------------------- the headers
+
+/**
+ * The address and display name from a From header: `sam@x.co`, `<sam@x.co>`, `Sam <sam@x.co>` or
+ * `"Jones, Sam" <sam@x.co>`. The name is null when there is none or it is only the address again.
+ */
+export function parseEmailAddress(raw: string | null | undefined): { address: string; name: string | null } {
+    const s = String(raw ?? '').trim();
+    const angled = s.match(/^(.*?)<\s*([^<>\s]+@[^<>\s]+)\s*>\s*$/);
+    if (!angled) return { address: s, name: null };
+    let name = angled[1].trim();
+    if (name.startsWith('"') && name.endsWith('"') && name.length >= 2) name = name.slice(1, -1).replace(/\\(.)/g, '$1').trim();
+    const address = angled[2];
+    return { address, name: name && name.toLowerCase() !== address.toLowerCase() ? name : null };
+}
+
+/** Every `<id>` in a Message-ID, In-Reply-To or References header, in order, once each. */
+export function messageIdsOf(...headers: Array<string | string[] | null | undefined>): string[] {
+    const out: string[] = [];
+    for (const h of headers) {
+        for (const part of Array.isArray(h) ? h : [h ?? '']) {
+            for (const id of String(part).match(/<[^<>\s]+>/g) ?? []) if (!out.includes(id)) out.push(id);
+        }
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------- the HTML part, as text
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', pound: '£', euro: '€', hellip: '…', ndash: '–', mdash: '—', rsquo: '’', lsquo: '‘', rdquo: '”', ldquo: '“' };
+
+function decodeEntities(s: string): string {
+    return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+        if (e[0] === '#') {
+            const n = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+            return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m;
+        }
+        return ENTITIES[e.toLowerCase()] ?? m;
+    });
+}
+
+/**
+ * An HTML body as plain lines, for a mail client that sent no plain-text part. Quoted history a
+ * client marks up (a `<blockquote>`, Gmail's `gmail_quote` block) is dropped here; the rest is left
+ * to `stripQuotedHistory`, which reads the text the same way as a plain-text part.
+ */
+export function htmlToText(html: string): string {
+    let s = html.replace(/\r\n/g, '\n');
+    s = s.replace(/<!--[\s\S]*?-->/g, '');
+    s = s.replace(/<(head|style|script|title)\b[\s\S]*?<\/\1\s*>/gi, '');
+    s = s.replace(/<blockquote\b[\s\S]*<\/blockquote\s*>/gi, '\n');
+    s = s.replace(/<div\b[^>]*class=["'][^"']*gmail_quote[\s\S]*$/i, '\n');
+    s = s.replace(/\s*\n\s*/g, ' ');
+    s = s.replace(/<br\s*\/?>/gi, '\n');
+    s = s.replace(/<\/?(p|div|tr|table|h[1-6]|ul|ol|section|article|header|footer)\b[^>]*>/gi, '\n');
+    s = s.replace(/<li\b[^>]*>/gi, '\n- ');
+    s = s.replace(/<[^>]*>/g, '');
+    s = decodeEntities(s);
+    return s.split('\n').map((l) => l.replace(/[ \t\u00a0]+/g, ' ').trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 // ---------------------------------------------------------------- the new text, without the history
@@ -73,15 +141,20 @@ export interface EmailAdapterDeps extends MediaWriteDeps { now?: () => Date }
 
 export function fromInboundEmail(email: InboundEmail, deps: EmailAdapterDeps = {}): InboundEnvelope {
     const now = deps.now ?? (() => new Date());
-    const key = canonical(email.from);
+    const from = parseEmailAddress(email.from);
+    const key = canonical(from.address);
     if (!key || !key.startsWith('email:')) throw new Error('inbound email without a sender address');
     const address = key.slice('email:'.length);
     const subject = (email.subject ?? '').trim() || null;
-    const body = stripQuotedHistory((email.text ?? '').trim());
+    const plain = (email.text ?? '').trim();
+    const body = stripQuotedHistory(plain || htmlToText(email.html ?? ''));
+    const messageId = messageIdsOf(email.messageId)[0] ?? (email.messageId?.trim() || null);
+    // The chain a reply carries: what this message referenced, what it answered, then itself.
+    const references = messageIdsOf(email.references, email.inReplyTo).filter((id) => id !== messageId).concat(messageId ? [messageId] : []);
     return {
-        channel: 'email', address, name: email.fromName?.trim() || null, text: subject ? `Subject: ${subject}\n\n${body}`.trim() : body, media: [],
-        at: email.at ?? now().toISOString(), providerMessageId: email.messageId ?? null, via: 'door', mediaFailures: [], kind: 'text',
-        email: { subject, messageId: email.messageId ?? null, references: email.messageId ? [email.messageId] : [] },
+        channel: 'email', address, name: email.fromName?.trim() || from.name, text: subject ? `Subject: ${subject}\n\n${body}`.trim() : body, media: [],
+        at: email.at ?? now().toISOString(), providerMessageId: messageId, via: 'door', mediaFailures: [], kind: 'text',
+        email: { subject, messageId, references },
     };
 }
 

@@ -99,6 +99,7 @@
     "remark-gfm": "^4.0.1",
     "resend": "^6.9.2",
     "stripe": "^20.1.0",
+    "svix": "~1.84.1",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "twilio": "^5.4.5",

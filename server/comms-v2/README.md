@@ -45,7 +45,7 @@ as their source.
 | Channel | File | In | Out |
 |---|---|---|---|
 | SMS | `channels/sms-adapter.ts` | Twilio's inbound on the shared webhook (a bare `From`); media is refused, a UK long code cannot receive MMS | `renderSms`: one message, at most two segments (GSM-7 or UCS-2 counted), typographic punctuation normalised; over two goes back to the composer. A person's own words from the board go as typed, punctuation and line breaks untouched, with only the two-segment ceiling still refusing. A reply on SMS to a party who does not write on WhatsApp carries the fixed `move_to_whatsapp` line (1.4), spent on the ask ledger when the reply carrying it sends, so a reworded one still goes exactly once and an acknowledgement that held the thread for Ben does not spend it; a WhatsApp channel with no inbound turn on it, which is all the presence source proves, does not withhold it either. An SMS from a party whose WhatsApp window is open is answered on WhatsApp. |
-| Email | `channels/email-adapter.ts` | The sandbox door, the only way in until cutover (below): the quoted history stripped, photo attachments written where describe_media reads them, the thread kept on the party's email channel | `renderEmail`: one letter, "Hi <first name>," the paragraphs, the sign-off; the reply carries `In-Reply-To` and `References` and the subject with "Re:". Those are the desk's words, so a person's own words from the board get none of them: his letter is what he typed, line breaks and all, and a greeting or a sign-off is his to write. Render only: there is no live email delivery. The one outbound send is the only path that checks the opt-out ledger and it carries WhatsApp and SMS, so a live email send is refused. Whether email belongs in the STOP suppression list, and on what key, is a cutover decision. |
+| Email | `channels/email-adapter.ts`, `channels/resend-inbound.ts`, `channels/email-inbound.ts` | The sandbox door, and Resend's inbound webhook behind its own switch (below): the display-name From, the text part or the HTML part read as text, the quoted history stripped, photo attachments written where describe_media reads them, the thread kept on the party's email channel | `renderEmail`: one letter, "Hi <first name>," the paragraphs, the sign-off; the reply carries `In-Reply-To` and `References` and the subject with "Re:". Those are the desk's words, so a person's own words from the board get none of them: his letter is what he typed, line breaks and all, and a greeting or a sign-off is his to write. Render only: there is no live email delivery. The one outbound send is the only path that checks the opt-out ledger and it carries WhatsApp and SMS, so a live email send is refused. Whether email belongs in the STOP suppression list, and on what key, is a cutover decision. |
 | Web form | `channels/form-adapter.ts` | Name, phone, email, the job, postcode, sometimes photos (bytes). Creates the file; the postcode and name are facts at intake; the job type is Scoping's to establish | No reply path of its own: `chooseChannel` follows a channel this customer has written on before, so a form filled in mid-thread is answered where the thread has been running, and for a first contact who has written on nothing it opens WhatsApp if the number is on it (the approved web form template, quoting the enquiry, 1.2; the row without the call offer when they have already rung us, 1.5), else SMS, else email. |
 | Calls | `channels/call-adapter.ts`, `channels/call-reader.ts`, `channels/channel-desk.ts` | A finished call: `missed`, `answered_inbound`, or `ben_rang` (an unanswered outbound never reaches the desk). The transcript is the turn's body; the outcome is a fact on the file. The reader (Sonnet 5, facts only, no prose field) records the job, the location, what Ben asked for and whether a callback was agreed; Ben's asks go on the ledger as soon as the call is read, whatever the follow-up does next, so the desk never asks again | The desk never speaks. `missed`: one text back per thread (3.5), the missed-call template on WhatsApp, else its words on SMS; the acknowledgement goes on the ask ledger, so a second and third missed call send nothing. `answered_inbound`: nothing (3.5), and the caller is never offered a call (1.5). `ben_rang`: the post-call template with the name and the job (1.3), else its words on SMS; the thread continues from the file (3.2, 3.3) and nothing is held for Ben (3.4). No approved template on WhatsApp holds the follow-up for Ben with its words as the draft, never an SMS fallback (answer 34); so does a template the channel's own render refuses, a first name outside GSM 03.38 being enough to make one text three segments, because nobody is left silent after Ben's call. |
 
@@ -162,21 +162,45 @@ logs once that it is not the live desk and builds no live gateway.
 
 ### Inbound email
 
-There is no inbound email today and this goal does not add one: the email sandbox door is the only
-way an email reaches the desk, and it is what proves the channel. `fromInboundEmail`
-(`channels/email-adapter.ts`) covers the door and nothing else: a bare address, the words, the
-subject and the thread's message id, with the door's media handed over as bytes. There is no
-outbound email path either: a live email send is refused, so the desk runs dry on email.
+Inbound email comes from Resend (the captain's choice, 16 Sep 2026), which already sends the
+business's email. Resend POSTs a signed `email.received` event to
+`POST /api/webhooks/resend/inbound-email` (`channels/email-inbound.ts`). That path is mounted
+outside the admin-gated `/api/comms-v2` prefix, because a provider has no session and would be
+refused there. The route has its own authentication: Resend's Svix signature (`svix-id`,
+`svix-timestamp`, `svix-signature`), checked over the raw body with the `svix` library against
+`RESEND_INBOUND_WEBHOOK_SECRET`. A missing or bad signature, or a timestamp more than five minutes
+out, is a 401. A delivery already taken, whether by its `svix-id` or by its received email's id, is
+answered 200 and adds no second turn. That memory is per process and lasts a day.
 
-A webhook is cutover work, and it is more than a route. The provider's own body shape, its HTML
-parts, its base64 attachments and its header spellings land with it, written against a real payload
-from the provider that was chosen rather than guessed at in advance. It needs a chosen provider, a path outside
-the admin-gated `/api/comms-v2` prefix (mounting one under it puts `requireAdmin` in front of every
-request, so a provider's POST is refused before the route is reached), and its own secret. Naming an
-inbound mail provider is also a data-protection decision, not a code change alone: that provider
-would receive customers' full message bodies and attachments, so it must be recorded in
+**Switched off unless turned on deliberately.** The route accepts nothing into the desk unless
+`COMMS_V2_EMAIL_INBOUND=1` and the intake switch `COMMS_V2_INTAKE=1` are both set, each read the way
+`COMMS_V2_INTAKE` is (exactly `1`). Off, it answers 404 and reads nothing. On but without the
+signing secret or `RESEND_API_KEY`, it answers 503. On, it forwards the turn to the intake, which
+takes it to the gateway in use (dry run until the desk is live, as for every other channel).
+
+Resend's event carries metadata only, never the body or the attachment bytes. So the route reads
+the email (`GET /emails/receiving/{id}`) and its attachments
+(`GET /emails/receiving/{id}/attachments`) with `RESEND_API_KEY` before it answers
+(`channels/resend-inbound.ts`). A read that fails is a 502, so Resend retries. The adapter
+(`channels/email-adapter.ts`) turns that into the email turn:
+- The From header's display name and address (`"Jones, Sam" <sam@...>`); the address is lowercased.
+- The plain-text part, or the HTML part read as text when the client sent none. A `<blockquote>` or
+  Gmail quote block is dropped, and the quoted history is then stripped from the text.
+- `Message-ID`, `In-Reply-To` and `References`, kept on the party's email channel so a reply joins
+  the same thread.
+- Each photo or video, downloaded from its signed URL (the API key is never sent there). A photo is
+  checked against its own bytes. Anything else, a download over 40 MB, more than eight media, or a
+  failed download is named on the turn's media failures. An inline image under 16 KB is taken as a
+  signature or logo and skipped.
+
+The sandbox door (`fromDoorEmail`) still hands its media over as bytes.
+
+Resend receiving customers' full message bodies and attachments is recorded in
 `docs/COMMS_RECORD_OF_PROCESSING.md` and on the customer-facing list in
-`client/src/pages/PrivacyPolicyPage.tsx` before anything is pointed at one.
+`client/src/pages/PrivacyPolicyPage.tsx`. Pointing Resend at the route, setting the secret and
+turning the switch on are owner actions (docs/RUNBOOK.md, "Inbound email (Resend)").
+
+There is still no outbound email path. A live email send is refused, so the desk runs dry on email.
 ## Goal 4: the Quoting specialist and its tool server (`quoting/`)
 
 Contract 7 (docs/comms-v2/contracts.md). Registered with the desk by one import and one gather

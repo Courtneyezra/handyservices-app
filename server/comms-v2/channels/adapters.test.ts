@@ -9,7 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { open, type CaseFile } from '../desk/case-file';
 import { CALL_OUTCOMES, callOutcomeOf, callOutcomeOnFile, fromDoorCall, fromFinishedCall, transcriptBody, transcriptOf, validateDoorCall, TRANSCRIPT_BODY_MAX } from './call-adapter';
-import { emailThreadingFor, fromDoorEmail, fromInboundEmail, renderEmail, stripQuotedHistory } from './email-adapter';
+import { emailThreadingFor, fromDoorEmail, fromInboundEmail, htmlToText, messageIdsOf, parseEmailAddress, renderEmail, stripQuotedHistory } from './email-adapter';
 import { firstNameOf, truncateWords } from './envelope';
 import { fromDoorForm, fromWebForm } from './form-adapter';
 import { MAX_PHOTO_BYTES } from './media';
@@ -75,6 +75,33 @@ describe('the email adapter', () => {
         expect(withMedia.media).toHaveLength(1);
         expect(fs.readFileSync(withMedia.media[0].path)).toEqual(PNG);
         expect(withMedia.mediaFailures).toEqual([{ ref: 'application/pdf', reason: 'unsupported media type application/pdf' }]);
+    });
+    it('reads a display-name From: the name from the header, the address lowercased', () => {
+        expect(parseEmailAddress('Sam Jones <Sam.Jones@Example.com>')).toEqual({ address: 'Sam.Jones@Example.com', name: 'Sam Jones' });
+        expect(parseEmailAddress('"Jones, Sam \\"SJ\\"" <sam@example.com>')).toEqual({ address: 'sam@example.com', name: 'Jones, Sam "SJ"' });
+        expect(parseEmailAddress('<sam@example.com>')).toEqual({ address: 'sam@example.com', name: null });
+        expect(parseEmailAddress('"sam@example.com" <sam@example.com>')).toEqual({ address: 'sam@example.com', name: null });
+        expect(parseEmailAddress('sam@example.com')).toEqual({ address: 'sam@example.com', name: null });
+        const env = fromInboundEmail({ from: 'Priya K <Priya@Example.com>', text: 'hello' });
+        expect(env).toMatchObject({ address: 'priya@example.com', name: 'Priya K' });
+        // A name the caller gives wins over the header's.
+        expect(fromInboundEmail({ from: 'Priya K <priya@example.com>', fromName: 'Priya Kaur', text: 'hi' }).name).toBe('Priya Kaur');
+    });
+    it('keeps the thread from In-Reply-To and References, this message last, each id once', () => {
+        expect(messageIdsOf('<a@x>\r\n <b@x>', '<b@x>', ['<c@x> junk'], null)).toEqual(['<a@x>', '<b@x>', '<c@x>']);
+        const env = fromInboundEmail({ from: 'a@b.co', text: 'x', messageId: '<m3@x>', inReplyTo: '<m2@x>', references: '<m1@x> <m2@x>' });
+        expect(env.email).toEqual({ subject: null, messageId: '<m3@x>', references: ['<m1@x>', '<m2@x>', '<m3@x>'] });
+        expect(env.providerMessageId).toBe('<m3@x>');
+    });
+    it('reads the HTML part as text when there is no plain-text part, without the quoted reply', () => {
+        const html = '<html><head><title>t</title><style>.a{}</style></head><body><!-- c --><div>Hi&nbsp;Ben,</div><div><br></div>'
+            + '<div>The fence is 6&#39; high &amp; leaning.</div><ul><li>two panels</li><li>one post</li></ul>'
+            + '<blockquote type="cite">On Mon Ben wrote: what size?</blockquote></body></html>';
+        expect(htmlToText(html)).toBe("Hi Ben,\n\nThe fence is 6' high & leaning.\n\n- two panels\n- one post");
+        const env = fromInboundEmail({ from: 'a@b.co', subject: 'Fence', text: '  ', html });
+        expect(env.text).toBe("Subject: Fence\n\nHi Ben,\n\nThe fence is 6' high & leaning.\n\n- two panels\n- one post");
+        // Outlook's reply header inside the HTML is cut by the text rule, as in a plain-text part.
+        expect(fromInboundEmail({ from: 'a@b.co', html: '<p>Yes please.</p><hr><p>From: Handy Services<br>Sent: Monday</p>' }).text).toBe('Yes please.');
     });
     it('strips history at the quote header or the first quoted line', () => {
         expect(stripQuotedHistory('new words\n\n-----Original Message-----\nFrom: x\nold')).toBe('new words');

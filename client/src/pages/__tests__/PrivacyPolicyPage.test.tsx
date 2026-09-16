@@ -27,7 +27,7 @@ describe('the privacy notice renders', () => {
     it('has its heading and an updated date', () => {
         render(<PrivacyPolicyPage />);
         expect(screen.getByRole('heading', { name: 'Privacy Policy', level: 1 })).toBeInTheDocument();
-        expect(screen.getByText(/Last updated 14 September 2026/)).toBeInTheDocument();
+        expect(screen.getByText(/Last updated 16 September 2026/)).toBeInTheDocument();
     });
 
     it('keeps the sections a reader needs', () => {
@@ -71,6 +71,13 @@ describe('every processor that receives customer data is named, with a purpose',
         const item = within(section('Who we share it with')).getByText(name).closest('li');
         expect(item, `no bullet for ${name}`).not.toBeNull();
         expect(item!.textContent).toMatch(purpose);
+    });
+
+    it('says that Resend receives the emails customers send, attachments included', () => {
+        render(<PrivacyPolicyPage />);
+        const item = within(section('Who we share it with')).getByText('Resend').closest('li');
+        expect(item!.textContent).toMatch(/receive the emails you send us/i);
+        expect(item!.textContent).toMatch(/including anything you attach/i);
     });
 
     it('says that photos and video go to a model that describes them', () => {

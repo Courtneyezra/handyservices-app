@@ -1,6 +1,7 @@
 # Environment files (NEVER commit these!)
 .env
 .env.*
+!.env.example
 
 # WhatsApp Web session data
 .wwebjs_auth/

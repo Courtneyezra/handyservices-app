@@ -62,6 +62,22 @@ Switching from this desk to the new one under `server/comms-v2/`, and rolling ba
   - A laptop never pages: the watchdog requires `NODE_ENV=production`, so a dev process on a Neon branch that has never seen a heartbeat stays quiet.
   - Today production runs **one** Railway service that is both the web process and the worker, so nothing outside it is watching yet: until a second passive service exists, the covering alarm is the platform/uptime healthcheck on the 503 above.
 
+### Inbound email (Resend)
+Customers' emails reach the new desk through Resend's inbound webhook, `POST /api/webhooks/resend/inbound-email` (`server/comms-v2/channels/email-inbound.ts`; how it reads an email is in `server/comms-v2/README.md`, "Inbound email"). **It is off, and it stays off until someone turns it on deliberately.** Its environment:
+
+| Variable | What it is | Default |
+|---|---|---|
+| `COMMS_V2_EMAIL_INBOUND` | `1` accepts inbound email into the desk; anything else refuses every request with 404 and reads nothing. It also needs `COMMS_V2_INTAKE=1`. | unset (off) |
+| `RESEND_INBOUND_WEBHOOK_SECRET` | The signing secret (`whsec_...`) Resend shows on the webhook's page. Unset, the route answers 503 and accepts nothing. Never in the repo. | unset |
+| `RESEND_API_KEY` | The key the business already sends email with. The route uses it to read each received email's body and attachments, because Resend's event carries neither. | already set for sending |
+
+Turning it on (an owner action, on Railway's Variables):
+1. In Resend, make sure receiving is set up on the business's domain, and add a webhook for the `email.received` event pointing at `https://<the app's host>/api/webhooks/resend/inbound-email`.
+2. Copy that webhook's signing secret into `RESEND_INBOUND_WEBHOOK_SECRET`.
+3. Set `COMMS_V2_EMAIL_INBOUND=1`. `COMMS_V2_INTAKE=1` must already be on. Both are read on every request, so the change takes effect on the restart that applies the variables.
+
+What the route answers: 404 when it is off; 503 when a variable is missing; 401 for a missing or bad signature, or one stamped more than five minutes from now; 200 with `duplicate` for a delivery it has already taken; 409 while the same email is still being read; 502 when Resend's API could not be read (Resend retries); 200 with `accepted` otherwise. A 401 from Resend's own delivery log means the secret on Railway is not that webhook's. To roll back, unset `COMMS_V2_EMAIL_INBOUND` or disable the webhook in Resend. Emails that arrive while it is off stay in Resend's received list.
+
 ### Spine mode
 ```bash
 npx tsx scripts/_spine-mode.ts --status
