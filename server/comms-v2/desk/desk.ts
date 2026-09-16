@@ -36,7 +36,7 @@ import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, heldAckLine, knowledgeBaseFixedLines, lateMediaAckLine, LATE_MEDIA_MS, type FixedLine, type FixedLineSource } from './fixed-lines';
 import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
-import { asksProposed, offersCall, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
+import { asksProposed, offersCall, RE_CALL_ASKED, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
 import { TurnModelWatch, type TurnReport } from './model-health';
 import type { Exception, HoldException, Route } from './router';
@@ -497,11 +497,17 @@ export class Desk implements DeskLike {
             return { guards: runGuards({ file, party, turn, reply: words(text), factIds: Array.from(new Set([...prefixFactIds, ...ids])), kbIds: merged, kbRows, fixedLines: sentLines(), lookedUp, proposedSubject, liveQuoteRefs }), kbIds: merged };
         };
         // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too;
-        // so is a composed reply that thanks for media the late line already thanks for.
+        // so is a composed reply that thanks for media the late line already thanks for, and one that offers
+        // a call to a party who prefers text or has already rung (1.5): the brief says not to, and nothing
+        // else holds the composer to it. A call the customer asks for in this turn may be answered.
+        const noCallOffer = exceptions.includes('callback') || RE_CALL_ASKED.test(turn.body) ? null
+            : party.prefersText ? 'they prefer text' : party.alreadyRung ? 'they have already rung us' : null;
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
             const n = scopingQuestionCount(text);
             const failures = [...g.failures];
             if (n > 1) failures.push(`one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`);
+            const offer = noCallOffer ? offersCall(fixedLines.reduce((t, f) => t.split(f.text).join(' '), text)) : null;
+            if (offer) failures.push(`do not offer or mention a call ("${offer}"): ${noCallOffer}`);
             if (lateAck && RE_THANKS_MEDIA.test(text)) failures.push('the photo or video came in earlier and a line after your reply thanks for it: do not thank for it yourself');
             return failures.length > g.failures.length ? { ok: false, guards: g.guards, failures } : g;
         };

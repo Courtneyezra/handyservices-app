@@ -242,6 +242,43 @@ describe('the channel desk on a call', () => {
         expect(b.result.decision).toBe('send');
         expect(b.result.bubbles.map((x) => x.text).join(' ')).not.toMatch(/call/i);
     });
+    it('a composer that offers a call anyway to someone who has already rung is sent back once, and one that keeps offering holds for Ben; a call that already happened is no offer (1.5)', async () => {
+        const offering = 'Sorry we missed your call, Sam. A leaking kitchen tap, got it. Whereabouts are you? Happy to give you a quick call back if easier.';
+        const plain = 'Sorry we missed your call, Sam. A leaking kitchen tap, got it. Whereabouts are you?';
+        const drive = async (replies: string[], text = 'Hi, just tried ringing. Kitchen tap is leaking under the sink') => {
+            const users: string[] = [];
+            const { gateway } = rig({
+                router: () => routeScoping({ turnKind: 'enquiry' }),
+                specialist: () => ({ facts: [{ key: 'job_type', value: 'leaking kitchen tap' }], jobUnknowns: [], answeredSubjects: [] }),
+                composer: ({ user }) => { users.push(user); return { reply: replies[Math.min(users.length - 1, replies.length - 1)], factIds: [], kbIds: [] }; },
+            }, approvedAll);
+            const a = await gateway.inbound(call('missed', '2026-09-11T10:00:00.000Z', null));
+            if (a.kind !== 'handled') throw new Error(a.kind);
+            expect(a.result).toMatchObject({ decision: 'send', delivered: true });
+            const b = await gateway.inbound(wa(text, '2026-09-11T10:05:00.000Z'));
+            if (b.kind !== 'handled') throw new Error(b.kind);
+            return { b, users };
+        };
+        const once = await drive([offering, plain]);
+        expect(once.users[0]).toContain('offer a call: no');
+        expect(once.users[1]).toContain('do not offer or mention a call ("give you a quick call"): they have already rung us');
+        expect(once.b.result).toMatchObject({ decision: 'send', delivered: true, composerCalls: 2 });
+        expect(once.b.result.bubbles.map((x) => x.text).join(' ')).not.toMatch(/give you a/);
+        expect(once.b.file.parties[0].callOffered).toBe(false);
+
+        const twice = await drive([offering]);
+        expect(twice.b.result).toMatchObject({ decision: 'hold', composerCalls: 2 });
+        expect(twice.b.file.hold?.reason).toMatch(/do not offer or mention a call/);
+        expect(twice.b.result.bubbles.map((x) => x.text).join(' ')).not.toMatch(/call/i);
+
+        // "We tried to call you back" names the call that was missed; it offers nothing.
+        const past = await drive(['Sorry we tried to call you back earlier and missed you. A leaking kitchen tap, got it. Whereabouts are you?']);
+        expect(past.b.result).toMatchObject({ decision: 'send', delivered: true, composerCalls: 1 });
+        // Asked for, a call may be answered.
+        const asked = await drive(['No problem, Ben will give you a call back.'], 'Kitchen tap leaking, can you ring me back?');
+        expect(asked.users[1]).toBeUndefined();
+        expect(asked.b.file.hold?.reason ?? '').not.toMatch(/do not offer or mention a call/);
+    });
     it('Ben rang them: the post-call template opens WhatsApp with the name and the job from the call; his ask is on the ledger; the thread continues and collects it with no hold', async () => {
         const { gateway, client } = rig({
             specialist: ({ n }) => n === 1 ? read() : ({ facts: [], jobUnknowns: [], answeredSubjects: ['media'] }),

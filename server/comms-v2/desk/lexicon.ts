@@ -233,15 +233,28 @@ export const RE_CALL_OFFER = new RegExp([
 
 const RE_CALL_NEGATION = /\b(?:won'?t|will not|wont|(?:cannot|can'?t|can not)(?!\s+(?:wait|hurt))|no need (?:to|for)|not going to|rather than|instead of|never(?!\s+hurts?)|(?:don'?t|do not|won'?t|will not) (?:need|have|want) to|not necessary to|no (?:calls?|phone))(?:\s+\S+){0,2}\s*$/i;
 
+/** The customer asking to be called: "call me", "can you ring me back", "give me a bell". */
+export const RE_CALL_ASKED = /\b(?:call|ring|phone|bell)\s+me\b|\bgive me a (?:quick )?(?:call|ring|bell|buzz)\b/i;
+
+// A call that already happened or was already tried ("as we discussed on the phone", "great speaking to
+// you on the phone earlier", "we tried to call you back") is not an offer of one.
+const RE_CALL_PAST = /\b(?:discussed|said|mentioned|spoke|spoken|speaking|talked|talking|chatted|chatting|tried|missed|earlier|just now|yesterday|this morning)\b/i;
+
+/** The offer of a call a clause makes, if it makes one. */
+function callOfferIn(clause: string): string | null {
+    const m = RE_CALL_OFFER.exec(clause);
+    return m && !RE_CALL_NEGATION.test(clause.slice(0, m.index)) && !RE_CALL_PAST.test(clause) ? m[0] : null;
+}
+
 /** Questions about the job: every question except an offer of a call, which is not a scoping question. */
 export function scopingQuestionCount(text: string): number {
-    return sentencesOf(text).filter((s) => s.includes('?') && clausesOf(s).every((c) => { const m = RE_CALL_OFFER.exec(c); return !m || RE_CALL_NEGATION.test(c.slice(0, m.index)); })).length;
+    return sentencesOf(text).filter((s) => s.includes('?') && clausesOf(s).every((c) => !callOfferIn(c))).length;
 }
 
 export function offersCall(text: string): string | null {
     for (const s of sentencesOf(text)) for (const clause of clausesOf(s)) {
-        const m = RE_CALL_OFFER.exec(clause);
-        if (m && !RE_CALL_NEGATION.test(clause.slice(0, m.index))) return m[0];
+        const offer = callOfferIn(clause);
+        if (offer) return offer;
     }
     return null;
 }
