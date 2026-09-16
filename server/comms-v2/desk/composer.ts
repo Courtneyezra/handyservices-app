@@ -136,11 +136,20 @@ function withoutWords(text: string, drop: Set<string>): string {
     }).join('').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?)])/g, '$1').trim();
 }
 
-/** A turn's media as the thread shows it: "[1 photo and 1 video: photo, <what it shows>; video, <what it shows>]". */
+/** Said of a photo or video no description came back for, so the composer does not invent what it shows. */
+const NOT_SEEN = 'not seen by you';
+
+/**
+ * A turn's media as the thread shows it: "[1 photo and 1 video: photo, <what it shows>; video, <what it shows>]".
+ * One the vision model could not describe is marked as not seen ("[1 video, not seen by you]").
+ */
 function mediaFor(media: TurnMedia[], unmentioned: Set<string>): string {
     const mixed = new Set(media.map((m) => m.kind)).size > 1;
     const shown = media.filter((m) => m.description).map((m) => `${mixed ? `${m.kind === 'image' ? 'photo' : 'video'}, ` : ''}${withoutWords(lightPhotoSummary(m.description!.description), unmentioned).replace(/\.$/, '')}`);
-    return ` [${mediaCountLabel(media)}${shown.length ? `: ${shown.join('; ')}` : ''}]`;
+    const unseen = media.filter((m) => !m.description);
+    if (!shown.length) return ` [${mediaCountLabel(media)}, ${NOT_SEEN}]`;
+    if (unseen.length) shown.push(`${mediaCountLabel(unseen)} ${NOT_SEEN}`);
+    return ` [${mediaCountLabel(media)}: ${shown.join('; ')}]`;
 }
 
 function threadFor(file: CaseFile, turn: Turn, unmentioned: Set<string>): string {
@@ -183,7 +192,10 @@ export function buildComposerUser(input: ComposeInput): string {
         else lines.push('- this turn: an acknowledgement only, no question: one short bubble of a few words, and nothing your last message already said');
         lines.push(`- offer a call: ${proposal.offerCall ? 'yes' : 'no, do not mention calling'}`);
         lines.push(`- mention photos once: ${proposal.mentionPhotos ? 'yes, say a photo would help if easy, not as a question' : 'no'}`);
-        lines.push(`- thank for media: ${proposal.thankForMedia ? 'yes' : 'no'}`);
+        // With nothing described there is no light detail to mention (answer 92), and any detail would be made up.
+        const inboundMedia = file.turns.filter((t) => t.direction === 'inbound').flatMap((t) => t.media);
+        const seen = inboundMedia.some((m) => m.description);
+        lines.push(`- thank for media: ${!proposal.thankForMedia ? 'no' : seen ? 'yes' : `yes, but it is ${NOT_SEEN} (no description came back): thank for it plainly and do not say what it shows`}`);
     }
     const never = Array.from(new Set([...neverAsk, ...declined]));
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);
