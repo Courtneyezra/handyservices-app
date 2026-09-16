@@ -387,7 +387,9 @@ The specialist for facts and aftercare (Goal 6). Every call is read-only against
 writes only to the case file through its calls. The specialist itself, on Sonnet 5, returns
 selections and facts with sources, never prose; it runs its deterministic tools every turn and its
 model when the router sends the turn to `service`, or when the customer's own words ask to change a
-detail on their record, whatever the router read.
+detail on their record or whether we cover their area (`asksAboutOurArea`), whatever the router
+read. A coverage question also offers `kb_lookup` the areas-covered row whatever words the customer
+used, raises no hold of its own and leaves Scoping to run on a mixed turn's job half.
 
 | Tool | Input | Returns | Refuses when |
 |---|---|---|---|
