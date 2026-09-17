@@ -7,7 +7,8 @@
  * `planPersonSend` decides where the message goes, and says so, before anything is sent:
  *   - a reply on the thread the customer wrote on, while that is the channel wanted and it can carry
  *     freeform words: the board's own reply path (`humanReply`), unchanged;
- *   - WhatsApp while its window is open, SMS, or email: the words as they are;
+ *   - WhatsApp while its window is open, or SMS: the words as they are. Never email: outbound email
+ *     stays in dry run (answer 113), so a customer the desk can reach only by email is refused;
  *   - WhatsApp with its window shut: never freeform (Contract 5). An approved template, when one is
  *     true for the thread (answer 58, `planWindowTemplate`: the quote link that was sent, or a
  *     question nothing has answered), goes instead of the words; otherwise a text to the same
@@ -37,13 +38,17 @@ export type PersonSendHow =
     /** An approved template instead of the words: the WhatsApp window is shut. */
     | 'template';
 
+/** The channels a person-started message goes on (answer A3): never email. */
+export type PersonSendChannel = Exclude<ReplyChannel, 'email'>;
+export const PERSON_SEND_CHANNELS: readonly PersonSendChannel[] = ['whatsapp', 'sms'];
+
 export type PersonSendPlan =
     | {
         ok: true;
         how: PersonSendHow;
         party: Party;
-        channel: ReplyChannel;
-        /** The address it goes to: E.164 for WhatsApp and SMS, the email address for email. */
+        channel: PersonSendChannel;
+        /** The address it goes to, in E.164. */
         address: string;
         window: WindowState;
         /** What stood in for WhatsApp freeform because its window is shut; null when nothing did. */
@@ -65,7 +70,7 @@ export interface PlanPersonSendInput {
     /** The signed-in person: their email or user id. */
     person: string;
     /** The channel the person asked for; the customer's reply channel, else the usual order, when absent. */
-    channel?: ReplyChannel | null;
+    channel?: PersonSendChannel | null;
     now: Date;
 }
 
@@ -93,6 +98,7 @@ function textAddress(party: Party): { address: string; add: boolean } | null {
 }
 
 const CHANNEL_NAME: Record<ReplyChannel, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'email' };
+const isPersonSendChannel = (c: ReplyChannel): c is PersonSendChannel => c !== 'email';
 
 /** Where a person's message would go and how, or why it cannot. Reads the file; changes nothing. */
 export async function planPersonSend(input: PlanPersonSendInput, templates: TemplateStatusSource = liveTemplateStatus): Promise<PersonSendPlan> {
@@ -104,26 +110,18 @@ export async function planPersonSend(input: PlanPersonSendInput, templates: Temp
     if (file.stage === 'done') return refuse('the case file is done; message the customer by their number to open a new one');
     const party = customerParty(file);
     if (!party) return refuse('the file has no customer to message');
+    const wa = party.channels.find((c) => c.kind === 'whatsapp');
+    if (!wa && !textAddress(party)) return refuse('a message from the Handy Desk goes by WhatsApp or SMS only, and there is no number on file for this customer');
     const turn = lastInbound(file, party.personId);
     const reply = turn ? replyRouteOf(file, now) : null;
 
     let wanted = input.channel ?? null;
     if (!wanted) {
-        if (reply?.ok) wanted = reply.channel;
-        else {
-            const choice = chooseChannel(party, null, now);
-            if (!choice.ok) return refuse(choice.reason);
-            wanted = choice.channel;
-        }
+        const choice = reply?.ok ? reply : chooseChannel(party, null, now);
+        wanted = choice.ok && isPersonSendChannel(choice.channel) ? choice.channel : 'whatsapp';
     }
     const base = { ok: true as const, party, turn, template: null, addChannel: false, fallback: null, note: null };
     const asReply = (channel: ReplyChannel) => reply?.ok === true && reply.channel === channel;
-
-    if (wanted === 'email') {
-        const email = party.channels.find((c) => c.kind === 'email');
-        if (!email) return refuse('there is no email address on file for this customer');
-        return { ...base, how: asReply('email') ? 'reply' : 'freeform', channel: 'email', address: email.address, window: windowOf(party, 'email', now) };
-    }
 
     if (wanted === 'sms') {
         const text = textAddress(party);
@@ -131,13 +129,14 @@ export async function planPersonSend(input: PlanPersonSendInput, templates: Temp
         return { ...base, how: asReply('sms') ? 'reply' : 'freeform', channel: 'sms', address: text.address, window: windowOf(party, 'sms', now), addChannel: text.add };
     }
 
-    const wa = party.channels.find((c) => c.kind === 'whatsapp');
     const window = windowOf(party, 'whatsapp', now);
     if (wa && window.state === 'open') return { ...base, how: asReply('whatsapp') ? 'reply' : 'freeform', channel: 'whatsapp', address: wa.address, window };
 
     // Shut: an approved template that is true for the thread, else a text, never freeform words.
     const shut = wa ? `the WhatsApp window is shut (${window.reason})` : 'the customer has no WhatsApp thread with us, so its window is shut';
-    let noTemplate = 'no template is true for a thread the customer has not written on';
+    let noTemplate = turn
+        ? `no template is true for a thread the customer wrote on by ${CHANNEL_NAME[turn.channel as ReplyChannel] ?? turn.channel}`
+        : 'no template is true for a thread the customer has not written on';
     if (wa && asReply('whatsapp')) {
         const t = await planWindowTemplate({ file, approver, person: input.person }, now, templates);
         if (t.ok) {

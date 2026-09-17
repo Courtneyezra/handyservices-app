@@ -26,15 +26,17 @@
  */
 import type { ConfirmKind } from '@shared/ops-types';
 import type { AgentTool } from '../../agents/runner';
-import type { ApproverSlot, CaseFile, ModelCallRecord, ReplyChannel } from '../desk/case-file';
+import type { ApproverSlot, CaseFile, ModelCallRecord } from '../desk/case-file';
 import type { ModelClient } from '../desk/models';
 import { cardOf, detailOf, type BoardCard } from '../api/board';
 import type { ApproverAssignments } from '../api/approvers';
 import type { BoardSource } from '../api/store';
 import { composeDraft, composeMessage } from './composer';
 import { canonical } from '../desk/identity';
+import { instructionKey } from '../desk/guards';
+import { PERSON_SEND_CHANNELS } from '../desk/person-send';
 import { ACTION_KINDS, type ActionKinds } from './action-kinds';
-import type { MessageSendArgs } from './kinds/message-send';
+import { EMAIL_TARGET_REFUSAL, type MessageSendArgs } from './kinds/message-send';
 import { holdDraft } from './hold-draft';
 import { fileAnswersTo, type SurfaceChoice } from './surface';
 import { proposeAction, type AskActionStore } from './actions';
@@ -332,14 +334,14 @@ export function messageTools(deps: AskToolDeps, state: AskRunState): AgentTool[]
         },
         {
             name: 'propose_message',
-            description: 'Write a message to a customer and propose sending it, when Ben asks you to message, text, WhatsApp, email or tell someone something. It does not send: the words are written for you from your brief and checked, and Ben reads the preview on your answer and confirms or cancels it. Name the customer by caseFileId (their open case file), or by address (their phone number or email address exactly as a tool result or Ben gave it, with name) when they have no file open. Give channel only when Ben named one. Give instruction: Ben\'s own words that the message passes on, copied exactly from his ask (for "tell her we will call her this afternoon", instruction is "we will call her this afternoon"); a day, a time or a promise may appear in the message only when the instruction says it. No money, ever. A shut WhatsApp window sends an approved template or a text instead, and the preview says which. One message per proposal; refused after this turn already proposed a change.',
+            description: 'Write a message to a customer and propose sending it, when Ben asks you to message, text, WhatsApp or tell someone something. It goes by WhatsApp or SMS only, never email. It does not send: the words are written for you from your brief and checked, and Ben reads the preview on your answer and confirms or cancels it. Name the customer by caseFileId (their open case file), or by address (their phone number exactly as a tool result or Ben gave it, with name) when they have no file open. Give channel only when Ben named one. Give instruction: Ben\'s own words that the message passes on, copied exactly from his ask (for "tell her we will call her this afternoon", instruction is "we will call her this afternoon"); a day, a time or a promise may appear in the message only when the instruction says it. No money, ever. A shut WhatsApp window sends an approved template or a text instead, and the preview says which. One message per proposal; refused after this turn already proposed a change.',
             input_schema: {
                 type: 'object',
                 properties: {
                     caseFileId: { type: 'string', description: 'The customer\'s open case file.' },
-                    address: { type: 'string', description: 'Their phone number or email address, when there is no case file to name.' },
+                    address: { type: 'string', description: 'Their phone number, when there is no case file to name.' },
                     name: { type: 'string', description: 'Their name, with address.' },
-                    channel: { type: 'string', enum: ['whatsapp', 'sms', 'email'], description: 'Only when Ben named the channel.' },
+                    channel: { type: 'string', enum: [...PERSON_SEND_CHANNELS], description: 'Only when Ben named the channel.' },
                     brief: { type: 'string', description: 'What the message should say, in a sentence or two.' },
                     instruction: { type: 'string', description: 'Ben\'s own words the message passes on, copied exactly from his ask.' },
                 },
@@ -349,8 +351,6 @@ export function messageTools(deps: AskToolDeps, state: AskRunState): AgentTool[]
         },
     ];
 }
-
-const instructionKey = (s: string) => s.toLowerCase().replace(/[\u2018\u2019\u02bc`]/g, "'").replace(/[^a-z0-9\u00c0-\u024f'£]+/g, ' ').trim();
 
 /** The ask an instruction was copied from: the newest of the person's own asks that carries it word for word. */
 export function instructionSourceOf(sources: AskInstructionSource[] | undefined, quote: string): AskInstructionSource | null {
@@ -362,16 +362,14 @@ export function instructionSourceOf(sources: AskInstructionSource[] | undefined,
     return null;
 }
 
-/** Whether an address is one the desk knows, or one the person typed: never one the model made up. */
+/** Whether a number is one the desk knows, or one the person typed: never one the model made up. */
 function addressKnown(deps: AskToolDeps, src: BoardSource, address: string): boolean {
     const key = canonical(address);
     if (!key) return false;
     if (src.identity?.directory.byKey(key).length) return true;
-    const typed = (text: string) => [...(text.match(/\+?\d[\d\s().-]{7,}\d/g) ?? []), ...(text.match(/[^\s@<>(),;:]+@[^\s@<>(),;:]+\.[a-z]{2,}/gi) ?? [])];
+    const typed = (text: string) => text.match(/\+?\d[\d\s().-]{7,}\d/g) ?? [];
     return (deps.instructions ?? []).some((m) => typed(m.text).some((a) => canonical(a) === key));
 }
-
-const MESSAGE_CHANNELS: readonly ReplyChannel[] = ['whatsapp', 'sms', 'email'];
 
 /** `propose_message`: the words on the writing model, one retry on a guard refusal, then the proposal. */
 async function proposeMessage(deps: AskToolDeps, state: AskRunState, input: { caseFileId?: string; address?: string; name?: string; channel?: string; brief?: string; instruction?: string }) {
@@ -381,8 +379,9 @@ async function proposeMessage(deps: AskToolDeps, state: AskRunState, input: { ca
     const caseFileId = str(input?.caseFileId).trim();
     const address = str(input?.address).trim();
     if (!caseFileId === !address) return { status: 'refused', reason: 'name the customer by exactly one of caseFileId or address' };
-    const channel = input?.channel ? (MESSAGE_CHANNELS.find((c) => c === input.channel) ?? null) : null;
-    if (input?.channel && !channel) return { status: 'refused', reason: `${input.channel} is not a channel a message goes on` };
+    const channel = input?.channel ? (PERSON_SEND_CHANNELS.find((c) => c === input.channel) ?? null) : null;
+    if (input?.channel && !channel) return { status: 'refused', reason: `${input.channel} is not a channel a message goes on: the Handy Desk sends by WhatsApp or SMS only` };
+    if (address && canonical(address)?.startsWith('email:')) return { status: 'refused', reason: EMAIL_TARGET_REFUSAL };
 
     const quote = str(input?.instruction).trim();
     let instruction: MessageSendArgs['instruction'] = null;
@@ -394,21 +393,25 @@ async function proposeMessage(deps: AskToolDeps, state: AskRunState, input: { ca
 
     const src = await deps.source();
     let file: CaseFile | null = null;
+    let fileId = caseFileId;
     let name: string | null = str(input?.name).trim() || null;
-    if (caseFileId) {
-        file = src.store.get(caseFileId);
+    if (!caseFileId) {
+        if (!addressKnown(deps, src, address)) return { status: 'refused', reason: 'that number is not one the desk knows or Ben gave; find the customer first, never guess a number' };
+        const people = src.identity?.directory.byKey(canonical(address)!) ?? [];
+        const person = new Set(people.map((p) => p.id)).size === 1 && people[0].role !== 'internal' ? people[0] : null;
+        const open = person ? src.store.findOpenFor(person.id) : null;
+        if (open) fileId = open.id;
+        name = name ?? person?.name ?? null;
+    }
+    if (fileId) {
+        file = src.store.get(fileId);
         if (!file) return { status: 'refused', reason: 'no such case file' };
         name = file.parties.find((p) => p.role !== 'internal')?.name ?? name;
-    } else {
-        if (!addressKnown(deps, src, address)) return { status: 'refused', reason: 'that address is not one the desk knows or Ben gave; find the customer first, never guess a number' };
-        const person = src.identity?.directory.byKey(canonical(address)!)[0];
-        file = person ? src.store.findOpenFor(person.id) : null;
-        name = name ?? person?.name ?? null;
     }
 
     const kind = (deps.kinds ?? ACTION_KINDS)['message.send'];
     if (!kind) return { status: 'refused', reason: 'the Handy Desk cannot propose message.send yet' };
-    const ctx = { src, file: caseFileId ? file : null, now: (deps.now ?? (() => new Date()))(), approver: deps.approver, person: deps.person };
+    const ctx = { src, file, now: (deps.now ?? (() => new Date()))(), approver: deps.approver, person: deps.person };
     let failures: string[] = [];
     let previous: string | null = null;
     let args: MessageSendArgs | null = null;
@@ -416,7 +419,7 @@ async function proposeMessage(deps: AskToolDeps, state: AskRunState, input: { ca
         const composed = await composeMessage(deps.client, { file, name, channel, brief, instruction: instruction?.quote ?? null, failures, previous });
         state.calls.push(composed.record);
         if (!composed.words) return { status: 'refused', reason: `the writing model gave no message: ${composed.error ?? 'no output'}` };
-        args = kind.parseArgs({ caseFileId: caseFileId || null, to: address ? { address, name } : null, channel, words: composed.words, instruction });
+        args = kind.parseArgs({ caseFileId: fileId || null, to: fileId ? null : { address, name }, channel, words: composed.words, instruction });
         if (!args) return { status: 'refused', reason: 'the message came out empty or too long' };
         const preview = await kind.preview(ctx, args);
         if (preview.ok || !/guards|bubbles|segments/.test(preview.reason)) break;

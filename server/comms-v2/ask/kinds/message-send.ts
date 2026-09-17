@@ -3,7 +3,8 @@
  * specification N6 and N7; answers A2, A3 and A6). The words are the writing model's, from Ben's
  * brief, and are fixed in the proposal; one proposal carries exactly one message (A6, "One each").
  *
- * Who it goes to: the customer on a named case file, or a person by their address. For an address,
+ * Who it goes to: the customer on a named case file, or a person by their phone number (never an
+ * email address: A3 covers WhatsApp and SMS, and outbound email stays in dry run, answer 113). For an address,
  * identity is read, never guessed: an address two people share is refused (pick one first), one of
  * ours is refused, and a person with a file open has the message land on it. Anyone else gets a new
  * file, opened by the confirm and not before (desk/case-file.ts `openForPerson`).
@@ -34,7 +35,7 @@ import {
 } from '../../desk/case-file';
 import { approverFor, instructedClaims, noReplyToCheck, runGuards, type GuardInput, type GuardOutcome } from '../../desk/guards';
 import { renderPersonWords } from '../../desk/human-reply';
-import { planPersonSend, personSend, type PersonSendPlan } from '../../desk/person-send';
+import { PERSON_SEND_CHANNELS, planPersonSend, personSend, type PersonSendChannel, type PersonSendPlan } from '../../desk/person-send';
 import { liveTemplateStatus, windowOf, type TemplateStatusSource } from '../../desk/sender';
 import { withoutDashPunctuation } from '../../desk/dashes';
 import type { ActionContext, ActionKindDef } from '../action-kinds';
@@ -46,10 +47,10 @@ export interface MessageInstruction { person: string; askMessageId: string; quot
 export interface MessageSendArgs {
     /** The file the message goes on; null when it goes to `to`. */
     caseFileId: string | null;
-    /** A person by address (E.164 or email), and their name as the record gives it; null when `caseFileId` names the file. */
+    /** A person by phone number, and their name as the record gives it; null when `caseFileId` names the file. */
     to: { address: string; name: string | null } | null;
-    /** The channel Ben asked for; null for the customer's own. */
-    channel: ReplyChannel | null;
+    /** The channel Ben asked for; null for the customer's own. Never email (answer A3; outbound email stays in dry run, answer 113). */
+    channel: PersonSendChannel | null;
     /** The message, exactly as it would go. */
     words: string;
     instruction: MessageInstruction | null;
@@ -59,8 +60,7 @@ export interface MessageSendArgs {
 export const INSTRUCTION_FACT_KEY = 'ben_instruction';
 const PREVIEW_FACT_ID = 'fact_instruction_preview';
 const NEW_FILE_ID = 'case_new';
-const CHANNELS: readonly ReplyChannel[] = ['whatsapp', 'sms', 'email'];
-const WIRE_CHANNEL = { whatsapp: 'wa', sms: 'sms', email: 'email' } as const;
+const WIRE_CHANNEL = { whatsapp: 'wa', sms: 'sms' } as const;
 const MAX_WORDS_CHARS = 1500;
 
 const text = (v: unknown, max = 500): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
@@ -72,7 +72,7 @@ export function parseMessageSendArgs(raw: unknown): MessageSendArgs | null {
     if (!caseFileId === !address) return null;
     const words = typeof r.words === 'string' ? withoutDashPunctuation(r.words.replace(/\r\n/g, '\n')).trim() : '';
     if (!words || words.length > MAX_WORDS_CHARS) return null;
-    const channel = r.channel == null ? null : CHANNELS.includes(r.channel) ? (r.channel as ReplyChannel) : undefined;
+    const channel = r.channel == null ? null : PERSON_SEND_CHANNELS.includes(r.channel) ? (r.channel as PersonSendChannel) : undefined;
     if (channel === undefined) return null;
     let instruction: MessageInstruction | null = null;
     if (r.instruction != null) {
@@ -97,21 +97,16 @@ type Target =
     | { ok: true; file: CaseFile; opened: { person: Person | null; open: Omit<OpenForPersonInput, 'identity' | 'by'> } }
     | { ok: false; reason: string };
 
-/** The channels a person with no file can be reached on, from their address alone: a number takes WhatsApp and SMS, an email address email. */
-function channelsFor(address: string): OpenForPersonInput['channels'] | null {
-    const key = canonical(address);
-    if (!key) return null;
-    if (key.startsWith('email:')) return [{ kind: 'email', address: key.slice('email:'.length) }];
-    const e164 = e164Of(key);
-    return e164 ? [{ kind: 'whatsapp', address: e164 }, { kind: 'sms', address: e164 }] : null;
-}
+export const EMAIL_TARGET_REFUSAL = 'a message from the Handy Desk goes by WhatsApp or SMS only, so it cannot be sent to an email address; give their phone number or case file';
 
 /** Who the message goes to, read without changing anything. */
 function targetOf(ctx: ActionContext, args: MessageSendArgs): Target {
     if (args.caseFileId) return ctx.file ? { ok: true, file: ctx.file, opened: null } : { ok: false, reason: 'no such case file' };
     const to = args.to!;
     const key = canonical(to.address);
-    if (!key) return { ok: false, reason: `${to.address} is not a phone number or an email address` };
+    if (key?.startsWith('email:')) return { ok: false, reason: EMAIL_TARGET_REFUSAL };
+    const e164 = key ? e164Of(key) : null;
+    if (!key || !e164) return { ok: false, reason: `${to.address} is not a phone number` };
     const identity = ctx.src.identity;
     if (!identity) return { ok: false, reason: 'this desk cannot look people up, so a message can only go on an open case file' };
     const people = Array.from(new Map(identity.directory.byKey(key).map((p) => [p.id, p])).values());
@@ -126,8 +121,7 @@ function targetOf(ctx: ActionContext, args: MessageSendArgs): Target {
             return { ok: true, file, opened: null };
         }
     }
-    const channels = channelsFor(to.address);
-    if (!channels) return { ok: false, reason: `${to.address} is not an address a message can go to` };
+    const channels: OpenForPersonInput['channels'] = [{ kind: 'whatsapp', address: e164 }, { kind: 'sms', address: e164 }];
     const name = to.name ?? person?.name ?? null;
     const draft = openForPerson({
         identity: { ok: true, personId: person?.id ?? 'person_new', customerId: person?.customerId ?? null, role: person?.role ?? 'homeowner', isNew: !person, canonical: key, propertyId: null, landlordId: null, name },
