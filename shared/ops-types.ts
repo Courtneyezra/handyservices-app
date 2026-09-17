@@ -211,10 +211,23 @@ export interface DispatchContractor {
 }
 
 /**
+ * The ask agent's new cards (ask-agent specification section 4). Stubs: the ask
+ * core types them so the set shares one contract, and the task that produces each
+ * one fills in its body (pick and client: ASK find; booking: ASK diary;
+ * contractor: ASK ops reads). Every field added later is optional or lives in the
+ * `data` object, so a client written against the stub keeps compiling.
+ */
+export interface PickSurface { type: 'pick'; question: string; candidates: { id: string; name: string; data?: Record<string, unknown> }[] }
+export interface ClientSurface { type: 'client'; name: string | null; data?: Record<string, unknown> }
+export interface BookingSurface { type: 'booking'; bookingId: string; data?: Record<string, unknown> }
+export interface ContractorSurface { type: 'contractor'; contractorId: string; name: string; data?: Record<string, unknown> }
+
+/**
  * What an answer renders as. The ask agent produces `thread`, `floor` and `words`
  * today; `diary`, `map`, `quote` and `ledger` are typed so the design's six
  * surfaces have one contract, and are not produced until their sources are wired
- * to the new desk (quote and ledger also wait on money actions).
+ * to the new desk (quote and ledger also wait on money actions). `pick`,
+ * `client`, `booking` and `contractor` are the stubs above.
  */
 export type AnswerSurface =
   | { type: 'thread'; caseFileId: string; phone: string; customerName: string | null; stage: CaseStage; turns: SurfaceTurn[] }
@@ -223,7 +236,11 @@ export type AnswerSurface =
   | { type: 'quote'; quoteId?: string; lines: { label: string; note?: string; pence: number }[]; totalPence: number }
   | { type: 'ledger'; rows: { phone: string; name: string; pence: number; daysLate: number; chased: string }[] }
   | { type: 'floor'; bays: { stage: CaseStage; cards: SurfaceBoardCard[] }[] }
-  | { type: 'words' };
+  | { type: 'words' }
+  | PickSurface
+  | ClientSurface
+  | BookingSurface
+  | ContractorSurface;
 
 export type AnswerSurfaceType = AnswerSurface['type'];
 
@@ -235,6 +252,9 @@ export type AnswerSurfaceType = AnswerSurface['type'];
  * bubble ceiling and opt-out ledger. No other kind exists yet. The confirm
  * posts `{ expectedDraft }`, the tile's text, so a draft replaced since the
  * answer was shown is refused with HELD_DRAFT_CHANGED instead of sent.
+ *
+ * Kept for the answer surface already built on it; the ask agent's confirm now
+ * carries an `actionId` (`OpsAnswer.confirm`), and the confirm posts only that.
  */
 export type ConfirmAction =
   | { kind: 'draft.release'; args: { caseFileId: string } };
@@ -242,12 +262,67 @@ export type ConfirmAction =
 /** send-held-draft's 409 reason when the held draft is no longer the `expectedDraft` the caller saw. */
 export const HELD_DRAFT_CHANGED = 'the held draft changed since you saw it';
 
+/**
+ * Every kind of change the ask agent may propose (ask-agent specification
+ * section 4). The server holds each proposal's exact arguments and preview
+ * (server/comms-v2/ask/actions.ts); a client confirms one by its id with
+ * POST /api/comms-v2/ask/actions/:actionId/confirm and never sends arguments.
+ * booking.create is typed and refused until design-map Q8 is answered. No kind
+ * hands a thread kept with a person back to the desk: that switch is Ben's.
+ */
+export const CONFIRM_KINDS = ['draft.release', 'message.send', 'quote.resend_link', 'booking.move', 'booking.create', 'call.start'] as const;
+export type ConfirmKind = (typeof CONFIRM_KINDS)[number];
+
+/** Where one proposal stands. */
+export type AskActionStatus = 'proposed' | 'confirmed' | 'executed' | 'refused' | 'expired' | 'cancelled';
+
+/** A proposal as the confirm and cancel routes return it. */
+export interface AskActionDTO {
+  id: string;
+  sessionId: string;
+  kind: ConfirmKind;
+  caseFileId: string | null;
+  previewText: string;
+  status: AskActionStatus;
+  proposedAt: string;
+  expiresAt: string;
+  confirmedBy: string | null;
+  confirmedAt: string | null;
+  /** The run id the change went out under, once confirmed. */
+  runId: string | null;
+  /** What the change did, or `{ reason }` when it was refused. */
+  result: Record<string, unknown> | null;
+}
+
+/**
+ * One step of the plan strip over an answer (N14): done in green, current (a
+ * proposal waiting on Ben's confirm) in amber, waiting in grey, refused in red
+ * with the reason verbatim, and dropped for the steps after a refusal, which are
+ * never re-planned silently.
+ */
+export type PlanStepState = 'done' | 'current' | 'waiting' | 'refused' | 'dropped';
+
+export interface PlanStep {
+  label: string;
+  state: PlanStepState;
+  /** The proposal this step is waiting on or ran, when it is a change. */
+  actionId?: string;
+  /** A refused step's reason, verbatim. */
+  reason?: string;
+}
+
 /** One message that goes out if the person confirms: a held draft, shown as it stands. */
 export interface OpsOutgoing {
   /** The channel address the reply would go to: E.164 for WhatsApp and SMS, the email address for email. */
   to: string;
   channel: 'wa' | 'sms' | 'email';
   text: string;
+  /** The proposal this tile goes out under, when one stands. */
+  actionId?: string;
+  /** The channel's window as the preview was built: open (until when), or shut. */
+  window?: { state: 'open' | 'shut'; until?: string | null; reason?: string };
+  /** What the guards said about the words, e.g. that a time is from Ben's instruction. */
+  guardNote?: string;
 }
 
 /** The ask agent's final answer, carried on its assistant message. */
@@ -257,7 +332,14 @@ export interface OpsAnswer {
   surface: AnswerSurface;
   /** "What goes out when you confirm". Present only while a held draft stands. */
   outgoing?: OpsOutgoing[];
-  confirm?: { label: string; action: ConfirmAction };
+  /**
+   * The one change this answer asks Ben to confirm. The client posts only
+   * `actionId`; `action` is kept for the draft.release surface built before
+   * proposals, and is present only on that kind.
+   */
+  confirm?: { label: string; actionId: string; kind: ConfirmKind; action?: ConfirmAction };
+  /** The plan strip: the steps of a multi-step ask, with where each stands. */
+  plan?: PlanStep[];
   /** The footer note: what the desk did, or why it could not. */
   note?: string;
 }

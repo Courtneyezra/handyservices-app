@@ -350,6 +350,28 @@ export interface CaseFile {
     chase?: ChaseRecord | null;
     /** Bursts of customer messages the gateway is holding for the desk or has handed to it and not yet seen answered (`TurnWait`). Absent or empty when none. */
     waits?: TurnWait[];
+    /** What a person changed on the file that is not a message (`SystemTurn`), oldest first. Absent or empty when none. */
+    systemTurns?: SystemTurn[];
+}
+
+/**
+ * The record of a change a person confirmed on the Handy Desk that sent nothing: a booking moved, a
+ * call started (server/comms-v2/ask/actions.ts). A message a person confirmed is recorded as its
+ * send, as any send is. Kept apart from `turns`, because every reply-order rule reads `turns` (who
+ * wrote last, what a reply answered, the window) and a system line is none of those; the thread
+ * surface shows the two together, in time order.
+ */
+export interface SystemTurn {
+    id: string;
+    at: string;
+    kind: 'system';
+    /** What happened, in one line, naming who did it. */
+    body: string;
+    /** `human:<email or user id>`: the person who confirmed it. */
+    approver: string;
+    /** The ask action it ran under (`comms_v2_ask_actions.id`). */
+    actionId: string;
+    runId: string;
 }
 
 export type Refusal = { ok: false; reason: string };
@@ -703,6 +725,20 @@ export function recordSend(file: CaseFile, send: SendRecord): Outcome<SendRecord
     file.sends.push(send);
     file.sentRunIds.push(send.runId);
     return accept(send);
+}
+
+/** Records a confirmed change that sent nothing. Refuses no words, no approver, no action id, and an action already recorded. */
+export function recordSystemTurn(file: CaseFile, input: { body: string; approver: string; actionId: string; runId: string }, deps: CaseFileDeps = {}): Outcome<SystemTurn> {
+    const now = deps.now ?? (() => new Date());
+    const newId = deps.newId ?? defaultNewId;
+    if (!input.body.trim()) return refuse('a system turn needs words');
+    if (!input.approver.trim()) return refuse('a system turn needs an approver');
+    if (!input.actionId.trim() || !input.runId.trim()) return refuse('a system turn carries its action id and run id');
+    const turns = file.systemTurns ?? (file.systemTurns = []);
+    if (turns.some((t) => t.actionId === input.actionId)) return refuse(`action ${input.actionId} is already recorded`);
+    const turn: SystemTurn = { id: newId('sys'), at: now().toISOString(), kind: 'system', body: input.body.trim(), approver: input.approver.trim(), actionId: input.actionId, runId: input.runId };
+    turns.push(turn);
+    return accept(turn);
 }
 
 // ---------------------------------------------------------------- readiness

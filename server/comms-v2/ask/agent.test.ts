@@ -19,9 +19,10 @@ import { BEN } from '../desk/guards';
 import { COMPOSER_MODEL, FakeModelClient, ROUTER_MODEL, SPECIALIST_MODEL } from '../desk/models';
 import { MONEY_REFUSAL, contextFile, historyToPriorMessages, runAskTurn, type RunAskTurnOptions } from './agent';
 import { ASK_TOOL_NAMES } from './tools';
+import { MemoryAskActionStore } from './actions';
 import { BEN_PERSON, memorySource, now, scriptedLoop, whatsappFile } from './ask-fixtures';
 
-const route = (over: Record<string, unknown> = {}) => ({ surface: 'thread', moneyAction: false, wantsDraft: false, ...over });
+const route = (over: Record<string, unknown> = {}) => ({ intents: ['show'], domains: ['messages'], surface: 'thread', steps: ['Answer Ben'], moneyAction: false, wantsDraft: false, ...over });
 
 function ask(over: Partial<RunAskTurnOptions> = {}): RunAskTurnOptions {
     return { sessionId: 'session-1', userMessage: 'Ask Sam for a photo of the tap', via: 'typed', context: null, history: [], person: BEN_PERSON, approver: BEN, ...over };
@@ -48,8 +49,9 @@ describe('one turn', () => {
         });
         const seen: { opts?: any; results: unknown[] } = { results: [] };
         const steps: LeanRunStep[] = [];
-        const out = await runAskTurn(ask({ context: { caseFileId: file.id }, onEvent: (s) => steps.push(s) }), {
-            source, assignments: async () => ({ ben: ['u1'] }), client, now: now(),
+        const actions = new MemoryAskActionStore();
+        const out = await runAskTurn(ask({ context: { caseFileId: file.id }, askRunId: 'ask_run_1', onEvent: (s) => steps.push(s) }), {
+            source, assignments: async () => ({ ben: ['u1'] }), client, now: now(), actions,
             loop: scriptedLoop([
                 { tool: 'get_case_file', input: { caseFileId: file.id } },
                 { tool: 'draft_reply', input: { caseFileId: file.id, brief: 'Ask for a photo of the tap' } },
@@ -73,9 +75,14 @@ describe('one turn', () => {
                 type: 'thread', caseFileId: file.id, phone: file.parties[0].channels[0].address, customerName: 'Sam', stage: file.stage,
                 turns: [expect.objectContaining({ who: 'customer', body: 'Hi, my kitchen tap is dripping. Can someone have a look?' })],
             },
-            outgoing: [{ to: file.parties[0].channels[0].address, channel: 'wa', text: 'Thanks Sam, could you send us a photo of the tap?' }],
-            confirm: { label: 'Send as is', action: { kind: 'draft.release', args: { caseFileId: file.id } } },
+            outgoing: [{ to: file.parties[0].channels[0].address, channel: 'wa', text: 'Thanks Sam, could you send us a photo of the tap?', actionId: expect.any(String) }],
+            confirm: { label: 'Send as is', actionId: expect.any(String), kind: 'draft.release', action: { kind: 'draft.release', args: { caseFileId: file.id } } },
         });
+        // The held draft was proposed for sending, and nothing ran.
+        const [proposal] = Array.from(actions.rows.values());
+        expect(out.answer.confirm?.actionId).toBe(proposal.id);
+        expect(out.answer.outgoing?.[0].actionId).toBe(proposal.id);
+        expect(proposal).toMatchObject({ kind: 'draft.release', caseFileId: file.id, sessionId: 'session-1', askRunId: 'ask_run_1', proposedBy: BEN_PERSON, status: 'proposed', previewText: 'Thanks Sam, could you send us a photo of the tap?' });
         expect(steps.map((s) => [s.type, s.tool])).toEqual([
             ['route', undefined],
             ['tool_call', 'get_case_file'], ['tool_result', 'get_case_file'],
@@ -212,6 +219,134 @@ describe('a stale session', () => {
         const goal: string = seen.opts.goal;
         const read = JSON.parse(goal.slice(goal.indexOf('{', goal.indexOf('Fresh get_case_file read'))));
         expect(read).toMatchObject({ caseFileId: sam.id, hold: { reason: 'callback: which door', draft: 'Which door should we use?' } });
+    });
+});
+
+describe('the router gates the tool groups', () => {
+    const names = (seen: { opts?: any }) => seen.opts.tools.map((t: { name: string }) => t.name);
+
+    it('offers only the routed domains\' tools, and always the answer', async () => {
+        const { source } = memorySource([whatsappFile()]);
+        const seen: { opts?: any; results: unknown[] } = { results: [] };
+        const client = new FakeModelClient({ router: () => route({ intents: ['show'], domains: ['quotes'], surface: 'quote' }) });
+        const out = await runAskTurn(ask({ userMessage: 'show me the latest quote for Alan Smith' }), { source, assignments: async () => ({}), client, loop: scriptedLoop([], seen), now: now() });
+        expect(names(seen)).toEqual(['give_answer']);
+        expect(out.leanTranscript[0]).toMatchObject({ type: 'route', detail: { domains: ['quotes'], offered: ['quotes'] } });
+    });
+
+    it('adds the messages group for a selected card or a route naming no domain, and offers every group when the route fails', async () => {
+        const file = whatsappFile();
+        const { source } = memorySource([file]);
+        const run = async (router: () => unknown, context: RunAskTurnOptions['context']) => {
+            const seen: { opts?: any; results: unknown[] } = { results: [] };
+            const out = await runAskTurn(ask({ context }), { source, assignments: async () => ({}), client: new FakeModelClient({ router }), loop: scriptedLoop([], seen), now: now() });
+            return { names: names(seen), offered: (out.leanTranscript[0].detail as { offered: string[] }).offered };
+        };
+        expect(await run(() => route({ domains: ['quotes'] }), { caseFileId: file.id })).toEqual({ names: [...ASK_TOOL_NAMES], offered: ['quotes', 'messages'] });
+        expect(await run(() => route({ domains: [] }), null)).toEqual({ names: [...ASK_TOOL_NAMES], offered: ['messages'] });
+        expect(await run(() => ({ error: 'overloaded' }), null)).toEqual({ names: [...ASK_TOOL_NAMES], offered: ['clients', 'quotes', 'bookings', 'contractors', 'messages', 'calls', 'invoices'] });
+    });
+
+    it('passes the router\'s steps to the reasoner, and keeps the turn cap', async () => {
+        const { source } = memorySource([whatsappFile()]);
+        const seen: { opts?: any; results: unknown[] } = { results: [] };
+        const client = new FakeModelClient({ router: () => route({ steps: ['Find Marcus', 'Move to Tue 23', 'Tell Marcus'] }) });
+        await runAskTurn(ask({ userMessage: 'move Marcus to Tuesday and tell him' }), { source, assignments: async () => ({}), client, loop: scriptedLoop([], seen), now: now() });
+        expect(seen.opts.goal).toContain('Steps: 1 Find Marcus · 2 Move to Tue 23 · 3 Tell Marcus.');
+        expect(seen.opts.maxTurns).toBe(10);
+    });
+});
+
+describe('proposals in a run', () => {
+    function heldOn(name: string) {
+        const file = whatsappFile({ name });
+        setHold(file, { approver: BEN, reason: 'guards', exception: null, draft: `Hello ${name}.` }, { now: now() });
+        return file;
+    }
+
+    it('proposes one change, shows its preview and confirm, and puts it on the plan strip as the current step', async () => {
+        const rob = heldOn('Rob');
+        const { source, store } = memorySource([rob]);
+        const actions = new MemoryAskActionStore();
+        const seen: { opts?: any; results: unknown[] } = { results: [] };
+        const out = await runAskTurn(ask({ userMessage: 'send Rob his draft and note it', context: { caseFileId: rob.id } }), {
+            source, assignments: async () => ({ ben: ['u1'] }), client: new FakeModelClient({ router: () => route() }), now: now(), actions,
+            loop: scriptedLoop([
+                { tool: 'propose_send_held_draft', input: { caseFileId: rob.id } },
+                { tool: 'give_answer', input: { finalText: 'Ready to send Rob his draft.', surface: 'thread', caseFileId: rob.id, plan: [{ label: 'Find Rob', done: true }, { label: 'Send the draft', done: false }, { label: 'Note the file', done: false }] } },
+            ], seen),
+        });
+        expect(seen.results[0]).toMatchObject({ status: 'proposed', kind: 'draft.release', preview: 'Hello Rob.' });
+        const id = (seen.results[0] as { actionId: string }).actionId;
+        expect(out.answer.confirm).toEqual({ label: 'Send as is', actionId: id, kind: 'draft.release', action: { kind: 'draft.release', args: { caseFileId: rob.id } } });
+        expect(out.answer.outgoing).toEqual([expect.objectContaining({ text: 'Hello Rob.', actionId: id })]);
+        expect(out.answer.plan).toEqual([
+            { label: 'Find Rob', state: 'done' },
+            { label: 'Send the draft', state: 'current', actionId: id },
+            { label: 'Note the file', state: 'waiting' },
+        ]);
+        expect(store.get(rob.id)?.sends).toEqual([]);
+    });
+
+    it('allows one new proposal per run: the next step waits for the confirm', async () => {
+        const rob = heldOn('Rob');
+        const gemma = heldOn('Gemma');
+        const { source } = memorySource([rob, gemma]);
+        const actions = new MemoryAskActionStore();
+        const seen: { opts?: any; results: unknown[] } = { results: [] };
+        const out = await runAskTurn(ask({ userMessage: 'send both drafts' }), {
+            source, assignments: async () => ({ ben: ['u1'] }), client: new FakeModelClient({ router: () => route() }), now: now(), actions,
+            loop: scriptedLoop([
+                { tool: 'propose_send_held_draft', input: { caseFileId: rob.id } },
+                { tool: 'propose_send_held_draft', input: { caseFileId: gemma.id } },
+            ], seen),
+        });
+        expect(seen.results[1]).toEqual({ status: 'refused', reason: 'one change at a time: draft.release is waiting for Ben\'s confirm, and the next step is proposed after it' });
+        expect(actions.rows.size).toBe(1);
+        expect(out.answer.confirm?.actionId).toBe((seen.results[0] as { actionId: string }).actionId);
+    });
+
+    it('stops the chain at the first refusal and drops the steps after it', async () => {
+        const bare = whatsappFile({ name: 'Rob' });
+        const gemma = heldOn('Gemma');
+        const { source } = memorySource([bare, gemma]);
+        const actions = new MemoryAskActionStore();
+        const seen: { opts?: any; results: unknown[] } = { results: [] };
+        const out = await runAskTurn(ask({ userMessage: 'send Rob then Gemma their drafts' }), {
+            source, assignments: async () => ({ ben: ['u1'] }), client: new FakeModelClient({ router: () => route({ steps: ['Send Rob his draft', 'Send Gemma hers'] }) }), now: now(), actions,
+            loop: scriptedLoop([
+                { tool: 'propose_send_held_draft', input: { caseFileId: bare.id } },
+                { tool: 'propose_send_held_draft', input: { caseFileId: gemma.id } },
+            ], seen),
+        });
+        expect(seen.results[0]).toEqual({ status: 'refused', reason: 'there is no held draft to send' });
+        expect(seen.results[1]).toEqual({ status: 'refused', reason: expect.stringMatching(/^the plan stopped at a refusal \(there is no held draft to send\)/) });
+        expect(actions.rows.size).toBe(0);
+        expect(out.answer.confirm).toBeUndefined();
+        expect(out.answer.plan).toEqual([
+            { label: 'Send Rob his draft', state: 'refused', reason: 'there is no held draft to send' },
+            { label: 'Send Gemma hers', state: 'dropped' },
+        ]);
+    });
+
+    it('proposes nothing without a slot, and shows no plan for a money refusal', async () => {
+        const rob = heldOn('Rob');
+        const { source } = memorySource([rob]);
+        const actions = new MemoryAskActionStore();
+        const seen: { opts?: any; results: unknown[] } = { results: [] };
+        await runAskTurn(ask({ approver: null }), {
+            source, assignments: async () => ({}), client: new FakeModelClient({ router: () => route() }), now: now(), actions,
+            loop: scriptedLoop([{ tool: 'propose_send_held_draft', input: { caseFileId: rob.id } }], seen),
+        });
+        expect(seen.results[0]).toEqual({ status: 'refused', reason: expect.stringMatching(/no approver slot/) });
+        expect(actions.rows.size).toBe(0);
+
+        const money = await runAskTurn(ask({ userMessage: 'refund Rob and tell him' }), {
+            source, assignments: async () => ({}), now: now(), actions, loop: vi.fn(),
+            client: new FakeModelClient({ router: () => route({ moneyAction: true, steps: ['Refund Rob', 'Tell Rob'] }) }),
+        });
+        expect(money.answer.plan).toBeUndefined();
+        expect(money.answer.confirm).toBeUndefined();
     });
 });
 

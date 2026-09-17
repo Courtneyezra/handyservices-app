@@ -20,11 +20,13 @@ import type { BoardSource } from '../api/store';
 import { createCommsV2ApiRouter } from '../api/routes';
 import type { CommsEvent } from '../../comms-events';
 import { MemoryAskSessionStore } from './sessions';
+import { MemoryAskActionStore } from './actions';
 import { memorySource, scriptedLoop, whatsappFile, type ScriptStep } from './ask-fixtures';
 
 const BEN_EMAIL = 'ben.real@handyservices.app';
 const OTHER_EMAIL = 'someone.else@handyservices.app';
-const assignments = { ben: [`user_${BEN_EMAIL}`] };
+const assignments: Record<string, string[]> = { ben: [`user_${BEN_EMAIL}`] };
+let skew = 0;
 
 let server: import('node:http').Server;
 let base: string;
@@ -34,6 +36,7 @@ let script: ScriptStep[] = [];
 let composed = 'Thanks Sam, could you send us a photo of the tap?';
 const events: CommsEvent[] = [];
 const sessions = new MemoryAskSessionStore(() => new Date('2026-09-17T09:10:00.000Z'));
+const actions = new MemoryAskActionStore();
 /** The board's send path reads the wall clock, so files are dated from it: a window opened ten minutes ago, or two days ago. */
 const openAt = () => new Date(Date.now() - 10 * 60_000).toISOString();
 const shutAt = () => new Date(Date.now() - 48 * 3_600_000).toISOString();
@@ -42,7 +45,7 @@ beforeAll(async () => {
     const mem = memorySource();
     store = mem.store;
     const client = new FakeModelClient({
-        router: () => ({ surface: 'thread', moneyAction: false, wantsDraft: true }),
+        router: () => ({ intents: ['message'], domains: ['messages'], surface: 'thread', steps: ['Draft a reply'], moneyAction: false, wantsDraft: true }),
         composer: () => ({ words: composed }),
     });
     const door = createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb });
@@ -57,16 +60,18 @@ beforeAll(async () => {
         door, async () => assignments, async () => ({ store, live: mode === 'live', mode }), async () => false, async () => ({}), () => false,
         {
             sessions,
+            actions,
             turnDeps: { client, loop: (opts) => scriptedLoop(script)(opts) },
             emit: (evt) => events.push(evt),
             now: () => new Date('2026-09-17T09:10:00.000Z'),
+            actionClock: () => new Date(Date.now() + skew),
         },
     ));
     server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/comms-v2`;
 });
 afterAll(async () => { await new Promise<void>((r) => server.close(() => r())); });
-beforeEach(() => { store.clear(); events.length = 0; mode = 'dry_run'; composed = 'Thanks Sam, could you send us a photo of the tap?'; });
+beforeEach(() => { store.clear(); events.length = 0; mode = 'dry_run'; skew = 0; assignments.ben = [`user_${BEN_EMAIL}`]; composed = 'Thanks Sam, could you send us a photo of the tap?'; });
 
 async function call(method: string, route: string, body?: unknown, as: string | null = BEN_EMAIL) {
     const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -84,10 +89,10 @@ async function finished(runId: string): Promise<void> {
 }
 
 /** Ask the desk to draft on this file, through the routes, and wait for the answer. */
-async function askForDraft(file: CaseFile): Promise<any> {
+async function askForDraft(file: CaseFile, plan?: { label: string; done: boolean }[]): Promise<any> {
     script = [
         { tool: 'draft_reply', input: { caseFileId: file.id, brief: 'Ask for a photo of the tap' } },
-        { tool: 'give_answer', input: { finalText: 'Drafted.', surface: 'thread', caseFileId: file.id } },
+        { tool: 'give_answer', input: { finalText: 'Drafted.', surface: 'thread', caseFileId: file.id, ...(plan ? { plan } : {}) } },
     ];
     const session = await call('POST', '/ask/sessions', {});
     const posted = await call('POST', `/ask/sessions/${session.json.id}/messages`, { text: 'Ask Sam for a photo', via: 'voice', context: { caseFileId: file.id } });
@@ -147,7 +152,7 @@ describe('an ask, end to end', () => {
                 finalText: 'Drafted.',
                 surface: { type: 'thread', caseFileId: file.id },
                 outgoing: [{ channel: 'wa', text: composed }],
-                confirm: { label: 'Send as is', action: { kind: 'draft.release', args: { caseFileId: file.id } } },
+                confirm: { label: 'Send as is', actionId: expect.any(String), kind: 'draft.release', action: { kind: 'draft.release', args: { caseFileId: file.id } } },
             },
         });
         expect(detail.messages[1].transcript.map((s: any) => s.tool ?? s.type)).toEqual(['route', 'get_case_file', 'get_case_file', 'draft_reply', 'draft_reply', 'give_answer', 'give_answer']);
@@ -260,5 +265,114 @@ describe('the draft goes out only through the board\'s human send path', () => {
             // Each attempt reached the ledger once, and nothing got past it.
             expect(outbox).toEqual([composed, composed]);
         }, 20_000);
+    });
+});
+
+describe('confirming a proposal from the answer', () => {
+    async function proposed(plan?: { label: string; done: boolean }[]) {
+        const file = whatsappFile({ at: openAt() });
+        store.put(file);
+        const detail = await askForDraft(file, plan);
+        const answer = detail.messages.at(-1).answer;
+        return { file, detail, answer, actionId: answer.confirm.actionId as string, sessionId: detail.session.id as string };
+    }
+
+    it('sends the held draft as the signed-in person, whatever the body says, and a second confirm sends nothing more', async () => {
+        const { file, actionId } = await proposed();
+        expect((await call('GET', `/ask/actions/${actionId}`)).json).toMatchObject({ id: actionId, kind: 'draft.release', status: 'proposed', previewText: composed, caseFileId: file.id });
+
+        const first = await call('POST', `/ask/actions/${actionId}/confirm`, { person: 'intruder@example.com', approver: 'office', args: { caseFileId: 'other' } });
+        expect(first.status).toBe(200);
+        expect(first.json).toMatchObject({ ok: true, repeat: false, continuedRunId: null, action: { id: actionId, status: 'executed', confirmedBy: `human:${BEN_EMAIL}`, result: { approver: `human:${BEN_EMAIL}`, bubbles: [{ text: composed }] } } });
+        expect(store.get(file.id)?.sends).toHaveLength(1);
+        expect(store.get(file.id)?.sends[0]).toMatchObject({ approver: `human:${BEN_EMAIL}`, runId: first.json.action.runId });
+        expect(store.get(file.id)?.hold).toBeNull();
+
+        const second = await call('POST', `/ask/actions/${actionId}/confirm`);
+        expect(second.status).toBe(200);
+        expect(second.json).toMatchObject({ ok: true, repeat: true, action: { status: 'executed', runId: first.json.action.runId } });
+        expect(store.get(file.id)?.sends).toHaveLength(1);
+    });
+
+    it('is not found for another person, forbidden to a session with no slot, and needs a signed-in user', async () => {
+        const { file, actionId } = await proposed();
+        expect(await call('POST', `/ask/actions/${actionId}/confirm`, undefined, OTHER_EMAIL)).toEqual({ status: 404, json: { error: 'no such proposal', action: null } });
+        expect((await call('GET', `/ask/actions/${actionId}`, undefined, OTHER_EMAIL)).status).toBe(404);
+        expect((await call('POST', `/ask/actions/${actionId}/cancel`, undefined, OTHER_EMAIL)).status).toBe(404);
+        expect((await call('POST', `/ask/actions/${actionId}/confirm`, undefined, null)).status).toBe(401);
+        assignments.ben = [];
+        const noSlot = await call('POST', `/ask/actions/${actionId}/confirm`);
+        expect(noSlot.status).toBe(403);
+        expect(noSlot.json).toMatchObject({ error: 'no approver slot is assigned to this user', action: { status: 'proposed' } });
+        expect(store.get(file.id)?.sends).toEqual([]);
+    });
+
+    it('is gone once expired', async () => {
+        const { file, actionId } = await proposed();
+        skew = 16 * 60_000;
+        const out = await call('POST', `/ask/actions/${actionId}/confirm`);
+        expect(out.status).toBe(410);
+        expect(out.json).toMatchObject({ error: expect.stringMatching(/^this proposal was expired: it expired at /), action: { status: 'expired' } });
+        expect(store.get(file.id)?.sends).toEqual([]);
+    });
+
+    it('is refused when the draft changed since the answer, and the new words are not sent', async () => {
+        const { file, actionId } = await proposed();
+        store.get(file.id)!.hold!.draft = 'Words nobody confirmed.';
+        const out = await call('POST', `/ask/actions/${actionId}/confirm`);
+        expect(out.status).toBe(409);
+        expect(out.json).toMatchObject({ error: expect.stringMatching(/changed since you saw it/), action: { status: 'refused' } });
+        expect(store.get(file.id)?.sends).toEqual([]);
+    });
+
+    it('cancels, and a confirm after is refused', async () => {
+        const { file, actionId } = await proposed();
+        const out = await call('POST', `/ask/actions/${actionId}/cancel`);
+        expect(out).toMatchObject({ status: 200, json: { ok: true, repeat: false, action: { status: 'cancelled' } } });
+        expect((await call('POST', `/ask/actions/${actionId}/confirm`)).status).toBe(409);
+        expect(store.get(file.id)?.sends).toEqual([]);
+        expect(store.get(file.id)?.hold?.draft).toBe(composed);
+    });
+
+    it('moves the plan strip on the answer and carries on with the next step as a tap', async () => {
+        const { actionId, sessionId } = await proposed([{ label: 'Find Sam', done: true }, { label: 'Send the photo ask', done: false }, { label: 'Tell Ben it went', done: false }]);
+        let detail = (await call('GET', `/ask/sessions/${sessionId}`)).json;
+        expect(detail.messages.at(-1).answer.plan).toEqual([
+            { label: 'Find Sam', state: 'done' },
+            { label: 'Send the photo ask', state: 'current', actionId },
+            { label: 'Tell Ben it went', state: 'waiting' },
+        ]);
+
+        script = [{ tool: 'give_answer', input: { finalText: 'Sent. Nothing else to do.', surface: 'words' } }];
+        events.length = 0;
+        const out = await call('POST', `/ask/actions/${actionId}/confirm`);
+        expect(out.status).toBe(200);
+        expect(out.json.continuedRunId).toMatch(/^ask_/);
+        await finished(out.json.continuedRunId);
+
+        // The answer that offered it was re-emitted with the step done.
+        expect(events.find((e) => e.type === 'ops_message' && (e as any).message.role === 'assistant' && (e as any).message.answer?.plan)).toMatchObject({ message: { answer: { plan: [{ state: 'done' }, { state: 'done', actionId }, { state: 'waiting' }] } } });
+        detail = (await call('GET', `/ask/sessions/${sessionId}`)).json;
+        expect(detail.messages.map((m: any) => [m.role, m.via ?? null])).toEqual([['user', 'voice'], ['assistant', null], ['user', 'tap'], ['assistant', null]]);
+        expect(detail.messages[1].answer.plan[1]).toEqual({ label: 'Send the photo ask', state: 'done', actionId });
+        expect(detail.messages[2].content).toBe('Carry on with the plan: Tell Ben it went');
+        expect(detail.messages[3].content).toBe('Sent. Nothing else to do.');
+
+        // A repeat confirm neither moves the plan nor starts another run.
+        const again = await call('POST', `/ask/actions/${actionId}/confirm`);
+        expect(again.json).toMatchObject({ repeat: true, continuedRunId: null });
+    });
+
+    it('marks the step refused and drops the rest when the confirm is refused, and carries nothing on', async () => {
+        const { file, actionId, sessionId } = await proposed([{ label: 'Send the photo ask', done: false }, { label: 'Tell Ben it went', done: false }]);
+        store.get(file.id)!.hold!.draft = 'Words nobody confirmed.';
+        const out = await call('POST', `/ask/actions/${actionId}/confirm`);
+        expect(out.status).toBe(409);
+        const detail = (await call('GET', `/ask/sessions/${sessionId}`)).json;
+        expect(detail.messages).toHaveLength(2);
+        expect(detail.messages[1].answer.plan).toEqual([
+            { label: 'Send the photo ask', state: 'refused', actionId, reason: expect.stringMatching(/changed since you saw it/) },
+            { label: 'Tell Ben it went', state: 'dropped' },
+        ]);
     });
 });

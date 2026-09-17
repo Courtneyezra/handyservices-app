@@ -36,6 +36,10 @@ export interface AskSessionStore {
     list(person: string, limit: number): Promise<OpsSessionDTO[]>;
     get(id: string): Promise<{ session: OpsSessionDTO; messages: AskMessageDTO[] } | null>;
     append(message: NewAskMessage): Promise<AskMessageDTO>;
+    /** One message, by id. */
+    message(id: string): Promise<AskMessageDTO | null>;
+    /** Replaces an assistant message's answer (the plan strip moving with its proposal); null when there is no such message. */
+    setAnswer(id: string, answer: OpsAnswer): Promise<AskMessageDTO | null>;
     touch(id: string): Promise<void>;
     archive(id: string): Promise<OpsSessionDTO | null>;
 }
@@ -93,6 +97,16 @@ export class MemoryAskSessionStore implements AskSessionStore {
         this.messages.push(row);
         return messageDTO(row);
     }
+    async message(id: string) {
+        const m = this.messages.find((r) => r.id === id);
+        return m ? messageDTO(m) : null;
+    }
+    async setAnswer(id: string, answer: OpsAnswer) {
+        const m = this.messages.find((r) => r.id === id);
+        if (!m) return null;
+        m.answer = answer;
+        return messageDTO(m);
+    }
     async touch(id: string) {
         const s = this.sessions.get(id);
         if (s) s.updatedAt = this.at();
@@ -147,6 +161,16 @@ export const databaseAskSessionStore: AskSessionStore = {
             askContext: msg.context ?? null, runId: msg.runId ?? null, transcript: msg.transcript ?? null, answer: msg.answer ?? null, usage: msg.usage ?? null,
         }).returning();
         return messageDTO(row);
+    },
+    async message(id) {
+        const { db, m, eq } = await tables();
+        const [row] = await db.select().from(m).where(eq(m.id, id));
+        return row ? messageDTO(row) : null;
+    },
+    async setAnswer(id, answer) {
+        const { db, m, eq } = await tables();
+        const [row] = await db.update(m).set({ answer }).where(eq(m.id, id)).returning();
+        return row ? messageDTO(row) : null;
     },
     async touch(id) {
         const { db, s, eq } = await tables();

@@ -53,6 +53,8 @@ export interface HumanReplyInput {
      * SMS punctuation), and only as typed words are when that is all that fits.
      */
     deskDraft?: boolean;
+    /** The run id the send goes out under; a fresh one when absent. The ask agent's confirm passes its own, so the action and the send carry one id and one run id sends once. */
+    runId?: string;
 }
 
 /** What went, for the board to show back: not a desk turn, so it carries no guards and no route. */
@@ -107,7 +109,7 @@ export function replyRouteOf(file: CaseFile, now: Date): ReplyRoute {
  */
 export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}): Promise<HumanReplyOutcome> {
     const now = deps.now ?? (() => new Date());
-    const runId = `run_${randomUUID()}`;
+    const runId = input.runId?.trim() || `run_${randomUUID()}`;
     const { file, approver } = input;
     const words = input.words.replace(/\r\n/g, '\n').trim();
     const fileDeps: CaseFileDeps = { now, newId: deps.newId };

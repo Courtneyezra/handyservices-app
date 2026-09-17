@@ -8,14 +8,19 @@
  *
  * The desk's model rule (desk/models.ts): Haiku 4.5 routes, Sonnet 5 reasons, the strongest model
  * writes.
- *   route    ROUTER_MODEL, one structured call: which surface the ask wants, whether it asks for a
- *            money action (refused here, before any tool runs: no money actions yet), and whether
- *            it wants a draft. A failed route falls through to the reasoner with no hint.
- *   reason   SPECIALIST_MODEL, the tool loop (server/agents/runner.ts, the generic harness), with
- *            tools.ts: board and case-file reads, draft_reply, give_answer.
+ *   route    ROUTER_MODEL, one structured call: the ask's intents, the domains it touches, the
+ *            surface it wants, the steps it takes, whether it asks for a money action (refused
+ *            here, before any tool runs: no money actions yet), and whether it wants a draft. A
+ *            failed route falls through to the reasoner with no hint and every tool group.
+ *   reason   SPECIALIST_MODEL, the tool loop (server/agents/runner.ts, the generic harness), over
+ *            the tool groups the route names (tool-groups.ts): reads, draft_reply, proposals,
+ *            give_answer. At most MAX_TURNS turns.
  *   write    COMPOSER_MODEL, inside draft_reply (composer.ts): the customer's words.
  *
- * The answer's data is read off the store after the loop (surface.ts), never taken from the model.
+ * No tool changes anything a customer sees: a change is a proposal (actions.ts) that Ben confirms on
+ * the answer. A draft the run held is proposed for sending automatically. The answer's data is read
+ * off the store after the loop (surface.ts), never taken from the model, and so is where each step
+ * of the plan strip stands (plan.ts).
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod/v4';
@@ -25,8 +30,12 @@ import type { ApproverSlot, CaseFile, ModelCallRecord } from '../desk/case-file'
 import { AnthropicModelClient, ROUTER_MODEL, SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { ApproverAssignments } from '../api/approvers';
 import type { BoardSource } from '../api/store';
-import { askTools, newRunState, type AskRunState } from './tools';
+import { newRunState, proposeInRun, type AskRunState, type AskToolDeps } from './tools';
 import { buildAnswer, customerOf, fileAnswersTo } from './surface';
+import { ASK_DOMAINS, offeredDomains, toolsFor, type AskDomain } from './tool-groups';
+import type { AskActionStore } from './actions';
+import type { ActionKinds } from './action-kinds';
+import { buildPlan, cleanSteps } from './plan';
 
 export const ASK_AGENT_NAME = 'comms-v2-ask';
 /** Most recent session messages fed to the reasoner as prior turns. */
@@ -35,32 +44,47 @@ export const MAX_TURNS = 10;
 
 export const MONEY_REFUSAL = 'Money actions are not on the Handy Desk yet, so I have not touched any price, invoice or payment. Use the price screen or the invoice pages for that.';
 
-const RouteSchema = z.object({
-    surface: z.enum(['thread', 'floor', 'words', 'diary', 'map', 'quote', 'ledger']).describe('What the answer should show.'),
+export const ASK_INTENTS = ['find', 'show', 'message', 'book', 'call', 'note'] as const;
+export const ROUTE_STEP_CAP = 12;
+
+export const RouteSchema = z.object({
+    intents: z.array(z.enum(ASK_INTENTS)).describe('What Ben wants done, every one that applies.'),
+    domains: z.array(z.enum(ASK_DOMAINS)).describe('The parts of the business the ask touches, every one that applies.'),
+    surface: z.enum(['thread', 'floor', 'words', 'diary', 'map', 'quote', 'ledger', 'pick', 'client', 'booking', 'contractor']).describe('What the answer should show.'),
+    steps: z.array(z.string()).describe('The steps the ask takes, in order, each a few words. One step for a simple ask.'),
     moneyAction: z.boolean().describe('True only when the ask is to change, send, chase, pay, refund or discount money: a price, a quote figure, an invoice or a payment. Reading or asking about money is false.'),
     wantsDraft: z.boolean().describe('True when the ask is to write, draft, reply to or message a customer.'),
 });
 export type AskRoute = z.infer<typeof RouteSchema>;
 
-export const ASK_ROUTER_SYSTEM = `You route one request Ben, the owner of a handyman business, typed or said into his ops desk. Pick what the answer should show:
+export const ASK_ROUTER_SYSTEM = `You route one request Ben, the owner of a handyman business, typed or said into his ops desk.
+Intents, every one that applies: find (look someone or something up), show (bring up a record), message (write to a customer), book (a booking or the diary), call (ring someone), note (write something on a file).
+Domains, every one the ask touches: clients (customers, landlords, tenants, companies), quotes, bookings (bookings and the diary), contractors, messages (conversations, held drafts, the board), calls, invoices.
+Pick what the answer should show:
 - thread: one customer's conversation ("what did Rob say", "show me Gemma", "reply to Sam").
 - floor: the whole board or the overall state ("what's waiting", "show the floor", "how many are held").
-- diary: bookings, moving a job, a contractor's week.
-- map: where jobs or contractors are.
+- client: one customer's record.
+- pick: when the ask names someone who may be several people.
 - quote: a price or a quote's lines.
+- booking: one booking.
+- diary: the week's bookings, moving a job, a contractor's week.
+- contractor: one contractor.
+- map: where jobs or contractors are.
 - ledger: who owes what, invoices, payments.
 - words: anything else.
+Steps: the ask broken into its steps in order, a few words each ("Find Marcus", "Move to Tue 23", "Tell Marcus"); one step for a simple ask.
 Set moneyAction only for a request to change or move money. Set wantsDraft when he wants a message written to a customer.`;
 
 export const ASK_SYSTEM = `You are the Handy Desk: the ops desk Ben, the owner of Handy Services (a small handyman business), talks to. You answer in the context of the card he has selected. Ben decides; you look things up and prepare.
 
 What you can do:
-- Read the new comms desk: get_board (every case file as a card), find_case_files, get_case_file (one conversation in full).
-- Hold ONE drafted reply for Ben with draft_reply. It never sends. Ben reads the draft and sends it himself with one tap. Only draft when he asks you to reply, message or answer a customer, or clearly wants one.
-- End with give_answer, exactly once, then one short closing line.
+- Read with the tools you are given. Every tool reads; none changes anything a customer sees.
+- Hold ONE drafted reply for Ben with draft_reply. It never sends. A draft you hold is proposed for sending: Ben reads it and confirms. Only draft when he asks you to reply, message or answer a customer, or clearly wants one.
+- Propose ONE change per turn with a propose_ tool (for example propose_send_held_draft). Nothing runs until Ben confirms it on your answer. After proposing, stop and answer: the next step is proposed after he confirms, on a fresh read.
+- End with give_answer, exactly once, then one short closing line. For an ask with more than one step, give its plan, marking the steps you finished.
 
 Rules:
-1. You never send anything to anyone. There is no send tool.
+1. You never send or change anything yourself. Every change is a proposal Ben confirms, one at a time. If a proposal is refused, stop: tell Ben why in plain words and propose nothing more.
 2. No money actions: never change, send or chase a price, quote, invoice or payment. You may report what a file says.
 3. Drafts carry no price, date, time, commitment or business claim; the desk refuses them. If a reply needs one of those, tell Ben what to say himself instead of drafting.
 4. Diary, map, quote and ledger views are not connected to this desk yet. If asked, answer in words with what the case files show and say so.
@@ -98,6 +122,8 @@ export interface RunAskTurnOptions {
     /** The signed-in person: their email or user id. */
     person: string;
     approver: ApproverSlot | null;
+    /** The ask run: the proposals it saves carry it, so its answer message can be named on them. */
+    askRunId?: string | null;
     onEvent?: (step: LeanRunStep) => void;
 }
 
@@ -115,6 +141,9 @@ export interface AskTurnDeps {
     /** Shapes a runner event for the wire (server/agents/transcript-lean.ts by default). */
     lean?: (evt: AgentTranscriptEvent) => LeanRunStep;
     now?: () => Date;
+    /** Where proposals are saved; without one, nothing is proposed. */
+    actions?: AskActionStore;
+    kinds?: ActionKinds;
 }
 
 /** The session history as runner prior messages: recent, non-empty, strictly alternating, user first, and not ending on a user turn (the ask follows). */
@@ -155,7 +184,10 @@ function goalFor(opts: RunAskTurnOptions, selected: CaseFile | null, route: AskR
     } else {
         lines.push('No card is selected.');
     }
-    if (route) lines.push(`Router hint: surface ${route.surface}${route.wantsDraft ? ', wants a draft' : ''}.`);
+    if (route) {
+        lines.push(`Router hint: surface ${route.surface}${route.wantsDraft ? ', wants a draft' : ''}.`);
+        if (route.steps.length > 1) lines.push(`Steps: ${route.steps.map((s, i) => `${i + 1} ${s}`).join(' · ')}.`);
+    }
     if (fresh) {
         const json = JSON.stringify(fresh.result);
         lines.push(`Fresh ${fresh.tool} read, taken for this ask (the current state; answer from this, not from earlier messages):\n${json.length > FRESH_READ_CAP ? `${json.slice(0, FRESH_READ_CAP)}...` : json}`);
@@ -191,9 +223,23 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
 
     const routed = await routeAsk(client, opts, selected);
     state.calls.push(routed.record);
-    push({ at: now().toISOString(), type: 'route', detail: routed.route ?? { error: routed.error } });
+    const domains: readonly AskDomain[] | null = routed.route ? routed.route.domains : null;
+    const offered = offeredDomains({ domains, cardSelected: !!selected });
+    push({ at: now().toISOString(), type: 'route', detail: routed.route ? { ...routed.route, offered } : { error: routed.error, offered } });
 
+    const toolDeps: AskToolDeps = {
+        source: deps.source, assignments, approver: opts.approver, person: opts.person, client, now,
+        actions: deps.actions, kinds: deps.kinds, sessionId: opts.sessionId, askRunId: opts.askRunId ?? null,
+    };
+
+    let autoRefusal: string | null = null;
     const answerFrom = async (fallbackText: string): Promise<OpsAnswer> => {
+        // A draft this run held is offered for sending, as a proposal like any other change.
+        const drafted = Array.from(new Set(state.drafted));
+        if (drafted.length === 1 && !state.proposal && !state.refusal && deps.actions) {
+            const out = await proposeInRun(toolDeps, state, 'draft.release', { caseFileId: drafted[0] });
+            if (out.status === 'refused') autoRefusal = `The draft is held but could not be offered for sending: ${out.reason}.`;
+        }
         const src = await deps.source();
         const chosen = state.answer;
         const files = src.store.all();
@@ -204,17 +250,18 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
             ?? (state.drafted.length ? { type: 'thread' as const, caseFileId: state.drafted[state.drafted.length - 1] }
                 : routed.route?.surface === 'floor' ? { type: 'floor' as const }
                 : selectedNow ? { type: 'thread' as const, caseFileId: selectedNow.id } : { type: 'words' as const });
-        const drafted = Array.from(new Set(state.drafted));
-        const notes = [chosen?.note ?? null, drafted.length > 1 ? `${drafted.length} drafts are held; send each from its own card.` : null].filter(Boolean).join(' ');
-        return buildAnswer({ finalText: chosen?.finalText ?? fallbackText, choice, files, assignments, drafted, note: notes || null });
+        const notes = [chosen?.note ?? null, drafted.length > 1 ? `${drafted.length} drafts are held; send each from its own card.` : null, autoRefusal].filter(Boolean).join(' ');
+        const steps = chosen?.plan.length ? chosen.plan : cleanSteps(routed.route?.steps ?? []);
+        const plan = buildPlan({ steps, proposal: state.proposal, refusal: state.refusal });
+        return buildAnswer({ finalText: chosen?.finalText ?? fallbackText, choice, files, assignments, drafted, proposal: state.proposal, plan, note: notes || null });
     };
 
     if (routed.route?.moneyAction) {
-        const answer = await answerFrom(MONEY_REFUSAL);
+        const { plan: _noPlan, ...answer } = await answerFrom(MONEY_REFUSAL);
         return { answer: { ...answer, note: 'No money actions yet.' }, leanTranscript, usage: { loop: null, calls: state.calls } };
     }
 
-    const tools = askTools({ source: deps.source, assignments, approver: opts.approver, person: opts.person, client, now }, state);
+    const tools = toolsFor({ domains, cardSelected: !!selected }, toolDeps, state);
 
     // The session carries earlier runs' answers, which go stale: a floor ask reads the board and a
     // thread ask reads the selected file before the reasoner starts, whatever the history says.
@@ -222,10 +269,10 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
         : selected && (!routed.route || routed.route.surface === 'thread') ? { tool: 'get_case_file', input: { caseFileId: selected.id } }
         : null;
     let fresh: { tool: string; result: unknown } | null = null;
-    if (freshRead) {
-        const tool = tools.find((t) => t.name === freshRead.tool)!;
+    const freshTool = freshRead ? tools.find((t) => t.name === freshRead.tool) : undefined;
+    if (freshRead && freshTool) {
         push(lean({ at: now().toISOString(), type: 'tool_call', detail: freshRead }));
-        const result = await tool.run(freshRead.input);
+        const result = await freshTool.run(freshRead.input);
         push(lean({ at: now().toISOString(), type: 'tool_result', detail: { tool: freshRead.tool, result } }));
         fresh = { tool: freshRead.tool, result };
     }
