@@ -20,9 +20,8 @@ interface SidebarLayoutProps {
 
 /**
  * B1 — the shell header's quick access to the three Handy Desk destinations (Design export
- * "Comms Board.dc.html" §1). Diary has no admin page yet (task B6), so it ships disabled as
- * "Coming soon". Held colour is amber (captain's answer 95). Rendered once for the desktop header
- * and once, vertically, for the sub-1024px slide-out — same links, same test ids plus a variant
+ * "Comms Board.dc.html" §1): Handy Desk, the read-only Diary (B6) and the Comms board. Held colour
+ * is amber (captain's answer 95). Rendered once for the desktop header and once, vertically, for the sub-1024px slide-out — same links, same test ids plus a variant
  * suffix so a test can tell them apart.
  */
 function UpdatedAgo({ updatedAt, className, testId }: { updatedAt: number; className: string; testId: string }) {
@@ -64,18 +63,14 @@ function TopBarQuickLinks({ variant, location, heldCount, updatedAt, onNavigate 
             >
                 <Sparkles className="w-4 h-4" /> Handy Desk
             </Link>
-            <span
-                title="Coming soon"
-                aria-disabled="true"
+            <Link
+                href="/admin/diary"
                 data-testid={`topbar-link-diary-${variant}`}
-                className={cn(
-                    "flex cursor-not-allowed items-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground/50",
-                    vertical ? "px-3 py-2.5" : "px-3 py-2",
-                )}
+                onClick={onNavigate}
+                className={linkClass(location === "/admin/diary")}
             >
                 <Calendar className="w-4 h-4" /> Diary
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Coming soon</span>
-            </span>
+            </Link>
             <Link
                 href={NEW_BOARD_PATH}
                 data-testid={`topbar-link-comms-board-${variant}`}

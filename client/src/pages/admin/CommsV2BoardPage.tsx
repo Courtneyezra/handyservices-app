@@ -758,7 +758,8 @@ export function FilterBar({ filters, onChange, showModeFilter = false }: { filte
 export default function CommsV2BoardPage() {
     const queryClient = useQueryClient();
     const [filters, setFilters] = useState<BoardFilters>({ heldOnly: false, mode: 'all' });
-    const [openCardId, setOpenCardId] = useState<string | null>(null);
+    // `?file=<case file id>` opens that conversation, so another page (the diary's "Open thread") can link straight to it.
+    const [openCardId, setOpenCardId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('file'));
     const wide = useIsWideBoard();
 
     const { data, isLoading, error } = useQuery<Board>({

@@ -458,6 +458,28 @@ describe('<CommsV2BoardPage>', () => {
         expect(screen.getByTestId('board-column-first_contact')).toBeTruthy();
     });
 
+    it('opens the conversation named by ?file= on arrival, as the diary\'s "Open thread" links it', async () => {
+        stubViewport(true);
+        window.history.pushState({}, '', '/admin/comms-v2?file=case_held');
+        try {
+            const detail: CaseFileDetail = {
+                id: 'case_held', stage: 'first_contact', mode: 'sandbox',
+                party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
+                job: { type: null, location: null, quoteRef: null, bookingRef: null },
+                turns: [{ id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Linked from the diary', media: [] }],
+                facts: [], hold: null, holdApproverAssigned: true,
+            };
+            mockFetch([
+                { url: '/api/comms-v2/board', reply: () => ({ json: boardWithOneCardPerStage() }) },
+                { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+            ]);
+            renderWithQuery(<CommsV2BoardPage />);
+            await waitFor(() => expect(screen.getByText('Linked from the diary')).toBeTruthy());
+        } finally {
+            window.history.pushState({}, '', '/');
+        }
+    });
+
     it('in production (the server reports the sandbox door cannot write here) hides every sandbox-only control and mode badge, and no visible text says "case file" or "sandbox"', async () => {
         const board = boardWithOneCardPerStage();
         board.sandboxAvailable = false;

@@ -14,6 +14,8 @@
  * thread while idle, and the ask bar takes it as context. The mapping from a held file to the
  * card's copy lives in client/src/lib/handy-desk-queue.ts.
  *
+ * The Today strip (B6, TodayStrip) sits under the header and opens the diary.
+ *
  * The ask bar (T2) asks the new desk's ask agent (/api/comms-v2/ask, useAskSession); while it runs
  * the answer surface shows the thinking card, then the answer (AnswerCard), until Ben closes it.
  */
@@ -26,6 +28,7 @@ import { useAskSession } from '@/hooks/useAskSession';
 import { cn } from '@/lib/utils';
 import { AnswerCard } from '@/components/handy-desk/AnswerCard';
 import { AskBar } from '@/components/handy-desk/AskBar';
+import { TodayStrip } from '@/components/handy-desk/TodayStrip';
 import type { AskVia } from '@shared/ops-types';
 import type { CaseFileDetail, Turn } from '@/pages/admin/CommsV2BoardPage';
 import {
@@ -322,6 +325,7 @@ export default function HandyDesk() {
     return (
         <div data-testid="handy-desk" className="flex h-[calc(100vh-6rem)] flex-col lg:h-[calc(100vh-8rem)] overflow-hidden bg-slate-900 font-sans">
             <DeskHeader sandbox={sandbox} handled={data?.handledToday ?? null} deskLive={oldComms ? oldComms.retired : null} />
+            <TodayStrip />
 
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">

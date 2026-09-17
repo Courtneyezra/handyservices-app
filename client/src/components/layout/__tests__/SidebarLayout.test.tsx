@@ -1,6 +1,6 @@
 /**
  * B1 - the shell header's quick access to the three Handy Desk destinations: Handy Desk, Diary
- * (disabled, "Coming soon" until the diary page ships) and Comms board, with a held-count badge
+ * (B6) and Comms board, with a held-count badge
  * from the same queue Handy Desk itself reads (GET /api/comms-v2/queue) and an "Updated Ns ago"
  * label. The same three links also render in the sub-1024px slide-out.
  */
@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 describe('SidebarLayout top bar (B1)', () => {
-    it('links Handy Desk and Comms board to their routes, and shows Diary as disabled "Coming soon"', async () => {
+    it('links Handy Desk, Diary and Comms board to their routes', async () => {
         mockFetch([{ url: '/api/contractor/inbox', reply: () => ({ json: [] }) }], { fallback: 'notFound' });
         renderWithQuery(withLayout(<div>content</div>));
 
@@ -33,9 +33,9 @@ describe('SidebarLayout top bar (B1)', () => {
             expect(board).toHaveAttribute('href', '/admin/comms-v2');
 
             const diary = screen.getByTestId(`topbar-link-diary-${variant}`);
-            expect(diary.tagName).not.toBe('A');
-            expect(diary).toHaveAttribute('aria-disabled', 'true');
-            expect(diary).toHaveTextContent('Coming soon');
+            expect(diary).toHaveAttribute('href', '/admin/diary');
+            expect(diary).not.toHaveAttribute('aria-disabled');
+            expect(diary).not.toHaveTextContent('Coming soon');
         }
     });
 
