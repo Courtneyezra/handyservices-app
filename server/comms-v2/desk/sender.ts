@@ -10,8 +10,10 @@
  * form or a call cannot carry a reply, so `chooseChannel` opens a real channel. Live delivery is
  * WhatsApp and SMS only, because the surviving outbound send is the one path that consults the
  * opt-out ledger; a live email send is refused rather than routed around it. Before that, the
- * deliverer asks the ledger about every address the party is known by, phone and email, so an
- * opt-out on any one of them stops a send on every channel.
+ * deliverer asks the ledger about every address the party has written to us on, phone and email,
+ * so an opt-out on any one of them stops a send on every channel. An address nobody wrote from —
+ * one typed into the web form, a number a call came from — is never one of them (answer 126): it
+ * may be somebody else's, and their opt-out is not this customer's.
  *
  * Invariants: one run id sends once; every send has an approver; nothing the desk composed reaches
  * a customer without passing the guards, while a person's own words from Ben's board carry their
@@ -32,6 +34,7 @@ import { isHumanApprover, type Approver } from '../../approver';
 import { renderEmail } from '../channels/email-adapter';
 import { firstNameOf } from '../channels/envelope';
 import { nonGsmChars, renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
+import { PROVEN_CHANNELS } from './identity';
 import type { ChannelReplyPurpose } from '../channels/templates';
 import type { OutboundPurpose } from '../../opt-out';
 import { isOutOfHours, ukHour } from '../../working-hours';
@@ -477,7 +480,7 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: TemplateVars, st
 // ---------------------------------------------------------------- send
 
 export interface Deliverer {
-    /** `knownAs`: every other address the recipient is known by on the file, so an opt-out recorded against any of them stops the send. */
+    /** `knownAs`: every other address the recipient has written to us on, so an opt-out recorded against any of them stops the send. */
     deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver; purpose: DeliveryPurpose; knownAs?: string[] }): Promise<DeliveryOutcome>;
 }
 
@@ -578,6 +581,15 @@ export interface SenderDeps extends CaseFileDeps {
  * four fixed lines Ben has not yet reviewed. A live delivery that fails part way records the
  * bubbles that went, marked partial, before the failure is returned.
  */
+/**
+ * The addresses the party proved by writing to us on them, which are the ones an opt-out of theirs
+ * can be recorded against. An address only typed into the web form, or a number a call arrived
+ * from, is not one: it binds no identity (answer 126), so a suppression on it is somebody else's.
+ */
+function provenAddresses(party: Party): string[] {
+    return party.channels.filter((c) => PROVEN_CHANNELS.has(c.kind) && c.lastInboundAt !== null).map((c) => c.address);
+}
+
 export async function send(input: SendInput, deps: SenderDeps = {}): Promise<SendOutcome> {
     const now = deps.now ?? (() => new Date());
     if (!input.approver?.trim()) return { ok: false, reason: 'no approver' };
@@ -616,7 +628,7 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     };
 
     if (input.mode === 'live') {
-        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, purpose: input.purpose ?? 'service_reply', knownAs: party.channels.map((c) => c.address).filter((a) => a !== channel.address) });
+        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, purpose: input.purpose ?? 'service_reply', knownAs: provenAddresses(party).filter((a) => a !== channel.address) });
         if (!delivered.ok) {
             if (delivered.delivered.length) land(delivered.delivered, true);
             return { ok: false, reason: delivered.reason };

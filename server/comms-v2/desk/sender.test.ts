@@ -354,13 +354,35 @@ describe('send', () => {
         expect((await send(input(file, party, { mode: 'live', runId: 'r_reply' }), { now: at('2026-09-11T11:00:02.000Z'), deliverer })).ok).toBe(true);
         expect(seen.map((i) => i.purpose)).toEqual(['missed_call', 'service_reply']);
     });
-    it('live delivery names every other address the party is known by, so the ledger is asked about all of them', async () => {
+    it('live delivery names every other address the party wrote to us on, and no address nobody wrote from', async () => {
         const { file, party } = fixture();
-        party.channels.push({ kind: 'email', address: 'sam@example.com', lastInboundAt: null }, { kind: 'sms', address: '+447700900942', lastInboundAt: null });
+        party.channels.push(
+            { kind: 'email', address: 'sam@example.com', lastInboundAt: '2026-09-10T09:00:00.000Z' },
+            { kind: 'sms', address: '+447700900942', lastInboundAt: null },
+            // Typed into the web form, so it proves nothing: it may be an agent's or a stranger's.
+            { kind: 'email', address: 'lettings@example.com', lastInboundAt: null },
+            { kind: 'form', address: 'form:lead_1', lastInboundAt: '2026-09-10T08:00:00.000Z' },
+        );
         const seen: Parameters<Deliverer['deliver']>[0][] = [];
         const deliverer: Deliverer = { async deliver(i) { seen.push(i); return { ok: true, sid: 'SM1' }; } };
         expect((await send(input(file, party, { mode: 'live', runId: 'r_known' }), { now: at('2026-09-11T11:00:00.000Z'), deliverer })).ok).toBe(true);
         expect(seen[0]).toMatchObject({ to: '+447700900942', knownAs: ['sam@example.com'] });
+    });
+
+    it('a send is not stopped by an opt-out on an address only typed into the web form', async () => {
+        const { file, party } = fixture();
+        party.channels.push({ kind: 'email', address: 'lettings@example.com', lastInboundAt: null });
+        ledger.store = memoryOptOutStore();
+        const { recordOptOut } = await import('../../opt-out');
+        await recordOptOut({ email: 'lettings@example.com', scope: 'all', source: 'manual' }, ledger.store);
+        const sent: string[] = [];
+        vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
+        vi.doMock('../../outbound', () => ({ sendCustomerMessage: async (i: { to: string }) => { sent.push(i.to); return { ok: true, sid: 'SM1', attempts: [], fellBack: false }; } }));
+        expect((await send(input(file, party, { mode: 'live', runId: 'r_form_address' }), { now: at('2026-09-11T11:00:00.000Z') })).ok).toBe(true);
+        expect(sent.length).toBeGreaterThan(0);
+        expect(new Set(sent)).toEqual(new Set(['+447700900942']));
+        vi.doUnmock('../../outbound');
+        vi.doUnmock('../../spine/config');
     });
     it('live delivery goes through the deliverer with the template and the transport the customer wrote on, and a refused delivery lands nothing', async () => {
         const { file, party } = fixture();
@@ -515,20 +537,20 @@ describe('liveDeliverer', () => {
         vi.doUnmock('../../outbound');
         vi.doUnmock('../../spine/config');
     });
-    it('refuses an email to an address a STOP by phone covers, as an opt-out, before the channel rule', async () => {
-        ledger.store = memoryOptOutStore([{ id: 'lead_sam', phone: '07700 900942', email: 'sam@example.com' }]);
+    it('refuses an email to a party a STOP by phone covers, as an opt-out, before the channel rule', async () => {
+        ledger.store = memoryOptOutStore();
         const { recordOptOut } = await import('../../opt-out');
         await recordOptOut({ phone: '447700900942@c.us', scope: 'all', source: 'inbound_keyword', messageId: 'm1' }, ledger.store);
         vi.doMock('../../spine/config', () => ({ getSpineConfig: async () => ({ senders: { comms_v2: { enabled: true } } }) }));
         const r = await liveDeliverer.deliver({
             to: 'sam@example.com', channel: 'email', transport: 'twilio', bubbles: [{ text: 'Hi Sam,\n\nabout the tap.', gapMs: 0 }],
-            template: null, runId: 'r_email_stop', approver: DESK_APPROVER, purpose: 'service_reply',
+            template: null, runId: 'r_email_stop', approver: DESK_APPROVER, purpose: 'service_reply', knownAs: ['+447700900942'],
         });
         expect(r).toMatchObject({ ok: false, delivered: [] });
         if (!r.ok) expect(r.reason).toMatch(/asked us not to contact them at all/);
         vi.doUnmock('../../spine/config');
     });
-    it('refuses a send on any channel when the party opted out on another address it is known by, and lets everyone else through', async () => {
+    it('refuses a send on any channel when the party opted out on another address they wrote to us on, and lets everyone else through', async () => {
         const sent: string[] = [];
         ledger.store = memoryOptOutStore();
         const { recordOptOut } = await import('../../opt-out');
