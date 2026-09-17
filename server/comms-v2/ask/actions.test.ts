@@ -261,14 +261,25 @@ describe('confirming draft.release', () => {
         expect(cases.get(file.id)!.sends).toEqual([]);
     });
 
-    it('comes back with the send path\'s own refusal, and records it', async () => {
+    it('offers no confirm for a draft on a shut window, refusing in the send path\'s own words', async () => {
         const file = whatsappFile({ at: new Date(Date.now() - 48 * 3_600_000).toISOString() });
         setHold(file, { approver: BEN, reason: 'guards', exception: null, draft: DRAFT });
-        const { propose, deps, settleAs, cases } = setup([file]);
+        const { propose, store, cases } = setup([file]);
+        const out = await propose();
+        expect(out).toEqual({ ok: false, reason: expect.stringMatching(/^the whatsapp window is shut \(.*\); a shut window never carries freeform words/) });
+        expect(store.rows.size).toBe(0);
+        expect(cases.get(file.id)!.sends).toEqual([]);
+        expect(cases.get(file.id)!.hold?.draft).toBe(DRAFT);
+    });
+
+    it('refuses at confirm a window that shut after the proposal, and sends nothing', async () => {
+        const { propose, deps, settleAs, cases, file } = setup();
         const p = await propose();
         if (!p.ok) throw new Error(p.reason);
+        const party = cases.get(file.id)!.parties[0];
+        party.channels.find((c) => c.kind === 'whatsapp')!.lastInboundAt = new Date(Date.now() - 25 * 3_600_000).toISOString();
         const out = await confirmAction(settleAs(p.action.id), deps);
-        expect(out).toMatchObject({ ok: false, code: 'refused', reason: expect.stringMatching(/window is shut/), action: { status: 'refused' } });
+        expect(out).toMatchObject({ ok: false, code: 'refused', reason: expect.stringMatching(/^the whatsapp window is shut/), action: { status: 'refused', result: { reason: expect.stringMatching(/window is shut/) } } });
         expect(cases.get(file.id)!.sends).toEqual([]);
         expect(cases.get(file.id)!.hold?.draft).toBe(DRAFT);
     });

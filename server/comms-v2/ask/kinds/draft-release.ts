@@ -3,12 +3,13 @@
  * send path (desk/human-reply.ts `sendHeldDraft`), under the confirming person and the confirm's run
  * id. The preview is the held draft; the executor refuses when the draft is no longer the one Ben
  * confirmed, in the same tick as the send reads it (the expected-draft check of the board's
- * one-tap send). Everything else is `sendHeldDraft`'s: the owner slot, the window, the bubble
- * ceiling and, live, the opt-out ledger.
+ * one-tap send). The preconditions refuse a route the send has none for and a shut window, in the
+ * send's own words, so no confirm is offered for a send certain to be refused. Everything else is
+ * `sendHeldDraft`'s: the owner slot, the bubble ceiling and, live, the opt-out ledger.
  *
  * A thread kept with a person may still be sent on: it is a person's send on Ben's confirm.
  */
-import { replyRouteOf, sendHeldDraft } from '../../desk/human-reply';
+import { replyRouteOf, sendHeldDraft, shutWindowRefusal } from '../../desk/human-reply';
 import { outgoingOf } from '../surface';
 import type { ActionKindDef } from '../action-kinds';
 import { PREVIEW_CHANGED } from '../actions';
@@ -24,16 +25,16 @@ export const draftRelease: ActionKindDef<DraftReleaseArgs> = {
         return typeof id === 'string' && id.trim() ? { caseFileId: id.trim() } : null;
     },
     caseFileOf: (args) => args.caseFileId,
-    async preconditions({ file }) {
+    async preconditions({ file, now }) {
         if (!file) return 'no such case file';
         if (!file.hold?.draft) return 'there is no held draft to send';
-        return null;
+        const route = replyRouteOf(file, now);
+        if (!route.ok) return route.reason;
+        return shutWindowRefusal(route.channel, route.window);
     },
     async preview({ file, now }) {
         const draft = file?.hold?.draft;
         if (!file || !draft) return { ok: false, reason: 'there is no held draft to send' };
-        const route = replyRouteOf(file, now);
-        if (!route.ok) return { ok: false, reason: route.reason };
         return { ok: true, text: draft, outgoing: outgoingOf(file, now) };
     },
     async execute(ctx) {

@@ -94,6 +94,25 @@ describe('one turn', () => {
         expect(touched.modules).toEqual([]);
     });
 
+    it('holds a draft written on a shut window but offers no confirm, and says why on the note', async () => {
+        const file = whatsappFile({ name: 'Sam', at: '2026-09-15T09:00:00.000Z' });
+        const { store, source } = memorySource([file]);
+        const client = new FakeModelClient({ router: () => route({ wantsDraft: true }), composer: () => ({ words: 'Thanks Sam, could you send us a photo of the tap?' }) });
+        const actions = new MemoryAskActionStore();
+        const out = await runAskTurn(ask({ context: { caseFileId: file.id } }), {
+            source, assignments: async () => ({ ben: ['u1'] }), client, now: now(), actions,
+            loop: scriptedLoop([
+                { tool: 'draft_reply', input: { caseFileId: file.id, brief: 'Ask for a photo of the tap' } },
+                { tool: 'give_answer', input: { finalText: 'I have drafted a photo ask for Sam.', surface: 'thread', caseFileId: file.id } },
+            ]),
+        });
+        expect(store.get(file.id)?.hold?.draft).toBe('Thanks Sam, could you send us a photo of the tap?');
+        expect(store.get(file.id)?.sends).toEqual([]);
+        expect(actions.rows.size).toBe(0);
+        expect(out.answer.confirm).toBeUndefined();
+        expect(out.answer.note).toMatch(/^The draft is held but could not be offered for sending: the whatsapp window is shut/);
+    });
+
     it('tries the writer once more when the guards refuse, then holds nothing if it still fails', async () => {
         const file = whatsappFile();
         const { store, source } = memorySource([file]);

@@ -100,6 +100,12 @@ export function replyRouteOf(file: CaseFile, now: Date): ReplyRoute {
     return { ok: true, party, turn, channel: choice.channel, window: windowOf(party, choice.channel, now) };
 }
 
+/** The refusal a freeform reply meets on this channel's window, or null while it is open. */
+export function shutWindowRefusal(channel: ReplyChannel, window: WindowState): string | null {
+    if (window.state !== 'shut') return null;
+    return `the ${channel} window is shut (${window.reason}); a shut window never carries freeform words, so this reply cannot go until the customer writes again`;
+}
+
 /**
  * Ben's reply to the customer, through the one sender. Refuses: no words; a rule-based approver;
  * a slot that is not the one this file answers to, its hold's approver when one stands and
@@ -135,7 +141,8 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
             ? `the reply comes to ${over.measured} segments, over the ${over.ceiling} one text message may use; about ${over.charBudget} characters fit, and one curly quote or dash halves that, so plain punctuation buys room`
             : `the reply renders to ${over.measured} bubbles, over the ceiling of ${over.ceiling}; shorten it or use fewer blank lines`);
     }
-    if (window.state === 'shut') return refuse(`the ${channel} window is shut (${window.reason}); a shut window never carries freeform words, so this reply cannot go until the customer writes again`);
+    const shut = shutWindowRefusal(channel, window);
+    if (shut) return refuse(shut);
 
     // The one sender, with Ben as approver and a fresh run id. No guards: a person's own words are his (answer 43).
     const sent = await send({ file, partyId: party.personId, channel: channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
