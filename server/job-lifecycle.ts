@@ -873,6 +873,10 @@ export async function finalizeJobCompletion(
         } catch (rollupErr) {
             console.error(`[Job Lifecycle] Failed to roll up completion to quote/lead for job ${id} (quote ${job.quoteId}):`, rollupErr);
         }
+        // Signed off: the new desk's live case file for this quote closes as done
+        // (server/comms-v2/file-close.ts). Never throws.
+        await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(job.quoteId, 'signed_off'))
+            .catch((e) => console.error('[Job Lifecycle] comms-v2 file close failed:', e));
     }
 
     // Update job sheet line item statuses if provided

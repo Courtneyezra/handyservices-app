@@ -134,6 +134,9 @@ still names every processor and says an assistant may draft and send replies.
 **25. One case file per customer across every channel.** "Agreed." Not one per channel thread. A job that
 starts on the web form, continues on WhatsApp and ends with a call is one conversation; the ask ledger
 spans all of it. Consequence: identity must join phone and email to one person before the desk replies.
+The file is the job's, so it closes (17 Sep, job-file close: "Both"): on its own once the job is booked
+or done, and by Ben's hand from the board. The customer's next message then opens a new file; a file
+at quoted or accepted stays open (server/comms-v2/README.md, "Closing a case file").
 Channels in scope for the fresh design: WhatsApp, SMS, calls, web form, email.
 
 **26. The landlord/tenant service.** The vision in his words: "we onboard landlords, they onboard their

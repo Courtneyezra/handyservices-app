@@ -39,7 +39,10 @@ beforeAll(async () => {
                 ? { lines: [{ title: 'Repair leaking tap', category: 'plumbing', qty: 1, detail: 'leaking at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
                 : /what it concerns/.test(system)
                     ? { concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }
-                    : { facts: [{ key: 'job_type', value: 'leaking tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] },
+                    // A booked file is closed, so the next message opens a new file whose thread gives no job yet.
+                    : !user.includes('NG9 2AB')
+                        ? { facts: [], jobUnknowns: [], answeredSubjects: [] }
+                        : { facts: [{ key: 'job_type', value: 'leaking tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] },
         composer: ({ user }) => {
             const lead = /say exactly "(about [^"]+)" and cite fact (fact_[\w-]+)/.exec(user);
             const booked = /Booked date from the diary: say exactly "([^"]+)" and cite fact (fact_[\w-]+)/.exec(user);
@@ -174,7 +177,9 @@ describe('the scheduling fixture on the door', () => {
         expect(ps.bubbles.join(' ')).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
         expect(ps.bubbles.join(' ')).toMatch(/\d{1,2} \w+ 2026/);
         expect(ps.guards.date_time_duration.result).toBe('pass');
-        expect(r.json.state.conversation.stage).toBe('booked');
+        // The booked thread is closed: the move opened a new file, which found the booking by the customer's phone.
+        expect(r.json.state.caseFile.id).not.toBe(seeded.json.linked.caseId);
+        expect(r.json.state.caseFile.job).toMatchObject({ quoteRef: null, bookingRef: seeded.json.seeded.bookingRef });
         const booked = r.json.state.caseFile.facts.find((f: any) => f.key === 'booked_date');
         expect(booked.source).toEqual({ kind: 'diary', rowId: `booking:${seeded.json.seeded.bookingRef}` });
     });

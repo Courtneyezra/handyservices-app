@@ -977,6 +977,7 @@ export async function confirmBooking(params: {
                     scheduledDate: lock.scheduledDate.toISOString().split('T')[0],
                     scheduledSlot: lock.scheduledSlot,
                     contractorIdStr,
+                    bookingId,
                 },
             };
         });
@@ -1044,6 +1045,11 @@ export async function confirmBooking(params: {
             } catch (broadcastErr) {
                 console.error('[BookingEngine] Failed to broadcast booking confirmation:', broadcastErr);
             }
+
+            // The booking has landed: the new desk's live case file for this quote closes as booked
+            // (server/comms-v2/file-close.ts). Never throws.
+            await import('./comms-v2/file-close').then(({ fileBooked }) => fileBooked(quoteId, (result as any)._broadcastData.bookingId))
+                .catch((e) => console.error('[BookingEngine] comms-v2 file close failed:', e));
 
             // Strip the internal _broadcastData field from the public return shape
             const { jobId, success } = result;
@@ -1297,6 +1303,13 @@ export async function assignFromPool(params: {
             } catch (broadcastErr) {
                 console.error('[BookingEngine] assignFromPool broadcast failed:', broadcastErr);
             }
+        }
+
+        if (result.success) {
+            // The booking has landed: the new desk's live case file for this quote closes as booked
+            // (server/comms-v2/file-close.ts). Never throws.
+            await import('./comms-v2/file-close').then(({ fileBooked }) => fileBooked(quoteId, (result as any).bookingId))
+                .catch((e) => console.error('[BookingEngine] comms-v2 file close failed:', e));
         }
 
         return { success: result.success, bookingId: (result as any).bookingId, error: (result as any).error };

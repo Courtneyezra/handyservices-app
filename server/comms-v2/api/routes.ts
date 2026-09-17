@@ -16,6 +16,12 @@
  * POST /case-files/:id/release    - releases a hold as the signed-in user; the case file's own
  *                                    `release` enforces the approver-and-words invariant, this
  *                                    route only carries the words and names who is asking
+ * POST /case-files/:id/close      - Ben closes the file by hand (file-close.ts `closeByHand`): it
+ *                                    goes to done with `human:<email or user id>` on the stage
+ *                                    change and his optional words; a standing hold is released
+ *                                    first by the same rule as /release, else nothing changes. A
+ *                                    closed file takes no more turns; the customer's next message
+ *                                    opens a new one
  * POST /case-files/:id/answer     - Ben answers the customer in his own words through the desk's
  *                                    one sender (desk/human-reply.ts): his words go as typed with
  *                                    the signed-in person as approver and clear the hold; the
@@ -57,6 +63,7 @@ import { release } from '../desk/case-file';
 import { humanReply, sendHeldDraft, sendWindowTemplate } from '../desk/human-reply';
 import type { SandboxDoor } from '../desk/sandbox-door';
 import { oldCommsRetired } from '../old-comms';
+import { closeByHand } from '../file-close';
 import { commsV2DatabaseCheck } from '../live-database';
 import { createAskRouter, type AskRouterDeps } from '../ask/routes';
 
@@ -124,6 +131,23 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         // The case file changes in place; a durable store writes it once it is put.
         src.store.put(file);
         res.json({ ok: true, card: cardOf(file, assignments), release: outcome.value });
+    });
+
+    router.post('/case-files/:id/close', async (req, res) => {
+        const user = (req as any).user;
+        if (!user) { res.status(401).json({ error: 'a signed-in user is required to close a file' }); return; }
+        const assignments = await approvers();
+        const approver = slotOf(user, assignments);
+        if (!approver) { res.status(403).json({ error: 'no approver slot is assigned to this user' }); return; }
+        const src = await source(res);
+        if (!src) return;
+        const file = src.store.get(req.params.id);
+        if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
+        const words = typeof req.body?.words === 'string' ? req.body.words : '';
+        const outcome = closeByHand(file, { approver, person: String(user.email ?? user.id ?? ''), words });
+        if (!outcome.ok) { res.status(outcome.status).json({ error: outcome.reason }); return; }
+        src.store.put(file);
+        res.json({ ok: true, card: cardOf(file, assignments), change: outcome.change, release: outcome.release });
     });
 
     /**
