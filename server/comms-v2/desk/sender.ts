@@ -290,9 +290,13 @@ export interface RenderOptions {
 export const SIGN_OFF_LINES = 'Thanks\nBen';
 export const RE_SIGN_OFF_PARAGRAPH = /^\s*thanks\s*\n\s*ben\s*$/i;
 
-/** A paragraph's line breaks folded into spaces, except the break before a numbered list item. */
+/**
+ * A paragraph's line breaks folded into spaces, except around a numbered list item: the break
+ * before an item, and the break after the last one, so a sign-off never joins the list.
+ */
 function foldLines(paragraph: string): string {
-    return paragraph.trim().split(/\s*\n\s*/).reduce((acc, line) => (acc ? joinSentences(acc, line) : line), '');
+    const lines = paragraph.trim().split(/\s*\n\s*/);
+    return lines.reduce((acc, line, i) => (!acc ? line : RE_LIST_ITEM.test(lines[i - 1]) ? `${acc}\n${line}` : joinSentences(acc, line)), '');
 }
 
 /**

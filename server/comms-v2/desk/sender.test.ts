@@ -164,6 +164,11 @@ describe('renderWhatsApp', () => {
         // A short list that fits one bubble keeps its items on their own lines.
         expect(renderWhatsApp('Two quick things:\n1. Is the tap a mixer?\n2. Could you send a photo?').bubbles.map((b) => b.text))
             .toEqual(['Two quick things:\n1. Is the tap a mixer?\n2. Could you send a photo?']);
+        // The line after the last item stays on its own line: the sign-off never joins the list (live sweep).
+        expect(renderWhatsApp('Two quick things before Ben prices it:\n1. Is the tap a mixer or two separate taps?\n2. Is there an isolation valve under the sink?\nCheers').bubbles.map((b) => b.text))
+            .toEqual(['Two quick things before Ben prices it:\n1. Is the tap a mixer or two separate taps?\n2. Is there an isolation valve under the sink?\nCheers']);
+        expect(renderWhatsApp('Could you tell me:\n1. the size of the mirror\n2. what the wall is made of\nThanks').bubbles.map((b) => b.text))
+            .toEqual(['Could you tell me:\n1. the size of the mirror\n2. what the wall is made of\nThanks']);
         // A number ending a sentence is not a list item.
         expect(renderWhatsApp('Is that flat 2. Thanks.').bubbles.map((b) => b.text)).toEqual(['Is that flat 2. Thanks.']);
         const hours = 'Lovely, thanks for the details about the fence panels and the posts along the back of the garden. Our hours are 8 a.m. to 5 p.m. on weekdays, and a visit takes about 2 hrs. at most. Could you make sure the side gate is unlocked?';
