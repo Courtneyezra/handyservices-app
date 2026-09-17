@@ -455,8 +455,12 @@ export function open(input: OpenInput, deps: CaseFileDeps = {}): Outcome<CaseFil
 export interface OpenForPersonInput {
     /** The person identity resolved the address to; candidates are refused. */
     identity: ResolveResult;
-    /** Where the person can be reached. None has been written on, so each has no inbound time. */
-    channels: Array<Pick<PartyChannel, 'kind' | 'address'> & Partial<Pick<PartyChannel, 'transport'>>>;
+    /**
+  * Where the person can be reached. Nothing has been written on this file, so a channel carries no
+  * inbound time unless the caller gives one it read from the party's own earlier file: the 24-hour
+  * WhatsApp window belongs to the number, not to the file (ask/kinds/message-send.ts `openOn`).
+  */
+    channels: Array<Pick<PartyChannel, 'kind' | 'address'> & Partial<Pick<PartyChannel, 'transport' | 'lastInboundAt'>>>;
     /** Who opened it, `human:<email or user id>`, recorded as the stage's why. */
     by: string;
 }
@@ -464,9 +468,10 @@ export interface OpenForPersonInput {
 /**
  * A file a person opens to write first (the Handy Desk's person-started message, ask-agent
  * specification N6): the party and their channels, stage first contact, and no turn, because
- * nobody has written yet. The send that follows is its first turn. A channel carries no inbound
- * time, so a WhatsApp window on it is shut until the customer writes. Refuses candidates, as `open`
- * does, and a person with no channel.
+ * nobody has written on this file yet. The send that follows is its first turn. A channel carries
+ * the inbound time the caller gives it and none otherwise, so a WhatsApp window on it is shut until
+ * the customer writes, unless the caller carried one over from the party's own closed file. Refuses
+ * candidates, as `open` does, and a person with no channel.
  */
 export function openForPerson(input: OpenForPersonInput, deps: CaseFileDeps = {}): Outcome<CaseFile> {
     const now = deps.now ?? (() => new Date());
@@ -477,7 +482,7 @@ export function openForPerson(input: OpenForPersonInput, deps: CaseFileDeps = {}
     const at = now().toISOString();
     const party: Party = {
         personId: id.personId, role: id.role, name: id.name, canonical: id.canonical,
-        channels: input.channels.map((c) => ({ kind: c.kind, address: c.address, lastInboundAt: null, ...(c.transport ? { transport: c.transport } : {}) })),
+        channels: input.channels.map((c) => ({ kind: c.kind, address: c.address, lastInboundAt: c.lastInboundAt ?? null, ...(c.transport ? { transport: c.transport } : {}) })),
         prefersText: false, alreadyRung: false, callOffered: false,
     };
     return accept({

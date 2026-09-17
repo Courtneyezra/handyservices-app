@@ -136,7 +136,7 @@ export async function planPersonSend(input: PlanPersonSendInput, templates: Temp
     const shut = wa ? `the WhatsApp window is shut (${window.reason})` : 'the customer has no WhatsApp thread with us, so its window is shut';
     let noTemplate = turn
         ? `no template is true for a thread the customer wrote on by ${CHANNEL_NAME[turn.channel as ReplyChannel] ?? turn.channel}`
-        : 'no template is true for a thread the customer has not written on';
+        : 'no template is true for a conversation with no message from the customer on it';
     if (wa && asReply('whatsapp')) {
         const t = await planWindowTemplate({ file, approver, person: input.person }, now, templates);
         if (t.ok) {

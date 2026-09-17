@@ -137,6 +137,16 @@ function targetOf(ctx: ActionContext, args: MessageSendArgs): Target {
     return openOn(ctx, args.to!, null);
 }
 
+/**
+ * When the last inbound message on this number arrived, as the closed file the conversation follows
+ * on from recorded it. The 24-hour WhatsApp window belongs to the number, so a fresh file carries
+ * it over: nothing else of the old conversation comes with it.
+ */
+function inboundOn(after: CaseFile | null, address: string, kind: 'whatsapp' | 'sms'): string | null {
+    const party = after?.parties.find((p) => p.role !== 'internal');
+    return party?.channels.find((c) => c.kind === kind && c.address === address)?.lastInboundAt ?? null;
+}
+
 /** The person's open file, or the file a confirm would open for them, from their number alone. */
 function openOn(ctx: ActionContext, to: { address: string; name: string | null }, after: CaseFile | null): Target {
     const key = canonical(to.address);
@@ -156,7 +166,7 @@ function openOn(ctx: ActionContext, to: { address: string; name: string | null }
             return { ok: true, file, opened: null };
         }
     }
-    const channels: OpenForPersonInput['channels'] = [{ kind: 'whatsapp', address: e164 }, { kind: 'sms', address: e164 }];
+    const channels: OpenForPersonInput['channels'] = (['whatsapp', 'sms'] as const).map((kind) => ({ kind, address: e164, lastInboundAt: inboundOn(after, e164, kind) }));
     const name = to.name ?? person?.name ?? null;
     const draft = openForPerson({
         identity: { ok: true, personId: person?.id ?? 'person_new', customerId: person?.customerId ?? null, role: person?.role ?? 'homeowner', isNew: !person, canonical: key, propertyId: null, landlordId: null, name },

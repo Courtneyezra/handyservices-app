@@ -213,8 +213,8 @@ describe('never by email (answer A3; outbound email stays in dry run, answer 113
 
 describe('a case file the desk counts as closed', () => {
     /** Sarah's job is booked, so her own next message would open a fresh file. */
-    function bookedFile(): { file: CaseFile; identity: Identity } {
-        const file = sarahFile('2026-09-15T09:30:00.000Z');
+    function bookedFile(wroteAt = '2026-09-15T09:30:00.000Z'): { file: CaseFile; identity: Identity } {
+        const file = sarahFile(wroteAt);
         file.job.type = 'extractor fan';
         file.job.location = 'Flat 3';
         const closed = closeFile(file, 'booked', { why: 'the job is booked', approver: BEN_APPROVER }, { now: () => new Date('2026-09-16T09:00:00.000Z') });
@@ -232,6 +232,10 @@ describe('a case file the desk counts as closed', () => {
         expect(out.ok).toBe(true);
         if (!out.ok) return;
         expect(out.outgoing[0].guardNote).toMatch(/starting a new conversation: their last case file is booked, so sending opens a new one/);
+        // Her WhatsApp window really is shut two days on, so the fallback and its reason are true.
+        expect(out.outgoing[0]).toMatchObject({ channel: 'sms', to: SARAH_WA, window: { state: 'shut' } });
+        expect(out.outgoing[0].guardNote).toMatch(/the WhatsApp window is shut \(/);
+        expect(out.outgoing[0].guardNote).not.toMatch(/no WhatsApp thread/);
         expect(cases.all()).toHaveLength(1);
 
         const done = await confirm(out.action.id);
@@ -247,6 +251,28 @@ describe('a case file the desk counts as closed', () => {
         const reply = appendTurn(open!, { at: '2026-09-17T11:05:00.000Z', channel: 'sms', direction: 'inbound', partyId: open!.parties[0].personId, kind: 'text', body: 'Yes please.', media: [], runId: null, approver: null });
         expect(reply.ok).toBe(true);
         expect(open!.turns.map((t) => t.direction)).toEqual(['outbound', 'inbound']);
+    });
+
+    it('keeps the WhatsApp window the customer opened on their number: freeform on WhatsApp, not a text', async () => {
+        const { file, identity } = bookedFile('2026-09-17T09:30:00.000Z');
+        const { propose, confirm, cases } = setup([file], nothingApproved, identity);
+
+        const out = await propose({ caseFileId: file.id, words: WORDS, instruction: INSTRUCTION });
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.outgoing[0]).toMatchObject({ channel: 'wa', to: SARAH_WA, text: WORDS, window: { state: 'open' } });
+        expect(out.outgoing[0].guardNote).not.toMatch(/window is shut|goes by SMS/);
+
+        const done = await confirm(out.action.id);
+        expect(done.ok).toBe(true);
+        expect(done.ok && done.action.result).toMatchObject({ how: 'freeform', fallback: null, channel: 'whatsapp', opened: true });
+        const fresh = cases.findOpenFor('person_sarah')!;
+        expect(fresh.id).not.toBe(file.id);
+        expect(fresh.parties[0].channels).toEqual(expect.arrayContaining([
+            { kind: 'whatsapp', address: SARAH_WA, lastInboundAt: '2026-09-17T09:30:00.000Z' },
+        ]));
+        expect(fresh.sends).toEqual([expect.objectContaining({ approver: BEN_APPROVER, channel: 'whatsapp', templateId: null })]);
+        expect(fresh.turns.map((t) => t.direction)).toEqual(['outbound']);
     });
 
     it('refuses a closed file with no number on it to start on', async () => {
@@ -330,7 +356,7 @@ describe('a message Ben starts to someone with no file open (N6)', () => {
         if (!out.ok) return;
         expect(out.action.caseFileId).toBeNull();
         expect(out.outgoing[0]).toMatchObject({ to: '+447700900777', channel: 'sms', text: WORDS });
-        expect(out.outgoing[0].guardNote).toMatch(/no approved template is true for a thread the customer has not written on.*Priya Shah has no case file open, so sending opens one/);
+        expect(out.outgoing[0].guardNote).toMatch(/no approved template is true for a conversation with no message from the customer on it.*Priya Shah has no case file open, so sending opens one/);
         expect(cases.all()).toEqual([]);
         expect(identity.directory.all()).toEqual([]);
 
