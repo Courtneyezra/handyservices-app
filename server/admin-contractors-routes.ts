@@ -55,6 +55,21 @@ const uploadProfileImage = multer({
 
 const router = Router();
 
+// GET /:id, and the contractor POST and PUT return, name what they send. The login secrets (users.password, users.widget_token,
+// handyman_profiles.app_token, access_code, calendar_sync_token) are never read here, for an
+// admin or a VA; the new page reads /api/admin/contractor-desk, which says only whether a code
+// or an app link exists.
+const LEGACY_DETAIL_PROFILE_COLUMNS = {
+    id: true, userId: true, businessName: true, bio: true, address: true, city: true,
+    postcode: true, radiusMiles: true, hourlyRate: true, dayRate: true, slug: true,
+    publicProfileEnabled: true, heroImageUrl: true, profileImageUrl: true,
+    availabilityStatus: true, verificationStatus: true, deliveryTier: true, vertical: true,
+    deliveryPriority: true, lastAvailabilityRefresh: true, createdAt: true, updatedAt: true,
+} as const;
+const LEGACY_DETAIL_USER_COLUMNS = {
+    id: true, firstName: true, lastName: true, email: true, phone: true, isActive: true,
+} as const;
+
 // GET /api/admin/contractors
 // List all contractors with summary data
 router.get('/', async (req: Request, res: Response) => {
@@ -233,7 +248,7 @@ router.get('/:id/comms', async (req: Request, res: Response) => {
     try {
         const contractor = await db.query.handymanProfiles.findFirst({
             where: eq(handymanProfiles.id, req.params.id),
-            with: { user: true },
+            with: { user: { columns: { phone: true } } },
         });
         if (!contractor) return res.status(404).json({ error: 'Contractor not found' });
 
@@ -285,8 +300,9 @@ router.get('/:id', async (req: Request, res: Response) => {
 
         const contractor = await db.query.handymanProfiles.findFirst({
             where: eq(handymanProfiles.id, id),
+            columns: LEGACY_DETAIL_PROFILE_COLUMNS,
             with: {
-                user: true,
+                user: { columns: LEGACY_DETAIL_USER_COLUMNS },
                 skills: {
                     with: {
                         service: true
@@ -439,8 +455,9 @@ router.post('/', async (req: Request, res: Response) => {
         // Fetch the created contractor with profile
         const created = await db.query.handymanProfiles.findFirst({
             where: eq(handymanProfiles.id, profileId),
+            columns: LEGACY_DETAIL_PROFILE_COLUMNS,
             with: {
-                user: true,
+                user: { columns: LEGACY_DETAIL_USER_COLUMNS },
                 skills: true,
             },
         });
@@ -556,8 +573,9 @@ router.put('/:id', async (req: Request, res: Response) => {
         // Return updated contractor
         const updated = await db.query.handymanProfiles.findFirst({
             where: eq(handymanProfiles.id, id),
+            columns: LEGACY_DETAIL_PROFILE_COLUMNS,
             with: {
-                user: true,
+                user: { columns: LEGACY_DETAIL_USER_COLUMNS },
                 skills: true,
             },
         });
