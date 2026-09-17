@@ -4,6 +4,8 @@
  * record. Everything here goes through the same case file and desk the customer's turns do.
  *
  *   POST /fixture           write the knowledge-base rows and the template approvals on the branch
+ *   POST /record-fixture    make the drama customer a known customer with a lead and a part-paid invoice, on the branch
+ *   POST /record-fixture/reset   remove those rows
  *   POST /ben-replies       { text } Ben's reply goes out through desk/human-reply.ts and releases the hold
  *   POST /chase-intervals   { chaseAfterMinutes, escalateAfterMinutes } test values; then /age and /run
  *   GET  /chase             the chase record for the current thread
@@ -13,6 +15,7 @@ import type { ApproverSlot, CaseFile, CaseFileDeps } from '../desk/case-file';
 import { chaseRecordOf, clearChaseRecord, type ChaseState } from './chase';
 import { humanReply } from '../desk/human-reply';
 import { applySandboxFixture } from './fixture';
+import { applyRecordFixture, resetRecordFixture } from './record-fixture';
 import { automationState } from './return-to-automation';
 
 /**
@@ -23,6 +26,8 @@ import { automationState } from './return-to-automation';
 export type ApproverForRequest = (req: Request) => ApproverSlot | null | Promise<ApproverSlot | null>;
 
 export interface ServiceDoorDeps extends CaseFileDeps {
+    /** The drama customer's phone, canonical national form, for the record fixture. */
+    phone: string;
     currentFile: () => CaseFile | null;
     chase: ChaseState;
     /** The door's state, so every response here carries it like the desk's own do. */
@@ -39,6 +44,22 @@ export function serviceDoorRouter(deps: ServiceDoorDeps): Router {
             res.json({ ok: true, fixture: out });
         } catch (error: any) {
             res.status(500).json({ error: error?.message ?? 'fixture failed' });
+        }
+    });
+
+    router.post('/record-fixture', async (_req, res) => {
+        try {
+            res.json({ ok: true, record: await applyRecordFixture(deps.phone, (deps.now ?? (() => new Date()))()) });
+        } catch (error: any) {
+            res.status(500).json({ error: error?.message ?? 'record fixture failed' });
+        }
+    });
+
+    router.post('/record-fixture/reset', async (_req, res) => {
+        try {
+            res.json({ ok: true, record: await resetRecordFixture() });
+        } catch (error: any) {
+            res.status(500).json({ error: error?.message ?? 'record fixture reset failed' });
         }
     });
 

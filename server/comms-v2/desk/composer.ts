@@ -12,7 +12,7 @@
  * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
  */
 import { z } from 'zod/v4';
-import { ASK_SUBJECTS, customerVisibleFacts, isSupersededFigure, type CaseFile, type Party, type ReplyChannel, type Turn, isTurnOf, mediaFailedNote, type TurnMedia, mediaCountLabel } from './case-file';
+import { ASK_SUBJECTS, customerVisibleFacts, isReadThisRunOnly, isSupersededFigure, type CaseFile, type Party, type ReplyChannel, type Turn, isTurnOf, mediaFailedNote, type TurnMedia, mediaCountLabel } from './case-file';
 import type { FixedLine } from './fixed-lines';
 import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
@@ -73,6 +73,7 @@ export const COMPOSER_SYSTEM = [
     '- Only what the customer wrote, the facts listed on the file, and the fixed lines you are given. Nothing else about the business.',
     '- Never a price, a figure or a cost of your own. A figure may appear only when a fact on the file whose key starts with quote_line carries it: copy it exactly as written on that fact, to the penny (£120.00, never £120 or "about £120"), cite the fact id, and never add figures up or work one out. Never a date, a day, a time, a lead time or a duration. Never "we\'ll fix it", "we can sort that", a guarantee, a warranty or a promise about the work. Never an admission of fault. Never a claim about hours, coverage, insurance, qualifications, policies or fees, unless it is a knowledge-base fact on the file: then use its words exactly as given, verbatim and unparaphrased, and list that knowledge-base id in kbIds.',
     '- The one exception on dates: a date or a lead time that is a diary fact on the file which the notes from Scheduling tell you to copy verbatim; copy it exactly and cite its fact id. Never offer, suggest or agree a day, a time of day, a slot or a change of date yourself.',
+    '- Their own record: a figure or a date on a fact whose key starts with record: (an invoice, a payment, a visit day), which the notes from Service tell you to read back, may be copied exactly as written, to the penny, citing its fact id. Read back only the ones that answer what they asked; never add them up, take one from another or work anything out from them.',
     '- Never say or hint that you are an assistant, a bot, AI or automated. No disclosure line. Never sign off with a name.',
     '',
     'How to sound:',
@@ -175,11 +176,12 @@ export function buildComposerUser(input: ComposeInput): string {
     lines.push(threadFor(file, turn, unmentioned));
     lines.push('');
     // Ben's own facts carry the admin price screen and internal notes: they never reach the composer.
-    // A diary fact is only citable while this run looked it up: an older booked date was true when it was
-    // written and the diary may have moved since, so it is left off the list rather than dangled and refused.
+    // A diary or customer-record fact is only citable while this run looked it up: an older booked date or
+    // invoice balance was true when it was written and may have moved since, so it is left off the list
+    // rather than dangled and refused.
     const lookedUp = new Set(specialists.flatMap((s) => s.factIds));
     // A quote figure the quote has moved on from (a price before a reissue) is left off too.
-    const citable = customerVisibleFacts(file).filter((f) => (f.source.kind !== 'diary' || lookedUp.has(f.id)) && !isSupersededFigure(file, f));
+    const citable = customerVisibleFacts(file).filter((f) => (!isReadThisRunOnly(f) || lookedUp.has(f.id)) && !isSupersededFigure(file, f));
     lines.push('Facts on the file (id: key = value):');
     lines.push(citable.length ? citable.map((f) => `${f.id}: ${f.key} = ${f.source.kind === 'media_description' ? withoutWords(lightPhotoSummary(f.value), unmentioned) : f.source.kind === 'thread' ? withoutWords(f.value, unmentioned) : f.value}`).join('\n') : '(none yet)');
     lines.push('');

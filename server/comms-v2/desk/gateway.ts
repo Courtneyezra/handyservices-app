@@ -96,7 +96,8 @@ export class Gateway {
 
     /** A customer WhatsApp turn: identity, the one file, then the desk. */
     async inbound(turn: InboundTurn, seed: SeedInput = {}): Promise<InboundOutcome> {
-        const resolved: ResolveResult = this.identity.resolve('whatsapp', turn.address, { name: turn.name });
+        const known = this.identity.resolveKnown('whatsapp', turn.address, { name: turn.name });
+        const resolved: ResolveResult = known instanceof Promise ? await known : known;
         if (!resolved.ok) {
             if (resolved.reason === 'candidates') { this.log(`identity: ${resolved.candidates.length} candidates for a whatsapp address; no reply`); return { kind: 'candidates', candidates: resolved.candidates.length, address: turn.address }; }
             return { kind: 'refused', reason: resolved.detail };
@@ -116,6 +117,7 @@ export class Gateway {
         } else {
             const party = partyOf(file, resolved.personId)!;
             if (!party.name && resolved.name) party.name = resolved.name;
+            if (!party.customerId && resolved.customerId) party.customerId = resolved.customerId;
             const appended = appendTurn(file, { ...turnBody, partyId: resolved.personId, direction: 'inbound', runId: null, approver: null }, this.fileDeps());
             if (!appended.ok) return { kind: 'refused', reason: appended.reason };
             landed = appended.value;

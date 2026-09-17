@@ -10,6 +10,10 @@
  * either spelling and collapses both to the same key. The E.164 form is what a channel address
  * looks like on the party's channel record, never the identity key.
  *
+ * A homeowner with no customer record yet is looked up in the CRM (`resolveKnown`, through the
+ * `known` lookup service/customer-record.ts supplies), so a customer the business already holds is
+ * a known customer with their client record's id, not a new homeowner.
+ *
  * Goal 1: only `homeowner` and `internal` are live. `tenant`, `landlord` and `contractor` exist in
  * the type and return nothing until the landlord service attaches. Role resolution runs in the
  * fixed order internal, contractor, tenant, landlord, known customer, new customer and stops at the
@@ -95,18 +99,28 @@ export function e164Of(key: CanonicalKey): string | null {
 
 const ROLE_ORDER: readonly Role[] = ['internal', 'contractor', 'tenant', 'landlord', 'homeowner'];
 
+/** The CRM clients a key names (service/customer-record.ts `knownCustomer`). */
+export type KnownCustomerLookup = (key: CanonicalKey) => Promise<Array<{ customerId: string; name: string | null }>>;
+
 export interface IdentityOptions {
     directory?: IdentityDirectory;
     newId?: () => string;
+    /** The CRM lookup for a known customer. Unset, nobody is looked up and a fresh key is a new homeowner. */
+    known?: KnownCustomerLookup;
+    log?: (line: string) => void;
 }
 
 export class Identity {
     readonly directory: IdentityDirectory;
     private readonly newId: () => string;
+    private readonly known: KnownCustomerLookup | null;
+    private readonly log: (line: string) => void;
 
     constructor(opts: IdentityOptions = {}) {
         this.directory = opts.directory ?? new MemoryIdentityDirectory();
         this.newId = opts.newId ?? (() => `person_${randomUUID()}`);
+        this.known = opts.known ?? null;
+        this.log = opts.log ?? (() => undefined);
     }
 
     canonical(raw: string | null | undefined): CanonicalKey | null { return canonical(raw); }
@@ -129,8 +143,7 @@ export class Identity {
         if (!person) {
             const asserted = this.namedByAssertedKey(key, hints);
             if (asserted.length) return { ok: false, reason: 'candidates', candidates: asserted };
-            // Known customer would be looked up in the CRM here; Goal 1 has no seeded record, so a
-            // fresh key is a new homeowner.
+            // A fresh key is a new homeowner here; `resolveKnown` looks it up in the CRM.
             person = { id: this.newId(), role: 'homeowner', customerId: null, name: hints.name?.trim() || null, keys: [key], propertyId: null, landlordId: null };
             isNew = true;
         } else {
@@ -139,6 +152,72 @@ export class Identity {
         this.directory.upsert(person);
         const role = ROLE_ORDER.find((r) => r === person!.role) ?? 'homeowner';
         return { ok: true, personId: person.id, customerId: person.customerId, role, isNew, canonical: key, propertyId: person.propertyId, landlordId: person.landlordId, name: person.name };
+    }
+
+    /**
+     * `resolve`, then the known-customer step of the role order: a homeowner with no customer
+     * record yet is looked up in the CRM by the key the turn arrived on (never a key the turn only
+     * asserts), and bound to the client when exactly one answers. Two clients for one key are
+     * Ben's to tell apart, so neither is bound and the desk reads no record. A lookup that fails
+     * leaves the person as they were: the desk answers as it would for a new customer, and says so
+     * in the log. A person already bound is not looked up again.
+     *
+     * Synchronous when nothing is to be looked up and no lookup for the same person is still
+     * running, so a turn lands on its file in the order it arrived; otherwise one person's lookups
+     * finish in the order they were asked, and a turn that waited on an earlier lookup sees what it
+     * bound.
+     */
+    resolveKnown(channel: ChannelKind, address: string, hints: ResolveHints = {}): ResolveResult | Promise<ResolveResult> {
+        const r = this.resolve(channel, address, hints);
+        if (!r.ok) return r;
+        const id = r.personId;
+        const pending = this.lookups.get(id);
+        if (!pending && !this.wantsLookup(r)) return r;
+        const entry = { done: Promise.resolve() as Promise<unknown> };
+        const run = (async () => {
+            try {
+                await pending?.done;
+                return await this.recognise(r);
+            } finally {
+                // Cleared before the caller resumes, so a person's next turn is synchronous again once nothing is running.
+                if (this.lookups.get(id) === entry) this.lookups.delete(id);
+            }
+        })();
+        entry.done = run.catch(() => undefined);
+        this.lookups.set(id, entry);
+        return run;
+    }
+
+    /** Each person's newest lookup, which the next one for them waits on. */
+    private readonly lookups = new Map<string, { done: Promise<unknown> }>();
+
+    private wantsLookup(r: Extract<ResolveResult, { ok: true }>): boolean {
+        return r.role === 'homeowner' && !r.customerId && !!this.known;
+    }
+
+    private async recognise(r: Extract<ResolveResult, { ok: true }>): Promise<ResolveResult> {
+        const person = this.directory.byId(r.personId);
+        if (!person) return r;
+        // An earlier lookup for this person may have bound them while this turn waited.
+        const now = { ...r, customerId: person.customerId, name: person.name ?? r.name };
+        if (!this.wantsLookup(now)) return now;
+        let found: Array<{ customerId: string; name: string | null }>;
+        try {
+            found = await this.known!(r.canonical);
+        } catch (e: any) {
+            this.log(`identity: the customer record could not be read, so the person stays unknown to it (${e?.message ?? e})`);
+            return now;
+        }
+        const ids = new Map(found.map((c) => [c.customerId, c]));
+        if (ids.size !== 1) {
+            if (ids.size > 1) this.log(`identity: ${ids.size} customer records carry this ${r.canonical.split(':')[0]}; none is bound`);
+            return now;
+        }
+        const client = Array.from(ids.values())[0];
+        const latest = this.directory.byId(r.personId) ?? person;
+        const bound: Person = { ...latest, customerId: client.customerId, name: latest.name ?? client.name };
+        this.directory.upsert(bound);
+        return { ...now, customerId: bound.customerId, name: bound.name, isNew: false };
     }
 
     /**

@@ -59,6 +59,11 @@ export interface Party {
     role: Role;
     name: string | null;
     canonical: CanonicalKey;
+    /**
+     * The CRM client this party is (service_clients.id), when identity recognised them
+     * (identity.ts `resolveKnown`). Absent on a file written before the record read landed.
+     */
+    customerId?: string | null;
     channels: PartyChannel[];
     /** The party has said text only; the desk never offers a call again. */
     prefersText: boolean;
@@ -381,7 +386,7 @@ export function open(input: OpenInput, deps: CaseFileDeps = {}): Outcome<CaseFil
     const id = input.identity;
     const at = now().toISOString();
     const party: Party = {
-        personId: id.personId, role: id.role, name: id.name, canonical: id.canonical,
+        personId: id.personId, role: id.role, name: id.name, canonical: id.canonical, customerId: id.customerId,
         channels: [{ kind: input.channel, address: input.address, lastInboundAt: WRITTEN_ON_CHANNELS.has(input.channel) ? input.firstTurn.at : null }],
         prefersText: false, alreadyRung: input.channel === 'call', callOffered: false,
     };
@@ -536,6 +541,19 @@ export function isSupersededFigure(file: CaseFile, fact: Fact): boolean {
     const ref = fact.source.quoteRef;
     const at = file.facts.indexOf(fact);
     return file.facts.some((f, i) => i > at && f.key === fact.key && f.source.kind === 'quote_line' && f.source.quoteRef === ref);
+}
+
+/** The source field prefix of a fact read from the customer's CRM record (service/customer-record.ts). */
+export const RECORD_READ_FIELD_PREFIX = 'crm:';
+
+/**
+ * A fact that is true only as of the read that wrote it: a diary date, or anything read from the
+ * customer's CRM record (an invoice's status and balance, a visit day). The composer is shown one,
+ * and the figure and date guards accept one, only when this run looked it up; one from an earlier
+ * turn may have moved since (an invoice paid, a visit moved).
+ */
+export function isReadThisRunOnly(fact: Pick<Fact, 'source'>): boolean {
+    return fact.source.kind === 'diary' || (fact.source.kind === 'customer_record' && fact.source.field.startsWith(RECORD_READ_FIELD_PREFIX));
 }
 
 /** The facts a customer reply may be written from: everything on the file except Ben's own. */

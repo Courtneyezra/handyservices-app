@@ -26,7 +26,11 @@ key the business already holds for that person; a key the sender merely asserts 
 evidence for `link`, never for `resolve`, because a shared household address or a typo would
 otherwise append a stranger's enquiry to someone else's file and let a reply written from that whole
 thread be addressed to the stranger. Role resolution runs in a fixed order, internal, contractor,
-tenant, landlord, known customer, new customer, and stops at the first match. For Goal 1 only `homeowner` and `internal` are live; the
+tenant, landlord, known customer, new customer, and stops at the first match. A known customer is
+one the CRM already holds: a homeowner with no client yet is looked up by the key the turn arrived on
+(`service_clients` by dedupe key, primary phone or email) and bound, as `customerId` on the person
+and on the file's party, only when exactly one client answers; two answers bind nobody, and a failed
+lookup leaves the person a new customer. For Goal 1 only `homeowner` and `internal` are live; the
 tenant and landlord roles exist in the type and return nothing until the landlord service attaches.
 
 ## Contract 2 - Case file
@@ -122,8 +126,8 @@ them like any other reply (`quoting/quoting-door.ts`).
 
 | Guard | Fails when | Checked against |
 |---|---|---|
-| figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file, and the cited line's quote resolved for liveness (`live_figure_quotes`): a revoked, superseded or expired quote's figure is refused though the fact stays on the file |
-| date, time, duration | any date, time, lead time or duration appears, anywhere in the reply, that is not a diary fact this turn looked up | facts with a diary source a specialist read on this run; one written on an earlier turn is not citable, since the diary may have moved since |
+| figure | any amount of money appears that is not equal, to the penny, to one line of the live quote or a value on the customer's own record, cited as that line | the fact ids the composer supplied, resolved on the file, and the cited line's quote resolved for liveness (`live_figure_quotes`): a revoked, superseded or expired quote's figure is refused though the fact stays on the file; a value read from the customer's CRM record (an invoice) counts only on the run that read it |
+| date, time, duration | any date, time, lead time or duration appears, anywhere in the reply, that is not a diary fact, or a date on the customer's CRM record (an invoice's dates, a visit day), this turn looked up | facts with a diary or CRM-record source a specialist read on this run; one written on an earlier turn is not citable, since the diary or the record may have moved since |
 | commitment and fault | a promise to do, fix or guarantee something, a claim that a change to the customer's details is already made, or an admission of fault, that is not a sourced fact; and a promise that Ben will come back on a request to move a date when no hold reaches Ben, since the date-change gate holds only a change to a booked job and nobody would keep it | a fixed phrase list plus a cheap classifier, both fail closed; the Ben promise is refused only when the turn is a date-change request and the file carries no hold |
 | business claim | two rules. The verbatim rail: the reply cites a knowledge-base row, by id or through a fact, that is not a reviewed row the desk resolved, or whose body the reply does not carry word for word. Under it, the claim lexicon: a statement about the business, its services, hours, coverage or policies with no citation supporting it. The rail runs whatever the reply is about, so payment terms, invoicing and aftercare are covered where no word list reaches | reviewed knowledge-base rows by id, verbatim |
 | disclosure | any line describing the sender as automated or an assistant | a fixed phrase list |
@@ -419,23 +423,31 @@ writes only to the case file through its calls. The specialist itself, on Sonnet
 selections and facts with sources, never prose; it runs its deterministic tools every turn and its
 model when the router sends the turn to `service`, or when the customer's own words ask to change a
 detail on their record or whether we cover their area (`asksAboutOurArea`), whatever the router
-read. A coverage question also offers `kb_lookup` the areas-covered row whatever words the customer
+read, or, for a customer the CRM knows, when the turn asks about an invoice, a receipt or a payment.
+A money question of that shape that asks nothing an invoice cannot settle (a discount, a refund, a
+dispute, a quote) is handed to Service instead of held for Ben, the way a live quote's line is
+handed to Quoting; Service answers it from the invoice row or holds it as money. A coverage question also offers `kb_lookup` the areas-covered row whatever words the customer
 used, raises no hold of its own and leaves Scoping to run on a mixed turn's job half.
 
 | Tool | Input | Returns | Refuses when |
 |---|---|---|---|
 | `kb_lookup` | the customer's question | reviewed knowledge-base rows selected by question, best first, by id with the body verbatim | read-only; an unreviewed, retired or blank row is invisible; may return nothing |
 | `customer_record` | the case file and the party | the party's own details: name, the phone and email addresses on the file, and facts whose source is the customer record; the specialist's model sees the email and address only as held, never their values | another party's record is never read |
+| `customer_history` | the party's bound client id | read-only: the client's leads, quotes (status and date, never a figure), jobs with their visit days, and invoices once sent (status, total, deposit paid, balance due unless paid, sent, due and paid dates, lines), as items by ref; never an email, address or postcode column, never a property-header invoice line, free text masked for the model | a party with no bound client; a draft or void invoice; a draft quote; the database any purpose but the one it was built for allows |
 | `change_of_details` | a field, the new value, the turn | a fact `change_of_details` with the turn as its source, and a hold for Ben; for the email or address the fact names only the field and the value rides on the hold alone | a field not on the record; an empty value; a figure; a value the record already holds. The record itself is never written here. |
 | `convergence` | the case file | converging, or not with why | not converging when the job has been asked JOB_ASKS_MAX times with no job type, or SCOPING_REPLIES_MAX replies have gone since the last release and since the job began being scoped (the turn routed to the Scoper, the job asked, or a job detail on the file; the file's `scopingFrom` records when) and the file is not ready; a ready file, or one past scoping, always converges |
 
 **What the specialist returns.** Facts: each answer as a fact whose value is the reviewed row's
-body verbatim (source `knowledge_base` by id) or the record's own name or phone (source `customer_record`),
+body verbatim (source `knowledge_base` by id), the record's own name or phone (source `customer_record`),
+or each value of the history item that answers it, as the row holds it and never added up (source
+`customer_record`, field `crm:<ref>:<attr>`; shown to the composer and accepted by the figure and date
+guards only on the run that read it, since an invoice may be paid and a visit moved since),
 and a requested change as a fact when the new value can be read from the customer's own words (never
 the model's, which never saw a masked field's value); when it cannot, no fact is written and the hold
 alone tells Ben the new value could not be read. A question about the email or address we hold is never read back:
 it holds for Ben as `no_source`, naming the masked field. A proposal: a hold with its reason from the vocabulary
-(`complaint`, `refund`, `trust_doubt`, `no_source`, `not_converging`, `change_of_details`), or none.
+(`complaint`, `refund`, `trust_doubt`, `no_source`, `not_converging`, `change_of_details`, and `money`
+for an invoice money question the router handed to Service that no invoice answered), or none.
 A brief for the composer naming the exact words and the id to cite. An id the lookup did not return
 is no source. A question about the customer's own job is Scoping's: when Scoping ran on the turn it is
 left to it, so a mixed turn never holds the job half as `no_source`. Never a sentence for the customer.

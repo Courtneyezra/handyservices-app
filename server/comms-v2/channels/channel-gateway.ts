@@ -85,7 +85,9 @@ export class ChannelGateway extends Gateway {
             if (held) return this.attachCall(held.file, held.turn, env);
         }
         if (opts.attachOnly) return { kind: 'refused', reason: 'no call turn on any file to attach this call to' };
-        const resolved: ResolveResult = this.identity.resolve(env.channel, env.address, { name: env.name, email: env.hints?.email ?? null, phone: env.hints?.phone ?? null, postcode: env.hints?.postcode ?? null });
+        const known = this.identity.resolveKnown(env.channel, env.address, { name: env.name, email: env.hints?.email ?? null, phone: env.hints?.phone ?? null, postcode: env.hints?.postcode ?? null });
+        // Synchronous unless the CRM is being asked, so a turn with nothing to look up lands in the order it came.
+        const resolved: ResolveResult = known instanceof Promise ? await known : known;
         if (!resolved.ok) {
             if (resolved.reason === 'candidates') { this.log(`identity: ${resolved.candidates.length} candidates for a ${env.channel} address; no reply`); return { kind: 'candidates', candidates: resolved.candidates.length, address: env.address }; }
             return { kind: 'refused', reason: resolved.detail };
@@ -116,6 +118,7 @@ export class ChannelGateway extends Gateway {
         } else {
             const party = partyOf(file, resolved.personId)!;
             if (!party.name && resolved.name) party.name = resolved.name;
+            if (!party.customerId && resolved.customerId) party.customerId = resolved.customerId;
             await this.reach(file, resolved, env, address, seed);
             const appended = appendTurn(file, { ...turnBody, partyId: resolved.personId, direction: 'inbound', runId: null, approver: null }, this.fileDeps());
             if (!appended.ok) return { kind: 'refused', reason: appended.reason };

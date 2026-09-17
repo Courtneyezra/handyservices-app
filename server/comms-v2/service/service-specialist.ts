@@ -2,7 +2,9 @@
  * The Service specialist, on Sonnet 5 at medium effort: the specialist for facts and aftercare.
  * Factual questions about the business, changes of details, invoice and receipt queries,
  * post-job follow-up. It answers only from a reviewed knowledge-base row, cited by id and
- * verbatim, or the customer's own record; it holds on complaints, refunds and trust doubts, on a
+ * verbatim, or the customer's own record (their details on the file, and, for a customer the CRM
+ * knows, their leads, quotes, jobs with visit days, and invoices, read-only through
+ * customer-record.ts); it holds on complaints, refunds and trust doubts, on a
  * question it has no source for, on a change of details, and on scoping that is not converging
  * (which a thread with no job on it that nobody is scoping never is). The model sees the customer's
  * name and phone; an email or address on the record is shown only as held, never its value, so a
@@ -10,6 +12,11 @@
  * the file and the composer as the field alone, when the new value can be read from the customer's
  * own words; when it cannot, no fact is written and the hold alone tells Ben so. The new value, when
  * there is one, goes only to Ben's card.
+ * An invoice or receipt question is answered from the invoice row: each figure and date is the
+ * row's own, recorded as a fact whose source is the customer record, and the composer reads back
+ * only those (answer 23: nothing added up). A money question the router handed here
+ * (`invoiceMoney`) that no invoice answers holds for Ben as money. The CRM record never carries an
+ * email, address or postcode, and its free text passes the same mask as the thread.
  * Returns facts with their source and a proposal; never a sentence for the customer.
  *
  * Two halves, the Scoping pattern. The tool server first: convergence (deterministic, every turn),
@@ -27,15 +34,17 @@ import { SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import { reviewedKb, type KbReader } from '../desk/scoping-tools';
 import type { ServiceHold } from './hold-reasons';
 import { asksAboutOurArea, BY, changeOfDetails, convergence, customerRecord, kbLookup, MASKED_FIELDS, RECORD_FIELDS, type KbRowVerbatim, type RecordEntry } from './service-tools';
+import { recordFactKey, recordItems, recordSourceField, type CustomerRecordReader, type RecordItem } from './customer-record';
+import { isoDayOf } from '../scheduling/diary';
 
 /** What the model may return: selections and labels only. No field can carry a reply. */
 export const serviceOutputSchema = z.object({
     answers: z.array(z.object({
         /** What they asked, as a short label (e.g. "insured?", "areas covered", "receipt for last job"). */
         asked: z.string().min(1).max(60),
-        /** kb: a candidate row answers it, by id. record: their own record answers it, by field. job: it is about the customer's own job, Scoping's. none: no source. */
-        source: z.enum(['kb', 'record', 'job', 'none']),
-        /** The knowledge-base row id, or the record field, or null. */
+        /** kb: a candidate row answers it, by id. record: their own record answers it, by field. history: an item on their history answers it, by ref. job: it is about the customer's own job, Scoping's. none: no source. */
+        source: z.enum(['kb', 'record', 'history', 'job', 'none']),
+        /** The knowledge-base row id, or the record field, or the history ref, or null. */
         id: z.string().max(80).nullable(),
     }).strict()).max(6),
     /** A change of details they asked for, or null. */
@@ -47,7 +56,8 @@ export type ServiceOutput = z.infer<typeof serviceOutputSchema>;
 
 const SYSTEM = [
     'You are the Service specialist for a small handyman business\'s desk. You never write to the customer. You read the thread and the candidate knowledge-base rows and return selections only, no prose.',
-    'answers: one entry per thing the customer asked in the newest turn: about the business, their own details, an invoice or receipt, a finished job, or the job they want doing. source kb with the row id when a candidate row plainly answers it (the row must answer that question, not merely mention the topic); source record with the field (name, phone, email, address) when they ask what we have on file for them, including an email or address shown only as held; source job with id null when it is about the job they want doing: whether we can do it (can you fix my leaking tap, could you put up these shelves), how, how long or what it involves. That is Scoping\'s, never a business question without a source, even when the same message also asks about the business. source none with id null when nothing given answers a question about the business. Never answer from your own knowledge of the business.',
+    'answers: one entry per thing the customer asked in the newest turn: about the business, their own details, an invoice or receipt, a finished job, or the job they want doing. source kb with the row id when a candidate row plainly answers it (the row must answer that question, not merely mention the topic); source record with the field (name, phone, email, address) when they ask what we have on file for them, including an email or address shown only as held; source history with the item\'s ref when an item on their history answers it: an invoice, a receipt, a payment or what they owe; a visit that is booked or done; a quote or an enquiry they made. A receipt or payment question is answered by the invoice it is about. source job with id null when it is about the job they want doing: whether we can do it (can you fix my leaking tap, could you put up these shelves), how, how long or what it involves. That is Scoping\'s, never a business question without a source, even when the same message also asks about the business. source none with id null when nothing given answers a question about the business. Never answer from your own knowledge of the business.',
+    'Never add figures up or work one out: a figure is only ever an item\'s own.',
     'changeOfDetails: when they ask to change their name, phone, email or address, the field and the new value exactly as they gave it; otherwise null.',
     'holdReason: complaint when they are unhappy with us or our work, refund when they want money back, trust_doubt when they doubt we are legitimate or a scam worry; otherwise null. "Are you insured" on its own is a factual question, not a trust doubt.',
     'Reply with the JSON object only.',
@@ -68,7 +78,7 @@ const ADDRESS_STREET_RE = new RegExp(`\\d+[^,\\n]{0,40}?\\b(?:${STREET_SUFFIXES.
 const POSTCODE_RE = new RegExp(`\\b${UK_POSTCODE}\\b`, 'gi');
 
 /** The captain's masked-record ruling: an email address or a postal address never reaches the model, even freshly typed in a change-of-details ask. */
-function withheldFromModel(text: string): string {
+export function withheldFromModel(text: string): string {
     return text.replace(EMAIL_RE, '[email withheld]').replace(ADDRESS_WITH_POSTCODE_RE, '[address withheld]').replace(ADDRESS_STREET_RE, '[address withheld]').replace(POSTCODE_RE, '[address withheld]');
 }
 
@@ -99,6 +109,8 @@ function threadFor(file: CaseFile, turn: Turn): string {
 
 export interface ServiceSpecialistDeps {
     kb?: KbReader;
+    /** The customer's CRM record, read-only. Unset, only the details on the file are read. */
+    records?: CustomerRecordReader;
     now?: () => Date;
     newId?: (prefix: string) => string;
 }
@@ -108,6 +120,17 @@ export interface ServeOptions {
     routed: boolean;
     /** Scoping ran on this turn too, so the brief leaves the question to it and the thread counts as one being scoped. */
     scopingRan: boolean;
+    /** The router handed this turn's money question to Service as one about an invoice (desk/router.ts): unanswered from an invoice row, it holds as money. */
+    invoiceMoney?: boolean;
+}
+
+/** The customer's history for the model: each item by ref, its values masked like the thread. */
+function historyFor(items: RecordItem[] | null, readError: string | null): string {
+    if (readError) return '(their record could not be read just now)';
+    if (!items) return '(no customer record)';
+    if (!items.length) return '(nothing on their record)';
+    // The free text (a job's description, an invoice line's) is masked piece by piece; a value is the row's own figure, date or status.
+    return items.map((it) => `- ref ${it.ref}: ${[withheldFromModel(it.summary ?? it.kind), ...it.facts.map((f) => `${withheldFromModel(f.label)} ${f.value}`)].join('; ')}`).join('\n');
 }
 
 /** Added to the lookup on a coverage question, so the areas-covered row is a candidate whatever words the customer used. */
@@ -131,6 +154,20 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
 
     const rows: KbRowVerbatim[] = await kbLookup(asksAboutOurArea(turn.body) ? `${turn.body}\n${AREA_QUERY}` : turn.body, deps.kb ?? reviewedKb);
     const record: RecordEntry[] = customerRecord(file, party);
+    // Their CRM record, read-only, for a customer identity recognised. A read that fails is said to the model, never guessed at.
+    const customerId = party.customerId ?? null;
+    let history: RecordItem[] | null = null;
+    let historyError: string | null = null;
+    if (customerId && deps.records) {
+        try {
+            const crm = await deps.records.record(customerId);
+            history = crm ? recordItems(crm, isoDayOf((deps.now ?? (() => new Date()))())) : null;
+        } catch (e: any) {
+            historyError = e?.message ?? String(e);
+            notes.push('the customer record could not be read');
+        }
+    }
+    const moneyHold = (): ServiceHold => ({ reason: 'money', match: `an invoice money question no invoice on their record answered: ${turn.body.slice(0, 80)}` });
 
     // The model reads the thread and the candidates and returns selections.
     const user = [
@@ -142,15 +179,19 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
         '',
         'The customer\'s own record (fields we hold):',
         record.length ? record.map((e) => MASKED_FIELDS.has(e.field) ? `- ${e.field}: held on file (not shown)` : `- ${e.field}: ${e.value}`).join('\n') : '(nothing on file)',
+        '',
+        'Their history on our records (read-only; pick an item by its ref):',
+        historyFor(history, historyError),
     ].join('\n');
     const res = await client.structured({ role: 'specialist', model: SPECIALIST_MODEL, effort: 'medium', system: SYSTEM, user, schema: serviceOutputSchema, maxTokens: 600 });
     calls.push(res.record);
     if (!res.output) {
         // A failed or declined model call is no source: Ben gets the question rather than the customer getting silence.
-        return { specialist: 'service', factIds, proposal: emptyProposal(file, { reason: 'no_source', match: turn.body.slice(0, 80) }), calls, error: res.error, brief: ['For what they asked we have no source: say you will check on it and come back to them; do not answer it yourself.'], note: `service: model ${res.refused ? 'declined' : 'failed'}, no source` };
+        return { specialist: 'service', factIds, proposal: emptyProposal(file, opts.invoiceMoney ? moneyHold() : { reason: 'no_source', match: turn.body.slice(0, 80) }), calls, error: res.error, brief: ['For what they asked we have no source: say you will check on it and come back to them; do not answer it yourself.'], note: `service: model ${res.refused ? 'declined' : 'failed'}, no source` };
     }
 
     let hold: ServiceHold | null = res.output.holdReason ? { reason: res.output.holdReason, match: turn.body.slice(0, 80) } : null;
+    let invoiceRead = false;
     if (!opts.scopingRan) brief.push('This turn: answer what they asked from the lines below. Ask nothing about the job.');
     for (const a of res.output.answers) {
         // A question about their own job is Scoping's: when Scoping ran on this turn it is left to it,
@@ -168,6 +209,26 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
                     factIds.push(fact.value.id);
                     brief.push(`They asked "${a.asked}": answer with these exact words, verbatim and unparaphrased, and cite knowledge-base id ${row.id} in kbIds (fact ${fact.value.id}): "${row.body}"`);
                     notes.push(`kb ${row.id} for "${a.asked}"`);
+                    continue;
+                }
+            }
+        } else if (a.source === 'history') {
+            // Only an item the record read returned counts; each of its values is a fact from the customer record.
+            const item = history?.find((it) => it.ref === a.id);
+            if (item && customerId && item.facts.length) {
+                const ids: string[] = [];
+                const lines: string[] = [];
+                for (const f of item.facts) {
+                    const fact = recordFact(file, { key: recordFactKey(item, f), value: f.value, source: { kind: 'customer_record', customerId, field: recordSourceField(item, f) }, by: BY }, fileDeps);
+                    if (!fact.ok) continue;
+                    ids.push(fact.value.id);
+                    lines.push(`${withheldFromModel(f.label)} "${f.value}" (fact ${fact.value.id})`);
+                }
+                if (ids.length) {
+                    factIds.push(...ids);
+                    brief.push(`They asked "${a.asked}": from their ${withheldFromModel(item.summary ?? item.kind)} on our records: ${lines.join('; ')}. Read back only what answers them, each exactly as written and citing its fact id; never add them up or work anything out.`);
+                    notes.push(`record ${item.ref} for "${a.asked}"`);
+                    if (item.kind === 'invoice') invoiceRead = true;
                     continue;
                 }
             }
@@ -213,6 +274,12 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
                 if (!hold) hold = change.hold;
             } else notes.push(`change of details refused: ${change.reason}`);
         }
+    }
+    // Money the router handed here is Ben's unless an invoice row answered it; it outranks a no-source or change hold, never a complaint, refund or trust doubt.
+    if (opts.invoiceMoney && !invoiceRead && (!hold || hold.reason === 'no_source' || hold.reason === 'change_of_details')) {
+        const also = hold?.reason === 'change_of_details' ? `; they also asked to change a detail (${hold.match})` : '';
+        hold = { ...moneyHold(), match: `${moneyHold().match}${also}` };
+        notes.push('invoice money question not answered from an invoice');
     }
     return { specialist: 'service', factIds, proposal: emptyProposal(file, hold), calls, error: null, brief, note: notes.length ? `service: ${notes.join('; ')}` : 'service: nothing to answer' };
 }

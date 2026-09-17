@@ -4,17 +4,20 @@
  * stage, the party addressed, and an exception if one applies. Never invents a subject: an
  * unclassifiable turn goes to Scoping before ready and to Service after. The router never sees a
  * tool. Two deterministic belts sit under it: the regulated matcher (a hold the model cannot
- * unsay) and the money-question matcher (2.7 cannot depend on one model reading). A belt adds its
+ * unsay) and the money-question matcher (2.7 cannot depend on one model reading). Money is handed on
+ * only to a specialist that answers it from a row: Quoting for a live quote's line, Service for a
+ * known customer's invoice; each raises the money hold itself when its reading does not answer. A belt adds its
  * exception to what the model read rather than replacing it, so a turn that asks a price and also
  * asks for a call raises both; `exceptions` is the ordered list and gravest is first. There is no
  * belt for a call request: in this trade "call round", "call in" and "call out" ask for a visit,
  * which no matcher separated from a phone call reliably, so the router reads it.
  */
 import { z } from 'zod/v4';
-import { isReady, type CaseFile, type Turn, type ModelCallRecord, STAGES, isTurnOf, mediaCountLabel, mediaFailedNote } from './case-file';
+import { isReady, partyOf, type CaseFile, type Turn, type ModelCallRecord, STAGES, isTurnOf, mediaCountLabel, mediaFailedNote } from './case-file';
 import { moneyQuestionMatch, regulatedMatch } from './lexicon';
 import { ROUTER_MODEL, type ModelClient } from './models';
 import { applyQuotingRoute } from '../quoting/quoting-specialist';
+import { invoiceMoneyQuestion } from '../service/customer-record';
 
 export const SUBJECTS = ['scoping', 'quoting', 'scheduling', 'service'] as const;
 export type Subject = (typeof SUBJECTS)[number];
@@ -75,6 +78,13 @@ export interface Route extends Omit<RouterOutput, 'exception'> {
      * its own reading does not answer, so 2.7 never rests on one model reading.
      */
     moneyToQuoting: boolean;
+    /**
+     * The turn's money question is about an invoice or a payment on the record of a customer the CRM
+     * knows, and nothing an invoice cannot settle (service/customer-record.ts invoiceMoneyQuestion),
+     * so it went to Service instead of Ben: Service answers it from the invoice row or raises the
+     * money hold itself. Absent is false.
+     */
+    moneyToService?: boolean;
     call: ModelCallRecord;
     error: string | null;
 }
@@ -126,18 +136,22 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient, liv
     const quoting = applyQuotingRoute(file, turn, handed, liveFigureRefs, expiredRefs);
     out.subjects = handed.subjects;
     out.turnKind = handed.turnKind;
+    // The same hook for Service: money on a known customer's invoice is read from the invoice row, never guessed.
+    const known = !!partyOf(file, turn.partyId)?.customerId;
+    const moneyToService = moneyRaised && !quoting.moneyToQuoting && turn.kind !== 'portal_action' && known && invoiceMoneyQuestion(turn.body);
+    if (moneyToService && !out.subjects.includes('service')) out.subjects.unshift('service');
     // The belts: regulated and money are holds the model cannot unsay. Each adds to what the model
     // read; neither displaces it, so a price question that also asks for a call carries both. Money
     // Quoting took is Quoting's to hold; a portal action raises nothing, as the hook clears it.
     const raised = new Set<Exception>();
     if (turn.kind !== 'portal_action') {
         if (belts.regulated) raised.add('regulated');
-        if (moneyRaised && !quoting.moneyToQuoting) raised.add('money');
+        if (moneyRaised && !quoting.moneyToQuoting && !moneyToService) raised.add('money');
         if (out.exception && out.exception !== 'money') raised.add(out.exception);
         for (const e of listedExceptions) if (e !== 'money') raised.add(e);
     }
     const exceptions = Array.from(raised).sort((a, b) => EXCEPTION_GRAVITY[a] - EXCEPTION_GRAVITY[b]);
     // A stage the router proposes that the file cannot take stays where it is; the desk applies it through set_stage.
     const { exception: _modelException, ...rest } = out;
-    return { ...rest, exceptions, belts, moneyToQuoting: quoting.moneyToQuoting, call: res.record, error };
+    return { ...rest, exceptions, belts, moneyToQuoting: quoting.moneyToQuoting, moneyToService, call: res.record, error };
 }
