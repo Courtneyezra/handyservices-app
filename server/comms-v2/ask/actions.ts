@@ -350,7 +350,7 @@ export class MemoryAskActionStore implements AskActionStore {
         return { ...a };
     }
     async attachMessage(askRunId: string, messageId: string) {
-        for (const a of this.rows.values()) if (a.askRunId === askRunId) a.messageId = messageId;
+        for (const a of Array.from(this.rows.values())) if (a.askRunId === askRunId) a.messageId = messageId;
     }
 }
 
