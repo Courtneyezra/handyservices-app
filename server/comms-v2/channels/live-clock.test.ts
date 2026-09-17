@@ -32,7 +32,8 @@ describe('the live clock', () => {
         expect(files.filter(clockDue).map((f) => f.id)).toEqual(['held', 'quoted', 'released', 'lost']);
         const clocked: string[] = [];
         const gateway: ClockableGateway = {
-            store: { all: () => files, put: () => undefined },
+            store: { all: () => files },
+            passOn: async () => null,
             async clock(id) {
                 clocked.push(id);
                 if (id === 'quoted') throw new Error('the quote store is down');
@@ -48,7 +49,7 @@ describe('the live clock', () => {
 
     it('skips a tick while the last one is still running', async () => {
         let finish!: () => void;
-        const slow: ClockableGateway = { store: { all: () => [file('held', { hold: {} as any })], put: () => undefined }, clock: () => new Promise((r) => { finish = () => r(result('chased')); }) };
+        const slow: ClockableGateway = { store: { all: () => [file('held', { hold: {} as any })] }, passOn: async () => null, clock: () => new Promise((r) => { finish = () => r(result('chased')); }) };
         const deps = { liveState: async () => ({ live: true, off: [] as string[] }), gateway: async () => slow, log: () => undefined };
         const first = runLiveClockTick(deps);
         await new Promise((r) => setTimeout(r, 0));

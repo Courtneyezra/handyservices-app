@@ -433,15 +433,23 @@ after the event's own write and never throws into it; no log line carries a valu
 17 Sep, answer 125, "Close after 30 days": a quoted customer who was never booked kept an open file
 forever, so a return months later with a different job landed on the old file and was refused with "a
 quote already stands". A file at `quoted`, not held for Ben, whose quote has stood unanswered for
-`STALE_QUOTE_CLOSE_DAYS` (30, `file-close.ts`) closes as `done`, recorded on the stage change with why.
-Measured from the file's own record of when its current quote went out - the newest stage move to
-`quoted` in `stageHistory` (`quotedAt`) - not from the quote row, which carries no send timestamp of its
-own. `accepted` and `booked` files have moved past `quoted`, so they, and a file held for Ben, are never
-touched (`staleQuoteDue`); a held file stays in front of him. Run by the live clock tick
-(`closeStaleQuotes`, called from `channels/live-clock.ts`'s `liveClockTick`) over every live file each
-minute, not a scheduler of its own - the same tick that runs the chase. As with the events above: only
-the live intake's store, only while the new desk is the live desk, never throws into the tick, and the
-customer's next message then opens a fresh file.
+`STALE_QUOTE_CLOSE_DAYS` (30, `file-close.ts`) closes as `done`, recorded on the stage change with why
+and marked `staleQuote`. Measured from the file's own record of when its current quote went out
+(`quotedAt`): the newest stage move to `quoted`, or the desk's later automatic reissue of the quote
+(`quote_reissued`), which puts it live again without moving the stage. `accepted` and `booked` files
+have moved past `quoted`, so they, a file held for Ben and a file with a customer burst waiting, are
+never touched (`staleQuoteDue`). Run by the live clock tick (`closeStaleQuotes`, called from
+`channels/live-clock.ts`'s `liveClockTick`) each minute, not a scheduler of its own; each close is a
+pass queued behind any desk pass on the file (`Gateway.passOn`) and asks again there, so it never
+closes a file under a customer's turn. As with the events above: only the live intake's store, only
+while the new desk is the live desk, never throws into the tick, and the customer's next message then
+opens a fresh file.
+
+A stale close is the one close that reopens (`reopenStaleQuoteFiles`): a payment on its quote (the
+Stripe webhook, `quoting/live-acceptance.ts`) or a booking or completion naming it puts the file back
+at `quoted` with a system turn saying why, and the event then moves it on and is recorded on it, so no
+take-up of the quote is lost. The quote itself is not changed. A file closed by its booking, its
+completion or by hand stays closed.
 
 A closed file is never where the person's next message lands (`desk/store.ts` `newestOpenFor`): that
 message opens a new file with no job type, location, quote or facts, so Scoping starts the new job

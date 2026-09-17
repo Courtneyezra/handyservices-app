@@ -17,14 +17,13 @@
  */
 import type { CaseFile } from '../desk/case-file';
 import type { DeskResult } from '../desk/desk-types';
-import { closeStaleQuotes } from '../file-close';
+import { closeStaleQuotes, type StaleQuoteGateway } from '../file-close';
 import { draftToRecover } from '../quoting/background-draft';
 
 export const LIVE_CLOCK_CRON = '* * * * *';
 
 /** What the tick needs from the intake's gateway. */
-export interface ClockableGateway {
-    store: { all(): CaseFile[]; put(file: CaseFile): void };
+export interface ClockableGateway extends StaleQuoteGateway {
     clock(fileId: string): Promise<DeskResult | null>;
 }
 
@@ -55,7 +54,7 @@ export async function liveClockTick(deps: LiveClockDeps = {}): Promise<LiveClock
     const state = await readState();
     if (!state.live) return { ran: false, off: state.off, files: 0, chased: 0, refused: 0, errors: 0, staleClosed: 0 };
     const gateway = await (deps.gateway ?? (async () => (await import('./intake')).liveChannelGateway()))();
-    const stale = await closeStaleQuotes({ liveState: async () => ({ live: true }), store: async () => gateway.store, now: deps.now, log });
+    const stale = await closeStaleQuotes({ liveState: async () => ({ live: true }), gateway: async () => gateway, now: deps.now, log });
     const due = gateway.store.all().filter(clockDue);
     let chased = 0;
     let refused = 0;

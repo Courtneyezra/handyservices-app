@@ -6,7 +6,8 @@
  * desk's two alerts (server/pushover.ts `notifyQuoteAccepted` and the web push to /admin/comms). Only
  * while the new desk is the live desk (server/comms-v2/switch.ts `commsV2Live`), and only for a quote
  * an open case file on the live intake's store carries (price-screen-send.ts `liveQuoteFile`, the
- * price screen's own lookup), the acceptance is the new desk's:
+ * price screen's own lookup; a file the 30-day stale quote rule closed on the quote is reopened for
+ * it, file-close.ts `reopenStaleQuoteFiles`), the acceptance is the new desk's:
  *
  *   recorded      awaited, inside the webhook: `recordAcceptance` with the payment as its witness,
  *                 which confirms what the webhook wrote on the row rather than writing it again; the
@@ -85,7 +86,7 @@ export async function recordLiveAcceptance(slug: string, intent: PaidIntent, dep
     const log = deps.log ?? defaultLog;
     let built: Promise<LiveAcceptanceGateway> | null = null;
     const gateway = () => (built ??= (deps.gateway ?? liveGateway)());
-    const found = await liveQuoteFile(slug, { liveState: deps.liveState, gateway });
+    const found = await liveQuoteFile(slug, { liveState: deps.liveState, gateway, now: deps.now, reopenStale: `Stripe payment ${intent.id}` });
     if (!found) return null;
     const { file, store } = found;
     if (factsWithPrefix(file, QUOTE_FACT.accepted).some((f) => f.source.kind === 'quote_line' && f.source.quoteRef === slug)) {

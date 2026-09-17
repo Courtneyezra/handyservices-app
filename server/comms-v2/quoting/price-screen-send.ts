@@ -15,6 +15,7 @@ import type { Approver } from '../../approver';
 import type { CaseFile } from '../desk/case-file';
 import type { DeskDeps } from '../desk/desk';
 import type { CaseFileStore } from '../desk/store';
+import { reopenStaleQuoteFiles } from '../file-close';
 import { deliverPricedQuote } from './deliver-quote';
 import { pricedQuoteOf } from './quoting-tools';
 
@@ -37,12 +38,21 @@ export interface PriceScreenSendDeps {
 
 export interface PriceScreenSendResponse { status: number; json: Record<string, unknown> }
 
-/** The open live case file carrying this quote, while the new desk is the live desk; else null. */
-export async function liveQuoteFile(slug: string, deps: PriceScreenSendDeps = {}): Promise<{ file: CaseFile; store: CaseFileStore } | null> {
+/**
+ * The open live case file carrying this quote, while the new desk is the live desk; else null. With
+ * `reopenStale`, the event's words, a file the stale quote rule closed on this quote is reopened and
+ * returned when no open one carries it (file-close.ts `reopenStaleQuoteFiles`).
+ */
+export async function liveQuoteFile(slug: string, deps: PriceScreenSendDeps & { reopenStale?: string } = {}): Promise<{ file: CaseFile; store: CaseFileStore } | null> {
     const readState = deps.liveState ?? (async () => (await import('../switch')).commsV2LiveState());
     if (!(await readState()).live) return null;
     const gateway = await (deps.gateway ?? (async () => (await import('../channels/intake')).liveChannelGateway()))();
-    const file = gateway.store.all().find((f) => f.job.quoteRef === slug && f.stage !== 'done') ?? null;
+    const files = gateway.store.all();
+    let file = files.find((f) => f.job.quoteRef === slug && f.stage !== 'done') ?? null;
+    if (!file && deps.reopenStale) {
+        file = reopenStaleQuoteFiles(files, [slug], deps.reopenStale, { now: deps.now })[0] ?? null;
+        if (file) gateway.store.put(file);
+    }
     return file ? { file, store: gateway.store } : null;
 }
 

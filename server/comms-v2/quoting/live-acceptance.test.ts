@@ -14,7 +14,9 @@
  */
 import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { open, recordFact, type CaseFile, type Turn } from '../desk/case-file';
+import { closeFile, open, recordFact, type CaseFile, type Turn } from '../desk/case-file';
+import { closeStaleQuotes } from '../file-close';
+import { Gateway } from '../desk/gateway';
 import { Desk } from '../desk/desk';
 import type { DeskResult } from '../desk/desk-types';
 import { noFixedLineSource } from '../desk/fixed-lines';
@@ -151,6 +153,37 @@ describe('the webhook asks the new desk first', () => {
         expect(t.file.stage).toBe('accepted');
         expect(t.notices).toHaveLength(1);
         expect(w.oldAlertCount).toBe(0);
+    });
+
+    it('a payment after day 31 reopens the file the stale quote rule closed and records the payment on it', async () => {
+        const t = await sentQuote();
+        const day31 = new Date(NOW.getTime() + 31 * 24 * 60 * 60 * 1000);
+        const gateway = new Gateway({ desk: { handleTurn: async () => { throw new Error('no desk'); }, clockPass: async () => { throw new Error('no desk'); } }, store: t.cases });
+        expect((await closeStaleQuotes({ liveState: LIVE, gateway: async () => gateway, now: () => day31, log: () => undefined })).closed).toEqual([{ caseId: t.file.id, to: 'done' }]);
+        expect(t.file.stage).toBe('done');
+
+        const later = () => new Date(day31.getTime() + 60_000);
+        const intent = paid(t.row, 3000);
+        const turns: Turn[] = [];
+        const w = webhook();
+        expect(await announcePaidAcceptance({ slug: t.slug, intent, response: w.response, oldAlerts: w.oldAlerts }, { liveState: LIVE, gateway: async () => stubGateway(t.cases, turns), quoting: { store: t.quotes, notifier: t.notifier }, now: later, log: () => undefined })).toBe('comms_v2');
+        expect(w.oldAlertCount).toBe(0);
+        expect(t.file.stage).toBe('accepted');
+        expect(t.file.stageHistory.slice(-3).map((c) => [c.from, c.to])).toEqual([['quoted', 'done'], ['done', 'quoted'], ['quoted', 'accepted']]);
+        expect(t.file.turns.find((x) => x.kind === 'system')?.body).toContain(`Reopened: the stale quote ${t.slug} was taken up (Stripe payment pi_test_accept_1)`);
+        expect(t.file.facts.filter((f) => f.key === QUOTE_FACT.accepted)).toHaveLength(1);
+        expect(t.notices).toHaveLength(1);
+        w.response.emit('close');
+        await flush();
+        expect(turns).toHaveLength(1);
+    });
+
+    it('a payment on a quote whose file was closed by its completion is not reopened: the old alerts take it', async () => {
+        const t = await sentQuote();
+        closeFile(t.file, 'done', { why: 'the job was signed off as complete' });
+        const w = webhook();
+        expect(await announcePaidAcceptance({ slug: t.slug, intent: paid(t.row, 3000), response: w.response, oldAlerts: w.oldAlerts }, { liveState: LIVE, gateway: async () => stubGateway(t.cases), quoting: { store: t.quotes, notifier: t.notifier }, now, log: () => undefined })).toBe('old');
+        expect(t.file.stage).toBe('done');
     });
 
     it('does nothing on either desk when Stripe delivers the event again', async () => {
