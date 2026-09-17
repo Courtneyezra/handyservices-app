@@ -427,7 +427,7 @@ model when the router sends the turn to `service`, or when the customer's own wo
 detail on their record or whether we cover their area (`asksAboutOurArea`), whatever the router
 read, or, for a customer the CRM knows, when the turn asks about an invoice, a receipt or a payment.
 A money question of that shape that asks nothing an invoice cannot settle (a discount, a refund, a
-dispute, a quote, a price for work) is handed to Service instead of held for Ben, the way a live quote's line is
+dispute, a quote, a price for work, a haggle or terms of payment, a figure the customer names) is handed to Service instead of held for Ben, the way a live quote's line is
 handed to Quoting; Service answers it from the invoice row or holds it as money. A coverage question also offers `kb_lookup` the areas-covered row whatever words the customer
 used, raises no hold of its own and leaves Scoping to run on a mixed turn's job half.
 
