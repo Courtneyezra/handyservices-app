@@ -134,7 +134,7 @@ describe('lexicon', () => {
             'Is that the best you can do?', 'Any wiggle room on that?', "Bit steep isn't it", "That's a bit dear", "That's over my budget", 'My budget is 200', "I'm on a tight budget", 'Can you do it for £100?', 'You quoted me £150, any cheaper?',
             'Someone else quoted me 80 for it', 'Can you match 90?', 'Could you do mates rates?', 'Can I pay cash for less?', 'Can you do any better on that?',
             'Can you go any lower?', 'Is there any room to move on that?', 'That seems a lot for a tap', 'Any chance of a deal if I book two jobs?',
-            'Do you do a pensioner rate?', 'Can you do it for 100?', 'Would you take 120?', 'Can you knock a tenner off?', 'Would you do 150 cash?',
+            'Do you do a pensioner rate?', 'Can you do it for 100?', 'Would you take 120?', 'Can you accept 90?', 'Would u take 80 cash?', 'Can you knock a tenner off?', 'Would you do 150 cash?',
             'Too pricey for me', 'Can you meet me halfway?', 'Is that negotiable?', 'Can I pay in instalments?', 'Could you knock some off?',
         ]) {
             expect(moneyQuestionMatch(body), body).toBeTruthy();
@@ -143,7 +143,7 @@ describe('lexicon', () => {
             'Any news on the quote?', 'Can you match the paint colour?', 'Could you lower the shelf a bit?', "I'll take it", 'The drip is a lot worse today',
             'Can you do any better than a patch repair?', "That's a lot better, thanks", "That's a lot of water", "It'll take 20 minutes",
             'Can you do it for 2 hours on Friday?', 'Can you take 3 of the old doors away?', 'Dear Ben, my tap drips', 'Is there any room to move the wardrobe?',
-            'Could you knock the old tiles off?', 'I can take 2 photos when I get home', 'It will take 2 people to lift', 'Could you do it for 3 doors?',
+            'Could you knock the old tiles off?', 'I can take 2 photos when I get home', 'It will take 2 people to lift', 'Could you do it for 3 doors?', 'Will it take 45?', 'The job should take 30.', 'the old shed can take 30.',
             'I can take 20 photos if you like', 'what budget hinges do you use', 'you quoted me last week for the shelves, can you also do the gate', 'Can you do it for 10am?', "We'll go lower on the shelf height", 'Sounds a lot like a washer',
         ]) {
             expect(moneyQuestionMatch(body), body).toBeNull();
