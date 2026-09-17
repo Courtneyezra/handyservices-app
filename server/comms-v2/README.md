@@ -434,9 +434,10 @@ after the event's own write and never throws into it; no log line carries a valu
 forever, so a return months later with a different job landed on the old file and was refused with "a
 quote already stands". A file at `quoted`, not held for Ben, whose quote has stood unanswered for
 `STALE_QUOTE_CLOSE_DAYS` (30, `file-close.ts`) closes as `done`, recorded on the stage change with why
-and marked `staleQuote`. Measured from the file's own record of when its current quote went out
-(`quotedAt`): the newest stage move to `quoted`, or the desk's later automatic reissue of the quote
-(`quote_reissued`), which puts it live again without moving the stage. `accepted` and `booked` files
+and marked `staleQuote`. Measured from the file's last activity (`quietSince`): the newest stage move to
+`quoted`, the desk's later automatic reissue of the quote (`quote_reissued`, which puts it live again
+without moving the stage), or the newest turn either way, so a file with any conversation in the last
+30 days never closes. `accepted` and `booked` files
 have moved past `quoted`, so they, a file held for Ben and a file with a customer burst waiting, are
 never touched (`staleQuoteDue`). Run by the live clock tick (`closeStaleQuotes`, called from
 `channels/live-clock.ts`'s `liveClockTick`) each minute, not a scheduler of its own; each close is a
@@ -448,7 +449,8 @@ opens a fresh file.
 A stale close is the one close that reopens (`reopenStaleQuoteFiles`): a payment on its quote (the
 Stripe webhook, `quoting/live-acceptance.ts`) or a booking or completion naming it puts the file back
 at `quoted` with a system turn saying why, and the event then moves it on and is recorded on it, so no
-take-up of the quote is lost. The quote itself is not changed. A file closed by its booking, its
+take-up of the quote is lost; a payment the desk then cannot record closes it again as stale
+(`recloseStaleQuote`) and goes to the old alerts. The quote itself is not changed. A file closed by its booking, its
 completion or by hand stays closed.
 
 A closed file is never where the person's next message lands (`desk/store.ts` `newestOpenFor`): that

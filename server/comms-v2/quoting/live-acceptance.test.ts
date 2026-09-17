@@ -14,7 +14,7 @@
  */
 import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { closeFile, open, recordFact, type CaseFile, type Turn } from '../desk/case-file';
+import { closeFile, open, recordFact, staleClosed, type CaseFile, type Turn } from '../desk/case-file';
 import { closeStaleQuotes } from '../file-close';
 import { Gateway } from '../desk/gateway';
 import { Desk } from '../desk/desk';
@@ -176,6 +176,21 @@ describe('the webhook asks the new desk first', () => {
         w.response.emit('close');
         await flush();
         expect(turns).toHaveLength(1);
+    });
+
+    it('a payment the desk cannot record on a reopened stale file closes it again as stale, and the old alerts take it', async () => {
+        const t = await sentQuote();
+        const day31 = new Date(NOW.getTime() + 31 * 24 * 60 * 60 * 1000);
+        const gateway = new Gateway({ desk: { handleTurn: async () => { throw new Error('no desk'); }, clockPass: async () => { throw new Error('no desk'); } }, store: t.cases });
+        await closeStaleQuotes({ liveState: LIVE, gateway: async () => gateway, now: () => day31, log: () => undefined });
+        const later = () => new Date(day31.getTime() + 60_000);
+        const intent = { id: 'pi_test_accept_3', amount: 3000, metadata: { paymentType: 'deposit' } };
+        const w = webhook();
+        expect(await announcePaidAcceptance({ slug: t.slug, intent, response: w.response, oldAlerts: w.oldAlerts }, { liveState: LIVE, gateway: async () => stubGateway(t.cases), quoting: { store: t.quotes, notifier: t.notifier }, now: later, log: () => undefined })).toBe('old');
+        expect(w.oldAlertCount).toBe(1);
+        expect(t.file.stage).toBe('done');
+        expect(staleClosed(t.file)).toBe(true);
+        expect(t.file.stageHistory.slice(-3).map((c) => [c.from, c.to])).toEqual([['quoted', 'done'], ['done', 'quoted'], ['quoted', 'done']]);
     });
 
     it('a payment on a quote whose file was closed by its completion is not reopened: the old alerts take it', async () => {

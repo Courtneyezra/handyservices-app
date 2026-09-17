@@ -26,6 +26,7 @@ import { appendTurn, type CaseFile, type Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import type { CaseFileStore } from '../desk/store';
 import type { BenNotice } from './ben-notifier';
+import { recloseStaleQuote } from '../file-close';
 import { liveQuoteFile } from './price-screen-send';
 import { QUOTE_FACT, factsWithPrefix } from './quote-record';
 import { recordAcceptance, type PaidWitness, type QuotingDeps } from './quoting-tools';
@@ -96,9 +97,14 @@ export async function recordLiveAcceptance(slug: string, intent: PaidIntent, dep
     const now = deps.now ?? (() => new Date());
     const quoting = { ...(deps.quoting ?? (await liveQuotingDeps())), now, newId: deps.newId };
     const party = file.parties[0];
+    const reclose = () => { if (found.reopened) recloseStaleQuote(file, `payment ${intent.id} was not recorded on the reopened stale quote`, { now }); };
     let accepted: Awaited<ReturnType<typeof recordAcceptance>>;
     try {
         accepted = await recordAcceptance(file, party, { by: 'human', via: `Stripe payment ${intent.id}`, paid: paidWitnessOf(intent) }, quoting);
+        if (!accepted.ok) reclose();
+    } catch (err) {
+        reclose();
+        throw err;
     } finally {
         store.put(file);
     }

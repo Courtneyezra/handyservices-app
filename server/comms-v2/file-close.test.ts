@@ -6,7 +6,7 @@
  * one. A file at quoted or accepted stays open and takes the message, as before.
  */
 import { describe, expect, it } from 'vitest';
-import { closeFile, hold, invariantViolations, staleClosed, isClosed, open, recordFact, setStage, type CaseFile, type Stage } from './desk/case-file';
+import { appendTurn, closeFile, hold, invariantViolations, staleClosed, isClosed, open, recordFact, setStage, type CaseFile, type Stage } from './desk/case-file';
 import type { DeskLike, DeskResult } from './desk/desk-types';
 import { Gateway } from './desk/gateway';
 import { MemoryCaseFileStore, newestOpenFor } from './desk/store';
@@ -341,7 +341,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const daysAgo = (n: number) => new Date(Date.parse(AT) - n * DAY_MS).toISOString();
 
 /** A file walked to quoted, its quote sent at the given time (not the walk's own AT). */
-function quotedFile(personId: string, sentAt: string, opened = AT): CaseFile {
+function quotedFile(personId: string, sentAt: string, opened = sentAt): CaseFile {
     const file = fileFor(personId, 'ready', opened);
     const moved = setStage(file, 'quoted', 'quote sent', { now: () => new Date(sentAt) });
     if (!moved.ok) throw new Error(moved.reason);
@@ -438,11 +438,37 @@ describe('closeStaleQuotes (17 Sep, answer 125, "Close after 30 days")', () => {
         expect(waiting.stage).toBe('quoted');
     });
 
+    it('any turn restarts the 30 days: a question on day 31, a reply and "ok, book it" stay on the same open file, and 30 quiet days after that close it', async () => {
+        const g = new Gateway({ desk: fakeDesk });
+        const old = await quotedThread(g, quotingDeps());
+        g.age(old.id, 31 * 24);
+        const deps = (at: string): StaleQuoteDeps => ({ liveState: async () => ({ live: true }), gateway: async () => g, now: () => new Date(at), log: () => {} });
+
+        const question = await g.inbound(turn('Does the quote include the new tap?', AT));
+        if (question.kind !== 'handled') throw new Error(question.kind);
+        expect(question.file.id).toBe(old.id);
+        expect((await closeStaleQuotes(deps(AT))).closed).toEqual([]);
+        const replyAt = '2026-09-17T10:05:00.000Z';
+        expect(appendTurn(old, { at: replyAt, channel: 'whatsapp', direction: 'outbound', partyId: old.parties[0].personId, kind: 'text', body: 'Yes, it does.', media: [], runId: 'run_reply', approver: 'agent:comms_v2' }).ok).toBe(true);
+        expect((await closeStaleQuotes(deps(replyAt))).closed).toEqual([]);
+        const lastAt = '2026-09-17T10:10:00.000Z';
+        const book = await g.inbound(turn('ok, book it', lastAt));
+        if (book.kind !== 'handled') throw new Error(book.kind);
+        expect(book.file.id).toBe(old.id);
+        expect(old.stage).toBe('quoted');
+
+        const day29 = new Date(Date.parse(lastAt) + 29 * DAY_MS).toISOString();
+        expect((await closeStaleQuotes(deps(day29))).closed).toEqual([]);
+        const day31 = new Date(Date.parse(lastAt) + 31 * DAY_MS).toISOString();
+        expect((await closeStaleQuotes(deps(day31))).closed).toEqual([{ caseId: old.id, to: 'done' }]);
+        expect(old.stage).toBe('done');
+    });
+
     it('a later enquiry from the same customer after the stale close opens a fresh file', async () => {
         const g = new Gateway({ desk: fakeDesk });
         const quoting = quotingDeps();
         const old = await quotedThread(g, quoting);
-        old.stageHistory[old.stageHistory.length - 1].at = daysAgo(31);
+        g.age(old.id, 31 * 24);
         const deps: StaleQuoteDeps = { liveState: async () => ({ live: true }), gateway: async () => g, now, log: () => {} };
         expect((await closeStaleQuotes(deps)).closed).toEqual([{ caseId: old.id, to: 'done' }]);
         expect(old.stage).toBe('done');

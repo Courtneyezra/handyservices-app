@@ -43,17 +43,17 @@ export interface PriceScreenSendResponse { status: number; json: Record<string, 
  * `reopenStale`, the event's words, a file the stale quote rule closed on this quote is reopened and
  * returned when no open one carries it (file-close.ts `reopenStaleQuoteFiles`).
  */
-export async function liveQuoteFile(slug: string, deps: PriceScreenSendDeps & { reopenStale?: string } = {}): Promise<{ file: CaseFile; store: CaseFileStore } | null> {
+export async function liveQuoteFile(slug: string, deps: PriceScreenSendDeps & { reopenStale?: string } = {}): Promise<{ file: CaseFile; store: CaseFileStore; reopened: boolean } | null> {
     const readState = deps.liveState ?? (async () => (await import('../switch')).commsV2LiveState());
     if (!(await readState()).live) return null;
     const gateway = await (deps.gateway ?? (async () => (await import('../channels/intake')).liveChannelGateway()))();
     const files = gateway.store.all();
-    let file = files.find((f) => f.job.quoteRef === slug && f.stage !== 'done') ?? null;
-    if (!file && deps.reopenStale) {
-        file = reopenStaleQuoteFiles(files, [slug], deps.reopenStale, { now: deps.now })[0] ?? null;
-        if (file) gateway.store.put(file);
-    }
-    return file ? { file, store: gateway.store } : null;
+    const open = files.find((f) => f.job.quoteRef === slug && f.stage !== 'done');
+    if (open) return { file: open, store: gateway.store, reopened: false };
+    const reopened = deps.reopenStale ? reopenStaleQuoteFiles(files, [slug], deps.reopenStale, { now: deps.now })[0] : undefined;
+    if (!reopened) return null;
+    gateway.store.put(reopened);
+    return { file: reopened, store: gateway.store, reopened: true };
 }
 
 /** The new desk's delivery for a quote on a live case file, as the route's response; null for every other quote. */
