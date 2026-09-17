@@ -146,6 +146,33 @@ describe('comms board views (B3)', () => {
         expect(screen.getByRole('button', { name: /held only/i }).getAttribute('aria-pressed')).toBe('false');
     });
 
+    it('a filter change dims the previous board while it loads, and a failed fetch never shows the previous filter\'s cards', async () => {
+        stubViewport(true);
+        const user = userEvent.setup();
+        let fail!: () => void;
+        const gate = new Promise<void>((r) => { fail = r; });
+        mockFetch([
+            { url: '/api/comms-v2/board?held=true', reply: async () => { await gate; return { status: 500, json: { error: 'boom' } }; } },
+            { url: '/api/comms-v2/board', reply: () => ({ json: boardOf([TOM]) }) },
+        ]);
+        renderWithQuery(<CommsV2BoardPage />);
+        await screen.findByTestId('board-card-case_tom');
+        expect(screen.getByTestId('board-body').getAttribute('aria-busy')).toBeNull();
+
+        await user.click(screen.getByRole('button', { name: /held only/i }));
+        // While the held board loads, the unfiltered one stays but reads as stale.
+        await waitFor(() => expect(screen.getByTestId('board-body').getAttribute('aria-busy')).toBe('true'));
+        expect(screen.getByTestId('board-body').className).toContain('opacity-60');
+
+        fail();
+        const banner = await screen.findByTestId('board-error');
+        expect(screen.getByTestId('board-body').getAttribute('aria-busy')).toBeNull();
+        expect(screen.queryByTestId('board-card-case_tom')).toBeNull();
+        expect(banner.textContent).not.toContain('last good copy');
+        expect(screen.getByTestId('board-counts').textContent).toBe('…');
+        expect(screen.getByRole('button', { name: /held only/i }).getAttribute('aria-pressed')).toBe('true');
+    });
+
     it('an empty board says no open files, not the held-filter message', async () => {
         stubViewport(true);
         mockFetch([{ url: '/api/comms-v2/board', reply: () => ({ json: boardOf([]) }) }]);

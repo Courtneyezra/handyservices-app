@@ -673,7 +673,7 @@ export default function CommsV2BoardPage() {
     // The phone has no Held only button: its Held chip is that filter, over the whole board.
     const query = wide ? filters : { ...filters, heldOnly: false };
 
-    const { data, isLoading, error, dataUpdatedAt, refetch, isFetching } = useQuery<Board>({
+    const { data, isLoading, error, dataUpdatedAt, refetch, isFetching, isPlaceholderData } = useQuery<Board>({
         queryKey: ['comms-v2-board', query],
         queryFn: async () => {
             const res = await fetch(boardQuery(query), { headers: getAuthHeaders() });
@@ -681,6 +681,9 @@ export default function CommsV2BoardPage() {
             return res.json();
         },
         refetchInterval: 15_000,
+        // A filter change keeps the previous board on screen, dimmed and marked busy, while the new
+        // one loads. TanStack only uses it while the new fetch is pending, so a failed fetch for this
+        // filter shows the error, never another filter's cards.
         placeholderData: (previous) => previous,
     });
 
@@ -742,7 +745,13 @@ export default function CommsV2BoardPage() {
             {error && <BoardError lastGoodAt={data ? dataUpdatedAt : null} onRetry={() => { void refetch(); }} retrying={isFetching} />}
 
             <div className="flex min-h-0 flex-1">
-                <div className="flex min-w-0 flex-1 flex-col">{body}</div>
+                <div
+                    data-testid="board-body"
+                    aria-busy={isPlaceholderData || undefined}
+                    className={cn('flex min-w-0 flex-1 flex-col transition-opacity duration-200', isPlaceholderData && 'opacity-60')}
+                >
+                    {body}
+                </div>
                 {wide && (
                     <aside data-testid="docked-case-file-panel" className="flex w-[420px] shrink-0 flex-col overflow-hidden border-l border-slate-800 bg-white p-4">
                         {openCardId ? detail(openCardId) : (
