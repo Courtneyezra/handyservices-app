@@ -144,3 +144,39 @@ round (below).
   (`quotes: { error: 'violates foreign key constraint "invoices_quote_id_personalized_quotes_id_fk"' }`),
   so the drama number's quote rows stay on the branch; nothing customer-facing reads them, since a
   file reads only its own `quoteRef`.
+- Round 7 (17 Sep 2026) — "do you cover <area>" questions and a mixed coverage-plus-job message,
+  WhatsApp, driven on the app's own comms-v2 sandbox door against the branch database (the reviewed
+  areas row on the branch is `sandbox-kb-areas`, "We cover Nottingham and the surrounding areas,
+  Beeston and West Bridgford included"). The baseline holds: "Hi, do you cover Beeston?" answers
+  from that row word for word with no hold, and the mixed message ("Do you cover West Bridgford? The
+  radiator valve in the back bedroom is leaking.") answers the coverage half from the row and scopes
+  the job half in the same three bubbles, drafting a quote for Ben to price. The finding is live: the
+  most ordinary British way of asking — "Hi, whereabouts do you cover?" — was not read as a coverage
+  question at all. `asksAboutOurArea` (`service/service-tools.ts`) knows "where are you based" but
+  nothing beginning "whereabouts", and nothing of the plain "where do you cover?" either, so on that
+  turn the router did not list service, the Service specialist never read the turn, the areas row was
+  never offered, and the desk sent "I'll double-check exactly what I can cover for you and come back
+  to you on that" and held the file for Ben on `no_source`. The same miss bites from the other side:
+  "Whereabouts are you based?" DID route to service, but because the matcher said no, the
+  `AREA_QUERY` augmentation of the knowledge-base lookup was not added, the stem search found
+  nothing, and Service raised `no_source` itself — a question we hold a reviewed answer to, held for
+  a human on both paths. Fix: two clauses in `RE_AREA_PHRASE` — "where"/"whereabouts" in front of a
+  verb about where we work ("whereabouts do you cover", "where do you cover", "whereabouts can you
+  come out to", "whereabouts do you guys work") and "whereabouts are you based" folded into the
+  existing based clause — deliberately narrow, because "whereabouts" is the same trap "cover" is:
+  six positive regression cases (all six fail without the fix) and five negatives beside them in
+  `service/service-tools.test.ts` ("whereabouts are you?" is a customer asking when we are coming,
+  "whereabouts do you want the old radiator left?" and "whereabouts is the stopcock usually?" are
+  about the job, "whereabouts do you go for parts?" is about us but not our patch). Not an ESCALATE:
+  nothing wrong went to the customer and no figure moved — the desk failed closed to Ben; the cost is
+  a card for Ben on a question the knowledge base answers, and a first reply that stalls the enquiry.
+  Re-driven live on a restarted door: "Hi, whereabouts do you cover?" and "Whereabouts are you
+  based?" now both cite `sandbox-kb-areas` verbatim with every guard passing and no hold, and
+  "Whereabouts do you cover? Bathroom extractor fan has packed up in Beeston." answers the coverage
+  half and scopes the fan in three bubbles (123/110/109 characters). Negative controls re-driven
+  live: "Whereabouts are you? I have been waiting since 9." draws no areas row and holds for Ben as
+  before, and "Whereabouts do you want the old radiator left?" stays an ordinary scoping turn with no
+  knowledge-base row cited. Noted, not chased: that radiator reply said "I'll come back to you on
+  where best to leave it" and raised no hold, because the question reads as a job ask — the thread
+  went on to draft a quote for Ben, so the question reaches him on the card, but the deferral itself
+  is unrecorded.

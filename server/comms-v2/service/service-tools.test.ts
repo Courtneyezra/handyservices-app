@@ -148,6 +148,12 @@ describe('asksAboutOurArea', () => {
         'Do you cover beeston too? leaking tap',
         "We're in Stapleford - do you cover that far out?",
         'do you guys come out this far?',
+        'Hi, whereabouts do you cover?',
+        'whereabouts do u cover',
+        'Whereabouts are you based?',
+        'whereabouts do you guys work?',
+        'Whereabouts can you come out to?',
+        'where do you cover?',
     ])('matches a coverage question: %s', (text) => {
         expect(asksAboutOurArea(text)).toBe(true);
     });
@@ -197,6 +203,11 @@ describe('asksAboutOurArea', () => {
         'do you cover skirting as well as the doors?',
         'Would you go that far as to replace it?',
         "the crack didn't go that far",
+        'whereabouts are you?',
+        'Whereabouts do you want the old radiator left?',
+        'whereabouts do you go for parts?',
+        'Whereabouts is the stopcock usually?',
+        'where do you need me to be?',
     ])('does not match: %s', (text) => {
         expect(asksAboutOurArea(text)).toBe(false);
     });
