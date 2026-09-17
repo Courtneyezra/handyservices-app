@@ -42,7 +42,8 @@ import { computeContractorPay } from './lib/contractor-pay';
 import { resolveWeek, type DayAvailability } from './lib/contractor-week';
 import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, blockStartCandidates, activeLineItems, lineItemsToDescription, type DayMode, type DayLoadBooking } from './lib/contractor-app';
 import { scoreFlexPlacements, type PlacementCandidate } from './lib/contractor-flex-score';
-import { jobPayFields, PAY_ESTIMATE_LABEL, isAppJobStatus, statusVerdict, type StatusBooking } from './lib/contractor-app-view';
+import { jobPayFields, PAY_ESTIMATE_LABEL, isAppJobStatus, appStatusRefusal, APP_STATUS_STEP } from './lib/contractor-app-view';
+import { dayOfStepRefusal } from './lib/day-of-transitions';
 import { reserveSlot, confirmBooking, isContractorAvailableForSlot } from './booking-engine';
 import { sendVisitRescheduledEmail } from './email-service';
 import { availabilityDayUTC } from './lib/availability-date';
@@ -1414,19 +1415,38 @@ router.post('/:token/jobs/:bookingId/status', async (req: Request, res: Response
       arrivedAt: contractorBookingRequests.arrivedAt,
     }).from(contractorBookingRequests).where(eq(contractorBookingRequests.id, req.params.bookingId)).limit(1);
 
-    const verdict = statusVerdict(booking as StatusBooking | undefined, profile.id, next, ukToday());
-    if (!verdict.ok) return res.status(verdict.status).json({ error: verdict.error });
-    if (!verdict.changed) {
-      return res.json({ ok: true, status: next, changed: false, enRouteAt: booking.enRouteAt ?? null, arrivedAt: booking.arrivedAt ?? null });
-    }
+    const refusal = appStatusRefusal(booking, profile.id, ukToday());
+    if (refusal) return res.status(refusal.status).json({ error: refusal.error });
+
+    const step = APP_STATUS_STEP[next];
+    const unchanged = (b: { enRouteAt: Date | null; arrivedAt: Date | null }) =>
+      res.json({ ok: true, status: next, changed: false, enRouteAt: b.enRouteAt ?? null, arrivedAt: b.arrivedAt ?? null });
+    if (booking.dayOfStatus === step) return unchanged(booking);
+    const blocked = dayOfStepRefusal(booking.dayOfStatus, step);
+    if (blocked) return res.status(409).json({ error: blocked });
 
     const now = new Date();
+    const stamp = step === 'en_route' ? { enRouteAt: now } : { arrivedAt: now };
     const [row] = await db.update(contractorBookingRequests)
-      .set({ dayOfStatus: verdict.dayOfStatus, [verdict.stamp]: now, updatedAt: now })
-      .where(eq(contractorBookingRequests.id, booking.id))
+      .set({ dayOfStatus: step, ...stamp, updatedAt: now })
+      .where(and(
+        eq(contractorBookingRequests.id, booking.id),
+        booking.dayOfStatus === null
+          ? isNull(contractorBookingRequests.dayOfStatus)
+          : eq(contractorBookingRequests.dayOfStatus, booking.dayOfStatus),
+      ))
       .returning({ enRouteAt: contractorBookingRequests.enRouteAt, arrivedAt: contractorBookingRequests.arrivedAt });
-    console.log(`[ContractorApp] Booking ${booking.id} → ${verdict.dayOfStatus} by ${profile.id}`);
-    res.json({ ok: true, status: next, changed: true, enRouteAt: row?.enRouteAt ?? null, arrivedAt: row?.arrivedAt ?? null });
+    if (!row) {
+      const [latest] = await db.select({
+        dayOfStatus: contractorBookingRequests.dayOfStatus,
+        enRouteAt: contractorBookingRequests.enRouteAt,
+        arrivedAt: contractorBookingRequests.arrivedAt,
+      }).from(contractorBookingRequests).where(eq(contractorBookingRequests.id, booking.id)).limit(1);
+      if (latest?.dayOfStatus === step) return unchanged(latest);
+      return res.status(409).json({ error: 'That job changed while you were saving. Refresh and try again.' });
+    }
+    console.log(`[ContractorApp] Booking ${booking.id} → ${step} by ${profile.id}`);
+    res.json({ ok: true, status: next, changed: true, enRouteAt: row.enRouteAt ?? null, arrivedAt: row.arrivedAt ?? null });
   } catch (err: any) {
     console.error('[ContractorApp] status failed:', err?.message);
     res.status(500).json({ error: 'Could not save that. Try again, or ring the office.' });

@@ -13,6 +13,7 @@
  */
 import type { ContractorPaySnapshot } from './contractor-pay';
 import { expandSpanDates } from '../../shared/schedule-composition';
+import type { DayOfStep } from './day-of-transitions';
 
 /** The one label the app shows beside a job's pay. */
 export const PAY_ESTIMATE_LABEL = 'Estimated pay for this job';
@@ -87,50 +88,34 @@ export function isAppJobStatus(v: unknown): v is AppJobStatus {
   return typeof v === 'string' && (APP_JOB_STATUSES as readonly string[]).includes(v);
 }
 
+/** The day-of step each app status takes on server/lib/day-of-transitions.ts's ladder. */
+export const APP_STATUS_STEP = { on_my_way: 'en_route', arrived: 'arrived' } as const satisfies Record<AppJobStatus, DayOfStep>;
+
 export interface StatusBooking {
   contractorId: string | null;
   assignedContractorId: string | null;
   status: string | null;
   assignmentStatus: string | null;
   acceptedAt: Date | string | null;
-  dayOfStatus: string | null;
   scheduledDate: Date | string | null;
   durationDays: number | null;
   scheduledDates: unknown;
 }
 
-export type StatusVerdict =
-  | { ok: false; status: number; error: string }
-  | { ok: true; changed: false }
-  | { ok: true; changed: true; dayOfStatus: 'en_route' | 'arrived'; stamp: 'enRouteAt' | 'arrivedAt' };
-
-/** Day-of states after which "on my way" or "arrived" no longer means anything. */
-const CLOSED_DAY_STATES = new Set(['in_progress', 'access_failed', 'customer_unreachable', 'completed', 'cancelled_day_of']);
-
 /**
- * Pure: may this contractor record `next` on this booking today, and what does it write?
- * His job, accepted, not closed, and one of its days is today. Repeating the current state is a
- * no-op so a double tap keeps the first time. "Arrived" may skip "on my way"; nothing goes back.
+ * Pure: may this contractor record day-of progress on this booking today? His job, accepted, not
+ * closed, and one of its days is today. Which step he may take is the day-of ladder's question.
  */
-export function statusVerdict(b: StatusBooking | null | undefined, profileId: string, next: AppJobStatus, today: string): StatusVerdict {
-  if (!b) return { ok: false, status: 404, error: 'Job not found' };
-  if ((b.assignedContractorId ?? b.contractorId) !== profileId) return { ok: false, status: 403, error: 'Not your job' };
+export function appStatusRefusal(b: StatusBooking | null | undefined, profileId: string, today: string): { status: number; error: string } | null {
+  if (!b) return { status: 404, error: 'Job not found' };
+  if ((b.assignedContractorId ?? b.contractorId) !== profileId) return { status: 403, error: 'Not your job' };
   const accepted = !!b.acceptedAt || b.status === 'accepted' || ['accepted', 'in_progress', 'completed'].includes(String(b.assignmentStatus ?? ''));
-  if (!accepted) return { ok: false, status: 409, error: 'Accept the job first' };
+  if (!accepted) return { status: 409, error: 'Accept the job first' };
   if (b.status === 'completed' || b.assignmentStatus === 'completed' || b.status === 'declined' || b.status === 'cancelled') {
-    return { ok: false, status: 409, error: 'That job is closed. Anything else goes through the office.' };
+    return { status: 409, error: 'That job is closed. Anything else goes through the office.' };
   }
-  if (!b.scheduledDate) return { ok: false, status: 409, error: 'That job has no day yet' };
+  if (!b.scheduledDate) return { status: 409, error: 'That job has no day yet' };
   const days = expandSpanDates(b.scheduledDate, b.durationDays ?? 1, b.scheduledDates);
-  if (!days.includes(today)) return { ok: false, status: 409, error: 'That job is not today' };
-
-  const current = b.dayOfStatus ?? 'scheduled';
-  if (CLOSED_DAY_STATES.has(current)) return { ok: false, status: 409, error: `That job is already ${current.replace(/_/g, ' ')}` };
-  if (next === 'on_my_way') {
-    if (current === 'en_route') return { ok: true, changed: false };
-    if (current === 'arrived') return { ok: false, status: 409, error: 'You are already marked as arrived' };
-    return { ok: true, changed: true, dayOfStatus: 'en_route', stamp: 'enRouteAt' };
-  }
-  if (current === 'arrived') return { ok: true, changed: false };
-  return { ok: true, changed: true, dayOfStatus: 'arrived', stamp: 'arrivedAt' };
+  if (!days.includes(today)) return { status: 409, error: 'That job is not today' };
+  return null;
 }

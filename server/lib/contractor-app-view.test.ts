@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  appPayLines, jobPayFields, forbiddenMoneyKeys, isAppJobStatus, statusVerdict, PAY_ESTIMATE_LABEL, type StatusBooking,
+  appPayLines, jobPayFields, forbiddenMoneyKeys, isAppJobStatus, appStatusRefusal, APP_STATUS_STEP, PAY_ESTIMATE_LABEL, type StatusBooking,
 } from './contractor-app-view';
 import { computeContractorPay } from './contractor-pay';
+import { dayOfStepRefusal } from './day-of-transitions';
 
 describe('appPayLines / jobPayFields', () => {
   // £20 labour over 3h: a minimum beats the share, which is exactly the "minimum pay" the app must not claim.
@@ -34,54 +35,64 @@ describe('forbiddenMoneyKeys', () => {
   });
 });
 
-describe('statusVerdict', () => {
+describe('appStatusRefusal', () => {
   const today = '2026-09-17';
   const b = (over: Partial<StatusBooking> = {}): StatusBooking => ({
     contractorId: 'hp_me', assignedContractorId: null, status: 'accepted', assignmentStatus: 'accepted', acceptedAt: null,
-    dayOfStatus: 'scheduled', scheduledDate: '2026-09-17T09:00:00', durationDays: 1, scheduledDates: null, ...over,
+    scheduledDate: '2026-09-17T09:00:00', durationDays: 1, scheduledDates: null, ...over,
   });
 
-  it('knows only the two statuses', () => {
+  it('knows only the two statuses, each a step on the day-of ladder', () => {
     expect(isAppJobStatus('on_my_way')).toBe(true);
     expect(isAppJobStatus('arrived')).toBe(true);
     expect(isAppJobStatus('en_route')).toBe(false);
     expect(isAppJobStatus(undefined)).toBe(false);
+    expect(APP_STATUS_STEP).toEqual({ on_my_way: 'en_route', arrived: 'arrived' });
   });
 
-  it('moves scheduled → en_route → arrived, and allows arriving without on my way', () => {
-    expect(statusVerdict(b(), 'hp_me', 'on_my_way', today)).toEqual({ ok: true, changed: true, dayOfStatus: 'en_route', stamp: 'enRouteAt' });
-    expect(statusVerdict(b({ dayOfStatus: 'en_route' }), 'hp_me', 'arrived', today)).toEqual({ ok: true, changed: true, dayOfStatus: 'arrived', stamp: 'arrivedAt' });
-    expect(statusVerdict(b({ dayOfStatus: null }), 'hp_me', 'arrived', today)).toEqual({ ok: true, changed: true, dayOfStatus: 'arrived', stamp: 'arrivedAt' });
-  });
-
-  it('treats a repeat as a no-op and never goes backwards', () => {
-    expect(statusVerdict(b({ dayOfStatus: 'en_route' }), 'hp_me', 'on_my_way', today)).toEqual({ ok: true, changed: false });
-    expect(statusVerdict(b({ dayOfStatus: 'arrived' }), 'hp_me', 'arrived', today)).toEqual({ ok: true, changed: false });
-    expect(statusVerdict(b({ dayOfStatus: 'arrived' }), 'hp_me', 'on_my_way', today)).toMatchObject({ ok: false, status: 409 });
-    for (const s of ['in_progress', 'access_failed', 'customer_unreachable', 'completed', 'cancelled_day_of']) {
-      expect(statusVerdict(b({ dayOfStatus: s }), 'hp_me', 'arrived', today)).toMatchObject({ ok: false, status: 409 });
-    }
+  it('passes his accepted job for today', () => {
+    expect(appStatusRefusal(b(), 'hp_me', today)).toBeNull();
   });
 
   it('counts acceptance the way the rest of the app does', () => {
-    expect(statusVerdict(b({ status: 'pending', assignmentStatus: 'assigned' }), 'hp_me', 'arrived', today)).toMatchObject({ ok: false, status: 409, error: 'Accept the job first' });
-    expect(statusVerdict(b({ status: 'pending', assignmentStatus: 'assigned', acceptedAt: new Date() }), 'hp_me', 'arrived', today)).toMatchObject({ ok: true });
-    expect(statusVerdict(b({ status: 'pending', assignmentStatus: 'in_progress' }), 'hp_me', 'arrived', today)).toMatchObject({ ok: true });
+    expect(appStatusRefusal(b({ status: 'pending', assignmentStatus: 'assigned' }), 'hp_me', today)).toEqual({ status: 409, error: 'Accept the job first' });
+    expect(appStatusRefusal(b({ status: 'pending', assignmentStatus: 'assigned', acceptedAt: new Date() }), 'hp_me', today)).toBeNull();
+    expect(appStatusRefusal(b({ status: 'pending', assignmentStatus: 'in_progress' }), 'hp_me', today)).toBeNull();
   });
 
   it('refuses closed, declined, unscheduled and other-day jobs, and other contractors', () => {
-    expect(statusVerdict(null, 'hp_me', 'arrived', today)).toMatchObject({ status: 404 });
-    expect(statusVerdict(b({ assignedContractorId: 'hp_other' }), 'hp_me', 'arrived', today)).toMatchObject({ status: 403 });
-    expect(statusVerdict(b({ contractorId: 'hp_other', assignedContractorId: 'hp_me' }), 'hp_me', 'arrived', today)).toMatchObject({ ok: true });
-    expect(statusVerdict(b({ assignmentStatus: 'completed' }), 'hp_me', 'arrived', today)).toMatchObject({ status: 409 });
-    expect(statusVerdict(b({ status: 'declined', acceptedAt: new Date() }), 'hp_me', 'arrived', today)).toMatchObject({ status: 409 });
-    expect(statusVerdict(b({ scheduledDate: null }), 'hp_me', 'arrived', today)).toMatchObject({ status: 409, error: 'That job has no day yet' });
-    expect(statusVerdict(b({ scheduledDate: '2026-09-18T09:00:00' }), 'hp_me', 'arrived', today)).toMatchObject({ status: 409, error: 'That job is not today' });
+    expect(appStatusRefusal(null, 'hp_me', today)).toMatchObject({ status: 404 });
+    expect(appStatusRefusal(b({ assignedContractorId: 'hp_other' }), 'hp_me', today)).toMatchObject({ status: 403 });
+    expect(appStatusRefusal(b({ contractorId: 'hp_other', assignedContractorId: 'hp_me' }), 'hp_me', today)).toBeNull();
+    expect(appStatusRefusal(b({ assignmentStatus: 'completed' }), 'hp_me', today)).toMatchObject({ status: 409 });
+    expect(appStatusRefusal(b({ status: 'declined', acceptedAt: new Date() }), 'hp_me', today)).toMatchObject({ status: 409 });
+    expect(appStatusRefusal(b({ scheduledDate: null }), 'hp_me', today)).toEqual({ status: 409, error: 'That job has no day yet' });
+    expect(appStatusRefusal(b({ scheduledDate: '2026-09-18T09:00:00' }), 'hp_me', today)).toEqual({ status: 409, error: 'That job is not today' });
   });
 
   it('a multi-day job may be marked on any of its days', () => {
     const span = b({ scheduledDate: '2026-09-15T09:00:00', durationDays: 3, scheduledDates: ['2026-09-15', '2026-09-16', '2026-09-17'] });
-    expect(statusVerdict(span, 'hp_me', 'on_my_way', today)).toMatchObject({ ok: true, changed: true });
-    expect(statusVerdict(span, 'hp_me', 'on_my_way', '2026-09-18')).toMatchObject({ ok: false, error: 'That job is not today' });
+    expect(appStatusRefusal(span, 'hp_me', today)).toBeNull();
+    expect(appStatusRefusal(span, 'hp_me', '2026-09-18')).toEqual({ status: 409, error: 'That job is not today' });
+  });
+});
+
+describe('dayOfStepRefusal', () => {
+  it('climbs scheduled → en_route → arrived → in_progress one rung at a time', () => {
+    expect(dayOfStepRefusal('scheduled', 'en_route')).toBeNull();
+    expect(dayOfStepRefusal(null, 'en_route')).toBeNull();
+    expect(dayOfStepRefusal('en_route', 'arrived')).toBeNull();
+    expect(dayOfStepRefusal('arrived', 'in_progress')).toBeNull();
+  });
+
+  it('refuses skipping a rung, going back and moving a closed day', () => {
+    expect(dayOfStepRefusal('scheduled', 'arrived')).toBe("Cannot transition to arrived from status 'scheduled'. Must be 'en_route'.");
+    expect(dayOfStepRefusal(null, 'arrived')).not.toBeNull();
+    expect(dayOfStepRefusal('arrived', 'en_route')).not.toBeNull();
+    expect(dayOfStepRefusal('en_route', 'en_route')).not.toBeNull();
+    for (const s of ['in_progress', 'access_failed', 'customer_unreachable', 'completed', 'cancelled_day_of']) {
+      expect(dayOfStepRefusal(s, 'en_route')).not.toBeNull();
+      expect(dayOfStepRefusal(s, 'arrived')).not.toBeNull();
+    }
   });
 });

@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import { requireContractor, requireAdmin } from './auth';
 import { notifyCustomer } from './customer-notifications';
 import { generateBalanceInvoice } from './invoice-generator';
+import { dayOfStepRefusal } from './lib/day-of-transitions';
 
 export const jobLifecycleRouter = Router();
 
@@ -166,11 +167,8 @@ jobLifecycleRouter.post('/api/jobs/:id/en-route', requireContractor, async (req,
         const { error, status, job } = await fetchJobForContractor(id, contractorId);
         if (error || !job) return res.status(status).json({ error });
 
-        if (job.dayOfStatus !== 'scheduled') {
-            return res.status(400).json({
-                error: `Cannot transition to en_route from status '${job.dayOfStatus}'. Must be 'scheduled'.`
-            });
-        }
+        const refusal = dayOfStepRefusal(job.dayOfStatus, 'en_route');
+        if (refusal) return res.status(400).json({ error: refusal });
 
         const [updatedJob] = await db.update(contractorBookingRequests)
             .set({
@@ -202,11 +200,8 @@ jobLifecycleRouter.post('/api/jobs/:id/arrived', requireContractor, async (req, 
         const { error, status, job } = await fetchJobForContractor(id, contractorId);
         if (error || !job) return res.status(status).json({ error });
 
-        if (job.dayOfStatus !== 'en_route') {
-            return res.status(400).json({
-                error: `Cannot transition to arrived from status '${job.dayOfStatus}'. Must be 'en_route'.`
-            });
-        }
+        const refusal = dayOfStepRefusal(job.dayOfStatus, 'arrived');
+        if (refusal) return res.status(400).json({ error: refusal });
 
         const [updatedJob] = await db.update(contractorBookingRequests)
             .set({
@@ -238,11 +233,8 @@ jobLifecycleRouter.post('/api/jobs/:id/start-timer', requireContractor, async (r
         const { error, status, job } = await fetchJobForContractor(id, contractorId);
         if (error || !job) return res.status(status).json({ error });
 
-        if (job.dayOfStatus !== 'arrived') {
-            return res.status(400).json({
-                error: `Cannot start timer from status '${job.dayOfStatus}'. Must be 'arrived'.`
-            });
-        }
+        const refusal = dayOfStepRefusal(job.dayOfStatus, 'in_progress');
+        if (refusal) return res.status(400).json({ error: refusal });
 
         const [updatedJob] = await db.update(contractorBookingRequests)
             .set({

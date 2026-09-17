@@ -13,7 +13,7 @@ import { forbiddenMoneyKeys, PAY_ESTIMATE_LABEL } from './lib/contractor-app-vie
 
 const fake = vi.hoisted(() => ({
     rows: new Map<string, any[] | ((fields: any) => any[])>(),
-    updates: [] as Array<{ table: string; set: Record<string, unknown> }>,
+    updates: [] as Array<{ table: string; set: Record<string, unknown>; where?: any }>,
     returning: [] as any[],
     optimizer: null as any,
     send: null as any,
@@ -38,7 +38,7 @@ vi.mock('./db', async () => {
     const update = (table: any) => {
         const b: any = {
             set(v: Record<string, unknown>) { fake.updates.push({ table: getTableName(table), set: v }); return b; },
-            where() { return b; },
+            where(w: any) { fake.updates[fake.updates.length - 1].where = w; return b; },
             returning() { return Promise.resolve(fake.returning); },
             then(res: any, rej: any) { return Promise.resolve([]).then(res, rej); },
         };
@@ -260,7 +260,7 @@ describe('POST /jobs/:bookingId/status — on my way and arrived', () => {
         ['a job he has not accepted', [booking({ status: 'pending', assignmentStatus: 'assigned', acceptedAt: null })], 409, 'Accept the job first'],
         ['a completed job', [booking({ status: 'completed' })], 409, 'That job is closed. Anything else goes through the office.'],
         ['a job on another day', [booking({ scheduledDate: new Date(`${addDaysStr(today, 2)}T09:00:00`), scheduledDates: [addDaysStr(today, 2)] })], 409, 'That job is not today'],
-        ['a job already under way', [booking({ dayOfStatus: 'in_progress' })], 409, 'That job is already in progress'],
+        ['a job already under way', [booking({ dayOfStatus: 'in_progress' })], 409, "Cannot transition to en_route from status 'in_progress'. Must be 'scheduled'."],
     ])('refuses %s', async (_label, rows, status, error) => {
         stage({ contractor_booking_requests: rows as any[] });
         const r = await call('POST', `${TOKEN}/jobs/${BOOKING}/status`, { status: 'on_my_way' });
@@ -282,16 +282,62 @@ describe('POST /jobs/:bookingId/status — on my way and arrived', () => {
         expect(fake.send).not.toHaveBeenCalled();
     });
 
-    it('arrived stamps arrivedAt, from on my way or straight from scheduled', async () => {
-        for (const from of ['en_route', 'scheduled', null]) {
+    it('on my way then arrived: arrived stamps arrivedAt and sends the customer nothing', async () => {
+        stage({ contractor_booking_requests: [booking()] });
+        fake.returning = [{ enRouteAt: new Date(), arrivedAt: null }];
+        expect((await call('POST', `${TOKEN}/jobs/${BOOKING}/status`, { status: 'on_my_way' })).status).toBe(200);
+
+        stage({ contractor_booking_requests: [booking({ dayOfStatus: 'en_route' })] });
+        fake.returning = [{ enRouteAt: new Date(), arrivedAt: new Date() }];
+        const r = await call('POST', `${TOKEN}/jobs/${BOOKING}/status`, { status: 'arrived' });
+        expect(r.status).toBe(200);
+        expect(r.json.changed).toBe(true);
+        expect(fake.updates[0].set.dayOfStatus).toBe('arrived');
+        expect(fake.updates[0].set).toHaveProperty('arrivedAt');
+        expect(fake.updates[0].set).not.toHaveProperty('enRouteAt');
+        expect(fake.send).not.toHaveBeenCalled();
+    });
+
+    it('arrived straight from scheduled is refused, as on the session path', async () => {
+        for (const from of ['scheduled', null]) {
             stage({ contractor_booking_requests: [booking({ dayOfStatus: from })] });
             const r = await call('POST', `${TOKEN}/jobs/${BOOKING}/status`, { status: 'arrived' });
-            expect(r.status).toBe(200);
-            expect(r.json.changed).toBe(true);
-            expect(fake.updates[0].set.dayOfStatus).toBe('arrived');
-            expect(fake.updates[0].set).toHaveProperty('arrivedAt');
-            expect(fake.updates[0].set).not.toHaveProperty('enRouteAt');
+            expect(r.status).toBe(409);
+            expect(r.json.error).toMatch(/Must be 'en_route'/);
         }
+        expect(fake.updates).toEqual([]);
+        expect(fake.send).not.toHaveBeenCalled();
+    });
+
+    it('writes only if the day-of state is still the one it checked', async () => {
+        const { PgDialect } = await import('drizzle-orm/pg-core');
+        for (const [from, expected] of [['scheduled', 'scheduled'], [null, 'is null']] as const) {
+            stage({ contractor_booking_requests: [booking({ dayOfStatus: from })] });
+            fake.returning = [{ enRouteAt: new Date(), arrivedAt: null }];
+            expect((await call('POST', `${TOKEN}/jobs/${BOOKING}/status`, { status: 'on_my_way' })).status).toBe(200);
+            const q = new PgDialect().sqlToQuery(fake.updates[0].where);
+            expect(q.sql).toContain('"day_of_status"');
+            if (from === null) expect(q.sql).toContain(expected);
+            else expect(q.params).toEqual([BOOKING, expected]);
+        }
+    });
+
+    it('a lost race is refused when the job moved on, and a no-op when it already holds the state', async () => {
+        const first = new Date('2026-09-17T08:30:00Z');
+        const later = (after: Record<string, unknown>) => {
+            let reads = 0;
+            return () => [reads++ === 0 ? booking() : booking(after)];
+        };
+
+        stage({ contractor_booking_requests: later({ dayOfStatus: 'arrived', enRouteAt: first, arrivedAt: first }) });
+        fake.returning = [];
+        expect(await call('POST', `${TOKEN}/jobs/${BOOKING}/status`, { status: 'on_my_way' }))
+            .toEqual({ status: 409, json: { error: 'That job changed while you were saving. Refresh and try again.' } });
+
+        stage({ contractor_booking_requests: later({ dayOfStatus: 'en_route', enRouteAt: first }) });
+        fake.returning = [];
+        expect(await call('POST', `${TOKEN}/jobs/${BOOKING}/status`, { status: 'on_my_way' }))
+            .toEqual({ status: 200, json: { ok: true, status: 'on_my_way', changed: false, enRouteAt: first.toISOString(), arrivedAt: null } });
         expect(fake.send).not.toHaveBeenCalled();
     });
 
@@ -306,7 +352,7 @@ describe('POST /jobs/:bookingId/status — on my way and arrived', () => {
     it('on my way after arriving is refused', async () => {
         stage({ contractor_booking_requests: [booking({ dayOfStatus: 'arrived' })] });
         const r = await call('POST', `${TOKEN}/jobs/${BOOKING}/status`, { status: 'on_my_way' });
-        expect(r).toEqual({ status: 409, json: { error: 'You are already marked as arrived' } });
+        expect(r).toEqual({ status: 409, json: { error: "Cannot transition to en_route from status 'arrived'. Must be 'scheduled'." } });
         expect(fake.updates).toEqual([]);
     });
 });
