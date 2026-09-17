@@ -3,6 +3,9 @@
  * before their loaders moved to `contractor-jobs.ts`: these bodies were recorded against the
  * loaders while they still lived in `contractor-app-routes.ts`.
  *
+ * Ben's Contractors page reads the same jobs through those loaders
+ * (`GET /api/admin/contractor-desk/contractors/:id/jobs`), behind the real requireAdmin.
+ *
  * The database is `contractor-desk/fake-db.ts`, which evaluates each select's `where`, so the
  * seeded rows other contractors own, pending requests and out-of-window weeks are really filtered.
  */
@@ -17,6 +20,8 @@ vi.mock('./spine/job-pack-readers', async (importOriginal) => ({
 }));
 
 import contractorAppRouter from './contractor-app-routes';
+import { requireAdmin } from './auth';
+import { createContractorDeskRouter } from './contractor-desk/routes';
 import { resetFakeRows } from './contractor-desk/fake-db';
 
 const APP_TOKEN = 'APP-TOKEN-c1-0123456789';
@@ -29,7 +34,7 @@ const line = (lineId: string, description: string, guardedPricePence: number, mi
 });
 
 const quote = (id: string, extra: Record<string, unknown> = {}) => ({
-  id, slug: `slug-${id}`, customerName: `Customer ${id}`, postcode: 'NG1 1AA', address: `1 ${id} Street, Nottingham`,
+  id, shortSlug: `slug-${id}`, customerName: `Customer ${id}`, postcode: 'NG1 1AA', address: `1 ${id} Street, Nottingham`,
   customerPhotoUrls: [`https://files.example.test/${id}.jpg`], jobDescription: `Job for ${id}`, basePrice: 12000,
   pricingLineItems: [line(`${id}-l1`, 'Shelves', 8000, 90)], deferredLineItems: null,
   depositPaidAt: new Date('2026-09-01T00:00:00Z'), flexBookingWithinDays: null, bookedAt: new Date('2026-09-02T00:00:00Z'),
@@ -123,6 +128,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use('/api/contractor-app', contractorAppRouter);
+  app.use('/api/admin/contractor-desk', requireAdmin, createContractorDeskRouter());
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -135,8 +141,8 @@ afterAll(async () => {
 
 beforeEach(() => seedJobs());
 
-async function get(path: string) {
-  const res = await fetch(`${base}${path}`);
+async function get(path: string, bearer?: string) {
+  const res = await fetch(`${base}${path}`, bearer ? { headers: { Authorization: `Bearer ${bearer}` } } : undefined);
   return { status: res.status, json: await res.json() };
 }
 
@@ -424,5 +430,108 @@ describe('the contractor app job reads', () => {
         "weekOpen": 3,
       }
     `);
+  });
+});
+
+describe('GET /api/admin/contractor-desk/contractors/:id/jobs', () => {
+  const jobsPath = (query = '') => `/api/admin/contractor-desk/contractors/c1/jobs${query}`;
+  const asAdmin = (query = '') => { seedJobs('admin-1'); return get(jobsPath(query), 'session'); };
+
+  it('refuses a request with no admin session', async () => {
+    expect(await get(jobsPath())).toEqual({ status: 401, json: { error: 'Authentication required' } });
+  });
+
+  it("refuses a contractor's own session", async () => {
+    seedJobs('user-c1');
+    expect(await get(jobsPath(), 'session')).toEqual({ status: 403, json: { error: 'Admin access required' } });
+  });
+
+  it('answers a VA', async () => {
+    seedJobs('va-1');
+    const res = await get(jobsPath(), 'session');
+    expect(res.status).toBe(200);
+    expect(res.json.jobs.map((j: any) => j.bookingId)).toEqual(['b-up', 'b-span']);
+  });
+
+  it('refuses an unknown contractor', async () => {
+    seedJobs('admin-1');
+    const res = await get('/api/admin/contractor-desk/contractors/nobody/jobs', 'session');
+    expect(res).toEqual({ status: 404, json: { error: 'Contractor not found' } });
+  });
+
+  it('lists the upcoming jobs booked to him, with their statuses and read-only money', async () => {
+    const res = await asAdmin();
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({ contractorId: 'c1', view: 'upcoming', today: '2026-09-17' });
+    const [up, span] = res.json.jobs;
+    expect(up).toEqual({
+      bookingId: 'b-up', quoteId: 'q-up', date: '2026-09-18', spanDates: ['2026-09-18'], slot: 'am', durationDays: 1,
+      status: 'accepted', assignmentStatus: null, acceptedAt: '2026-09-02T12:00:00.000Z',
+      customerName: 'Customer q-up', postcodeArea: 'NG1', address: '1 q-up Street, Nottingham',
+      jobDescription: 'Job for q-up', fullDescription: 'Job for q-up', photoUrls: ['https://files.example.test/q-up.jpg'],
+      materials: [{ name: 'Shelves bracket', qty: 2, supplierItemNumber: 'SKU-q-up-l1' }], minutes: 90,
+      customerValuePence: 12000, payoutPence: 5000, materialsAllowancePence: 1200,
+      payLines: [{ category: 'shelving', description: 'Shelves', tier: 'general', labourPence: 8000, materialsPence: 1200, payPence: 4000, method: 'share' }],
+      jobPack: null, packChip: null,
+    });
+    // Reassigned to him, accepted by assignment, and spread over a weekend.
+    expect(span).toMatchObject({
+      bookingId: 'b-span', status: 'pending', assignmentStatus: 'accepted', slot: 'full_day',
+      spanDates: ['2026-09-25', '2026-09-28'], customerValuePence: 7500, payoutPence: null,
+    });
+  });
+
+  it('lists upcoming jobs beyond the app\'s four-week window', async () => {
+    seedJobs('admin-1');
+    const { fakeRows } = await import('./contractor-desk/fake-db');
+    fakeRows.contractor_booking_requests.push(booking('b-far', 'q-up', '2027-03-01'));
+    const res = await get(jobsPath(), 'session');
+    expect(res.json.jobs.map((j: any) => j.bookingId)).toEqual(['b-up', 'b-span', 'b-far']);
+    const app = await get(`/api/contractor-app/${APP_TOKEN}/jobs`);
+    expect(app.json.booked.map((j: any) => j.id)).toEqual(['b-up', 'b-span']);
+  });
+
+  it('lists his paid flex jobs with the customer, the deadline and his pay estimate', async () => {
+    const res = await asAdmin('?view=flex');
+    expect(res.status).toBe(200);
+    expect(res.json.view).toBe('flex');
+    expect(res.json.jobs).toHaveLength(1);
+    expect(res.json.jobs[0]).toMatchObject({
+      quoteId: 'q-flex', slug: 'slug-q-flex', customerName: 'Customer q-flex', address: '1 q-flex Street, Nottingham',
+      depositPaidAt: '2026-09-16T08:00:00.000Z', withinDays: 14, deadline: '2026-09-30',
+      multiDay: false, requiredDays: 1, needsFullDay: false, blockStarts: [],
+      customerValuePence: 12000, estimatedPayoutPence: 4000, materialsAllowancePence: 1200,
+    });
+    expect(res.json.jobs[0].suggestions[0]).toEqual({
+      date: '2026-09-18', slot: 'am', packed: true,
+      reasons: ['pairs with your NG1 job that day', 'completes a full paid day'],
+    });
+  });
+
+  it('lists one past week, with completion proof and what he earned', async () => {
+    const res = await asAdmin('?view=past&weeksBack=2');
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({
+      view: 'past', weeksBack: 2, weekStart: '2026-09-07', weekEnd: '2026-09-13', label: 'Week of 7 Sep', earnedPence: 6000,
+    });
+    expect(res.json.jobs).toEqual([expect.objectContaining({
+      bookingId: 'b-past', quoteId: 'q-past', slot: 'pm', spanDates: ['2026-09-08'], status: 'completed',
+      completed: true, completedAt: '2026-09-08', evidenceUrls: ['https://files.example.test/after.jpg'],
+      signatureDataUrl: 'data:image/png;base64,AAAA', completionNotes: 'All done',
+      customerValuePence: 12000, payoutPence: 6000,
+    })]);
+    const thisWeek = await asAdmin('?view=past');
+    expect(thisWeek.json).toMatchObject({ weeksBack: 1, label: 'Earlier this week', earnedPence: 2500 });
+    expect(thisWeek.json.jobs.map((j: any) => [j.bookingId, j.assignmentStatus])).toEqual([['b-early', 'in_progress']]);
+  });
+
+  it.each([
+    ['?view=all', 'view must be upcoming, flex or past'],
+    ['?view=upcoming&weeksBack=2', 'weeksBack applies to view=past only'],
+    ['?view=past&weeksBack=0', 'weeksBack must be a whole number from 1 to 52'],
+    ['?view=past&weeksBack=53', 'weeksBack must be a whole number from 1 to 52'],
+    ['?view=past&weeksBack=two', 'weeksBack must be a whole number from 1 to 52'],
+  ])('refuses %s', async (query, error) => {
+    expect(await asAdmin(query)).toEqual({ status: 400, json: { error } });
   });
 });

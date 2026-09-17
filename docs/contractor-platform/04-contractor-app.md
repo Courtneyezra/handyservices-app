@@ -62,6 +62,7 @@ of the customer calendar on next recompute.
 | Piece | File |
 |---|---|
 | Routes (GET week / POST day / POST pattern) | `server/contractor-app-routes.ts` (mounted `/api/contractor-app`, public — token is the credential) |
+| Job loaders (booked jobs + grid, flex queue, past weeks) | `server/contractor-jobs.ts`, shared with Ben's Contractors page (`GET /api/admin/contractor-desk/contractors/:id/jobs`) |
 | Pure helpers + validation | `server/lib/contractor-app.ts` (+ `.test.ts`, 7 vitest cases incl. off-beats-pattern round-trip through `resolveWeek`) |
 | Grid resolution | reuses `server/lib/contractor-week.ts` `resolveWeek` |
 | Page | `client/src/pages/contractor/MyWeekPage.tsx`, route `/my-week/:token` in `App.tsx` |
