@@ -489,6 +489,7 @@ describe('Ben closes a file by hand from the board', () => {
         const start = await call('POST', '/sandbox/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam' });
         const id = start.json.state.conversation.id as string;
         const ok = await call('POST', `/case-files/${id}/close`, { words: 'Sorted on the phone.' }, 'Ben.Real@handyservices.app');
+        expect(ok.json.release).toBeNull();
         expect(ok.status).toBe(200);
         expect(ok.json.card.stage).toBe('done');
         expect(ok.json.change).toMatchObject({ from: 'scoping', to: 'done', approver: 'human:Ben.Real@handyservices.app', words: 'Sorted on the phone.', why: 'closed by hand from the board' });
@@ -505,11 +506,22 @@ describe('Ben closes a file by hand from the board', () => {
         await call('POST', '/sandbox/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam' });
         const money = await call('POST', '/sandbox/message', { text: 'How much roughly?', channel: 'whatsapp' });
         const id = money.json.state.conversation.id as string;
-        expect((await call('GET', `/case-files/${id}`)).json.hold).not.toBeNull();
+        const held = (await call('GET', `/case-files/${id}`)).json;
+        expect(held.hold).not.toBeNull();
 
-        const ok = await call('POST', `/case-files/${id}/close`, {}, 'Ben.Real@handyservices.app');
+        for (const body of [{}, { words: '' }, { words: '   ' }]) {
+            const refused = await call('POST', `/case-files/${id}/close`, body, 'Ben.Real@handyservices.app');
+            expect(refused.status).toBe(409);
+            expect(refused.json.error).toBe('release needs the approver\'s words');
+        }
+        const unchanged = (await call('GET', `/case-files/${id}`)).json;
+        expect(unchanged.stage).toBe(held.stage);
+        expect(unchanged.hold).toEqual(held.hold);
+
+        const ok = await call('POST', `/case-files/${id}/close`, { words: 'Quoted him on the phone.' }, 'Ben.Real@handyservices.app');
         expect(ok.status).toBe(200);
-        expect(ok.json.release).toMatchObject({ approver: { kind: 'human', id: 'ben' }, words: 'closed the file by hand' });
+        expect(ok.json.release).toMatchObject({ approver: { kind: 'human', id: 'ben' }, words: 'Quoted him on the phone.' });
+        expect(ok.json.change).toMatchObject({ to: 'done', words: 'Quoted him on the phone.' });
         expect(ok.json.card).toMatchObject({ stage: 'done', held: false });
         expect((await call('GET', '/queue')).json.items.map((i: any) => i.id)).not.toContain(id);
 

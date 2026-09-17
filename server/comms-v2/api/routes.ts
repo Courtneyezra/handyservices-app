@@ -18,8 +18,9 @@
  *                                    route only carries the words and names who is asking
  * POST /case-files/:id/close      - Ben closes the file by hand (file-close.ts `closeByHand`): it
  *                                    goes to done with `human:<email or user id>` on the stage
- *                                    change and his optional words; a standing hold is released
- *                                    first by the same rule as /release, else nothing changes. A
+ *                                    change and his words; a standing hold is released first by
+ *                                    the same rule as /release (his own words required), else
+ *                                    nothing changes; an unheld file closes without words. A
  *                                    closed file takes no more turns; the customer's next message
  *                                    opens a new one
  * POST /case-files/:id/answer     - Ben answers the customer in his own words through the desk's
