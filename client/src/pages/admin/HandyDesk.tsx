@@ -21,9 +21,9 @@
  * renderer (client/src/lib/handy-desk-answer.ts). Both answers render in the one AnswerCard, whose
  * body (client/src/components/handy-desk/AnswerSurface.tsx, T3) carries the typed surface and confirm.
  */
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Loader2, MoreHorizontal } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { useOldComms } from '@/hooks/useOldComms';
 import { useAskSession } from '@/hooks/useAskSession';
@@ -71,8 +71,45 @@ const PILL_SECONDARY = cn(PILL, 'border border-slate-600 text-white hover:border
 
 // ---------------------------------------------------------------- header
 
+const AdminNavMenu = lazy(() => import('@/components/layout/AdminNavMenu'));
+
+function DeskMoreMenu() {
+    const [open, setOpen] = useState(false);
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open]);
+    return (
+        <div className="relative">
+            <button
+                type="button"
+                data-testid="desk-more-button"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                onClick={() => setOpen((v) => !v)}
+                className={cn('flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors', open ? 'bg-slate-800 text-amber-400' : 'text-slate-300 hover:bg-slate-800 hover:text-white')}
+            >
+                <MoreHorizontal className="h-4 w-4" /> More
+            </button>
+            {open && (
+                <>
+                    <div aria-hidden className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+                    <div className="absolute right-0 top-full z-50 mt-2 rounded-lg border border-slate-700 bg-slate-900 shadow-xl">
+                        <Suspense fallback={<Loader2 className="m-4 h-4 w-4 animate-spin text-slate-400" />}>
+                            <AdminNavMenu onNavigate={() => setOpen(false)} />
+                        </Suspense>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+}
+
 // The desk renders full screen outside the admin shell (client/src/App.tsx), so this header carries
-// the Handy Services logo and the shell's quick links, with their held-count badge, itself.
+// the Handy Services logo, the shell's quick links with their held-count badge, and a More menu of the
+// sidebar's destinations and Log out, itself.
 function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled: number | null; deskLive: boolean | null }) {
     const [location] = useLocation();
     const { heldCount, updatedAt } = useHeldCount(true);
@@ -101,6 +138,7 @@ function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled:
                         Desk {deskLive ? 'on' : 'off'}
                     </span>
                 )}
+                <DeskMoreMenu />
             </div>
         </header>
     );

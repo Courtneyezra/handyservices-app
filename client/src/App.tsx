@@ -5,12 +5,12 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { LiveCallProvider } from "@/contexts/LiveCallContext";
 import { Toaster } from "@/components/ui/toaster";
+import { HANDY_DESK_PATH } from "@/lib/handy-desk-path";
 // The admin shell is its own chunk so the Handy Desk, which renders full screen outside it, never
 // fetches the sidebar, its polling or the live-call socket. Any other admin path starts the chunk
 // at boot, beside the page's own, rather than after React first reaches the shell.
 const loadSidebarLayout = () => import("@/components/layout/SidebarLayout");
 const SidebarLayout = lazy(loadSidebarLayout);
-const HANDY_DESK_PATH = "/admin/handy-desk";
 const isHandyDesk = (path: string) => path === HANDY_DESK_PATH || path === `${HANDY_DESK_PATH}/`;
 if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin") && !isHandyDesk(window.location.pathname)) {
     void loadSidebarLayout();

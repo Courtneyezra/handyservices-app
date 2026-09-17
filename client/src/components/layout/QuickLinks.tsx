@@ -15,8 +15,7 @@ import { hasAdminToken, adminAuthHeaders } from "@/hooks/usePriceQueue";
 import { NEW_BOARD_PATH } from "@/hooks/useOldComms";
 import { queueQuery, updatedAgoLabel, type DeskQueue } from "@/lib/handy-desk-queue";
 import { cn } from "@/lib/utils";
-
-export const HANDY_DESK_PATH = "/admin/handy-desk";
+import { HANDY_DESK_PATH } from "@/lib/handy-desk-path";
 
 /**
  * The held-count badge's query. Same query key and interval as Handy Desk's own queue
