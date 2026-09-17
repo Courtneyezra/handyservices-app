@@ -50,8 +50,9 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
 }
 
 /**
- * Admits an admin or VA session, or a contractor session with a profile. For a contractor,
- * attaches `contractorId` (their profile id); an admin or VA carries none.
+ * Admits an admin or VA session, or a contractor session. For a contractor, attaches
+ * `contractorId` (their users.id, the id the contractor dashboard files quotes under);
+ * an admin or VA carries none.
  */
 export async function requireAdminOrContractor(req: Request, res: Response, next: NextFunction) {
     const authHeader = req.headers.authorization;
@@ -82,15 +83,8 @@ export async function requireAdminOrContractor(req: Request, res: Response, next
             return res.status(403).json({ error: 'Staff access required' });
         }
 
-        const profile = await db.query.handymanProfiles.findFirst({
-            where: eq(handymanProfiles.userId, user.id),
-        });
-        if (!profile) {
-            return res.status(403).json({ error: 'Contractor profile not found' });
-        }
-
         (req as any).user = user;
-        (req as any).contractorId = profile.id;
+        (req as any).contractorId = user.id;
         next();
     } catch (error) {
         console.error('[Auth] requireAdminOrContractor DB error:', error);

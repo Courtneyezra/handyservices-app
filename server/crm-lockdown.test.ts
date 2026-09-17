@@ -35,21 +35,43 @@ vi.mock('./db', async () => {
         if (table === schema.handymanProfiles) return state.profile ? [state.profile] : [];
         return state.rows.get(table) ?? [];
     };
-    const chain = (resolve: () => unknown): any => {
+    const { Column, Param, SQL } = await import('drizzle-orm');
+    // A plain `eq(column, value)` filters the fake rows; any other condition leaves them as they are.
+    const eqFilter = (table: unknown, cond: unknown): ((row: Row) => boolean) | null => {
+        if (!(cond instanceof SQL)) return null;
+        const flat: unknown[] = [];
+        const walk = (chunk: unknown) => chunk instanceof SQL ? chunk.queryChunks.forEach(walk) : flat.push(chunk);
+        walk(cond);
+        const columns = flat.filter(c => c instanceof Column);
+        const params = flat.filter(c => c instanceof Param) as InstanceType<typeof Param>[];
+        if (columns.length !== 1 || params.length !== 1) return null;
+        const key = Object.keys(table as object).find(k => (table as any)[k] === columns[0]);
+        return key ? (row: Row) => row[key] === params[0].value : null;
+    };
+    const chain = (resolve: () => unknown, table?: unknown): any => {
+        let filter: ((row: Row) => boolean) | null = null;
         const p: any = {
-            then: (ok: any, err: any) => Promise.resolve().then(resolve).then(ok, err),
+            then: (ok: any, err: any) => Promise.resolve().then(() => {
+                const out = resolve();
+                return filter && Array.isArray(out) ? out.filter(filter) : out;
+            }).then(ok, err),
+            where: (cond: unknown) => { if (table) filter = eqFilter(table, cond); return p; },
         };
-        for (const m of ['where', 'orderBy', 'limit', 'offset', 'returning', 'innerJoin', 'leftJoin',
+        for (const m of ['orderBy', 'limit', 'offset', 'returning', 'innerJoin', 'leftJoin',
             'groupBy', 'onConflictDoUpdate', 'onConflictDoNothing', '$dynamic']) {
             p[m] = () => p;
         }
         return p;
     };
     const db: any = {
-        select: () => ({ from: (table: unknown) => chain(() => rowsFor(table)) }),
+        select: () => ({ from: (table: unknown) => chain(() => rowsFor(table), table) }),
         selectDistinct: () => ({ from: (table: unknown) => chain(() => rowsFor(table)) }),
         insert: (table: unknown) => ({
-            values: (values: Row) => chain(() => { state.inserts.push({ table, values }); return []; }),
+            values: (values: Row) => chain(() => {
+                state.inserts.push({ table, values });
+                state.rows.set(table, [...(state.rows.get(table) ?? []), values]);
+                return [];
+            }),
         }),
         update: (table: unknown) => ({
             set: (values: Row) => chain(() => { state.updates.push({ table, values }); return rowsFor(table); }),
@@ -102,6 +124,7 @@ import { clientAggregationRouter } from './client-aggregation';
 import clientRouter from './client-routes';
 import { jobAssignmentRouter } from './job-assignment';
 import { invoiceRouter } from './invoices';
+import contractorDashboardRouter from './contractor-dashboard-routes';
 
 function appWith(): express.Express {
     const app = express();
@@ -113,6 +136,7 @@ function appWith(): express.Express {
     app.use(jobAssignmentRouter);
     app.use(clientAggregationRouter);
     app.use(clientRouter);
+    app.use('/api/contractor', contractorDashboardRouter);
     return app;
 }
 
@@ -405,7 +429,7 @@ describe('quote creation and job analysis are for staff and contractors', () => 
         ownershipContext: 'homeowner',
         desiredTimeframe: 'flex',
         selectedRoute: 'instant',
-        contractorId: 'profile-2',
+        contractorId: 'user-2',
     };
     const insertedQuote = () => state.inserts.find(i => i.table === schema.personalizedQuotes)?.values;
 
@@ -432,11 +456,15 @@ describe('quote creation and job analysis are for staff and contractors', () => 
         expect(res.body.summary).toBe('Replace a tap');
     });
 
-    it('a contractor\'s quote is filed under their own profile, whatever the body names', async () => {
+    it('a contractor\'s quote is filed under their own user id, whatever the body names, and is listed for them', async () => {
         signIn('contractor');
         const res = await call('POST', '/api/personalized-quotes/value', { token: TOKEN, body: NEW_QUOTE });
         expect(res.status).toBe(201);
-        expect(insertedQuote()?.contractorId).toBe('profile-1');
+        expect(insertedQuote()?.contractorId).toBe('user-1');
+
+        const list = await call('GET', '/api/contractor/quotes', { token: TOKEN });
+        expect(list.status).toBe(200);
+        expect(list.body.map((q: Row) => q.id)).toEqual([res.body.id]);
     });
 
     it('an admin analyses a job', async () => {
@@ -449,7 +477,7 @@ describe('quote creation and job analysis are for staff and contractors', () => 
         signIn('admin');
         const res = await call('POST', '/api/personalized-quotes/value', { token: TOKEN, body: NEW_QUOTE });
         expect(res.status).toBe(201);
-        expect(insertedQuote()?.contractorId).toBe('profile-2');
+        expect(insertedQuote()?.contractorId).toBe('user-2');
         expect(insertedQuote()?.createdBy).toBe('user-1');
     });
 });
