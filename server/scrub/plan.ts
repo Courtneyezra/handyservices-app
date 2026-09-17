@@ -277,10 +277,10 @@ const OVERRIDES: Record<string, Treatment> = {
     'comms_v2_case_files.location': 'postcode',         // the job's postcode, outward code or area
     'comms_v2_case_files.text': 'message_body',         // a bubble the desk sent
     'comms_v2_case_files.draft': 'message_body',        // a held reply
-    'comms_v2_case_files.words': 'note',                // what the approver said releasing a hold
+    'comms_v2_case_files.words': 'note',                // what the approver said releasing a hold or closing the file
     'comms_v2_case_files.value': 'note',                // a fact's value: a postcode, access, the job
     'comms_v2_case_files.path': 'url',                  // a downloaded photo's local path
-    'comms_v2_case_files.approver': 'actor',            // `human:<email or user id>` on a turn or send
+    'comms_v2_case_files.approver': 'actor',            // `human:<email or user id>` on a turn, send or hand close
     // `why` is the desk's own words about a stage move, and `subject` is the ask ledger's
     // enumeration the desk reads back, so both are kept and swept. `reason` is not: a hold or
     // release reason can carry a customer's own new address or e-mail read straight off a change

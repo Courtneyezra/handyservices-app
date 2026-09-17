@@ -276,6 +276,10 @@ jobAssignmentRouter.post('/api/jobs/:id/complete', requireContractor, async (req
             .returning();
 
         console.log(`[Job Assignment] Job ${id} completed. Time: ${timeOnJobSeconds}s, Signature: ${signatureDataUrl ? 'Yes' : 'No'}`);
+        // Signed off: the new desk's live case files for this quote or this booking close as done
+        // (server/comms-v2/file-close.ts). Never throws.
+        await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(job.quoteId, id, 'signed_off'))
+            .catch((e: any) => console.error('[Job Assignment] comms-v2 file close failed:', e?.message));
 
         res.json({ success: true, job: updatedJob });
     } catch (error: any) {

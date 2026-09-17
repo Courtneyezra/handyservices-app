@@ -44,7 +44,7 @@ specialists share; nothing passes between them any other way.
 |---|---|---|
 | parties | each person on the job: person id, role, the channels they can be reached on with the canonical address, and for WhatsApp when the window closes | At least one. A tenant issue has two. Reply channel is chosen per party, never per file. |
 | turns | every message from every channel in order: when, channel, direction, party, kind (text, media, call transcript, form, portal action, system), body, media with its description once described, and for outbound the run id and approver | Append only. A turn is never edited or deleted. A call transcript is a turn like any other. |
-| stage | one of `first_contact`, `scoping`, `ready`, `quoted`, `accepted`, `booked`, `done`, with the history of every change and why | Moves only through `set_stage`. The kanban's columns are exactly these seven. |
+| stage | one of `first_contact`, `scoping`, `ready`, `quoted`, `accepted`, `booked`, `done`, with the history of every change and why, and on a hand close the person and their words | Moves only through `set_stage`, and into `booked` or `done` through `close`. The kanban's columns are exactly these seven. `booked` and `done` are closed. |
 | facts | what has been established: key, value, the source (thread turn, quote line, knowledge-base row, customer record, diary row, media description), when, and by which specialist | A fact without a source is refused. The composer may write only from facts. This is how "never a claim we cannot evidence" becomes checkable. |
 | ask ledger | per subject (media, postcode, access, handoff, and any the specialists add): asked at which turn, answered at which, thanked at which | Spans every channel and every specialist. Asking a subject already asked and unanswered is refused. Thanking twice is refused. |
 | hold | whether the job is waiting on an approver, which approver (Ben, or a landlord's rules then the landlord), the reason, since when, and the words that released it | A hold is a flag on the file, not a stage, so a held job still shows in its column with the hold on top. Released only with the approver's words recorded. |
@@ -53,9 +53,10 @@ specialists share; nothing passes between them any other way.
 
 | Call | Does | Refuses when |
 |---|---|---|
-| `open` | creates a file from an identity result and the first turn, stage first contact | The person already has an open file for a job that is not done: the turn is appended there instead. Identity returned candidates rather than one person. |
+| `open` | creates a file from an identity result and the first turn, stage first contact | The person already has an open file, one not booked or done: the turn is appended there instead. A file at quoted or accepted is open. Identity returned candidates rather than one person. |
 | `append_turn` | adds a turn | The party is not on the file. The turn is out of order. |
 | `set_stage` | moves the stage and records why | The move is not one the seven allow. Ready without type and location. |
+| `close` | moves the file to booked (walking forward from where it stands, with the booking reference) when its booking lands, or to done when the job is signed off, its invoice is paid, or a person closes it by hand, naming that person as `human:<email or user id>` | The file is already at or past that stage. A hand close that names no person, or on a held file without the words of the approver the hold names. |
 | `record_fact` | adds an established fact with its source | No source. A figure whose source is not a live quote line or a customer record. |
 | `ask` / `answered` / `thanked` | writes the ledger | Ask on a subject already asked and unanswered. Thank on a subject already thanked. |
 | `hold` / `release` / `supersede` | sets or clears the hold with the approver and words; `supersede` hands a standing hold to a graver reason, recording what it was held on, what it is held on now and when it changed | A second hold while one stands. Release without words. Release by anyone other than the named approver. Supersede on a file that is not held. |

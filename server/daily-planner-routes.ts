@@ -734,6 +734,14 @@ router.get('/promise-stats', async (_req: Request, res: Response) => {
   }
 });
 
+/** The bookings from these quotes have landed: the new desk's live case files for them close as booked (server/comms-v2/file-close.ts). Never throws. */
+async function fileDispatchedBooked(booked: Array<{ quoteId: string; jobId: string }>): Promise<void> {
+  for (const b of booked) {
+    await import('./comms-v2/file-close').then(({ fileBooked }) => fileBooked(b.quoteId, b.jobId))
+      .catch((e: any) => console.error('[Daily Planner] comms-v2 file close failed:', e?.message));
+  }
+}
+
 // ─── POST /confirm-dispatch — Pick date, assign contractor, notify customer ───
 
 router.post('/confirm-dispatch', async (req: Request, res: Response) => {
@@ -892,6 +900,8 @@ router.post('/confirm-dispatch', async (req: Request, res: Response) => {
           .where(eq(leads.id, quote.leadId));
       }
     });
+
+    await fileDispatchedBooked([{ quoteId, jobId }]);
 
     // 7. Send customer WhatsApp (best-effort, non-blocking)
     const slotLabel: Record<string, string> = {
@@ -1507,7 +1517,7 @@ router.post('/dispatch-all', async (req: Request, res: Response) => {
 
       const dispatched: string[] = [];
       const skipped: string[] = [];
-      const jobSummaries: { customerName: string; address: string; description: string; jobId: string }[] = [];
+      const jobSummaries: { customerName: string; address: string; description: string; jobId: string; quoteId: string }[] = [];
 
       // Dispatch in a transaction
       await db.transaction(async (tx) => {
@@ -1565,9 +1575,12 @@ router.post('/dispatch-all', async (req: Request, res: Response) => {
             address: quote.address || quote.postcode || '',
             description: quote.jobDescription,
             jobId,
+            quoteId: quote.id,
           });
         }
       });
+
+      await fileDispatchedBooked(jobSummaries);
 
       // Update lastAssignedAt
       if (dispatched.length > 0) {
@@ -1696,7 +1709,7 @@ router.post('/confirm-cluster', async (req: Request, res: Response) => {
 
     const dispatched: string[] = [];
     const skipped: string[] = [];
-    const jobSummaries: { customerName: string; address: string; description: string; jobId: string }[] = [];
+    const jobSummaries: { customerName: string; address: string; description: string; jobId: string; quoteId: string }[] = [];
 
     // Transaction: dispatch all valid jobs
     await db.transaction(async (tx) => {
@@ -1762,9 +1775,12 @@ router.post('/confirm-cluster', async (req: Request, res: Response) => {
           address: quote.address || quote.postcode || '',
           description: quote.jobDescription,
           jobId,
+          quoteId: quote.id,
         });
       }
     });
+
+    await fileDispatchedBooked(jobSummaries);
 
     // Update contractor's lastAssignedAt
     if (dispatched.length > 0) {

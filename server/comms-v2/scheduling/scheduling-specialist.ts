@@ -157,6 +157,22 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         nothingKnown = standing.state === 'unknown' && !theirs;
     }
 
+    // A file names no booking and no quote when the job it was opened for is new, which is also what a
+    // booked customer's next message opens, since a booked file is closed (desk/store.ts). Asked what day
+    // we are coming there, the customer's own booking is looked up by their phone and email and a lone
+    // standing one is confirmed, as a date change does; an availability question still never looks up.
+    if (!shapedBeforeModel && !asks.includes('date_change') && asks.includes('booked_date') && !file.job.bookingRef && !file.job.quoteRef) {
+        const linked = await linkPartyBooking(file, deps);
+        if (linked.found.state === 'unknown' && linked.found.detail) details.push(`${linked.found.reason}: ${linked.found.detail}`);
+        if (linked.linked) {
+            standing = await confirmBookedDate(file, deps);
+            if (!standing.ok && !standing.expected) details.push(standing.detail ? `${standing.reason}: ${standing.detail}` : standing.reason);
+            couldStand = standing.state !== 'none';
+            theirs = isTheirBooking(file, standing);
+            nothingKnown = standing.state === 'unknown' && !theirs;
+        }
+    }
+
     // A date change is a change to a booked job (checklist 5.5), so it is live when the diary shows a
     // booking the file names, when the customer has one under their own phone or email, and when the
     // router called the turn one and the diary could not say whether they have one: that read fails

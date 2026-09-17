@@ -24,6 +24,10 @@
  * send (POST /case-files/:id/send-template) only when one's wording is true for the thread; when
  * none is, it says so rather than offering a retry.
  *
+ * Below both, Close file (POST /case-files/:id/close): Ben closes a file by hand, with optional words
+ * for the file, after a second tap to confirm. The file moves to Done under his name, a hold on it is
+ * released by the same rule as the release form, and the customer's next message opens a new file.
+ *
  * It doubles as the window onto the sandbox while the rest of the desk is built, so the header
  * carries a control that starts a sandbox thread and sends the next customer message through the
  * board's own sandbox door. The board itself polls every fifteen seconds; no websockets.
@@ -473,6 +477,60 @@ export function AnswerForm({ fileId, held, onAnswered, lastInboundTurnId }: {
     );
 }
 
+// ---------------------------------------------------------------- close by hand
+
+/** Close the file by hand: words (required on a held file), then a second tap to confirm. Shown on any file not yet done. */
+export function CloseFileForm({ fileId, held, onClosed }: { fileId: string; held: boolean; onClosed: () => void }) {
+    const [confirming, setConfirming] = useState(false);
+    const [words, setWords] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const close = async () => {
+        setBusy(true);
+        setError(null);
+        try {
+            const res = await fetch(`/api/comms-v2/case-files/${fileId}/close`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                body: JSON.stringify({ words }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || `Close failed (${res.status})`);
+            setConfirming(false);
+            onClosed();
+        } catch (e: any) {
+            setError(e?.message || 'Close failed');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    if (!confirming) {
+        return (
+            <Button data-testid="close-file" size="sm" variant="outline" onClick={() => setConfirming(true)}>
+                Close file
+            </Button>
+        );
+    }
+    return (
+        <div data-testid="close-file-confirm" className="rounded-lg border p-3">
+            <p className="text-sm font-semibold">Close this file as done?</p>
+            <p className="mt-1 text-xs text-muted-foreground">The desk takes no more turns on it. The customer's next message opens a new file.{held ? ' The file is held: your words release the hold.' : ''}</p>
+            <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="close-words">{held ? 'Your words, for the file (required to release the hold)' : 'Your words, for the file (optional)'}</label>
+            <Textarea id="close-words" value={words} onChange={(e) => setWords(e.target.value)} placeholder="Why it is closed" className="mt-1" rows={2} />
+            {error && <p data-testid="close-file-error" className="mt-2 text-xs text-red-600">{error}</p>}
+            <div className="mt-3 flex gap-2">
+                <Button data-testid="close-file-yes" size="sm" disabled={busy} onClick={close}>
+                    {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                    Close file
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => { setConfirming(false); setError(null); }}>Cancel</Button>
+            </div>
+        </div>
+    );
+}
+
 // ---------------------------------------------------------------- case file detail
 
 export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = false, readOnly = false }: {
@@ -480,7 +538,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
     onReleased: () => void;
     onAnswered: () => void;
     showMode?: boolean;
-    /** The viewer holds no approver slot: the hold is shown, and Send, Release and Answer are hidden rather than offered to be refused. */
+    /** The viewer holds no approver slot: the hold is shown, and Send, Release, Answer and Close file are hidden rather than offered to be refused. */
     readOnly?: boolean;
 }) {
     const { data, isLoading, error } = useQuery<CaseFileDetail>({
@@ -585,6 +643,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
                     />
                 )}
                 {!readOnly && <AnswerForm fileId={data.id} held={!!data.hold} onAnswered={onAnswered} lastInboundTurnId={lastInboundTurnId} />}
+                {!readOnly && data.stage !== 'done' && <CloseFileForm key={data.id} fileId={data.id} held={!!data.hold} onClosed={onAnswered} />}
             </div>
         </div>
     );
