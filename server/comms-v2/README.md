@@ -156,6 +156,8 @@ together, on the next read, with nothing written to any row:
   holding a burst of customer messages (`waits`), once a minute; a pass never messages a customer
   except to recover a burst another gateway left behind at a restart (`clockDue`, `Gateway.clock`
   above), and leaves a burst this process is still timing or answering alone. Ticks never overlap.
+  The same tick closes a quoted file that has gone 30 days quiet ("A stale quote closes itself after
+  30 days" below).
 - Ben's chase goes to `COMMS_V2_CHASE_BEN_E164` and the owner's escalation to
   `COMMS_V2_CHASE_OWNER_E164` (`chaseStateFromEnv`); a number not set is a refusal on the record.
 
@@ -428,14 +430,39 @@ quote, and closes when that quote's own events arrive. Only files not yet done, 
 intake's store and only while the new desk is the live desk (`commsV2Live`). Each call is awaited
 after the event's own write and never throws into it; no log line carries a value from a file.
 
+### A stale quote closes itself after 30 days
+
+17 Sep, answer 125, "Close after 30 days": a quoted customer who was never booked kept an open file
+forever, so a return months later with a different job landed on the old file and was refused with "a
+quote already stands". A file at `quoted`, not held for Ben, whose quote has stood unanswered for
+`STALE_QUOTE_CLOSE_DAYS` (30, `file-close.ts`) closes as `done`, recorded on the stage change with why
+and marked `staleQuote`. Measured from the file's last activity (`quietSince`): the newest stage move to
+`quoted`, the desk's later automatic reissue of the quote (`quote_reissued`, which puts it live again
+without moving the stage), or the newest turn either way, so a file with any conversation in the last
+30 days never closes. `accepted` and `booked` files
+have moved past `quoted`, so they, a file held for Ben and a file with a customer burst waiting, are
+never touched (`staleQuoteDue`). Run by the live clock tick (`closeStaleQuotes`, called from
+`channels/live-clock.ts`'s `liveClockTick`) each minute, not a scheduler of its own; each close is a
+pass queued behind any desk pass on the file (`Gateway.passOn`) and asks again there, so it never
+closes a file under a customer's turn. As with the events above: only the live intake's store, only
+while the new desk is the live desk, never throws into the tick, and the customer's next message then
+opens a fresh file.
+
+A stale close is the one close that reopens (`reopenStaleQuoteFiles`): a payment on its quote (the
+Stripe webhook, `quoting/live-acceptance.ts`) or a booking or completion naming it puts the file back
+at `quoted` with a system turn saying why, and the event then moves it on and is recorded on it, so no
+take-up of the quote is lost; a payment the desk then cannot record closes it again as stale
+(`recloseStaleQuote`) and goes to the old alerts. The quote itself is not changed. A file closed by its booking, its
+completion or by hand stays closed.
+
 A closed file is never where the person's next message lands (`desk/store.ts` `newestOpenFor`): that
 message opens a new file with no job type, location, quote or facts, so Scoping starts the new job
 from nothing and Quoting drafts its own quote rather than refusing beside the old one ("a quote
 already stands"). A booked file's clocks still run (`channels/live-clock.ts` stops only at `done`),
 because a hold on it is still Ben's. A file at `quoted` or `accepted` stays open and takes the
-message, as it did before: that quote is still being decided or is paid and waiting for its date,
-so a message then is about it, and the 17 Sep report behind that answer showed harm only from files that
-never closed.
+message, as it did before, a quoted one until it goes 30 days quiet (above): that quote is still
+being decided or is paid and waiting for its date, so a message then is about it, and the 17 Sep
+report behind that answer showed harm only from files that never closed.
 
 By hand, `closeByHand` moves the file to `done` with `approver: human:<email or user id>` and the
 person's `words` on the stage change (the scrub classifies both keys; `why` stays the

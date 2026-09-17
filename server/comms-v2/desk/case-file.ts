@@ -21,7 +21,11 @@ import type { ChaseRecord } from '../service/chase';
 export const STAGES = ['first_contact', 'scoping', 'ready', 'quoted', 'accepted', 'booked', 'done'] as const;
 export type Stage = (typeof STAGES)[number];
 
-/** The moves the seven stages allow: forward one step, back to scoping while nothing is quoted, and done from anywhere. */
+/**
+ * The moves the seven stages allow: forward one step, back to scoping while nothing is quoted, and
+ * done from anywhere. The walk is otherwise forward only; the single step back is the stale-quote
+ * reopen, which `reopenStaleClosed` writes itself and `isStaleQuoteReopen` names.
+ */
 export function stageMoveAllowed(from: Stage, to: Stage): boolean {
     if (from === to) return false;
     if (to === 'done') return true;
@@ -348,6 +352,10 @@ export interface StageChange {
     approver?: string;
     /** What that person said closing it, as typed. */
     words?: string;
+    /** Set only on a close by the 30-day stale quote rule (file-close.ts), the one close a later take-up of the quote reopens. */
+    staleQuote?: true;
+    /** Set only on the step back a stale close allows: `reopenStaleClosed` putting the file at `quoted` because that quote was taken up. */
+    reopened?: true;
 }
 
 export interface CaseFile {
@@ -548,6 +556,8 @@ export interface CloseInput {
     words?: string;
     /** The booking that landed, written onto the job. */
     bookingRef?: string | null;
+    /** A close by the 30-day stale quote rule. */
+    staleQuote?: boolean;
 }
 
 /**
@@ -570,8 +580,44 @@ export function closeFile(file: CaseFile, to: 'booked' | 'done', input: CloseInp
     if (!r.ok) return r;
     if (input.approver) r.value.approver = input.approver;
     if (input.words?.trim()) r.value.words = input.words.trim();
+    if (input.staleQuote) r.value.staleQuote = true;
     if (input.bookingRef) file.job.bookingRef = input.bookingRef;
     return r;
+}
+
+/** Whether the file stands closed by the 30-day stale quote rule, nothing having moved it since. */
+export function staleClosed(file: CaseFile): boolean {
+    return file.stage === 'done' && !!file.stageHistory[file.stageHistory.length - 1]?.staleQuote;
+}
+
+/**
+ * Reopens a file the stale quote rule closed, back at `quoted`, because its quote was taken up after
+ * all: the event then moves it on as it would have. A system turn records why. Refuses every other
+ * file, so a file closed by its booking, its completion or by hand stays closed.
+ */
+export function reopenStaleClosed(file: CaseFile, why: string, deps: CaseFileDeps = {}): Outcome<StageChange> {
+    if (!staleClosed(file)) return refuse('only a file closed as a stale quote reopens');
+    const now = deps.now ?? (() => new Date());
+    const last = file.turns[file.turns.length - 1];
+    const at = new Date(Math.max(now().getTime(), last ? Date.parse(last.at) : 0)).toISOString();
+    const party = file.parties[0];
+    const turn = appendTurn(file, { at, channel: 'form', direction: 'inbound', partyId: party.personId, kind: 'system', body: `Reopened: the stale quote ${file.job.quoteRef ?? ''} was taken up (${why}).`, media: [], runId: null, approver: null }, deps);
+    if (!turn.ok) return turn;
+    const change: StageChange = { from: file.stage, to: 'quoted', at, why: `reopened: the stale quote was taken up (${why})`, reopened: true };
+    file.stage = 'quoted';
+    file.stageHistory.push(change);
+    return accept(change);
+}
+
+/**
+ * The one step back the walk through the seven allows, so `invariantViolations` admits it: a file the
+ * 30-day stale quote rule closed, put back at `quoted` because that quote was taken up after all.
+ * Both records must be there, the stale close it steps back from and the reopen itself, so every
+ * other backward move stays refused. `stageMoveAllowed`, and with it `setStage`, is forward only:
+ * this move is written by `reopenStaleClosed` alone.
+ */
+export function isStaleQuoteReopen(before: StageChange | null, change: StageChange): boolean {
+    return !!before?.staleQuote && before.to === 'done' && change.reopened === true && change.from === 'done' && change.to === 'quoted';
 }
 
 // ---------------------------------------------------------------- facts
@@ -817,10 +863,12 @@ export function invariantViolations(file: CaseFile): string[] {
         if (asks.length > 1) out.push(`subject ${l.subject} has ${asks.length} ledger rows`);
     }
     let prev: Stage | null = null;
+    let before: StageChange | null = null;
     for (const c of file.stageHistory) {
         if (c.from !== prev) out.push(`stage history breaks at ${c.to}: from ${c.from}, expected ${prev}`);
-        if (prev !== null && !stageMoveAllowed(prev, c.to)) out.push(`stage move ${prev} -> ${c.to} is not allowed`);
+        if (prev !== null && !stageMoveAllowed(prev, c.to) && !isStaleQuoteReopen(before, c)) out.push(`stage move ${prev} -> ${c.to} is not allowed`);
         prev = c.to;
+        before = c;
     }
     if (file.hold && !file.hold.approver?.id) out.push('a held file has no named approver');
     const addresses = new Map<string, string>();

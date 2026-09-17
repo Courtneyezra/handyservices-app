@@ -270,6 +270,13 @@ export class Gateway {
         return next;
     }
 
+    /** A pass on a file that is not the desk's (the stale quote close, file-close.ts), queued behind any desk pass on it like one; null when there is no such file. */
+    async passOn<T>(fileId: string, pass: (file: CaseFile) => T | Promise<T>): Promise<T | null> {
+        const file = this.store.get(fileId);
+        if (!file) return null;
+        return this.deskPass(file, async (f) => pass(f));
+    }
+
     /**
      * A clock pass with no new message. The desk never chases, so this is where "then quiet" is
      * proven - unless the file holds a wait a restart left behind (another gateway's, `TurnWait`)

@@ -59,8 +59,9 @@ export function setupCronJobs() {
     // .enabled, which ships false — flip it via scripts/_comms-agent-config.ts.
     // ==========================================
     // COMMS-V2 LIVE CLOCK — every minute. The new desk's clock pass (Ben's chase, the owner's
-    // escalation, the unpriced draft's chase); every tick asks commsV2Live() first and does nothing
-    // while any switch-over switch is off (server/comms-v2/channels/live-clock.ts).
+    // escalation, the unpriced draft's chase, and a stale quote's own close after 30 days, answer
+    // 125); every tick asks commsV2Live() first and does nothing while any switch-over switch is off
+    // (server/comms-v2/channels/live-clock.ts).
     gateCustomerLoop('cron: comms-v2 live clock (every minute)', () => cron.schedule("* * * * *", async () => {
         try {
             const { runLiveClockTick } = await import('./comms-v2/channels/live-clock');

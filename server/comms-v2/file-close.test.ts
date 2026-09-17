@@ -6,7 +6,7 @@
  * one. A file at quoted or accepted stays open and takes the message, as before.
  */
 import { describe, expect, it } from 'vitest';
-import { closeFile, hold, invariantViolations, isClosed, open, recordFact, setStage, type CaseFile, type Stage } from './desk/case-file';
+import { appendTurn, closeFile, hold, invariantViolations, staleClosed, isClosed, open, recordFact, reopenStaleClosed, setStage, snapshot, type CaseFile, type Stage } from './desk/case-file';
 import type { DeskLike, DeskResult } from './desk/desk-types';
 import { Gateway } from './desk/gateway';
 import { MemoryCaseFileStore, newestOpenFor } from './desk/store';
@@ -14,8 +14,8 @@ import type { InboundTurn } from './desk/whatsapp-adapter';
 import { recordingNotifier } from './quoting/ben-notifier';
 import { FakeDrafter, type DraftIntake } from './quoting/draft-quote';
 import { MemoryQuoteStore } from './quoting/quote-store';
-import { draftQuote, type QuotingDeps } from './quoting/quoting-tools';
-import { closeByHand, closeLiveFileForQuote, fileBooked, fileDone, type FileCloseDeps } from './file-close';
+import { draftQuote, recordReissue, type QuotingDeps } from './quoting/quoting-tools';
+import { closeByHand, closeLiveFileForQuote, closeStaleQuotes, fileBooked, fileDone, STALE_QUOTE_CLOSE_DAYS, staleQuoteDue, type FileCloseDeps, type StaleQuoteDeps } from './file-close';
 import { MemoryDiary } from './scheduling/diary';
 import { pickerLink } from './scheduling/scheduling-tools';
 
@@ -332,6 +332,192 @@ describe('the automatic close on live events', () => {
         const broken = live([file], { throws: true, slug: 'Q1' });
         await expect(closeLiveFileForQuote({ quoteId: 'q1', to: 'booked', why: 'x' }, broken.deps)).resolves.toEqual({ closed: [], skipped: 'failed' });
         expect(broken.lines.join('\n')).toMatch(/failed: gateway down/);
+    });
+});
+
+// ---------------------------------------------------------------- stale quote close (answer 125)
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const daysAgo = (n: number) => new Date(Date.parse(AT) - n * DAY_MS).toISOString();
+
+/** A file walked to quoted, its quote sent at the given time (not the walk's own AT). */
+function quotedFile(personId: string, sentAt: string, opened = sentAt): CaseFile {
+    const file = fileFor(personId, 'ready', opened);
+    const moved = setStage(file, 'quoted', 'quote sent', { now: () => new Date(sentAt) });
+    if (!moved.ok) throw new Error(moved.reason);
+    return file;
+}
+
+function staleDeps(files: CaseFile[]): { deps: StaleQuoteDeps; store: MemoryCaseFileStore; gateway: Gateway } {
+    const store = new MemoryCaseFileStore();
+    for (const f of files) store.put(f);
+    const gateway = new Gateway({ desk: fakeDesk, store });
+    return { deps: { liveState: async () => ({ live: true }), gateway: async () => gateway, now, log: () => {} }, store, gateway };
+}
+
+function staleClosedFile(personId: string, quoteRef: string): CaseFile {
+    const file = quotedFile(personId, daysAgo(31));
+    file.job.quoteRef = quoteRef;
+    const r = closeFile(file, 'done', { why: 'stale', staleQuote: true }, { now });
+    if (!r.ok) throw new Error(r.reason);
+    return file;
+}
+
+describe('closeStaleQuotes (17 Sep, answer 125, "Close after 30 days")', () => {
+    it('STALE_QUOTE_CLOSE_DAYS is 30', () => {
+        expect(STALE_QUOTE_CLOSE_DAYS).toBe(30);
+    });
+
+    it('a quote sent 29 days ago stays open; one sent 31 days ago closes as done', async () => {
+        const fresh = quotedFile('p1', daysAgo(29));
+        const stale = quotedFile('p2', daysAgo(31));
+        expect(staleQuoteDue(fresh, new Date(AT))).toBe(false);
+        expect(staleQuoteDue(stale, new Date(AT))).toBe(true);
+        const { deps } = staleDeps([fresh, stale]);
+        const out = await closeStaleQuotes(deps);
+        expect(out.closed).toEqual([{ caseId: stale.id, to: 'done' }]);
+        expect(stale.stage).toBe('done');
+        expect(stale.stageHistory[stale.stageHistory.length - 1]).toMatchObject({ from: 'quoted', to: 'done', staleQuote: true });
+        expect(staleClosed(stale)).toBe(true);
+        expect(fresh.stage).toBe('quoted');
+    });
+
+    it('an accepted quote is never auto-closed', async () => {
+        const file = quotedFile('p1', daysAgo(40));
+        setStage(file, 'accepted', 'the customer accepted');
+        const { deps } = staleDeps([file]);
+        expect((await closeStaleQuotes(deps)).closed).toEqual([]);
+        expect(file.stage).toBe('accepted');
+    });
+
+    it('a file with a booking is never auto-closed', async () => {
+        const file = quotedFile('p1', daysAgo(40));
+        expect(closeFile(file, 'booked', { why: 'test', bookingRef: 'bk1' }).ok).toBe(true);
+        const { deps } = staleDeps([file]);
+        expect((await closeStaleQuotes(deps)).closed).toEqual([]);
+        expect(file.stage).toBe('booked');
+    });
+
+    it('a file held for Ben is never auto-closed, and stays in front of him', async () => {
+        const file = quotedFile('p1', daysAgo(40));
+        hold(file, { approver: BEN, reason: 'money: how much' });
+        const { deps } = staleDeps([file]);
+        expect((await closeStaleQuotes(deps)).closed).toEqual([]);
+        expect(file.stage).toBe('quoted');
+        expect(file.hold).not.toBeNull();
+    });
+
+    it('an automatic reissue restarts the 30 days: a quote sent 40 days ago and reissued 5 days ago stays open', async () => {
+        const file = quotedFile('p1', daysAgo(40));
+        file.job.quoteRef = 'Q7SLUG';
+        const issue = { fromExpiresAt: daysAgo(38), at: daysAgo(5), runId: 'run_r', totalPence: 12000, expiresAt: daysAgo(3), by: 'quoting' };
+        expect(recordReissue(file, { slug: 'Q7SLUG', issue, previousTotalPence: 12000, sentAt: daysAgo(5), notSent: null }, { now: () => new Date(daysAgo(5)) })).not.toBeNull();
+        expect(staleQuoteDue(file, new Date(AT))).toBe(false);
+        expect(staleQuoteDue(file, new Date(Date.parse(daysAgo(5)) + 31 * DAY_MS))).toBe(true);
+        const { deps } = staleDeps([file]);
+        expect((await closeStaleQuotes(deps)).closed).toEqual([]);
+        expect(file.stage).toBe('quoted');
+    });
+
+    it('a file with a customer burst waiting is left alone, and a close waits behind a desk pass already running and asks again', async () => {
+        const waiting = quotedFile('p1', daysAgo(40));
+        waiting.waits = [{} as any];
+        expect(staleQuoteDue(waiting, new Date(AT))).toBe(false);
+
+        const file = quotedFile('p2', daysAgo(40));
+        const { deps, gateway } = staleDeps([waiting, file]);
+        let finish!: () => void;
+        const running = gateway.passOn(file.id, () => new Promise<void>((r) => { finish = () => { setStage(file, 'accepted', 'the customer accepted'); r(); }; }));
+        const closing = closeStaleQuotes(deps);
+        await new Promise((r) => setTimeout(r, 0));
+        expect(file.stage).toBe('quoted');
+        finish();
+        await running;
+        expect((await closing).closed).toEqual([]);
+        expect(file.stage).toBe('accepted');
+        expect(waiting.stage).toBe('quoted');
+    });
+
+    it('any turn restarts the 30 days: a question on day 31, a reply and "ok, book it" stay on the same open file, and 30 quiet days after that close it', async () => {
+        const g = new Gateway({ desk: fakeDesk });
+        const old = await quotedThread(g, quotingDeps());
+        g.age(old.id, 31 * 24);
+        const deps = (at: string): StaleQuoteDeps => ({ liveState: async () => ({ live: true }), gateway: async () => g, now: () => new Date(at), log: () => {} });
+
+        const question = await g.inbound(turn('Does the quote include the new tap?', AT));
+        if (question.kind !== 'handled') throw new Error(question.kind);
+        expect(question.file.id).toBe(old.id);
+        expect((await closeStaleQuotes(deps(AT))).closed).toEqual([]);
+        const replyAt = '2026-09-17T10:05:00.000Z';
+        expect(appendTurn(old, { at: replyAt, channel: 'whatsapp', direction: 'outbound', partyId: old.parties[0].personId, kind: 'text', body: 'Yes, it does.', media: [], runId: 'run_reply', approver: 'agent:comms_v2' }).ok).toBe(true);
+        expect((await closeStaleQuotes(deps(replyAt))).closed).toEqual([]);
+        const lastAt = '2026-09-17T10:10:00.000Z';
+        const book = await g.inbound(turn('ok, book it', lastAt));
+        if (book.kind !== 'handled') throw new Error(book.kind);
+        expect(book.file.id).toBe(old.id);
+        expect(old.stage).toBe('quoted');
+
+        const day29 = new Date(Date.parse(lastAt) + 29 * DAY_MS).toISOString();
+        expect((await closeStaleQuotes(deps(day29))).closed).toEqual([]);
+        const day31 = new Date(Date.parse(lastAt) + 31 * DAY_MS).toISOString();
+        expect((await closeStaleQuotes(deps(day31))).closed).toEqual([{ caseId: old.id, to: 'done' }]);
+        expect(old.stage).toBe('done');
+    });
+
+    it('a later enquiry from the same customer after the stale close opens a fresh file', async () => {
+        const g = new Gateway({ desk: fakeDesk });
+        const quoting = quotingDeps();
+        const old = await quotedThread(g, quoting);
+        g.age(old.id, 31 * 24);
+        const deps: StaleQuoteDeps = { liveState: async () => ({ live: true }), gateway: async () => g, now, log: () => {} };
+        expect((await closeStaleQuotes(deps)).closed).toEqual([{ caseId: old.id, to: 'done' }]);
+        expect(old.stage).toBe('done');
+
+        const next = await g.inbound(turn('Hi again, can you fix a fence? NG9 2AB', '2026-10-20T09:00:00.000Z'));
+        if (next.kind !== 'handled') throw new Error(next.kind);
+        expect(next.file.id).not.toBe(old.id);
+        expect(next.file.stage).toBe('first_contact');
+        expect(next.file.job).toEqual({ type: null, location: null, quoteRef: null, bookingRef: null });
+    });
+});
+
+describe('a stale-closed quote taken up later reopens its file', () => {
+    it('a booking on the quote reopens the stale-closed file, records the booking on it with a system turn, and closes it as booked', async () => {
+        const file = staleClosedFile('p1', 'Q7SLUG');
+        const { deps, puts } = live([file], { slug: 'Q7SLUG' });
+        const out = await fileBooked('quote-uuid-7', 'bk7', { ...deps, now: () => new Date(Date.parse(AT) + DAY_MS) });
+        expect(out).toEqual({ closed: [{ caseId: file.id, to: 'booked' }], skipped: null });
+        expect(file.stage).toBe('booked');
+        expect(file.job.bookingRef).toBe('bk7');
+        expect(file.stageHistory.slice(-4).map((c) => [c.from, c.to])).toEqual([['quoted', 'done'], ['done', 'quoted'], ['quoted', 'accepted'], ['accepted', 'booked']]);
+        expect(file.turns.at(-1)).toMatchObject({ kind: 'system', direction: 'inbound' });
+        expect(file.turns.at(-1)!.body).toMatch(/Reopened: the stale quote Q7SLUG was taken up/);
+        expect(puts).toEqual([file.id]);
+    });
+
+    it('a reopened file still walks the seven stages, and a backward move without the stale close and reopen records does not', () => {
+        const file = staleClosedFile('p1', 'Q7SLUG');
+        const r = reopenStaleClosed(file, 'the quote was paid', { now: () => new Date(Date.parse(AT) + DAY_MS) });
+        if (!r.ok) throw new Error(r.reason);
+        expect(r.value).toMatchObject({ from: 'done', to: 'quoted', reopened: true });
+        expect(invariantViolations(file)).toEqual([]);
+
+        const unrelated = snapshot(file);
+        unrelated.stageHistory.push({ from: 'quoted', to: 'scoping', at: AT, why: 'a step back nothing allows' });
+        expect(invariantViolations(unrelated)).toContain('stage move quoted -> scoping is not allowed');
+    });
+
+    it('only a stale close reopens: a file closed by its completion or by hand stays done', async () => {
+        const signedOff = fileFor('p1', 'quoted');
+        signedOff.job.quoteRef = 'Q7SLUG';
+        closeFile(signedOff, 'done', { why: 'the job was signed off as complete' });
+        const byHand = fileFor('p2', 'quoted');
+        byHand.job.quoteRef = 'Q7SLUG';
+        expect(closeByHand(byHand, { approver: BEN, person: 'ben@example.test' }, { now }).ok).toBe(true);
+        const { deps } = live([signedOff, byHand], { slug: 'Q7SLUG' });
+        expect((await fileBooked('quote-uuid-7', 'bk7', deps)).closed).toEqual([]);
+        expect([signedOff.stage, byHand.stage]).toEqual(['done', 'done']);
+        expect(signedOff.turns.some((t) => t.kind === 'system') || byHand.turns.some((t) => t.kind === 'system')).toBe(false);
     });
 });
 

@@ -30,7 +30,8 @@ While it is live, at the same moment and on the same read:
   the rules layer's replies, the webform chase and the lead automations. Transactional sends, the
   job-pack asks after a deposit, invoices, the price screen and every person's own send carry on;
 - the live clock runs every minute (`server/comms-v2/channels/live-clock.ts`): Ben's chase, the
-  owner's escalation and the unpriced draft's chase;
+  owner's escalation, the unpriced draft's chase, and the close of a quoted file nobody has answered
+  for 30 days (`server/comms-v2/README.md`, "A stale quote closes itself after 30 days");
 - Ben's board reads the live case files;
 - Ben's quote notifications (ready to price, chase, accepted) reach his phone through Pushover
   (`quoting/ben-notifier.ts` `liveBenNotifier`), asked at every notice rather than latched once;

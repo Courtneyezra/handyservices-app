@@ -30,9 +30,20 @@
  *
  * A closed file is no longer where the person's next message lands (desk/store.ts): that opens a new
  * file with no job type, location or quote, so the desk scopes and quotes the new job from nothing.
+ *
+ * A quoted file that nobody ever answers is closed too (17 Sep, answer 125, "Close after 30 days"):
+ * one still at `quoted` (never `accepted`, `booked` or held for Ben) whose quote has stood unanswered
+ * for `STALE_QUOTE_CLOSE_DAYS`, measured from the file's last activity: the stage move that last put
+ * it at `quoted`, the desk's later automatic reissue, or its newest turn. Run by the live clock tick
+ * (channels/live-clock.ts), the same tick as the chase, not a scheduler of its own. As above: only
+ * files on the live intake's store, only while the new desk is the live desk, never throwing into the
+ * caller, and the customer's next message then opens a fresh file (store.ts `newestOpenFor`). Only
+ * such a file reopens (`reopenStaleQuoteFiles`): a payment or booking on its quote arriving later
+ * puts it back at `quoted` and records the event on it, so no take-up of the quote is lost.
  */
-import { closeFile, release, type ApproverSlot, type CaseFile, type HoldRelease, type StageChange } from './desk/case-file';
+import { closeFile, lastTurn, release, reopenStaleClosed, staleClosed, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type StageChange } from './desk/case-file';
 import type { CaseFileStore } from './desk/store';
+import { QUOTE_FACT, factsWithPrefix } from './quoting/quote-record';
 
 export type AutoCloseEvent = 'booked' | 'done';
 
@@ -81,6 +92,20 @@ export function filesForJob(files: CaseFile[], quoteRefs: ReadonlyArray<string |
         && ((!!f.job.quoteRef && wanted.has(f.job.quoteRef)) || (!!bookingId && f.job.bookingRef === bookingId && !f.job.quoteRef)));
 }
 
+/**
+ * Reopens, at `quoted`, every file the stale quote rule closed whose job names one of these quotes:
+ * a payment, acceptance or booking on a quote closed as stale is never lost. Returns the reopened files, not yet put.
+ */
+export function reopenStaleQuoteFiles(files: CaseFile[], quoteRefs: ReadonlyArray<string | null>, why: string, deps: CaseFileDeps = {}): CaseFile[] {
+    const wanted = new Set(quoteRefs.filter((r): r is string => !!r));
+    return files.filter((f) => staleClosed(f) && !!f.job.quoteRef && wanted.has(f.job.quoteRef) && reopenStaleClosed(f, why, deps).ok);
+}
+
+/** Closes again, as a stale quote, a file reopened for an event that then did not take the quote up; a file the event moved on is left. */
+export function recloseStaleQuote(file: CaseFile, why: string, deps: CaseFileDeps = {}): boolean {
+    return file.stage === 'quoted' && closeFile(file, 'done', { why, staleQuote: true }, deps).ok;
+}
+
 /** Closes the live files an event's quote or booking names. Never throws; a refusal or a failure is logged and the event goes on. */
 export async function closeLiveFileForQuote(input: AutoCloseInput, deps: FileCloseDeps = {}): Promise<AutoCloseOutcome> {
     const log = deps.log ?? defaultLog;
@@ -92,6 +117,7 @@ export async function closeLiveFileForQuote(input: AutoCloseInput, deps: FileClo
         if (!(await readState()).live) return { ...out, skipped: 'the new desk is not the live desk' };
         const store = await (deps.store ?? liveStore)();
         const slug = input.quoteId ? await (deps.slugOf ?? liveSlugOf)(input.quoteId) : null;
+        reopenStaleQuoteFiles(store.all(), [input.quoteId ?? null, slug], input.why, { now: deps.now });
         const files = filesForJob(store.all(), [input.quoteId ?? null, slug], bookingId);
         if (!files.length) return { ...out, skipped: 'no live case file carries the quote or booking' };
         const bookingRef = input.to === 'booked' ? bookingId : null;
@@ -118,6 +144,88 @@ export function fileBooked(quoteId: string | null | undefined, bookingId: string
 export function fileDone(quoteId: string | null | undefined, bookingId: string | null | undefined, event: 'signed_off' | 'invoice_paid', deps: FileCloseDeps = {}): Promise<AutoCloseOutcome> {
     const why = event === 'signed_off' ? 'the job was signed off as complete' : 'the invoice for the job was paid';
     return closeLiveFileForQuote({ quoteId, bookingId, to: 'done', why }, deps);
+}
+
+// ---------------------------------------------------------------- stale quote
+
+/** How long a quoted file may stand unanswered before it closes on its own (answer 125, 17 Sep). */
+export const STALE_QUOTE_CLOSE_DAYS = 30;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Since when the quoted file has been quiet: the newest of the stage move that last put it at
+ * `quoted`, the desk's latest automatic reissue of its quote (`quote_reissued`, which puts the quote
+ * live again without moving the stage), and its newest turn either way. Null off a quoted file.
+ */
+export function quietSince(file: CaseFile): string | null {
+    let at: string | null = null;
+    for (let i = file.stageHistory.length - 1; i >= 0; i--) if (file.stageHistory[i].to === 'quoted') { at = file.stageHistory[i].at; break; }
+    if (!at) return null;
+    const times = [...factsWithPrefix(file, QUOTE_FACT.reissued).map((f) => f.at), lastTurn(file)?.at];
+    for (const t of times) if (t && Date.parse(t) > Date.parse(at)) at = t;
+    return at;
+}
+
+/**
+ * A quoted file, not held for Ben and with no customer burst waiting on it, that has been quiet for
+ * `STALE_QUOTE_CLOSE_DAYS` (`quietSince`): a file with any quote send, reissue or turn in that time
+ * never closes. Never true off `quoted`: `accepted` and `booked` are quoted files that moved on, so
+ * isolating this to `quoted` alone is enough to leave them, and every other stage, untouched.
+ */
+export function staleQuoteDue(file: CaseFile, now: Date): boolean {
+    if (file.stage !== 'quoted' || file.hold || file.waits?.length) return false;
+    const at = quietSince(file);
+    return !!at && now.getTime() - Date.parse(at) > STALE_QUOTE_CLOSE_DAYS * DAY_MS;
+}
+
+/** The live intake's gateway as the stale close needs it: its files, and a pass queued behind any desk pass on a file. */
+export interface StaleQuoteGateway {
+    store: { all(): CaseFile[] };
+    passOn<T>(fileId: string, pass: (file: CaseFile) => T | Promise<T>): Promise<T | null>;
+}
+
+export interface StaleQuoteDeps {
+    liveState?: () => Promise<{ live: boolean }>;
+    gateway?: () => Promise<StaleQuoteGateway>;
+    now?: () => Date;
+    log?: (line: string) => void;
+}
+
+/**
+ * Closes every live quoted file whose quote has gone unaccepted for `STALE_QUOTE_CLOSE_DAYS` days
+ * (answer 125, "Close after 30 days"), run by the live clock tick (channels/live-clock.ts) over every
+ * file rather than one event's quote or booking. Each close runs as a pass on the file, after any desk
+ * pass already running or queued on it, and asks again there, so it never closes a file under a
+ * customer's turn. Marked as a stale close, so a later take-up of the quote reopens the file
+ * (`reopenStaleQuoteFiles`). Never throws; a refusal or a failure is logged and the pass goes on.
+ */
+export async function closeStaleQuotes(deps: StaleQuoteDeps = {}): Promise<AutoCloseOutcome> {
+    const log = deps.log ?? defaultLog;
+    const out: AutoCloseOutcome = { closed: [], skipped: null };
+    try {
+        const readState = deps.liveState ?? (async () => (await import('./switch')).commsV2LiveState());
+        if (!(await readState()).live) return { ...out, skipped: 'the new desk is not the live desk' };
+        const gateway = await (deps.gateway ?? (async () => (await import('./channels/intake')).liveChannelGateway()))();
+        const now = deps.now ?? (() => new Date());
+        const due = gateway.store.all().filter((f) => staleQuoteDue(f, now()));
+        if (!due.length) return { ...out, skipped: 'no live case file is a stale quote' };
+        for (const { id } of due) {
+            const closed = await gateway.passOn(id, (file) => {
+                if (!staleQuoteDue(file, now())) return false;
+                const why = `quote ${file.job.quoteRef ?? '-'} sent more than ${STALE_QUOTE_CLOSE_DAYS} days ago and not accepted`;
+                const r = closeFile(file, 'done', { why, staleQuote: true }, { now });
+                if (!r.ok) { log(`case file ${id} not closed as a stale quote: ${r.reason}`); return false; }
+                log(`case file ${id} closed: ${why}`);
+                return true;
+            });
+            if (closed) out.closed.push({ caseId: id, to: 'done' });
+        }
+        return out;
+    } catch (err: any) {
+        log(`closing stale quoted files failed: ${err?.message ?? err}`);
+        return { ...out, skipped: 'failed' };
+    }
 }
 
 // ---------------------------------------------------------------- by hand

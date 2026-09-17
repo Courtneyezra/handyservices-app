@@ -136,7 +136,8 @@ starts on the web form, continues on WhatsApp and ends with a call is one conver
 spans all of it. Consequence: identity must join phone and email to one person before the desk replies.
 The file is the job's, so it closes (17 Sep, job-file close: "Both"): on its own once the job is booked
 or done, and by Ben's hand from the board. The customer's next message then opens a new file; a file
-at quoted or accepted stays open (server/comms-v2/README.md, "Closing a case file").
+at quoted or accepted stays open, a quoted one until it has been quiet for 30 days (answer 95;
+server/comms-v2/README.md, "Closing a case file").
 Channels in scope for the fresh design: WhatsApp, SMS, calls, web form, email.
 
 **26. The landlord/tenant service.** The vision in his words: "we onboard landlords, they onboard their
@@ -375,3 +376,5 @@ Also 16 Sep, superseding answer 88: the server was rescaled to 16 GB, and work i
 ## Batch 12, answered 17 Sep
 
 **94. The holding line is not an answer.** "Yes, offer it", 17 Sep 2026, answering the open question from PR #110. When the only outbound turn since the customer's question is the desk's holding line (or its photo or video variant) and the WhatsApp window has shut, the board offers answer_ready_reopen_v1. Refines answer 58. Settled by firstmate on 17 Sep 2026 in the same change, not part of the captain's answer: answer_ready_reopen_v1 is offered only on a hold for a question, never on a complaint or other exception hold, so that template never clears one; its subject is the recorded job type, else "your enquiry", never the customer's own words. quote_ready_link is unchanged by this change. Implemented in `sendWindowTemplate` (`server/comms-v2/desk/human-reply.ts`).
+
+**95. A stale quote closes itself.** "Close after 30 days", 17 Sep 2026 (answer 125), answering the gap the job-file close build (answer 110, "Both") left open: a customer quoted but never booked kept an open file forever, so a return months later with a different job landed on the old one and was refused with "a quote already stands". A file at `quoted`, whose quote has stood unanswered for 30 days, closes on its own as `done`; `accepted`, `booked` and a file held for Ben are never touched, and the customer's next message opens a fresh file. Settled by firstmate on 17 Sep 2026 in the same change, not part of the captain's answer: the 30 days are counted from the file's last activity, the newest quote send or automatic reissue and the newest turn either way, so a file with any conversation in the last 30 days never closes, and a file with a customer's burst waiting is left to the desk; and the stale close is the one close that reopens, since a payment, acceptance or booking on that quote afterwards puts the file back at `quoted` and is recorded there rather than lost. Implemented in `closeStaleQuotes`, run by the live clock tick (`server/comms-v2/file-close.ts`, "A stale quote closes itself after 30 days" in `server/comms-v2/README.md`).
