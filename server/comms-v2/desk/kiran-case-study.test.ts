@@ -336,6 +336,10 @@ describe('the wrap-up check', () => {
             'The price includes me coming over twice.',
             'Yes, the estimate covers both doors.',
             'The figure in the quote is for labour only.',
+            // A reply adding to the quote says something new.
+            "No problem, I'll add the gate latch to the price and let you know.",
+            'Ben can be with you Tuesday, the price stays the same.',
+            "I'll send over the costs for the extra shelf too.",
         ]) expect(repeatedSentences(s, said), s).toEqual([]);
     });
 
