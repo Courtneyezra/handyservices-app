@@ -34,7 +34,7 @@ const HAGGLE = [
     "(?:that's|thats|that is|seems|sounds) (?:like )?(?:a lot|a bit much|too much)(?! (?:of|like|better|worse|easier|harder|clearer|quicker|nicer|more|less)\\b)",
     "(?:within|over|under|above|outside|beyond|on|stretch|exceeds?|out of) (?:my |our |your |the |a )?(?:tight |small |limited )?budget",
     "(?:my|our) budget (?:is|was|isn['’]?t|wasn['’]?t|won['’]?t|doesn['’]?t|can['’]?t|only|max|of|for|would|will)", 'tight budget',
-    'quoted (?:me|us) (?:£ ?\\d|\\d{2,})', 'go any lower', 'you go (?:any )?lower(?= (?:on |than )?(?:the |that |this |your |my )?(?:price|quote|cost|total|figure|£ ?\\d|\\d))',
+    'quoted (?:me|us) (?:£ ?\\d|\\d{2,})', '(?:you|u|ben|price|quote) go any lower(?=\\s*(?:[?.!,;]|$))', 'you go (?:any )?lower(?= (?:on |than )?(?:the |that |this |your |my )?(?:price|quote|cost|total|figure|£ ?\\d|\\d))',
     '(?:match|beat) (?:(?:that|their|his|her|this|the other|another) )?(?:quote|figure|£ ?\\d+|\\d+)',
     "mates?'?s? rates?", '(?:pensioner|oap|student|nhs|forces|cash) (?:rate|price|discount|deal)',
     '(?:any|special|better|cash) deal', 'chance of a deal', 'do (?:me|us) a deal',
@@ -281,15 +281,27 @@ export function asksForCall(text: string): boolean {
 }
 
 // A call that already happened or was already tried ("as we discussed on the phone", "great speaking to
-// you on the phone earlier", "we tried to call you back") is not an offer of one. The past words must come
-// before the call, anywhere in the clause for a call that happened, straight before it otherwise: "as I said, I can
-// give you a ring tomorrow", "a call this morning" and "we're trying to fit you in so Ben will call you" still offer one.
-const RE_CALL_PAST = /\b(?:spoke|talked|chatted|earlier)\b|\b(?:(?:discussed|mentioned|spoken|speaking|talking|chatting)(?:\s+(?:to|with)\s+(?:you|u|me))?|(?:tried|trying)\s+to)\s*$/i;
+// you on the phone earlier", "we tried to call you back") is not an offer of one. A call still to come is always
+// an offer, whatever was said before it: "I spoke to Ben and he will call you tomorrow", "as I said, I can give you
+// a ring tomorrow". Otherwise a call that happened may be named anywhere before the call words; the rest lead
+// straight into them.
+const RE_CALL_PAST_ANYWHERE = /\b(?:spoke|talked|chatted|earlier)\b/i;
+const RE_CALL_PAST_BEFORE = /\b(?:(?:discussed|mentioned|spoken|speaking|talking|chatting)(?:\s+(?:to|with)\s+(?:you|u|me))?(?:\s+(?:yesterday|before|earlier|already))*|(?:tried|trying)\s+to)\s*$/i;
+const RE_CALL_FUTURE_OFFER = /^(?:give|happy|can|could|shall|should|may|jump|hop|call (?:would|might))\b/i;
+const RE_CALL_FUTURE_BEFORE = /\b(?:will|['’]ll|can|could|shall|may|might|going to|happy to|glad to|want to|like to|able to)(?:\s+\S+){0,2}\s*$/i;
+
+function callIsPast(offer: string, before: string): boolean {
+    if (RE_CALL_PAST_BEFORE.test(before)) return true;
+    if (RE_CALL_FUTURE_OFFER.test(offer) || RE_CALL_FUTURE_BEFORE.test(before)) return false;
+    return RE_CALL_PAST_ANYWHERE.test(before);
+}
 
 /** The offer of a call a clause makes, if it makes one. */
 function callOfferIn(clause: string): string | null {
     const m = RE_CALL_OFFER.exec(clause);
-    return m && !RE_CALL_NEGATION.test(clause.slice(0, m.index)) && !RE_CALL_PAST.test(clause.slice(0, m.index)) ? m[0] : null;
+    if (!m) return null;
+    const before = clause.slice(0, m.index);
+    return !RE_CALL_NEGATION.test(before) && !callIsPast(m[0], before) ? m[0] : null;
 }
 
 /** Questions about the job: every question except an offer of a call, which is not a scoping question. */
