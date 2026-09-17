@@ -12,8 +12,8 @@
 import { ageLabel, type PriceQueueItem, type PriceQueuePayload } from '@/hooks/usePriceQueue';
 import type { BoardCard } from '@/pages/admin/CommsV2BoardPage';
 
+/** A held case file exactly as GET /api/comms-v2/queue sends it. The wire carries no kind tag. */
 export interface QueueItem extends BoardCard {
-    kind: 'held';
     /** The reply the desk held back, exactly as it stands; null when the hold carries none. */
     draft: string | null;
     /** Office working hours since the hold was raised; the server already sorted longest first. */
@@ -37,7 +37,10 @@ export interface ReadyToPriceItem {
     signals: { checkThis: number; unpriced: number; contradictions: number; lowConfidence: number; estimateStatus: string | null };
 }
 
-export type DeskQueueItem = QueueItem | ReadyToPriceItem;
+/** The same hold once `withReadyToPrice` has tagged it for the merged list. */
+export type HeldCard = QueueItem & { kind: 'held' };
+
+export type DeskQueueItem = HeldCard | ReadyToPriceItem;
 
 export function isReadyToPrice(item: DeskQueueItem): item is ReadyToPriceItem {
     return item.kind === 'ready_to_price';
@@ -72,7 +75,63 @@ export function readyToPriceOf(item: PriceQueueItem): ReadyToPriceItem {
  * payload yet (still loading, or the read failed) the holds stand alone.
  */
 export function withReadyToPrice(held: QueueItem[], prices?: Pick<PriceQueuePayload, 'items'>): DeskQueueItem[] {
-    return prices ? [...held, ...prices.items.map(readyToPriceOf)] : held;
+    const holds: DeskQueueItem[] = held.map((h) => ({ ...h, kind: 'held' }));
+    return prices ? [...holds, ...prices.items.map(readyToPriceOf)] : holds;
+}
+
+/**
+ * What one of the desk's two reads has to say. React Query keeps the last good payload when a
+ * refetch fails, so a failed read that still has something on screen is not the same as one that
+ * has nothing: the first is out of date, the second is unread, and the desk words them apart.
+ */
+export type ReadState = 'loading' | 'ok' | 'error_no_data' | 'error_stale';
+
+export function readStateOf(read: { isError: boolean; data: unknown }): ReadState {
+    if (read.isError) return read.data === undefined ? 'error_no_data' : 'error_stale';
+    return read.data === undefined ? 'loading' : 'ok';
+}
+
+const standsBehind = (state: ReadState) => state === 'ok' || state === 'error_stale';
+
+/** What the "Needs you" column shows, decided once from both reads rather than per element. */
+export interface NeedsYouView {
+    /** The headline count: only when both reads have a payload the desk can stand behind. */
+    showCount: boolean;
+    /** The whole column is still waiting on its first holds. */
+    showSpinner: boolean;
+    /** The holds could not be read and none are on screen. */
+    showQueueError: boolean;
+    showItems: boolean;
+    /** The holds are listed and the quotes are still coming. */
+    quotesLoading: boolean;
+    empty: 'clear' | 'quotes_unread' | null;
+    holdsStale: boolean;
+    quotesUnread: boolean;
+    quotesStale: boolean;
+}
+
+/**
+ * The one rule behind every combination: the desk never states what it cannot stand behind, and
+ * never contradicts what is on the screen. So the count needs a payload from both reads (a retained
+ * one counts - it is what Ben is looking at), "Nothing needs you." needs both to be genuinely empty,
+ * and a read that failed with its last payload still listed is called out of date, never unread.
+ */
+export function needsYouView(holds: ReadState, quotes: ReadState, itemCount: number): NeedsYouView {
+    const listed = holds !== 'loading';
+    return {
+        showCount: standsBehind(holds) && standsBehind(quotes),
+        showSpinner: holds === 'loading',
+        showQueueError: holds === 'error_no_data',
+        showItems: listed && itemCount > 0,
+        quotesLoading: standsBehind(holds) && quotes === 'loading',
+        empty: itemCount > 0 || !standsBehind(holds) ? null
+            : holds === 'ok' && quotes === 'error_no_data' ? 'quotes_unread'
+            : standsBehind(quotes) ? 'clear'
+            : null,
+        holdsStale: holds === 'error_stale',
+        quotesUnread: quotes === 'error_no_data',
+        quotesStale: quotes === 'error_stale',
+    };
 }
 
 /** What GET /api/comms-v2/queue answers: the held files alone, longest working-hours wait first. */

@@ -18,6 +18,36 @@
  * "Open & price" pill - opens Price and Send for that quote (/admin/price/:slug, PriceAndSendPage in
  * client/src/App.tsx), which this page neither replaces nor changes.
  *
+ * The column reads from two independent queries, so what it may say is decided once from both of
+ * their states (`needsYouView` in client/src/lib/handy-desk-queue.ts) rather than per element. React
+ * Query keeps the last good payload when a refetch fails, so each read has a distinct "failed with
+ * nothing" and "failed but the last payload is still on screen"; no cell below is unreachable,
+ * because the desk sits open all day and both loading rows happen on every cold tab:
+ *
+ *   holds        | quotes      | count  | listed                     | empty state      | alert
+ *   -------------|-------------|--------|----------------------------|------------------|------------------------
+ *   loading      | loading     | hidden | spinner                    | -                | -
+ *   loading      | ok          | hidden | spinner                    | -                | -
+ *   loading      | err, none   | hidden | spinner                    | -                | quotes unread
+ *   loading      | err, stale  | hidden | spinner                    | -                | quotes out of date
+ *   ok           | loading     | hidden | holds, quotes loading      | -                | -
+ *   ok           | ok          | SHOWN  | holds, then quotes         | "Nothing needs you." | -
+ *   ok           | err, none   | hidden | holds only                 | "No held replies..." | quotes unread
+ *   ok           | err, stale  | SHOWN  | holds, retained quotes     | "Nothing needs you." | quotes out of date
+ *   err, none    | loading     | hidden | queue error                | -                | -
+ *   err, none    | ok          | hidden | queue error, quotes below  | -                | -
+ *   err, none    | err, none   | hidden | queue error                | -                | quotes unread
+ *   err, none    | err, stale  | hidden | queue error, quotes below  | -                | quotes out of date
+ *   err, stale   | loading     | hidden | retained holds, quotes loading | -            | holds out of date
+ *   err, stale   | ok          | SHOWN  | retained holds, then quotes| "Nothing needs you." | holds out of date
+ *   err, stale   | err, none   | hidden | retained holds only        | -                | holds out of date; quotes unread
+ *   err, stale   | err, stale  | SHOWN  | both retained              | "Nothing needs you." | holds and quotes out of date
+ *
+ * The count appears only where both reads have a payload the desk can stand behind - a retained one
+ * counts, being at most one poll old and what is on the screen - and "Nothing needs you." only where
+ * both have a payload and both are empty. A read that failed with its last payload still listed is
+ * called out of date, never unread, so no alert ever contradicts the cards beneath it.
+ *
  * Selecting a card sets the selected conversation (`DeskSelection`): the answer surface shows its
  * thread while idle, and the ask bar takes it as context. The mapping from a held file to the
  * card's copy lives in client/src/lib/handy-desk-queue.ts.
@@ -43,7 +73,7 @@ import { SurfaceBody } from '@/components/handy-desk/AnswerSurface';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import { exchangeOfAnswered, latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
-    ACTION_ROUTE, QUEUE_KEY, heldCountOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy, queueQuery, readyToPriceCardCopy, refusalMessage, selectionOf, withReadyToPrice,
+    ACTION_ROUTE, QUEUE_KEY, heldCountOf, isReadyToPrice, isShutWindow, needsWords, needsYouView, queueCardCopy, queueQuery, readStateOf, readyToPriceCardCopy, refusalMessage, selectionOf, withReadyToPrice,
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
 import { usePriceQueue } from '@/hooks/usePriceQueue';
@@ -395,7 +425,7 @@ export default function HandyDesk() {
     const [dismissed, setDismissed] = useState<ReadonlySet<string | typeof FIRST_LOAD>>(() => new Set());
     const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
 
-    const { data, isLoading, error, dataUpdatedAt } = useQuery<DeskQueue>({
+    const { data, isError, dataUpdatedAt } = useQuery<DeskQueue>({
         queryKey: QUEUE_KEY,
         queryFn: async () => {
             const res = await fetch(queueQuery(), { headers: getAuthHeaders() });
@@ -420,10 +450,9 @@ export default function HandyDesk() {
 
     const items = withReadyToPrice(data?.items ?? [], prices.data);
     const sandbox = data?.sandboxAvailable === true;
-    const pricesFailed = prices.isError;
-    // The holds answer in milliseconds and the quotes do not, so until that read settles the desk
-    // cannot count what needs him, nor say it is clear.
-    const quotesSettled = pricesFailed || prices.data !== undefined;
+    // Two reads answer at different speeds and fail independently, so what the column may say is
+    // decided once from both of their states (handy-desk-queue.ts `needsYouView`).
+    const view = needsYouView(readStateOf({ isError, data }), readStateOf(prices), items.length);
 
     const handleHandled = (note: string) => {
         setDone((d) => [{ key: Date.now(), note }, ...d].slice(0, 3));
@@ -464,38 +493,50 @@ export default function HandyDesk() {
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
                     <p className={cn(EYEBROW, 'text-amber-400')}>Needs you</p>
-                    {data && !error && quotesSettled && !pricesFailed && (
+                    {view.showCount && (
                         <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
                             {`${items.length} ${items.length === 1 ? 'thing' : 'things'}`}
                         </p>
                     )}
                     <p className="mt-1 text-[13px] text-slate-400">Held replies first, longest wait in working hours; then the quotes to price, oldest first.</p>
-                    {pricesFailed && (
+                    {view.quotesUnread && (
                         <p role="alert" data-testid="handy-desk-price-error" className="mt-2 text-xs text-red-300">Could not load the quotes waiting to be priced. Held replies are still listed.</p>
+                    )}
+                    {view.quotesStale && (
+                        <p role="alert" data-testid="handy-desk-price-stale" className="mt-2 text-xs text-amber-300">The quotes to price may be out of date.</p>
+                    )}
+                    {view.holdsStale && (
+                        <p role="alert" data-testid="handy-desk-queue-stale" className="mt-2 text-xs text-amber-300">The held replies may be out of date.</p>
                     )}
 
                     <div className="mt-5 space-y-3">
-                        {error ? (
+                        {view.showQueueError && (
                             <p role="alert" className="rounded-3xl border border-red-400/40 p-4 text-sm text-red-300">Could not load the queue - retrying automatically.</p>
-                        ) : isLoading || (!quotesSettled && items.length === 0) ? (
-                            <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
-                        ) : items.length === 0 ? (
-                            <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">
-                                {pricesFailed ? 'No held replies. The quotes to price could not be read.' : 'Nothing needs you.'}
-                            </p>
+                        )}
+                        {view.showSpinner && (
+                            <div data-testid="handy-desk-loading" className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
+                        )}
+                        {view.showItems && items.map((item) => isReadyToPrice(item) ? (
+                            <ReadyToPriceCard key={item.id} item={item} />
                         ) : (
-                            items.map((item) => isReadyToPrice(item) ? (
-                                <ReadyToPriceCard key={item.id} item={item} />
-                            ) : (
-                                <QueueCard
-                                    key={item.id}
-                                    item={item}
-                                    active={item.id === selection?.caseFileId}
-                                    showMode={sandbox}
-                                    onSelect={() => select(item)}
-                                    onHandled={handleHandled}
-                                />
-                            ))
+                            <QueueCard
+                                key={item.id}
+                                item={item}
+                                active={item.id === selection?.caseFileId}
+                                showMode={sandbox}
+                                onSelect={() => select(item)}
+                                onHandled={handleHandled}
+                            />
+                        ))}
+                        {view.quotesLoading && (
+                            <p data-testid="handy-desk-quotes-loading" className="flex items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-700 p-4 text-sm text-slate-400">
+                                <Loader2 className="h-4 w-4 animate-spin" /> Loading the quotes to price…
+                            </p>
+                        )}
+                        {view.empty && (
+                            <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">
+                                {view.empty === 'quotes_unread' ? 'No held replies. The quotes to price could not be read.' : 'Nothing needs you.'}
+                            </p>
                         )}
                         {done.map((d) => (
                             <p key={d.key} data-testid="handy-desk-done" className="flex items-center gap-2 rounded-3xl border border-slate-800 p-4 text-sm text-slate-300">

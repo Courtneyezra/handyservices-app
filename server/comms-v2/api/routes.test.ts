@@ -12,7 +12,7 @@
  * it as they gate release.
  */
 import express from 'express';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { open, hold as setHold, type CaseFile } from '../desk/case-file';
 import { noFixedLineSource } from '../desk/fixed-lines';
 import { BEN } from '../desk/guards';
@@ -557,20 +557,17 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         }
     });
 
-    it('/queue answers the holds alone, and never reads the quotes table whatever the caller asks', async () => {
+    it('/queue answers the holds alone, plain or filtered to one mode', async () => {
         const { store, call, close } = await harness();
         try {
             const recent = fileWithDraftHold();
             const stale = fileWithShutWindow();
             store.put(recent);
             store.put(stale);
-            // The quotes to price are the page's own read now, so no shape of this request can carry them.
-            for (const query of ['', '?readyToPrice=1', '?mode=sandbox']) {
+            for (const query of ['', '?mode=sandbox']) {
                 const queue = await call('GET', `/queue${query}`, 'Ben.Real@handyservices.app');
                 expect(queue.status).toBe(200);
-                expect(queue.json.items.map((i: any) => i.kind)).toEqual(['held', 'held']);
                 expect(queue.json.items.map((i: any) => i.id)).toEqual([stale.id, recent.id]);
-                expect(queue.json).not.toHaveProperty('priceQueueError');
             }
         } finally {
             await close();

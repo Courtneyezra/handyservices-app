@@ -20,7 +20,6 @@ import type { ApproverAssignments } from './approvers';
 import { cardOf, type BoardCard, type BoardMode } from './board';
 
 export interface QueueItem extends BoardCard {
-    kind: 'held';
     /** The reply the desk held back, exactly as it stands; null when the hold carries none. */
     draft: string | null;
     /** Office working hours (Mon-Fri 08-18 Europe/London) since the hold was raised, to one decimal. */
@@ -51,7 +50,6 @@ export function queueOf(files: CaseFile[], filter: { mode?: BoardMode } = {}, as
         if (!file.hold) continue;
         items.push({
             ...card,
-            kind: 'held',
             draft: file.hold.draft,
             waitingWorkingHours: workingHoursBetween(new Date(file.hold.since), now),
         });

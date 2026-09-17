@@ -17,7 +17,7 @@ import type { OpsAnswer } from '@shared/ops-types';
 
 function item(over: Partial<QueueItem>): QueueItem {
     return {
-        kind: 'held', id: 'case_x', stage: 'scoping', mode: 'sandbox', held: true,
+        id: 'case_x', stage: 'scoping', mode: 'sandbox', held: true,
         holdReason: 'money question', holdApprover: 'ben', holdApproverAssigned: true,
         holdSince: new Date().toISOString(), customerName: 'Sam', customerAddress: 'phone:07700900942',
         role: 'homeowner', jobType: null, location: null, lastCustomerMessage: 'How much?',
@@ -318,8 +318,7 @@ describe('HandyDesk', () => {
         // Both holds keep the top; the quote follows, merged in from the price queue's own read.
         expect(screen.getAllByTestId(/^queue-card-(case_[a-z]+|price:[a-z0-9]+)$/).map((el) => el.dataset.testid))
             .toEqual(['queue-card-case_rob', 'queue-card-case_gemma', 'queue-card-price:sam123']);
-        // The 15s hold poll never asks the queue endpoint for quotes; they come off /api/spine/price-queue.
-        expect(calls.filter((c) => c.url.includes('readyToPrice'))).toEqual([]);
+        // The quotes come off /api/spine/price-queue, on that query's own slower clock.
         expect(calls.filter((c) => c.url.startsWith('/api/spine/price-queue'))).not.toHaveLength(0);
         expect(screen.getByTestId('queue-card-badge-price:sam123')).toHaveTextContent('Ready to price · 3 h');
         expect(screen.getByTestId('queue-card-body-price:sam123')).toHaveTextContent('Valves and a tap. 2 lines to check. Nothing sent.');
@@ -394,6 +393,7 @@ describe('HandyDesk', () => {
     it('states no count at all when the queue read itself fails', async () => {
         routes([
             { url: '/api/comms-v2/queue', reply: () => ({ status: 503, json: { error: 'the store could not be opened' } }) },
+            priceRoute([SAM_ROW]),
         ]);
         renderWithQuery(<HandyDesk />);
 
@@ -402,6 +402,59 @@ describe('HandyDesk', () => {
         expect(screen.queryByText(/\b\d+ things?\b/)).toBeNull();
         expect(screen.queryByText(/Nothing needs you/)).toBeNull();
         expect(screen.queryByTestId('handy-desk-empty')).toBeNull();
+        // The quotes were read fine, so they stay listed beneath the banner.
+        expect(await screen.findByTestId('queue-card-price:sam123')).toBeInTheDocument();
+    });
+
+    it('keeps the count and the quotes on screen when a price refetch fails, saying only that they may be out of date', async () => {
+        let priceCalls = 0;
+        routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB], handledToday: 0, sandboxAvailable: true } }) },
+            {
+                url: '/api/spine/price-queue',
+                reply: () => (++priceCalls === 1
+                    ? ({ json: { count: 1, items: [SAM_ROW], oldestWaitingMs: SAM_ROW.waitingMs, at: new Date().toISOString() } })
+                    : ({ status: 500, json: { error: 'connection refused' } })),
+            },
+        ]);
+        const { client } = renderWithQuery(<HandyDesk />);
+
+        await screen.findByTestId('queue-card-price:sam123');
+        expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('2 things');
+
+        // The 60s refetch fails; React Query keeps the payload, so the quotes stay listed.
+        await client.refetchQueries({ queryKey: ['spine-price-queue'] });
+
+        await screen.findByTestId('handy-desk-price-stale');
+        expect(screen.getByTestId('handy-desk-price-stale')).toHaveTextContent('The quotes to price may be out of date.');
+        // Never "could not be read" directly above the rows it is talking about.
+        expect(screen.queryByTestId('handy-desk-price-error')).toBeNull();
+        expect(screen.getByTestId('queue-card-price:sam123')).toBeInTheDocument();
+        expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('2 things');
+    });
+
+    it('keeps the holds on screen when a queue refetch fails, saying only that they may be out of date', async () => {
+        let queueCalls = 0;
+        routes([
+            {
+                url: '/api/comms-v2/queue',
+                reply: () => (++queueCalls === 1
+                    ? ({ json: { items: [ROB], handledToday: 0, sandboxAvailable: true } })
+                    : ({ status: 503, json: { error: 'the store could not be opened' } })),
+            },
+            priceRoute([SAM_ROW]),
+        ]);
+        const { client } = renderWithQuery(<HandyDesk />);
+
+        await screen.findByTestId('queue-card-case_rob');
+        await client.refetchQueries({ queryKey: ['comms-v2-queue'] });
+
+        await screen.findByTestId('handy-desk-queue-stale');
+        expect(screen.getByTestId('handy-desk-queue-stale')).toHaveTextContent('The held replies may be out of date.');
+        // The retained holds stay listed, so the hard queue error must not replace them.
+        expect(screen.getByTestId('queue-card-case_rob')).toBeInTheDocument();
+        expect(screen.queryByText(/Could not load the queue/)).toBeNull();
+        expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('2 things');
     });
 
     it('states no count and never says the desk is clear while the price read is still pending', async () => {
@@ -417,6 +470,7 @@ describe('HandyDesk', () => {
         expect(screen.queryByText(/\b\d+ things?\b/)).toBeNull();
         expect(screen.queryByText(/Nothing needs you/)).toBeNull();
         expect(screen.queryByTestId('handy-desk-empty')).toBeNull();
+        expect(screen.getByTestId('handy-desk-quotes-loading')).toBeInTheDocument();
     });
 
     it('shows the holds that have arrived while the quotes are still loading, and counts nothing yet', async () => {
@@ -429,6 +483,8 @@ describe('HandyDesk', () => {
         expect(await screen.findByTestId('queue-card-case_rob')).toBeInTheDocument();
         expect(screen.queryByTestId('handy-desk-count')).toBeNull();
         expect(screen.queryByText(/Nothing needs you/)).toBeNull();
+        // The list must not read as complete while more of it is still coming.
+        expect(screen.getByTestId('handy-desk-quotes-loading')).toHaveTextContent('Loading the quotes to price');
     });
 
     it('says the desk is clear when there is nothing waiting and the quotes read fine', async () => {

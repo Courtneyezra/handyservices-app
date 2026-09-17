@@ -114,10 +114,3 @@ describe('queueOf hold exception', () => {
         expect(items.map((i) => [i.customerName, i.holdException, i.hasDraft])).toEqual([['Money', 'money', true], ['Plain', null, false]]);
     });
 });
-
-describe('the queue carries holds only', () => {
-    it('gives held items the held kind and nothing else', () => {
-        const { items } = queueOf([heldFile('Held', '2026-09-11T09:00:00.000Z')], {}, {}, NOW);
-        expect(items.map((i) => i.kind)).toEqual(['held']);
-    });
-});

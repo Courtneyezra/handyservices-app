@@ -7,14 +7,13 @@
 import { describe, expect, it } from 'vitest';
 import {
     ACTION_ROUTE, displayName, formatWait, heldCountOf, initialsOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy,
-    queueQuery, readyToPriceCardCopy, readyToPriceOf, refusalMessage, selectionOf, updatedAgoLabel, withReadyToPrice,
-    type QueueItem, type ReadyToPriceItem,
+    needsYouView, queueQuery, readStateOf, readyToPriceCardCopy, readyToPriceOf, refusalMessage, selectionOf, updatedAgoLabel, withReadyToPrice,
+    type QueueItem, type ReadState, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
 import type { PriceQueueItem } from '@/hooks/usePriceQueue';
 
 function item(over: Partial<QueueItem> = {}): QueueItem {
     return {
-        kind: 'held',
         id: 'case_1',
         stage: 'scoping',
         mode: 'sandbox',
@@ -180,8 +179,8 @@ describe('readyToPriceCardCopy (Q12)', () => {
 
     it('tells the two kinds apart, and counts only the holds for the badge', () => {
         expect(isReadyToPrice(priceItem())).toBe(true);
-        expect(isReadyToPrice(item())).toBe(false);
-        expect(heldCountOf([item({ id: 'a' }), priceItem(), item({ id: 'b' })])).toBe(2);
+        expect(isReadyToPrice({ ...item(), kind: 'held' })).toBe(false);
+        expect(heldCountOf([{ ...item({ id: 'a' }), kind: 'held' }, priceItem(), { ...item({ id: 'b' }), kind: 'held' }])).toBe(2);
     });
 });
 
@@ -197,11 +196,13 @@ function priceRow(slug: string, over: Partial<PriceQueueItem> = {}): PriceQueueI
 describe('withReadyToPrice (the client-side merge, Q12)', () => {
     const held = [item({ id: 'case_a' }), item({ id: 'case_b' })];
 
-    it('keeps every hold at the top and appends the quotes in the price queue\'s own order', () => {
-        // buildPriceQueue owns "oldest first"; the desk keeps whatever order it handed over.
+    it('keeps every hold at the top, tags them, and appends the quotes in the price queue\'s own order', () => {
+        // buildPriceQueue owns "oldest first"; the desk keeps whatever order it handed over. The wire
+        // carries no kind tag, so the merge is what makes the list a discriminated union.
         const merged = withReadyToPrice(held, { items: [priceRow('older'), priceRow('newer')] });
         expect(merged.map((i) => i.id)).toEqual(['case_a', 'case_b', 'price:older', 'price:newer']);
         expect(merged.map((i) => i.kind)).toEqual(['held', 'held', 'ready_to_price', 'ready_to_price']);
+        expect(held.every((h) => !('kind' in h))).toBe(true);
     });
 
     it('never lets a long-abandoned draft outrank a hold', () => {
@@ -221,5 +222,75 @@ describe('withReadyToPrice (the client-side merge, Q12)', () => {
             pricePath: '/admin/price/sam%20123',
             signals: { checkThis: 0, unpriced: 1, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
         });
+    });
+});
+
+describe('readStateOf', () => {
+    it('tells a read with nothing apart from one whose last payload is still on screen', () => {
+        expect(readStateOf({ isError: false, data: undefined })).toBe('loading');
+        expect(readStateOf({ isError: false, data: { items: [] } })).toBe('ok');
+        expect(readStateOf({ isError: true, data: undefined })).toBe('error_no_data');
+        expect(readStateOf({ isError: true, data: { items: [] } })).toBe('error_stale');
+    });
+});
+
+describe('needsYouView - every combination of the two reads', () => {
+    const STATES: ReadState[] = ['loading', 'ok', 'error_no_data', 'error_stale'];
+
+    // The grid in client/src/pages/admin/HandyDesk.tsx's header, one row per cell, read with an
+    // empty list so the empty-state column is exercised.
+    const GRID: Array<[ReadState, ReadState, { count: boolean; spinner: boolean; queueError: boolean; quotesLoading: boolean; empty: 'clear' | 'quotes_unread' | null }]> = [
+        ['loading', 'loading', { count: false, spinner: true, queueError: false, quotesLoading: false, empty: null }],
+        ['loading', 'ok', { count: false, spinner: true, queueError: false, quotesLoading: false, empty: null }],
+        ['loading', 'error_no_data', { count: false, spinner: true, queueError: false, quotesLoading: false, empty: null }],
+        ['loading', 'error_stale', { count: false, spinner: true, queueError: false, quotesLoading: false, empty: null }],
+        ['ok', 'loading', { count: false, spinner: false, queueError: false, quotesLoading: true, empty: null }],
+        ['ok', 'ok', { count: true, spinner: false, queueError: false, quotesLoading: false, empty: 'clear' }],
+        ['ok', 'error_no_data', { count: false, spinner: false, queueError: false, quotesLoading: false, empty: 'quotes_unread' }],
+        ['ok', 'error_stale', { count: true, spinner: false, queueError: false, quotesLoading: false, empty: 'clear' }],
+        ['error_no_data', 'loading', { count: false, spinner: false, queueError: true, quotesLoading: false, empty: null }],
+        ['error_no_data', 'ok', { count: false, spinner: false, queueError: true, quotesLoading: false, empty: null }],
+        ['error_no_data', 'error_no_data', { count: false, spinner: false, queueError: true, quotesLoading: false, empty: null }],
+        ['error_no_data', 'error_stale', { count: false, spinner: false, queueError: true, quotesLoading: false, empty: null }],
+        ['error_stale', 'loading', { count: false, spinner: false, queueError: false, quotesLoading: true, empty: null }],
+        ['error_stale', 'ok', { count: true, spinner: false, queueError: false, quotesLoading: false, empty: 'clear' }],
+        ['error_stale', 'error_no_data', { count: false, spinner: false, queueError: false, quotesLoading: false, empty: null }],
+        ['error_stale', 'error_stale', { count: true, spinner: false, queueError: false, quotesLoading: false, empty: 'clear' }],
+    ];
+
+    it.each(GRID)('holds %s, quotes %s', (holds, quotes, expected) => {
+        const v = needsYouView(holds, quotes, 0);
+        expect({ count: v.showCount, spinner: v.showSpinner, queueError: v.showQueueError, quotesLoading: v.quotesLoading, empty: v.empty }).toEqual(expected);
+    });
+
+    it('alerts name each read: unread when it has nothing, out of date when its last payload is listed', () => {
+        for (const holds of STATES) {
+            for (const quotes of STATES) {
+                const v = needsYouView(holds, quotes, 2);
+                expect(v.quotesUnread).toBe(quotes === 'error_no_data');
+                expect(v.quotesStale).toBe(quotes === 'error_stale');
+                expect(v.holdsStale).toBe(holds === 'error_stale');
+                // An alert never says a read could not be made while its rows are on the screen.
+                if (v.quotesStale) expect(v.quotesUnread).toBe(false);
+            }
+        }
+    });
+
+    it('never claims the desk is clear while anything is listed', () => {
+        for (const holds of STATES) {
+            for (const quotes of STATES) {
+                expect(needsYouView(holds, quotes, 3).empty).toBeNull();
+                expect(needsYouView(holds, quotes, 3).showItems).toBe(holds !== 'loading');
+            }
+        }
+    });
+
+    it('never states a count it cannot stand behind: both reads must have a payload', () => {
+        for (const holds of STATES) {
+            for (const quotes of STATES) {
+                const settled = (s: ReadState) => s === 'ok' || s === 'error_stale';
+                expect(needsYouView(holds, quotes, 1).showCount).toBe(settled(holds) && settled(quotes));
+            }
+        }
     });
 });
