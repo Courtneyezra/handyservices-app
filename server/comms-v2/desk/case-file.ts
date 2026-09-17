@@ -621,13 +621,17 @@ export function closeFile(file: CaseFile, to: 'booked' | 'done', input: CloseInp
 const FIGURE_SOURCES: ReadonlySet<FactSource['kind']> = new Set<FactSource['kind']>(['quote_line', 'customer_record']);
 const RE_FIGURE_VALUE = /£\s*\d|\b\d[\d,]*(?:\.\d+)?\s*(?:pounds?|quid|gbp)\b|\b\d+p\b/i;
 
+/** The one reading of a figure in a fact's value, and the one refusal for a source that may not carry one. */
+export const hasFigureValue = (value: string): boolean => RE_FIGURE_VALUE.test(value);
+export const FIGURE_FACT_REFUSAL = 'a figure may only come from a live quote line or a customer record';
+
 /** Adds an established fact with its source. Refuses no source, and a figure whose source is not a live quote line or a customer record. */
 export function recordFact(file: CaseFile, input: { key: string; value: string; source: FactSource | null | undefined; by: string }, deps: CaseFileDeps = {}): Outcome<Fact> {
     const now = deps.now ?? (() => new Date());
     const newId = deps.newId ?? defaultNewId;
     if (!input.source || !input.source.kind) return refuse('a fact without a source is refused');
     if (!input.key.trim() || !input.value.trim()) return refuse('a fact needs a key and a value');
-    if (RE_FIGURE_VALUE.test(input.value) && !FIGURE_SOURCES.has(input.source.kind)) return refuse('a figure may only come from a live quote line or a customer record');
+    if (hasFigureValue(input.value) && !FIGURE_SOURCES.has(input.source.kind)) return refuse(FIGURE_FACT_REFUSAL);
     const fact: Fact = { id: newId('fact'), key: input.key.trim(), value: input.value.trim(), source: input.source, at: now().toISOString(), by: input.by };
     file.facts.push(fact);
     if (fact.key === 'job_type') file.job.type = fact.value;

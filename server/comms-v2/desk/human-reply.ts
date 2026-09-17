@@ -29,7 +29,7 @@
  * the board to show Ben, never a silent hold.
  */
 import { randomUUID } from 'node:crypto';
-import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
+import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
 import { approverFor, type GuardOutcome } from './guards';
 import { clauseAsks, offersCall } from './lexicon';
 import { isHeldAckText } from './fixed-lines';
@@ -60,7 +60,7 @@ export interface HumanReplyInput {
      * the guard verdicts they passed and the facts they were written from, recorded on the send.
      * Absent for a person's own words, which the guards never gate.
      */
-    checked?: { guards: GuardOutcome; factIds: string[]; calls: ModelCallRecord[] };
+    checked?: { guards: GuardOutcome; factIds: string[] };
 }
 
 /** What went, for the board to show back: not a desk turn, so it carries no guards and no route. */
@@ -164,7 +164,7 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
 
     // The one sender, with Ben as approver and the run id above. No guards: a person's own words are his (answer 43).
     const checked = input.checked ?? null;
-    const sent = await send({ file, partyId: party.personId, channel: channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: checked?.guards ?? null, factIds: checked?.factIds ?? [], kbIds: [], fixedLines: [], calls: checked?.calls ?? [], mode: input.mode ?? 'dry_run' }, fileDeps);
+    const sent = await send({ file, partyId: party.personId, channel: channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: checked?.guards ?? null, factIds: checked?.factIds ?? [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
     if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
 
     const release = afterPersonSend(file, party, approver, words, fileDeps);

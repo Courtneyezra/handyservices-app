@@ -21,8 +21,8 @@
  * on only through WhatsApp adds an SMS channel for that number to the party first; it records no
  * inbound time, so it opens no window.
  */
-import type { ApproverSlot, CaseFile, CaseFileDeps, ModelCallRecord, Party, ReplyChannel, Turn } from './case-file';
-import { approverLabel, sameApprover } from './case-file';
+import type { ApproverSlot, CaseFile, CaseFileDeps, Party, ReplyChannel, Turn } from './case-file';
+import { approverLabel, isClosed, sameApprover } from './case-file';
 import { approverFor, type GuardOutcome } from './guards';
 import { e164Of } from './identity';
 import { afterPersonSend, humanReply, planWindowTemplate, renderPersonWords, replyRouteOf, sendWindowTemplate, type HumanReplyOutcome } from './human-reply';
@@ -107,7 +107,7 @@ export async function planPersonSend(input: PlanPersonSendInput, templates: Temp
     if (approver.kind !== 'human') return refuse('only a person sends from the Handy Desk; a rule-based approver has no words');
     const owner = file.hold?.approver ?? approverFor(file, null);
     if (!sameApprover(owner, approver)) return refuse(`only ${approverLabel(owner)} may message on this file`);
-    if (file.stage === 'done') return refuse('the case file is done; message the customer by their number to open a new one');
+    if (isClosed(file.stage)) return refuse(`the case file is ${file.stage}, so it is closed; message the customer by their number to open a new one`);
     const party = customerParty(file);
     if (!party) return refuse('the file has no customer to message');
     const wa = party.channels.find((c) => c.kind === 'whatsapp');
@@ -166,7 +166,7 @@ export interface PersonSendInput {
     runId: string;
     mode: 'dry_run' | 'live';
     /** What the words were checked against: every guard's verdict and the facts they cite. */
-    checked: { guards: GuardOutcome; factIds: string[]; calls: ModelCallRecord[] };
+    checked: { guards: GuardOutcome; factIds: string[] };
 }
 
 /** Sends the planned message as the person, through the desk's one sender. Changes the file in place; the caller puts it back. */
@@ -190,7 +190,7 @@ export async function personSend(input: PersonSendInput, deps: SenderDeps & { te
     const approverName = humanApprover(person);
     const sent = await send({
         file, partyId: party.personId, channel: plan.channel, window: plan.window, bubbles: rendered.bubbles, template: null, runId, approver: approverName,
-        guards: input.checked.guards, factIds: input.checked.factIds, kbIds: [], fixedLines: [], calls: input.checked.calls, mode,
+        guards: input.checked.guards, factIds: input.checked.factIds, kbIds: [], fixedLines: [], calls: [], mode,
     }, deps);
     if (!sent.ok) {
         // Nothing went: the channel added for it goes too, unless a partial delivery landed on it.

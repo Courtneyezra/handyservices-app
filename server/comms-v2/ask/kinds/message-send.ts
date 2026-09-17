@@ -3,7 +3,8 @@
  * specification N6 and N7; answers A2, A3 and A6). The words are the writing model's, from Ben's
  * brief, and are fixed in the proposal; one proposal carries exactly one message (A6, "One each").
  *
- * Who it goes to: the customer on a named case file, or a person by their phone number (never an
+ * Who it goes to: the customer on a named case file that is still open, or a person by their phone
+ * number (never an
  * email address: A3 covers WhatsApp and SMS, and outbound email stays in dry run, answer 113). For an address,
  * identity is read, never guessed: an address two people share is refused (pick one first), one of
  * ours is refused, and a person with a file open has the message land on it. Anyone else gets a new
@@ -30,7 +31,7 @@
 import type { OpsOutgoing } from '@shared/ops-types';
 import { canonical, e164Of, type Person } from '../../desk/identity';
 import {
-    openForPerson, recordFact, sameApprover, approverLabel,
+    openForPerson, recordFact, sameApprover, approverLabel, isClosed, hasFigureValue, FIGURE_FACT_REFUSAL,
     type CaseFile, type Fact, type OpenForPersonInput, type Party, type ReplyChannel, type Turn,
 } from '../../desk/case-file';
 import { approverFor, instructedClaims, noReplyToCheck, runGuards, type GuardInput, type GuardOutcome } from '../../desk/guards';
@@ -91,20 +92,54 @@ export function parseMessageSendArgs(raw: unknown): MessageSendArgs | null {
     };
 }
 
+/** Nobody has a file open: the confirm opens this one. `person` is who identity already knows, if anyone. */
+interface OpenedTarget {
+    person: Person | null;
+    address: string;
+    name: string | null;
+    channels: OpenForPersonInput['channels'];
+    /** The closed file this conversation follows on from, when the message was asked for on one. */
+    after: CaseFile | null;
+}
+
 type Target =
     | { ok: true; file: CaseFile; opened: null }
-    /** Nobody has a file open: the confirm opens this one. `person` is who identity already knows, if anyone. */
-    | { ok: true; file: CaseFile; opened: { person: Person | null; open: Omit<OpenForPersonInput, 'identity' | 'by'> } }
+    | { ok: true; file: CaseFile; opened: OpenedTarget }
     | { ok: false; reason: string };
 
 export const EMAIL_TARGET_REFUSAL = 'a message from the Handy Desk goes by WhatsApp or SMS only, so it cannot be sent to an email address; give their phone number or case file';
 
-/** Who the message goes to, read without changing anything. */
+/** The number a fresh conversation with this party starts on: a channel of theirs, else the key they are known by. */
+function numberOf(party: Party): string | null {
+    for (const kind of ['whatsapp', 'sms'] as const) {
+        const c = party.channels.find((ch) => ch.kind === kind);
+        if (c && /^\+\d{8,15}$/.test(c.address)) return c.address;
+    }
+    return e164Of(party.canonical);
+}
+
+/**
+ * Who the message goes to, read without changing anything. A file the desk counts as closed
+ * (`isClosed`: booked or done) is never written on: the customer's own next message would open a
+ * fresh file and split the thread, so the message starts that fresh file itself.
+ */
 function targetOf(ctx: ActionContext, args: MessageSendArgs): Target {
-    if (args.caseFileId) return ctx.file ? { ok: true, file: ctx.file, opened: null } : { ok: false, reason: 'no such case file' };
-    const to = args.to!;
-    const key = canonical(to.address);
+    if (args.caseFileId) {
+        if (!ctx.file) return { ok: false, reason: 'no such case file' };
+        if (!isClosed(ctx.file.stage)) return { ok: true, file: ctx.file, opened: null };
+        const party = ctx.file.parties.find((p) => p.role !== 'internal') ?? null;
+        const number = party ? numberOf(party) : null;
+        if (!number) return { ok: false, reason: `that case file is ${ctx.file.stage}, so it is closed, and it carries no number to start a new conversation on` };
+        return openOn(ctx, { address: number, name: party!.name }, ctx.file);
+    }
+    const key = canonical(args.to!.address);
     if (key?.startsWith('email:')) return { ok: false, reason: EMAIL_TARGET_REFUSAL };
+    return openOn(ctx, args.to!, null);
+}
+
+/** The person's open file, or the file a confirm would open for them, from their number alone. */
+function openOn(ctx: ActionContext, to: { address: string; name: string | null }, after: CaseFile | null): Target {
+    const key = canonical(to.address);
     const e164 = key ? e164Of(key) : null;
     if (!key || !e164) return { ok: false, reason: `${to.address} is not a phone number` };
     const identity = ctx.src.identity;
@@ -128,7 +163,7 @@ function targetOf(ctx: ActionContext, args: MessageSendArgs): Target {
         channels, by: `human:${ctx.person}`,
     }, { now: () => ctx.now, newId: () => NEW_FILE_ID });
     if (!draft.ok) return { ok: false, reason: draft.reason };
-    return { ok: true, file: draft.value, opened: { person, open: { channels } } };
+    return { ok: true, file: draft.value, opened: { person, address: e164, name, channels, after } };
 }
 
 function instructionFact(i: MessageInstruction, id: string, at: Date, by: string): Fact {
@@ -178,7 +213,8 @@ async function prepare(ctx: ActionContext, args: MessageSendArgs, templates: Tem
         notes.push(...check.instructed.map((c) => `'${c}' is from your instruction`));
     }
     if (plan.note) notes.push(plan.note);
-    if (target.opened) notes.push(`${plan.party.name ?? 'This customer'} has no case file open, so sending opens one`);
+    if (target.opened?.after) notes.push(`starting a new conversation: their last case file is ${target.opened.after.stage}, so sending opens a new one`);
+    else if (target.opened) notes.push(`${plan.party.name ?? 'This customer'} has no case file open, so sending opens one`);
 
     const shownWindow = plan.fallback ? windowOf(plan.party, 'whatsapp', ctx.now) : plan.window;
     const tile: OpsOutgoing = {
@@ -201,6 +237,7 @@ export function messageSendKind(opts: { templates?: TemplateStatusSource } = {})
         caseFileOf: (args) => args.caseFileId,
         async preconditions(ctx, args) {
             if (args.instruction && args.instruction.person !== ctx.person) return 'the instruction was given by someone else, so it cannot license this message';
+            if (args.instruction && hasFigureValue(args.instruction.quote)) return `the instruction could not be recorded as a source: ${FIGURE_FACT_REFUSAL}`;
             const target = targetOf(ctx, args);
             return target.ok ? null : target.reason;
         },
@@ -218,12 +255,12 @@ export function messageSendKind(opts: { templates?: TemplateStatusSource } = {})
             let file = p.target.file;
             let plan = p.plan;
             if (p.target.opened) {
-                // The file is opened now, on the person identity resolves the address to, and kept only if the message goes.
-                const to = args.to!;
-                const resolved = ctx.src.identity!.resolve(p.target.opened.open.channels[0].kind, to.address, { name: to.name });
-                if (!resolved.ok) return { ok: false, reason: resolved.reason === 'candidates' ? `${to.address} now belongs to more than one person; pick the case file to write on` : resolved.detail };
+                // The file is opened now, on the person identity resolves the number to, and kept only if the message goes.
+                const { address, name, channels } = p.target.opened;
+                const resolved = ctx.src.identity!.resolve(channels[0].kind, address, { name });
+                if (!resolved.ok) return { ok: false, reason: resolved.reason === 'candidates' ? `${address} now belongs to more than one person; pick the case file to write on` : resolved.detail };
                 if (ctx.src.store.findOpenFor(resolved.personId)) return { ok: false, reason: PREVIEW_CHANGED };
-                const opened = openForPerson({ identity: resolved, channels: p.target.opened.open.channels, by: approverName }, { now: () => ctx.now });
+                const opened = openForPerson({ identity: resolved, channels, by: approverName }, { now: () => ctx.now });
                 if (!opened.ok) return opened;
                 file = opened.value;
                 const replanned = await planPersonSend({ file, approver: ctx.approver, person: ctx.person, channel: args.channel, now: ctx.now }, templates);
@@ -232,7 +269,7 @@ export function messageSendKind(opts: { templates?: TemplateStatusSource } = {})
             }
 
             // A template's wording is approved, not composed: there were no words of the desk's to check.
-            const checked = { guards: p.check?.guards ?? { ok: true, guards: noReplyToCheck(), failures: [] }, factIds: p.check?.factIds ?? [], calls: [] };
+            const checked = { guards: p.check?.guards ?? { ok: true, guards: noReplyToCheck(), failures: [] }, factIds: p.check?.factIds ?? [] };
             // The send record may cite only facts on the file, so the instruction goes on first, and comes off again if nothing is sent.
             if (args.instruction && p.check?.factIds.length) {
                 const fact = recordFact(file, { key: INSTRUCTION_FACT_KEY, value: args.instruction.quote, source: { kind: 'instruction', ...args.instruction }, by: approverName }, { now: () => ctx.now, newId: () => factId! });
@@ -243,8 +280,8 @@ export function messageSendKind(opts: { templates?: TemplateStatusSource } = {})
                 if (factId && !file.sends.some((s) => s.runId === ctx.runId)) file.facts = file.facts.filter((f) => f.id !== factId);
                 return { ok: false, reason: out.reason };
             }
-            // actions.ts puts back only a file the arguments name; one reached by address is put here.
-            if (!args.caseFileId) ctx.src.store.put(file);
+            // actions.ts puts back only a file the arguments name; one this confirm opened is put here.
+            if (!args.caseFileId || p.target.opened) ctx.src.store.put(file);
             return {
                 ok: true,
                 result: {

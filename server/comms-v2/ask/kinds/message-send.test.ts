@@ -8,7 +8,7 @@
  * figure, are refused. Someone with no file open gets one when the message goes, not before.
  */
 import { describe, expect, it } from 'vitest';
-import { open, recordSend, type ApproverSlot, type CaseFile } from '../../desk/case-file';
+import { appendTurn, closeFile, open, recordSend, type ApproverSlot, type CaseFile } from '../../desk/case-file';
 import { BEN } from '../../desk/guards';
 import { Identity } from '../../desk/identity';
 import { FakeModelClient } from '../../desk/models';
@@ -211,6 +211,59 @@ describe('never by email (answer A3; outbound email stays in dry run, answer 113
     });
 });
 
+describe('a case file the desk counts as closed', () => {
+    /** Sarah's job is booked, so her own next message would open a fresh file. */
+    function bookedFile(): { file: CaseFile; identity: Identity } {
+        const file = sarahFile('2026-09-15T09:30:00.000Z');
+        file.job.type = 'extractor fan';
+        file.job.location = 'Flat 3';
+        const closed = closeFile(file, 'booked', { why: 'the job is booked', approver: BEN_APPROVER }, { now: () => new Date('2026-09-16T09:00:00.000Z') });
+        if (!closed.ok) throw new Error(closed.reason);
+        const identity = new Identity({ newId: () => 'person_new_1' });
+        identity.directory.upsert({ id: 'person_sarah', role: 'homeowner', customerId: null, name: 'Sarah Ellis', keys: ['phone:07700900555'], propertyId: null, landlordId: null });
+        return { file, identity };
+    }
+
+    it('starts a fresh file on the customer\'s number instead of writing on the booked one, and says so', async () => {
+        const { file, identity } = bookedFile();
+        const { propose, confirm, cases } = setup([file], nothingApproved, identity);
+
+        const out = await propose({ caseFileId: file.id, words: WORDS, instruction: INSTRUCTION });
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.outgoing[0].guardNote).toMatch(/starting a new conversation: their last case file is booked, so sending opens a new one/);
+        expect(cases.all()).toHaveLength(1);
+
+        const done = await confirm(out.action.id);
+        expect(done.ok).toBe(true);
+        expect(cases.get(file.id)!.turns).toHaveLength(1);
+        expect(cases.get(file.id)!.sends).toEqual([]);
+
+        // The customer's reply lands where the intake would put it: the one open file, carrying Ben's message.
+        const open = cases.findOpenFor('person_sarah');
+        expect(open).not.toBeNull();
+        expect(open!.id).not.toBe(file.id);
+        expect(open!.sends).toEqual([expect.objectContaining({ approver: BEN_APPROVER })]);
+        const reply = appendTurn(open!, { at: '2026-09-17T11:05:00.000Z', channel: 'sms', direction: 'inbound', partyId: open!.parties[0].personId, kind: 'text', body: 'Yes please.', media: [], runId: null, approver: null });
+        expect(reply.ok).toBe(true);
+        expect(open!.turns.map((t) => t.direction)).toEqual(['outbound', 'inbound']);
+    });
+
+    it('refuses a closed file with no number on it to start on', async () => {
+        const r = open({
+            identity: { ok: true, personId: 'person_mail', customerId: null, role: 'homeowner', isNew: true, canonical: 'email:sarah@example.test', propertyId: null, landlordId: null, name: 'Sarah' },
+            channel: 'email', address: 'sarah@example.test',
+            firstTurn: { at: '2026-09-15T09:30:00.000Z', channel: 'email', kind: 'text', body: 'Thanks.', media: [] },
+        });
+        if (!r.ok) throw new Error(r.reason);
+        const closed = closeFile(r.value, 'done', { why: 'finished', approver: BEN_APPROVER }, { now: () => new Date('2026-09-16T09:00:00.000Z') });
+        if (!closed.ok) throw new Error(closed.reason);
+        const { propose } = setup([r.value]);
+        expect(await propose({ caseFileId: r.value.id, words: WORDS, instruction: INSTRUCTION }))
+            .toEqual({ ok: false, reason: 'that case file is done, so it is closed, and it carries no number to start a new conversation on' });
+    });
+});
+
 describe('what the guards still refuse', () => {
     it('a claim the instruction does not give: another time, or a promise to fix', async () => {
         const file = sarahFile('2026-09-17T09:30:00.000Z');
@@ -228,11 +281,19 @@ describe('what the guards still refuse', () => {
             .toEqual({ ok: false, reason: expect.stringMatching(/date_time_duration: .*"this afternoon"/) });
     });
 
-    it('a figure, even one Ben gave: figures need a quote line (answer 23)', async () => {
+    it('a figure in the instruction itself: refused on the preview, before any confirm', async () => {
+        const file = sarahFile('2026-09-17T09:30:00.000Z');
+        const { propose, store } = setup([file]);
+        const instruction = { ...INSTRUCTION, quote: 'we will call her this afternoon about the £240 quote' };
+        expect(await propose({ caseFileId: file.id, words: WORDS, instruction }))
+            .toEqual({ ok: false, reason: 'the instruction could not be recorded as a source: a figure may only come from a live quote line or a customer record' });
+        expect(store.rows.size).toBe(0);
+    });
+
+    it('a figure in the words, even beside an instruction: figures need a quote line (answer 23)', async () => {
         const file = sarahFile('2026-09-17T09:30:00.000Z');
         const { propose } = setup([file]);
-        const instruction = { ...INSTRUCTION, quote: "it's £140 and we will call her this afternoon" };
-        expect(await propose({ caseFileId: file.id, words: "Hi Sarah, it's £140 and we'll call you this afternoon.", instruction }))
+        expect(await propose({ caseFileId: file.id, words: "Hi Sarah, it's £140 and we'll call you this afternoon.", instruction: INSTRUCTION }))
             .toEqual({ ok: false, reason: expect.stringMatching(/figure: .*£140/) });
     });
 
