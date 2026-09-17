@@ -365,6 +365,34 @@ describe('<ThreadView>', () => {
         expect(screen.queryByRole('button', { name: 'Send template' })).toBeNull();
     });
 
+    it('reads the template offer once per shut thread, again when a new customer turn lands, and again after a send', async () => {
+        const shut = { state: 'shut' as const, reason: 'the customer last wrote 26 hours ago', closesAt: null };
+        const emailed = { id: 't6', at: iso(1), channel: 'email', direction: 'inbound' as const, kind: 'text' as const, body: 'Any news?', media: [] };
+        let reads = 0;
+        let offers = 0;
+        const { calls, client } = mount([
+            fileRoute(() => (reads++ === 0
+                ? detail({ replyWindow: shut })
+                : detail({ replyWindow: shut, turns: [...detail().turns, emailed] }))),
+            { url: `${FILE}/template-offer`, reply: () => (offers++ === 0
+                ? { json: { ok: false, reason: 'no template is true for this thread: the customer needs to write again before a reply can go' } }
+                : { json: { ok: true, template: 'answer_ready_reopen_v1', language: 'en_GB', channel: 'whatsapp', body: 'Hi Priya, we have an answer to your question.' } }) },
+            { method: 'POST', url: `${FILE}/send-template`, reply: () => ({ json: { ok: true, sent: { bubbles: ['Hi Priya, we have an answer to your question.'], turnId: 't9' } } }) },
+        ]);
+        const asked = () => calls.filter((c) => c.url.endsWith('/template-offer')).length;
+        await screen.findByTestId('template-offer-refused');
+        expect(asked()).toBe(1);
+
+        // The thread's own fifteen-second re-read brings a new customer turn; the offer follows it, not a clock.
+        await client.refetchQueries({ queryKey: ['comms-v2-case-file', 'case_p'] });
+        await screen.findByTestId('turn-bubble-t6');
+        expect(await screen.findByTestId('template-offer-name')).toHaveTextContent('answer_ready_reopen_v1');
+        expect(asked()).toBe(2);
+
+        await userEvent.click(screen.getByRole('button', { name: 'Send template' }));
+        await waitFor(() => expect(asked()).toBe(3));
+    });
+
     it('a fresh customer message arriving on the refresh clears a stale shut-window refusal', async () => {
         let reads = 0;
         const { client } = mount([
