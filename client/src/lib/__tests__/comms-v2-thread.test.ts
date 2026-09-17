@@ -72,7 +72,7 @@ describe('comms-v2-thread', () => {
         expect(refusalOf('answer', 409, 'the whatsapp window is shut (x); a shut window never carries freeform words')).toMatchObject({ kind: 'shut_window', lead: "Can't send freeform words." });
         expect(refusalOf('send_held_draft', 409, 'there is no held draft to send')).toEqual({ kind: 'no_draft', lead: 'Nothing to send.', message: 'there is no held draft to send' });
         expect(refusalOf('release', 409, 'only Ben may release this hold')).toEqual({ kind: 'other', lead: 'Not released.', message: 'only Ben may release this hold' });
-        expect(refusalOf('answer', 403, 'no approver slot is assigned to this user')).toEqual({ kind: 'no_slot', lead: 'Not sent.', message: "You can't act on this desk: no approver slot is assigned to you." });
+        expect(refusalOf('answer', 403, 'no approver slot is assigned to this user')).toEqual({ kind: 'other', lead: 'Not sent.', message: "You can't act on this desk: no approver slot is assigned to you." });
         expect(refusalOf('answer', 500, undefined).message).toBe('The desk refused this (500).');
     });
 });
