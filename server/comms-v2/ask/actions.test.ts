@@ -49,7 +49,7 @@ describe('proposing', () => {
         expect(out.ok).toBe(true);
         if (!out.ok) return;
         expect(out.action).toMatchObject({ kind: 'draft.release', caseFileId: file.id, args: { caseFileId: file.id }, previewText: DRAFT, status: 'proposed', proposedBy: BEN_PERSON, confirmedBy: null, runId: null });
-        expect(out.action.previewHash).toBe(previewHash('draft.release', { caseFileId: file.id }, DRAFT));
+        expect(out.action.previewHash).toBe(previewHash('draft.release', { caseFileId: file.id }, { text: DRAFT, outgoing: out.outgoing }));
         expect(Date.parse(out.action.expiresAt) - Date.parse(out.action.proposedAt)).toBeLessThanOrEqual(PROPOSAL_TTL_MS);
         expect(out.label).toBe('Send as is');
         expect(out.outgoing).toEqual([{ to: file.parties[0].channels[0].address, channel: 'wa', text: DRAFT, actionId: out.action.id }]);
@@ -75,6 +75,12 @@ describe('proposing', () => {
         const again = await propose();
         expect(again).toMatchObject({ ok: true, reused: true, action: { id: first.ok ? first.action.id : '' } });
         expect(store.rows.size).toBe(1);
+
+        await store.attachMessage('ask_1', 'msg_1');
+        const later = await propose({ askRunId: 'ask_2' });
+        expect(later).toMatchObject({ ok: true, reused: true, action: { id: first.ok ? first.action.id : '', askRunId: 'ask_2', messageId: null } });
+        await store.attachMessage('ask_2', 'msg_2');
+        expect(first.ok && store.rows.get(first.action.id)).toMatchObject({ askRunId: 'ask_2', messageId: 'msg_2' });
 
         const elsewhere = await propose({ sessionId: 'session-2' });
         expect(elsewhere).toEqual({ ok: false, reason: expect.stringMatching(/already waiting for a confirm or a cancel/) });
@@ -159,6 +165,18 @@ describe('confirming draft.release', () => {
         expect(cases.get(file.id)!.sends).toEqual([]);
         expect(cases.get(file.id)!.hold?.draft).toBe('Something Ben never read.');
         expect(await confirmAction(settleAs(p.action.id), deps)).toMatchObject({ ok: false, code: 'refused', reason: `this proposal was refused: ${PREVIEW_CHANGED}` });
+    });
+
+    it('refuses when the reply route changed since Ben saw it, and sends nothing on the new route', async () => {
+        const { propose, deps, settleAs, cases, file } = setup();
+        const p = await propose();
+        if (!p.ok) throw new Error(p.reason);
+        expect(p.outgoing).toEqual([expect.objectContaining({ channel: 'wa' })]);
+        cases.get(file.id)!.parties[0].channels.push({ kind: 'sms', address: '+447700900999', lastInboundAt: new Date().toISOString() });
+        const out = await confirmAction(settleAs(p.action.id), deps);
+        expect(out).toMatchObject({ ok: false, code: 'refused', reason: PREVIEW_CHANGED, action: { status: 'refused' } });
+        expect(cases.get(file.id)!.sends).toEqual([]);
+        expect(cases.get(file.id)!.hold?.draft).toBe(DRAFT);
     });
 
     it('refuses the draft swapped between the check and the send, in the executor\'s own tick', async () => {

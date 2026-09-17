@@ -317,6 +317,7 @@ describe('proposals in a run', () => {
             loop: scriptedLoop([
                 { tool: 'propose_send_held_draft', input: { caseFileId: bare.id } },
                 { tool: 'propose_send_held_draft', input: { caseFileId: gemma.id } },
+                { tool: 'give_answer', input: { finalText: 'Rob has no draft.', surface: 'words', plan: [{ label: 'Send Rob his draft', done: false }, { label: 'Send Gemma hers', done: false }] } },
             ], seen),
         });
         expect(seen.results[0]).toEqual({ status: 'refused', reason: 'there is no held draft to send' });
@@ -326,6 +327,29 @@ describe('proposals in a run', () => {
         expect(out.answer.plan).toEqual([
             { label: 'Send Rob his draft', state: 'refused', reason: 'there is no held draft to send' },
             { label: 'Send Gemma hers', state: 'dropped' },
+        ]);
+    });
+
+    it('never places a proposal on the router\'s steps: with no plan from the reasoner, they show only while nothing waits', async () => {
+        const rob = heldOn('Rob');
+        const bare = whatsappFile({ name: 'Gemma' });
+        const { source } = memorySource([rob, bare]);
+        const actions = new MemoryAskActionStore();
+        const client = new FakeModelClient({ router: () => route({ steps: ['Find Rob', 'Draft reply', 'Send reply'] }) });
+        const deps = { source, assignments: async () => ({ ben: ['u1'] }), client, now: now(), actions };
+
+        const proposed = await runAskTurn(ask({ context: { caseFileId: rob.id } }), { ...deps, loop: scriptedLoop([{ tool: 'propose_send_held_draft', input: { caseFileId: rob.id } }]) });
+        expect(proposed.answer.confirm).toBeDefined();
+        expect(proposed.answer.plan).toBeUndefined();
+
+        const refused = await runAskTurn(ask(), { ...deps, loop: scriptedLoop([{ tool: 'propose_send_held_draft', input: { caseFileId: bare.id } }]) });
+        expect(refused.answer.plan).toBeUndefined();
+
+        const reading = await runAskTurn(ask(), { ...deps, loop: scriptedLoop([]) });
+        expect(reading.answer.plan).toEqual([
+            { label: 'Find Rob', state: 'waiting' },
+            { label: 'Draft reply', state: 'waiting' },
+            { label: 'Send reply', state: 'waiting' },
         ]);
     });
 

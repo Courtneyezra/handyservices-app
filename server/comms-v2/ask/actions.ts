@@ -11,8 +11,9 @@
  *   - refuses a proposal past its expiry: 15 minutes, or London midnight, whichever is first;
  *   - moves it proposed -> confirmed as a compare-and-set, so a second confirm never runs it twice
  *     and gets the first one's outcome back;
- *   - re-checks the kind's preconditions, and the preview against its hash, so what runs is what
- *     Ben read; a change since is refused, never sent;
+ *   - re-checks the kind's preconditions, and the preview (its text and each outgoing tile's address
+ *     and channel) against its hash, so what runs is what Ben read; a change since is refused, never
+ *     sent;
  *   - runs the kind's executor (action-kinds.ts) through the desk's one sender or the one function
  *     for that change, under `human:<person>` and a fresh run id;
  *   - records the outcome on the proposal, and on the case file: a send as its send record, any
@@ -62,7 +63,7 @@ export interface AskAction {
     status: AskActionStatus;
 }
 
-export type AskActionPatch = Partial<Pick<AskAction, 'status' | 'confirmedBy' | 'confirmedAt' | 'runId' | 'result'>>;
+export type AskActionPatch = Partial<Pick<AskAction, 'status' | 'confirmedBy' | 'confirmedAt' | 'runId' | 'result' | 'askRunId' | 'messageId'>>;
 
 export interface AskActionStore {
     insert(action: AskAction): Promise<AskAction>;
@@ -93,8 +94,10 @@ function stableJson(value: unknown): string {
     return JSON.stringify(value ?? null);
 }
 
-export function previewHash(kind: ConfirmKind, args: Record<string, unknown>, previewText: string): string {
-    return createHash('sha256').update(stableJson({ kind, args, previewText })).digest('hex');
+/** The hash of what Ben is shown: the kind, its arguments, the preview text and where each outgoing tile goes, in order. */
+export function previewHash(kind: ConfirmKind, args: Record<string, unknown>, preview: { text: string; outgoing?: OpsOutgoing[] }): string {
+    const destinations = (preview.outgoing ?? []).map((o) => ({ to: o.to, channel: o.channel }));
+    return createHash('sha256').update(stableJson({ kind, args, previewText: preview.text, destinations })).digest('hex');
 }
 
 const londonDay = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
@@ -174,7 +177,7 @@ export async function proposeAction(input: ProposeInput, deps: ActionDeps): Prom
     if (blocked) return refuse(blocked);
     const preview = await def.preview(ctx, args);
     if (!preview.ok) return refuse(preview.reason);
-    const hash = previewHash(input.kind, args, preview.text);
+    const hash = previewHash(input.kind, args, preview);
 
     if (caseFileId) {
         for (const open of await deps.store.open(input.kind, caseFileId)) {
@@ -184,12 +187,17 @@ export async function proposeAction(input: ProposeInput, deps: ActionDeps): Prom
             }
             const openArgs = def.parseArgs(open.args);
             const current = openArgs ? await def.preview(ctx, openArgs) : null;
-            if (!openArgs || !current?.ok || previewHash(open.kind, openArgs, current.text) !== open.previewHash) {
+            if (!openArgs || !current?.ok || previewHash(open.kind, openArgs, current) !== open.previewHash) {
                 await deps.store.transition(open.id, ['proposed'], { status: 'expired', result: { reason: 'superseded: what it would do changed before it was confirmed' } });
                 continue;
             }
             if (open.previewHash === hash && open.sessionId === input.sessionId) {
-                return { ok: true, action: open, label: def.label, outgoing: withAction(preview.outgoing, open.id), reused: true };
+                // The newest answer offering it is the one whose plan strip moves on its confirm.
+                const reused = input.askRunId && input.askRunId !== open.askRunId
+                    ? await deps.store.transition(open.id, ['proposed'], { askRunId: input.askRunId, messageId: null })
+                    : open;
+                if (!reused) return refuse(`a ${input.kind} on this file was settled while this one was being proposed (action ${open.id}); ask again`);
+                return { ok: true, action: reused, label: def.label, outgoing: withAction(preview.outgoing, reused.id), reused: true };
             }
             return refuse(`a ${input.kind} on this file is already waiting for a confirm or a cancel (action ${open.id}); settle that one first`);
         }
@@ -299,7 +307,7 @@ export async function confirmAction(input: SettleInput, deps: ActionDeps): Promi
         if (blocked) return refuseConfirmed(blocked);
         const preview = await def.preview(ctx, args);
         if (!preview.ok) return refuseConfirmed(preview.reason);
-        if (previewHash(found.kind, args, preview.text) !== found.previewHash) return refuseConfirmed(PREVIEW_CHANGED);
+        if (previewHash(found.kind, args, preview) !== found.previewHash) return refuseConfirmed(PREVIEW_CHANGED);
 
         // The executor checks the preview once more where it reads the file, in the same tick as the change.
         const done = await def.execute({ ...ctx, runId, approverName: person, expectedPreview: found.previewText, mode: src.mode }, args);
@@ -407,6 +415,8 @@ export const databaseAskActionStore: AskActionStore = {
         if (patch.confirmedAt !== undefined) set.confirmedAt = patch.confirmedAt ? new Date(patch.confirmedAt) : null;
         if (patch.runId !== undefined) set.runId = patch.runId;
         if (patch.result !== undefined) set.result = patch.result;
+        if (patch.askRunId !== undefined) set.askRunId = patch.askRunId;
+        if (patch.messageId !== undefined) set.messageId = patch.messageId;
         const [row] = await db.update(t).set(set).where(and(eq(t.id, id), inArray(t.status, from))).returning();
         return row ? fromRow(row) : null;
     },

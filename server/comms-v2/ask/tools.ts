@@ -313,7 +313,7 @@ export function messageTools(deps: AskToolDeps, state: AskRunState): AgentTool[]
 export function answerTool(state: AskRunState): AgentTool {
     return {
         name: 'give_answer',
-        description: 'Your answer to Ben, and what his answer surface shows. Call it exactly once, last, before your closing line. surface "thread" shows one case file\'s conversation (give caseFileId); "floor" shows the whole board; "words" shows only your reply. A change you proposed this turn is shown with its preview and a confirm button automatically. For an ask with more than one step, give plan: every step of what Ben asked, in order, with done true for the ones finished.',
+        description: 'Your answer to Ben, and what his answer surface shows. Call it exactly once, last, before your closing line. surface "thread" shows one case file\'s conversation (give caseFileId); "floor" shows the whole board; "words" shows only your reply. A change you proposed this turn is shown with its preview and a confirm button automatically. For an ask with more than one step, give plan: every step of what Ben asked, in order, with done true for the ones finished. A multi-step ask that proposes a change must give plan, or no plan strip is shown.',
         input_schema: {
             type: 'object',
             properties: {

@@ -363,6 +363,26 @@ describe('confirming a proposal from the answer', () => {
         expect(again.json).toMatchObject({ repeat: true, continuedRunId: null });
     });
 
+    it('moves the plan on the newest answer that offered a reused proposal', async () => {
+        const { file, actionId, sessionId } = await proposed([{ label: 'Send the photo ask', done: false }, { label: 'Tell Ben it went', done: false }]);
+        script = [
+            { tool: 'propose_send_held_draft', input: { caseFileId: file.id } },
+            { tool: 'give_answer', input: { finalText: 'Still ready to send.', surface: 'thread', caseFileId: file.id, plan: [{ label: 'Send it now', done: false }, { label: 'Say it went', done: false }] } },
+        ];
+        const posted = await call('POST', `/ask/sessions/${sessionId}/messages`, { text: 'Send it', via: 'text', context: { caseFileId: file.id } });
+        await finished(posted.json.runId);
+        let detail = (await call('GET', `/ask/sessions/${sessionId}`)).json;
+        expect(detail.messages[3].answer.confirm.actionId).toBe(actionId);
+
+        script = [{ tool: 'give_answer', input: { finalText: 'Done.', surface: 'words' } }];
+        const out = await call('POST', `/ask/actions/${actionId}/confirm`);
+        expect(out.status).toBe(200);
+        await finished(out.json.continuedRunId);
+        detail = (await call('GET', `/ask/sessions/${sessionId}`)).json;
+        expect(detail.messages[3].answer.plan[0]).toEqual({ label: 'Send it now', state: 'done', actionId });
+        expect(detail.messages[4].content).toBe('Carry on with the plan: Say it went');
+    });
+
     it('marks the step refused and drops the rest when the confirm is refused, and carries nothing on', async () => {
         const { file, actionId, sessionId } = await proposed([{ label: 'Send the photo ask', done: false }, { label: 'Tell Ben it went', done: false }]);
         store.get(file.id)!.hold!.draft = 'Words nobody confirmed.';

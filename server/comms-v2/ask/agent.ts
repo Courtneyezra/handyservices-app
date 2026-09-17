@@ -251,7 +251,9 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
                 : routed.route?.surface === 'floor' ? { type: 'floor' as const }
                 : selectedNow ? { type: 'thread' as const, caseFileId: selectedNow.id } : { type: 'words' as const });
         const notes = [chosen?.note ?? null, drafted.length > 1 ? `${drafted.length} drafts are held; send each from its own card.` : null, autoRefusal].filter(Boolean).join(' ');
-        const steps = chosen?.plan.length ? chosen.plan : cleanSteps(routed.route?.steps ?? []);
+        // Router steps say nothing of what is done, so they stand in only while nothing waits or was refused.
+        const steps = chosen?.plan.length ? chosen.plan
+            : state.proposal || state.refusal ? [] : cleanSteps(routed.route?.steps ?? []);
         const plan = buildPlan({ steps, proposal: state.proposal, refusal: state.refusal });
         return buildAnswer({ finalText: chosen?.finalText ?? fallbackText, choice, files, assignments, drafted, proposal: state.proposal, plan, note: notes || null });
     };

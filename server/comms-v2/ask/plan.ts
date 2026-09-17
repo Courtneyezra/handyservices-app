@@ -1,8 +1,9 @@
 /**
  * Handy Desk - the plan strip over a multi-step ask (ask-agent specification N14, answer A5).
  *
- * The reasoner names the steps of what Ben asked (give_answer's `plan`, else the router's
- * `steps`) and says which it has finished. Where a change stands is never the model's to say: the
+ * The reasoner names the steps of what Ben asked (give_answer's `plan`) and says which it has
+ * finished; the router's `steps` stand in only for a run that proposed nothing and was refused
+ * nothing, since they carry no done flags. Where a change stands is never the model's to say: the
  * step waiting on a confirm, or refused, is set here from the proposal itself. A plan of one step is
  * not shown. The strip is stored on the answer of the assistant message that offered it, and moves
  * with its proposal (`planAfter`) when Ben confirms or cancels; a refused step drops every step
