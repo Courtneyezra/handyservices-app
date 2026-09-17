@@ -323,6 +323,8 @@ describe('the wrap-up check', () => {
             "I'll message you the quote in a bit.",
             "We'll have a quote for you shortly.",
             'Ben will get back with a price later.',
+            "I'll let you know as soon as the quote is ready.",
+            "I'll let you know when your quote is ready.",
         ]) expect(repeatedSentences(`Cheers Sam. ${s}`, said), s).toEqual([s]);
         for (const s of [
             'Would you like a quote for the fence too?',

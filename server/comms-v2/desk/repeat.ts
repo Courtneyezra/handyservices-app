@@ -33,7 +33,7 @@ const RE_QUOTE_PROMISE = new RegExp([
     String.raw`(?:to|will|['’]ll|shall|should)\s+follow`,
     String.raw`follow(?:ing)?\s+up`,
     String.raw`expect\s+(?:the|a|your|it)`,
-    String.raw`let\s+you\s+know\s+(?:the|your|what\s+the)\s+(?:quote|price|pricing|estimate|costs?|figure)`,
+    String.raw`let\s+you\s+know`,
     String.raw`(?:['’]ll|will|shall)\s+have\s+(?:the|a|your|it)\s+(?:quote|price|estimate|figure|over|ready|with)`,
     String.raw`(?:['’]s|is|['’]m|am|['’]re|are)\s+on\s+(?:it|(?:the|your)\s+(?:quote|price|estimate))`,
     String.raw`(?:quote|price|estimate|figure|it)(?:['’]ll|\s+will|\s+should)\s+be\s+with\s+you`,
