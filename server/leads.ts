@@ -94,6 +94,23 @@ export function createLeadSubmitRateLimit(opts: { max?: number; windowMs?: numbe
 
 export const leadSubmitRateLimit = createLeadSubmitRateLimit();
 
+/**
+ * Whether a POST /api/leads body is an enquiry someone actually wrote in with.
+ *
+ * The route is the web form's, but it is also how the quote page records a booking once Stripe has
+ * taken the money, how the instant-quote card records the same, and how a quote link records a
+ * reserved slot. None of those is an enquiry: acknowledging one as a new enquiry asks the customer
+ * for the details of a job they have just paid for, offers to ring them about it, and puts a second
+ * quote in front of Ben to price. The old ingest below has always drawn this line for itself; the
+ * new desk's forward draws the same one, so a source added here is a source both paths agree on.
+ */
+export function isWebFormEnquiry(lead: { source?: string | null; stripePaymentId?: unknown }): boolean {
+    if (lead.stripePaymentId) return false;
+    const source = (lead.source || '').trim();
+    if (source === 'personalized_quote') return false;
+    return ['web_quote', 'webform', 'website'].includes(source) || source.endsWith('hero_flow');
+}
+
 // Create Lead (Quick Capture / Slot Reservation)
 leadsRouter.post('/api/leads', async (req, res) => {
     try {
@@ -155,7 +172,10 @@ leadsRouter.post('/api/leads', async (req, res) => {
         await db.insert(leads).values({ ...newLead, ...(leadClientId ? { clientId: leadClientId } : {}) });
 
         // comms-v2 (Goal 3): the form also reaches the new desk's gateway behind COMMS_V2_INTAKE; off by default, never blocks.
-        forwardToCommsV2({ kind: 'web_form', lead: { customerName: newLead.customerName, phone: newLead.phone, email: newLead.email, jobDescription: newLead.jobDescription, postcode: newLead.postcode, address: newLead.address, source: newLead.source, leadId: newLead.id, photos: Array.isArray(inputData.photos) ? inputData.photos : undefined } });
+        // Only an enquiry goes: a booking recorded after payment, or a slot reserved on a quote we
+        // have already sent, is not one, and the desk would answer it as a fresh web enquiry.
+        const isEnquiry = isWebFormEnquiry({ source: newLead.source, stripePaymentId: inputData.stripePaymentId });
+        if (isEnquiry) forwardToCommsV2({ kind: 'web_form', lead: { customerName: newLead.customerName, phone: newLead.phone, email: newLead.email, jobDescription: newLead.jobDescription, postcode: newLead.postcode, address: newLead.address, source: newLead.source, leadId: newLead.id, photos: Array.isArray(inputData.photos) ? inputData.photos : undefined } });
 
         // A lead posted AFTER a successful payment (quote-page booking tracking) is not a
         // new enquiry — the payment flow already fires its own "quote accepted" alert, so
@@ -210,10 +230,7 @@ leadsRouter.post('/api/leads', async (req, res) => {
         // lanes — the instant ack (channel 'webform', approved template since a form opens no
         // WhatsApp window) and the agent take it from there. The old draft-and-queue chase
         // (processWebFormLead) is retired for new leads; this path supersedes it.
-        const isWebForm = !isPostPaymentRecord && !!newLead.phone && (
-            ['web_quote', 'webform', 'website'].includes(newLead.source || '')
-            || (newLead.source || '').endsWith('hero_flow')
-        );
+        const isWebForm = isEnquiry && !!newLead.phone;
         if (isWebForm) {
             (async () => {
                 try {
