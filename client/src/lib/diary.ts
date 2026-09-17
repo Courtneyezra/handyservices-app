@@ -185,8 +185,8 @@ export function visibleDates(week: Pick<DiaryWeek, 'dates' | 'lanes'>): string[]
     return week.dates.filter((date) => !isWeekend(date) || week.lanes.some((l) => l.days.some((d) => d.date === date && d.cells.some((c) => c.jobs.length > 0))));
 }
 
-/** The days a month view shows: every weekday of the range, whatever is on it. */
-export function weekdayDates(week: Pick<DiaryWeek, 'dates'>): string[] {
+/** The weekday tiles a month grid draws: every weekday of the range, the neighbouring months' included. */
+function weekdayDates(week: Pick<DiaryWeek, 'dates'>): string[] {
     return week.dates.filter((date) => !isWeekend(date));
 }
 
@@ -275,7 +275,8 @@ export function monthDays(week: DiaryWeek, firstOfMonth: string): MonthDay[] {
 
 /**
  * The header's figures, in contractor half-days - the unit the month's bars draw - over exactly the
- * days the view on screen shows, so a Saturday no view draws never counts.
+ * days the range on screen is named for, so a Saturday no view draws never counts, and neither does
+ * a neighbouring month's day the month grid only draws as context.
  */
 export function halfDayCounts(week: Pick<DiaryWeek, 'lanes'>, dates: string[]): { booked: number; open: number } {
     let booked = 0;

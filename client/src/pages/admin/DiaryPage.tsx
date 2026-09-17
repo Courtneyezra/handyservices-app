@@ -17,7 +17,7 @@ import { adminAuthHeaders } from '@/lib/admin-auth';
 import { cn } from '@/lib/utils';
 import {
     addDays, addMonths, cellCopy, dayNumber, dowOf, halfDayCounts, londonToday, monthDays, monthLabel, monthOf, monthStart, mondayOf,
-    shortDate, threadPath, visibleDates, weekLabel, weekQuery, weekdayDates, weeksInMonth,
+    shortDate, threadPath, visibleDates, weekLabel, weekQuery, weeksInMonth,
     type CellKind, type DiaryCell, type DiaryLane, type DiaryView, type DiaryWeek,
 } from '@/lib/diary';
 
@@ -308,8 +308,12 @@ export default function DiaryPage({ initialToday }: { initialToday?: string } = 
 
     useEffect(() => setSelected(null), [url]);
 
-    // The figures describe what is on screen: the days this view draws, in contractor half-days.
-    const counts = useMemo(() => (data ? halfDayCounts(data, view === 'month' ? weekdayDates(data) : visibleDates(data)) : null), [data, view]);
+    // The figures describe the range on screen, in contractor half-days: this week's visible days, or the named month's own weekdays.
+    const counts = useMemo(() => {
+        if (!data) return null;
+        const dates = view === 'month' ? monthDays(data, month).filter((m) => m.inMonth).map((m) => m.date) : visibleDates(data);
+        return halfDayCounts(data, dates);
+    }, [data, view, month]);
 
     const step = (n: number) => (view === 'week' ? setWeekStart((w) => addDays(w, 7 * n)) : setMonth((m) => addMonths(m, n)));
     const goToday = () => { setView('week'); setWeekStart(mondayOf(today)); setMonth(monthOf(today)); };

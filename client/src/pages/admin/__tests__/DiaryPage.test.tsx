@@ -9,7 +9,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch } from '@test-utils';
 import DiaryPage from '@/pages/admin/DiaryPage';
-import { addDays, mondayOf, type DiaryDay, type DiaryJob, type DiaryWeek } from '@/lib/diary';
+import { addDays, isWeekend, mondayOf, type DiaryDay, type DiaryJob, type DiaryWeek } from '@/lib/diary';
 
 const TODAY = '2026-09-22';
 const MON = '2026-09-21';
@@ -148,6 +148,27 @@ describe('DiaryPage', () => {
         const month = await screen.findByTestId('diary-month');
         expect(within(month).queryByTestId('diary-month-day-2026-09-05')).not.toBeInTheDocument();
         expect(screen.getByTestId('diary-counts')).toHaveTextContent('0 half-days booked');
+    });
+
+    it('counts only the weekdays of the month it names, though the neighbouring days stay drawn', async () => {
+        const offeredWeekdays = (from: string, days: number): DiaryWeek => {
+            const base = weekFrom(from, {}, days);
+            return { ...base, notJobs: [], lanes: [{ contractorId: 'hp_craig', name: 'Craig Test', initials: 'CT', trades: [], days: base.dates.map((d) => (isWeekend(d) ? offDay(d) : openDay(d))) }] };
+        };
+        diaryRoutes((u) => ({ json: offeredWeekdays(u.searchParams.get('start')!, Number(u.searchParams.get('weeks')) * 7) }));
+        renderWithQuery(<DiaryPage initialToday={TODAY} />);
+        await screen.findByTestId('diary-week');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Month' }));
+        const month = await screen.findByTestId('diary-month');
+        expect(screen.getByTestId('diary-range')).toHaveTextContent('September 2026');
+        // Mon 31 Aug and Thu 1 / Fri 2 Oct are still drawn, as the grid's context...
+        expect(within(month).getByTestId('diary-month-day-2026-08-31')).toBeInTheDocument();
+        expect(within(month).getByTestId('diary-month-day-2026-10-01')).toBeInTheDocument();
+        expect(within(month).getByTestId('diary-month-day-2026-10-02')).toBeInTheDocument();
+        // ...but the figures are September's own 22 weekdays, 44 half-days, not the range's 25 days and 50 halves.
+        expect(screen.getByTestId('diary-counts')).toHaveTextContent('0 half-days booked');
+        expect(screen.getByTestId('diary-counts')).toHaveTextContent('44 half-days open');
     });
 
     it('shows a job held on the desk in amber', async () => {

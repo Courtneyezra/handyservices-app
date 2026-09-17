@@ -3,7 +3,7 @@
  * and the header's figures, which must be the month bars' own unit.
  */
 import { describe, expect, it } from 'vitest';
-import { addDays, addMonths, halfDayCounts, londonToday, monthDays, monthOf, monthStart, visibleDates, weekLabel, weekdayDates, weeksInMonth, type DiaryDay, type DiaryWeek } from '@/lib/diary';
+import { addDays, addMonths, halfDayCounts, londonToday, monthDays, monthOf, monthStart, visibleDates, weekLabel, weeksInMonth, type DiaryDay, type DiaryWeek } from '@/lib/diary';
 
 describe('diary dates', () => {
     it('labels a week by its Monday to Friday, across a month and a year', () => {
@@ -47,7 +47,8 @@ describe('the header figures', () => {
     it('counts contractor half-days - a Full cell as two - the same unit a month tile draws', () => {
         // Mon-Fri: two open halves a day, less Wednesday's whole day booked. Sat and Sun are offered but nobody has a job, so no view draws them.
         expect(halfDayCounts(week, visibleDates(week))).toEqual({ booked: 2, open: 8 });
-        expect(halfDayCounts(week, weekdayDates(week))).toEqual({ booked: 2, open: 8 });
+        const september = monthDays(week, '2026-09-01').filter((m) => m.inMonth).map((m) => m.date);
+        expect(halfDayCounts(week, september)).toEqual({ booked: 2, open: 8 });
         const wed = monthDays(week, '2026-09-01').find((m) => m.date === dates[2])!;
         expect([wed.booked, wed.total]).toEqual([2, 2]);
     });
