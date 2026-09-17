@@ -169,6 +169,10 @@ describe('lexicon', () => {
         expect(scopingQuestionCount('I tried to find a slot and can give you a ring later if easier?')).toBe(0);
         expect(offersCall('As I said I can give you a ring tomorrow.')).toBeTruthy();
         expect(offersCall('I spoke to Ben and he will call you tomorrow.')).toBeTruthy();
+        for (const offer of [
+            'Ben tried to call you earlier and will ring you again', 'Happy chatting on the phone if easier?',
+            'Happy speaking to you on the phone if easier?', 'As I mentioned earlier a quick call might help.',
+        ]) expect(offersCall(offer), offer).toBeTruthy();
         expect(offersCall('As we discussed yesterday on the phone, could you send a photo?')).toBeNull();
         expect(offersCall("We've spoken before on the phone.")).toBeNull();
         expect(scopingQuestionCount('Happy to give you a quick call this morning if easier?')).toBe(0);
