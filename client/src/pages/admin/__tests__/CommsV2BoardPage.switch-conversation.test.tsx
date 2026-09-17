@@ -34,8 +34,11 @@ function detailFor(id: string, customerName: string): CaseFileDetail {
         job: { type: null, location: null, quoteRef: null, bookingRef: null },
         turns: [{ id: `${id}_t1`, at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: `${customerName} says hi`, media: [] }],
         facts: [],
-        hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: a discount', since: new Date().toISOString(), draft: 'Held draft for the file' },
+        hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: a discount', since: new Date().toISOString(), draft: 'Held draft for the file', exception: 'money', failures: [], notedOn: false },
         holdApproverAssigned: true,
+        replyChannel: 'whatsapp',
+        replyWindow: { state: 'open', reason: 'the customer wrote just now', closesAt: null },
+        replyRefusal: null,
     };
 }
 
@@ -48,8 +51,9 @@ function mountBoard(extraRoutes: Parameters<typeof mockFetch>[0] = []) {
     const fetchMock = mockFetch([
         ...extraRoutes,
         { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
-        { url: '/api/comms-v2/case-files/case_A', reply: () => ({ json: detailFor('case_A', 'Customer A') }) },
-        { url: '/api/comms-v2/case-files/case_B', reply: () => ({ json: detailFor('case_B', 'Customer B') }) },
+        { url: /\/case-files\/case_A$/, reply: () => ({ json: detailFor('case_A', 'Customer A') }) },
+        { url: /\/case-files\/case_B$/, reply: () => ({ json: detailFor('case_B', 'Customer B') }) },
+        { url: /\/template-offer$/, reply: () => ({ json: { ok: true, template: 'answer_ready_reopen_v1', language: 'en_GB', channel: 'whatsapp', body: 'Reply and we will send it.' } }) },
     ]);
     renderWithQuery(<CommsV2BoardPage />);
     return fetchMock;
@@ -58,7 +62,7 @@ function mountBoard(extraRoutes: Parameters<typeof mockFetch>[0] = []) {
 async function openCard(user: ReturnType<typeof userEvent.setup>, id: 'case_A' | 'case_B') {
     await user.click(screen.getByTestId(`board-card-${id}`));
     await screen.findByText(`Customer ${id.slice(-1)} says hi`);
-    return screen.findByLabelText('Your reply to the customer');
+    return screen.getByLabelText('Your reply to the customer');
 }
 
 /** Opens A and B so both are cached, then leaves A open. */
@@ -70,22 +74,20 @@ async function cacheBothThenOpenA(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('<CommsV2BoardPage> switching conversations', () => {
-    it('clears the reply and release boxes and disables their buttons when a cached conversation is opened', async () => {
+    it('clears the reply box and disables its buttons when a cached conversation is opened', async () => {
         const user = userEvent.setup();
         mountBoard();
         await cacheBothThenOpenA(user);
 
         await user.type(screen.getByLabelText('Your reply to the customer'), "This is A's discount reply, not for B.");
-        await user.type(screen.getByLabelText('Your words, for the file'), "A's release note");
-        expect((screen.getByRole('button', { name: /send as me/i }) as HTMLButtonElement).disabled).toBe(false);
-        expect((screen.getByRole('button', { name: /release hold/i }) as HTMLButtonElement).disabled).toBe(false);
+        expect((screen.getByRole('button', { name: 'Send reply' }) as HTMLButtonElement).disabled).toBe(false);
+        expect((screen.getByRole('button', { name: 'Release hold only' }) as HTMLButtonElement).disabled).toBe(false);
 
         await openCard(user, 'case_B');
 
         expect((screen.getByLabelText('Your reply to the customer') as HTMLTextAreaElement).value).toBe('');
-        expect((screen.getByLabelText('Your words, for the file') as HTMLTextAreaElement).value).toBe('');
-        expect((screen.getByRole('button', { name: /send as me/i }) as HTMLButtonElement).disabled).toBe(true);
-        expect((screen.getByRole('button', { name: /release hold/i }) as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByRole('button', { name: 'Send reply' }) as HTMLButtonElement).disabled).toBe(true);
+        expect((screen.getByRole('button', { name: 'Release hold only' }) as HTMLButtonElement).disabled).toBe(true);
     });
 
     it("does not show one conversation's send outcome, or its template offer, on another", async () => {
@@ -96,17 +98,17 @@ describe('<CommsV2BoardPage> switching conversations', () => {
         ]);
         await cacheBothThenOpenA(user);
 
+        await user.click(screen.getByRole('button', { name: 'Send this' }));
+        expect(await screen.findByTestId('thread-refusal')).toHaveTextContent('Held draft refused');
         await user.type(screen.getByLabelText('Your reply to the customer'), 'Words for A');
-        await user.click(screen.getByRole('button', { name: /send as me/i }));
-        await screen.findByTestId('answer-error');
-        expect(screen.getByTestId('send-template-option')).toBeTruthy();
-        await user.click(screen.getByRole('button', { name: /send as it stands/i }));
-        await screen.findByTestId('send-held-draft-error');
+        await user.click(screen.getByRole('button', { name: 'Send reply' }));
+        await waitFor(() => expect(screen.getByTestId('thread-refusal')).toHaveTextContent('The WhatsApp window is shut'));
+        expect(await screen.findByTestId('template-card')).toBeTruthy();
 
         await openCard(user, 'case_B');
 
-        expect(screen.queryByTestId('answer-error')).toBeNull();
-        expect(screen.queryByTestId('send-template-option')).toBeNull();
-        expect(screen.queryByTestId('send-held-draft-error')).toBeNull();
+        expect(screen.queryByTestId('thread-refusal')).toBeNull();
+        expect(screen.queryByTestId('template-card')).toBeNull();
+        expect(screen.queryByTestId('thread-pending')).toBeNull();
     });
 });
