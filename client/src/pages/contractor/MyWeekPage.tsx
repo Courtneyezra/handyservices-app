@@ -13,7 +13,7 @@ import { useRoute, useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, formatDistanceToNow } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Phone, Play, ChevronLeft, LogOut, Share2, Check, ShoppingBasket, ExternalLink } from 'lucide-react';
+import { Sun, Sunset, Clock, X, Lock, CalendarCheck2, Eye, FileText, CalendarDays, Briefcase, UserRound, CalendarPlus, Sparkles, Home, ChevronRight, Flame, Star, MapPin, Phone, Play, ChevronLeft, LogOut, Check, ShoppingBasket, ExternalLink } from 'lucide-react';
 import type { QuoteMaterial } from '@shared/materials';
 // P13c: the job pack on the schedule (drawer + card chip), the same components the dashboard uses.
 import { JobPackPanel } from '@/components/contractor/JobPackPanel';
@@ -21,7 +21,7 @@ import { PackChip, type ContractorPackView } from '@/components/contractor/JobPa
 import { MessageCustomerPanel } from '@/components/contractor/MessageCustomerPanel';
 // P15/3: "Customer wants something extra" — its own component, one-line mount below.
 import { JobExtraButton } from '@/components/contractor/JobExtraButton';
-import { sharePartnerBragCard } from '@/lib/partner-brag-card';
+import { weekSummary, flexHasOptions, weekSummaryLine, stuckLine } from '@/lib/contractor-week-summary';
 import CompletionSheet from './CompletionSheet';
 import { addDays as addDaysFn, startOfWeek } from 'date-fns';
 
@@ -360,7 +360,6 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
     fetch('/api/contractor/logout', { method: 'POST' }).catch(() => { /* no session is fine */ });
     setLocation('/partner/login');
   };
-  const [sharing, setSharing] = useState(false);
   const [completeJob, setCompleteJob] = useState<{ id: string; name: string; payoutPence: number | null } | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [patternDraft, setPatternDraft] = useState<PatternDay[] | null>(null);
@@ -659,12 +658,12 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
   });
 
   // ── Week planner composition (client-side over existing queries) ──
-  // All money shown is HIS pay (Model C + tier), not the customer price.
-  const bookedPence = jobs?.booked.reduce((s, b) => s + (b.payoutPence ?? 0), 0) ?? 0;
-  const hasOptions = (f: FlexJob) => (f.multiDay ? f.blockStarts.length : f.suggestions.length) > 0;
-  const readyPence = jobs?.flex.reduce((s, f) => s + (hasOptions(f) ? (f.payoutPence ?? 0) : 0), 0) ?? 0;
-  const stuck = jobs?.flex.filter((f) => !hasOptions(f)) ?? [];
-  const stuckPence = stuck.reduce((s, f) => s + (f.payoutPence ?? 0), 0);
+  // Counts only: each job shows its own estimated pay, and nothing adds them up.
+  const hasOptions = flexHasOptions;
+  const summary = weekSummary(jobs);
+  const { stuck, readyCount } = summary;
+  const summaryLine = weekSummaryLine(summary);
+  const stuckNote = stuckLine(summary);
 
   const planRows = useMemo(() => {
     if (!data || !jobs) return [];
@@ -837,10 +836,6 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
 
   const openCount = data?.days.filter((d) => d.date >= data.today && (d.am === 'open' || d.pm === 'open')).length ?? 0;
   const bookedCount = data?.days.filter((d) => d.am === 'booked' || d.pm === 'booked').length ?? 0;
-  // Contractors think in day rates: what a booked day averages. A day packed with
-  // two half-jobs counts once, so packing well raises the figure.
-  const perDayPence = bookedCount > 0 ? Math.round(bookedPence / bookedCount) : 0;
-  const monthlyPence = perDayPence * 20; // ~20 working days — "at this pace" projection
   const selectedDay = data?.days.find((d) => d.date === selectedDate);
 
   return (
@@ -879,7 +874,7 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
             tab === 'home'
               ? ''
               : tab === 'profile'
-              ? 'Your career with Handy — earnings, jobs and your tier.'
+              ? 'Your career with Handy — jobs and your tier.'
               : tab === 'quotes'
               ? 'Live quotes going out with your name and photo on them.'
               : tab === 'jobs'
@@ -896,9 +891,9 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
           const doNow = overdue.length > 0
             ? { tone: 'red', title: `${overdue.length} job${overdue.length > 1 ? 's' : ''} past its promised date`, body: 'Call Handy to sort a new day with the customer.', cta: null }
             : stuck.length > 0
-            ? { tone: 'amber', title: `£${Math.round(stuckPence / 100).toLocaleString()} waiting on an open day`, body: `${stuck[0].jobDescription?.slice(0, 40) ?? 'A job'}${stuck[0].deadline ? ` · by ${format(new Date(stuck[0].deadline + 'T00:00:00'), 'EEE d MMM')}` : ''}`, cta: { label: 'Open days →', to: 'week' as const } }
-            : readyPence > 0
-            ? { tone: 'emerald', title: `£${Math.round(readyPence / 100).toLocaleString()} ready to book`, body: 'Group your jobs into days and lock them in.', cta: { label: 'Plan my week →', to: 'jobs' as const } }
+            ? { tone: 'amber', title: `${stuck.length} job${stuck.length === 1 ? '' : 's'} waiting on an open day`, body: `${stuck[0].jobDescription?.slice(0, 40) ?? 'A job'}${stuck[0].deadline ? ` · by ${format(new Date(stuck[0].deadline + 'T00:00:00'), 'EEE d MMM')}` : ''}`, cta: { label: 'Open days →', to: 'week' as const } }
+            : readyCount > 0
+            ? { tone: 'emerald', title: `${readyCount} job${readyCount === 1 ? '' : 's'} ready to book`, body: 'Group your jobs into days and lock them in.', cta: { label: 'Plan my week →', to: 'jobs' as const } }
             : openCount === 0
             ? { tone: 'amber', title: 'No open days this week', body: 'Open days so customers can book you.', cta: { label: 'Open days →', to: 'week' as const } }
             : { tone: 'emerald', title: 'You’re all set', body: `${bookedCount} day${bookedCount === 1 ? '' : 's'} booked this week. Keep your calendar fresh.`, cta: { label: 'View week →', to: 'week' as const } };
@@ -906,46 +901,19 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
           const toneText = doNow.tone === 'red' ? 'text-red-300' : doNow.tone === 'amber' ? 'text-amber-300' : 'text-emerald-300';
           return (
             <div className="space-y-3">
-              {/* Pay hero — the day-rate brag, the app's centrepiece */}
-              <div className="relative overflow-hidden p-5 rounded-2xl bg-gradient-to-br from-emerald-500/25 via-emerald-500/5 to-slate-900/50 border border-emerald-400/30 shadow-lg shadow-emerald-500/10">
+              {/* Work hero — counts only; pay shows per job, as an estimate */}
+              <div className="relative overflow-hidden p-5 rounded-2xl bg-gradient-to-br from-emerald-500/25 via-emerald-500/5 to-slate-900/50 border border-emerald-400/30 shadow-lg shadow-emerald-500/10" data-testid="work-hero">
                 <div className="absolute -top-14 -right-12 w-44 h-44 rounded-full bg-emerald-400/15 blur-3xl pointer-events-none" />
-                <div className="relative flex items-center justify-between mb-2.5">
-                  <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-emerald-300">
-                    <Flame size={13} className="text-amber-400 fill-amber-400/40" /> Your rate
-                  </div>
-                  {bookedCount > 0 && (
-                    <button
-                      onClick={async () => {
-                        setSharing(true);
-                        try { await sharePartnerBragCard({ name: data?.provider.firstName ?? 'Partner', perDayPence, days: bookedCount, monthlyPence }); }
-                        catch { /* cancelled */ }
-                        finally { setSharing(false); }
-                      }}
-                      disabled={sharing}
-                      aria-label="Share your day rate"
-                      className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-950 bg-emerald-400 rounded-lg px-3 py-1.5 active:scale-95 transition-transform disabled:opacity-50"
-                    >
-                      <Share2 size={12} /> {sharing ? '…' : 'Share'}
-                    </button>
-                  )}
+                <div className="relative inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.15em] text-emerald-300 mb-2.5">
+                  <Flame size={13} className="text-amber-400 fill-amber-400/40" /> Your work
                 </div>
-                {bookedCount > 0 ? (
-                  <>
-                    <div className="relative flex items-baseline gap-2">
-                      <span className="text-[3.25rem] leading-none font-black tracking-tight text-white">£{Math.round(perDayPence / 100).toLocaleString()}</span>
-                      <span className="text-lg text-emerald-200/90 font-bold">a day</span>
-                    </div>
-                    <div className="relative text-xs text-slate-300/80 font-semibold mt-3 leading-relaxed">
-                      avg over your next {bookedCount} booked {bookedCount === 1 ? 'day' : 'days'} · <span className="text-emerald-300 font-bold">~£{(monthlyPence / 100 / 1000).toFixed(1)}k/month at this pace</span>
-                    </div>
-                  </>
-                ) : (
-                  <div className="relative flex items-baseline gap-2 flex-wrap">
-                    <span className="text-4xl font-black text-white">£0</span>
-                    <span className="text-xs text-slate-400 font-semibold">booked</span>
-                    {readyPence > 0 && <span className="text-lg font-bold text-emerald-300">+£{Math.round(readyPence / 100).toLocaleString()} ready</span>}
-                  </div>
-                )}
+                <div className="relative flex items-baseline gap-2">
+                  <span className="text-[3.25rem] leading-none font-black tracking-tight text-white">{summary.bookedJobs}</span>
+                  <span className="text-lg text-emerald-200/90 font-bold">{summary.bookedJobs === 1 ? 'job' : 'jobs'} booked</span>
+                </div>
+                <div className="relative text-xs text-slate-300/80 font-semibold mt-3 leading-relaxed">
+                  across {bookedCount} {bookedCount === 1 ? 'day' : 'days'}{readyCount > 0 && <> · <span className="text-emerald-300 font-bold">{readyCount} ready to book</span></>}
+                </div>
               </div>
 
               {/* Do this now */}
@@ -970,7 +938,7 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                   <div className="min-w-0 flex-1">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-blue-400/70">Next job</div>
                     <div className="text-sm font-bold text-blue-200 truncate">{nextBooked.customerName}{nextBooked.postcodeArea ? ` · ${nextBooked.postcodeArea}` : ''}</div>
-                    <div className="flex items-center gap-2 text-xs text-slate-400">£{Math.round((nextBooked.payoutPence ?? 0) / 100)} you earn <PackChip pack={nextBooked.packChip} /></div>
+                    <div className="flex items-center gap-2 text-xs text-slate-400">£{Math.round((nextBooked.payoutPence ?? 0) / 100)} est. pay <PackChip pack={nextBooked.packChip} /></div>
                   </div>
                   <ChevronRight size={18} className="text-blue-400/60 shrink-0" />
                 </button>
@@ -1030,24 +998,13 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
           );
         })()}
 
-        {/* Payslip — the week as HIS money (spec: 05-week-planner-ui.md) */}
-        {tab === 'week' && jobs && (bookedPence > 0 || (jobs.flex.length ?? 0) > 0) && (
+        {/* Week summary — job counts only; pay shows per job, as an estimate */}
+        {tab === 'week' && jobs && (summary.bookedJobs > 0 || (jobs.flex.length ?? 0) > 0) && (
           <div className="mb-4 p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Your pay</div>
-            <div className="flex items-baseline gap-2 flex-wrap">
-              <span className="text-2xl font-bold">£{Math.round(bookedPence / 100).toLocaleString()}</span>
-              <span className="text-xs text-slate-400 font-semibold">booked</span>
-              {readyPence > 0 && (
-                <>
-                  <span className="text-2xl font-bold text-emerald-400">+£{Math.round(readyPence / 100).toLocaleString()}</span>
-                  <span className="text-xs text-emerald-400/80 font-semibold">ready to add</span>
-                </>
-              )}
-            </div>
-            {stuckPence > 0 && (
-              <div className="mt-1 text-[11px] font-semibold text-amber-400">
-                £{Math.round(stuckPence / 100).toLocaleString()} waiting — open days to take it
-              </div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Your work</div>
+            <div className="text-lg font-bold" data-testid="week-summary">{summaryLine}</div>
+            {stuckNote && (
+              <div className="mt-1 text-[11px] font-semibold text-amber-400">{stuckNote}</div>
             )}
             {jobs.flex.length > 0 && (
               <button
@@ -1221,27 +1178,16 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
             {!jobs && <div className="h-24 bg-slate-900 rounded-xl animate-pulse" />}
 
             {/* THE PLANNER IS THE PAGE (spec: 05-week-planner-ui.md).
-              * Payslip → goals → coaching → week-broken day-rows with
+              * Week summary → goals → coaching → week-broken day-rows with
               * per-day/per-block optimization inline. Unscheduled jobs
               * (zero options) surface in their own section below. */}
             {jobs && (
               <>
                 <div className="mb-3 p-4 rounded-2xl bg-slate-900/70 border border-slate-800">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Your pay</div>
-                  <div className="flex items-baseline gap-2 flex-wrap">
-                    <span className="text-2xl font-bold">£{Math.round(bookedPence / 100).toLocaleString()}</span>
-                    <span className="text-xs text-slate-400 font-semibold">booked</span>
-                    {readyPence > 0 && (
-                      <>
-                        <span className="text-2xl font-bold text-emerald-400">+£{Math.round(readyPence / 100).toLocaleString()}</span>
-                        <span className="text-xs text-emerald-400/80 font-semibold">ready to add</span>
-                      </>
-                    )}
-                  </div>
-                  {stuckPence > 0 && (
-                    <div className="mt-1 text-[11px] font-semibold text-amber-400">
-                      £{Math.round(stuckPence / 100).toLocaleString()} waiting — open days to take it
-                    </div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Your work</div>
+                  <div className="text-lg font-bold" data-testid="planner-summary">{summaryLine}</div>
+                  {stuckNote && (
+                    <div className="mt-1 text-[11px] font-semibold text-amber-400">{stuckNote}</div>
                   )}
                 </div>
 
@@ -1275,7 +1221,7 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                           <div key={f.quoteId} className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-900/50 border border-amber-500/25">
                             <div className="shrink-0 text-center w-12">
                               <div className="text-base font-black text-white leading-none">£{Math.round((f.payoutPence ?? 0) / 100)}</div>
-                              <div className="text-[8px] text-slate-500 font-semibold mt-0.5">you earn</div>
+                              <div className="text-[8px] text-slate-500 font-semibold mt-0.5">est. pay</div>
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="text-xs font-semibold text-slate-200 truncate">{f.jobDescription?.split(/[—,.]/)[0]?.trim() || 'Job'}</div>
@@ -1399,7 +1345,7 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                               {b.firstDay ? (
                                 <div className="flex items-baseline gap-1.5 mt-1">
                                   <span className="text-base font-bold text-blue-100">£{Math.round(b.payoutPence / 100)}</span>
-                                  <span className="text-[10px] text-blue-400/70 font-semibold">you earn</span>
+                                  <span className="text-[10px] text-blue-400/70 font-semibold">est. pay</span>
                                   {b.materialsPence > 0 && <span className="text-[10px] text-slate-400 font-semibold">· £{Math.round(b.materialsPence / 100)} materials</span>}
                                 </div>
                               ) : null}
@@ -1535,7 +1481,7 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                           </div>
                           <div className="shrink-0 text-right">
                             {f.payoutPence != null && <div className="text-lg font-bold text-white">£{Math.round(f.payoutPence / 100)}</div>}
-                            <div className="text-[9px] text-slate-500 font-semibold">you earn</div>
+                            <div className="text-[9px] text-slate-500 font-semibold">est. pay</div>
                             {(f.materialsAllowancePence ?? 0) > 0 && <div className="text-[10px] text-slate-400 font-semibold mt-0.5">£{Math.round((f.materialsAllowancePence ?? 0) / 100)} mat.</div>}
                           </div>
                         </button>

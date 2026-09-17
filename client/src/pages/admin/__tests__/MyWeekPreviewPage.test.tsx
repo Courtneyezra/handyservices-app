@@ -87,6 +87,39 @@ describe('MyWeekPreviewPage', () => {
         expect(PREVIEW_READ_ONLY).toMatch(/nothing is sent/);
     });
 
+    it('shows each job\'s estimate but no pay total, day rate or monthly projection on home or the week tab', async () => {
+        const second = { ...jobsPayload().booked[0], id: 'bk_test_second', date: inDays(5), payoutPence: 12000 };
+        const readyFlex = {
+            quoteId: 'q_test_flex', materials: [], postcodeArea: 'NG2', jobDescription: 'Fix a shelf', fullDescription: 'Fix a shelf', mapQuery: null, photoUrls: null,
+            payoutPence: 9000, payoutLabel: 'Estimated pay for this job', materialsAllowancePence: 0, payLines: null, minutes: 60, deadline: inDays(10),
+            multiDay: false, requiredDays: 1, needsFullDay: false, suggestions: [{ date: inDays(4), slot: 'am', reasons: ['open'] }], blockStarts: [],
+        };
+        const booked = { ...jobsPayload(), booked: [jobsPayload().booked[0], second], flex: [readyFlex] };
+        const app = appPayload();
+        app.days[3] = { ...app.days[3], am: 'booked' };
+        app.days[5] = { ...app.days[5], am: 'booked' };
+        mockFetch([
+            { url: `/api/admin/my-week-preview/${CONTRACTOR}`, reply: () => ({ json: { contractorId: CONTRACTOR, name: 'Craig Smith', token: TOKEN, url: `/my-week/${TOKEN}` } }) },
+            { url: `/api/contractor-app/${TOKEN}/jobs`, reply: () => ({ json: booked }) },
+            { url: new RegExp(`^/api/contractor-app/${TOKEN}$`), reply: () => ({ json: app }) },
+        ], { fallback: 'notFound' });
+        renderWithQuery(<MyWeekPreviewPage />);
+
+        const hero = await screen.findByTestId('work-hero');
+        expect(hero).toHaveTextContent(/2\s*jobs booked/);
+        expect(hero).toHaveTextContent('1 ready to book');
+        expect(hero.textContent).not.toMatch(/£/);
+        expect(screen.getByText('Next job').closest('button')!).toHaveTextContent('£150 est. pay');
+        const home = document.body.textContent ?? '';
+        // £150 + £120 booked, £90 ready: no sum and no projection anywhere.
+        for (const total of ['£270', '£90 ready', '/month', 'a day', 'avg over']) expect(home).not.toContain(total);
+
+        await userEvent.click(screen.getByRole('button', { name: 'Week' }));
+        const summary = await screen.findByTestId('week-summary');
+        expect(summary).toHaveTextContent('2 jobs booked · 1 ready to book');
+        expect(document.body.textContent).not.toMatch(/£270|\+£90|ready to add/);
+    });
+
     it('a contractor the endpoint does not know shows the error, not a dead-link page', async () => {
         mockFetch([{ url: '/api/admin/my-week-preview/', reply: () => ({ status: 404, json: { error: 'Contractor not found' } }) }], { fallback: 'notFound' });
         renderWithQuery(<MyWeekPreviewPage />);
