@@ -9,7 +9,10 @@
  *   npx tsx scripts/_opt-out.ts list
  *   npx tsx scripts/_opt-out.ts check "+447700900123"
  *   npx tsx scripts/_opt-out.ts add "+447700900123" --scope all --note "said so on the phone to Ben"
- *   npx tsx scripts/_opt-out.ts revoke "+447700900123" --by ben --note "asked to be put back on"
+ *   npx tsx scripts/_opt-out.ts revoke "+447700900123" "sam@example.com" --by ben --note "asked to be put back on"
+ *
+ * A lift takes every address of the party, phones and emails alike: a row that also carries an
+ * address not named is left live, in case that address is another party's.
  *
  * Adds default to scope 'marketing', matching a plain STOP. Use --scope all only for an explicit
  * "do not contact me at all", because that blocks service messages too.
@@ -18,9 +21,11 @@ import 'dotenv/config';
 import { db } from '../server/db';
 import { commsOptOuts } from '@shared/schema';
 import { desc, isNull } from 'drizzle-orm';
-import { getOptOut, recordOptOut, revokeOptOut, optOutRefusalMessage, countOptOuts } from '../server/opt-out';
+import { getOptOut, recordOptOut, revokeOptOut, liftAddressOf, optOutRefusalMessage, countOptOuts } from '../server/opt-out';
 
 const [, , command, target] = process.argv;
+const firstFlag = process.argv.findIndex((a, i) => i > 2 && a.startsWith('--'));
+const targets = process.argv.slice(3, firstFlag < 0 ? undefined : firstFlag);
 const flag = (name: string) => {
     const i = process.argv.indexOf(`--${name}`);
     return i >= 0 ? process.argv[i + 1] : undefined;
@@ -64,14 +69,17 @@ async function main() {
             break;
         }
         case 'revoke': {
-            if (!target) throw new Error('revoke needs a phone number');
-            const { revoked, leftAlone } = await revokeOptOut(target, flag('by') ?? 'ops', flag('note'));
-            console.log(revoked ? `Lifted ${revoked} suppression row(s) for ${target}.` : `Nothing lifted for ${target}.`);
-            for (const r of leftAlone) console.log(`  Left live on a shared address: ${r.id} (${r.scope}, ${r.phoneKey ?? '-'} / ${r.emailKey ?? '-'})`);
+            if (!targets.length) throw new Error('revoke needs one or more phone numbers or email addresses');
+            const who = targets.join(', ');
+            const { revoked, leftShared, stillLive } = await revokeOptOut(liftAddressOf(targets), flag('by') ?? 'ops', flag('note'));
+            console.log(revoked ? `Lifted ${revoked} suppression row(s) for ${who}.` : `Nothing lifted for ${who}.`);
+            const line = (r: { id: string; scope: string; phoneKey: string | null; emailKey: string | null }) => `${r.id} (${r.scope}, ${r.phoneKey ?? '-'} / ${r.emailKey ?? '-'})`;
+            for (const r of leftShared) console.log(`  Left live on a shared address: ${line(r)}`);
+            for (const r of stillLive) console.log(`  Still live: ${line(r)}; run the lift again to lift it`);
             break;
         }
         default:
-            console.log('Usage: list | check <phone> | add <phone> [--scope marketing|all] [--note ...] | revoke <phone> [--by ...]');
+            console.log('Usage: list | check <phone> | add <phone> [--scope marketing|all] [--note ...] | revoke <phone|email>... [--by ...]');
     }
     process.exit(0);
 }
