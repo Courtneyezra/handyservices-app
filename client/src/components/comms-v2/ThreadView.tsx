@@ -642,7 +642,9 @@ function ThreadFrame({ layout, backTo, onClose, onAskAbout, title, pills = [], l
  * The thread as a bottom sheet below 1024px: the board or queue stays behind it, and closing returns
  * to it. Escape and a tap above the sheet are ignored while one of the thread's own boxes holds
  * words, so neither throws away a half-written reply or close. "Ask about this", when the page offers
- * one, closes the sheet and hands the page back the focus once the dialog has let go of it.
+ * one, is the page's own leaving rather than a close: the page hears it as it is tapped and puts the
+ * sheet away itself, keeping the card, and the dialog is stopped from taking the focus back on its
+ * way out so the page's focus stays where it put it.
  */
 export function ThreadSheet({ fileId, onClose, onAskAbout, ...rest }: Omit<ThreadViewProps, 'fileId' | 'layout'> & { fileId: string | null }) {
     const asking = useRef(false);
@@ -652,7 +654,7 @@ export function ThreadSheet({ fileId, onClose, onAskAbout, ...rest }: Omit<Threa
                 side="bottom"
                 onEscapeKeyDown={(e) => { if (threadHoldsWords()) e.preventDefault(); }}
                 onPointerDownOutside={(e) => { if (threadHoldsWords()) e.preventDefault(); }}
-                onCloseAutoFocus={(e) => { if (!asking.current) return; asking.current = false; e.preventDefault(); onAskAbout?.(); }}
+                onCloseAutoFocus={(e) => { if (!asking.current) return; asking.current = false; e.preventDefault(); }}
                 className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-xl border-0 p-0 [&>button:last-child]:hidden"
             >
                 <SheetTitle className="sr-only">Conversation</SheetTitle>
@@ -664,7 +666,7 @@ export function ThreadSheet({ fileId, onClose, onAskAbout, ...rest }: Omit<Threa
                         fileId={fileId}
                         layout="sheet"
                         onClose={onClose}
-                        onAskAbout={onAskAbout && (() => { asking.current = true; onClose(); })}
+                        onAskAbout={onAskAbout && (() => { asking.current = true; onAskAbout(); })}
                     />
                 )}
             </SheetContent>

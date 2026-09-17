@@ -313,6 +313,9 @@ describe('HandyDesk', () => {
         expect(screen.queryByTestId('handy-desk-thread')).toBeNull();
 
         await userEvent.click(within(sheet).getByRole('button', { name: 'Queue' }));
+        // The card is put down the moment he taps back, without waiting on the sheet's way out.
+        expect(screen.getByTestId('queue-card-case_gemma')).not.toHaveAttribute('aria-current');
+
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
         expect(screen.getByTestId('queue-card-case_gemma')).not.toHaveAttribute('aria-current');
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
@@ -355,6 +358,10 @@ describe('HandyDesk', () => {
         expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
 
         await userEvent.click(within(sheet).getByRole('button', { name: 'Ask about this' }));
+        // The card stays Ben's the moment he taps, without waiting on the sheet's way out.
+        expect(screen.getByTestId('queue-card-case_gemma')).toHaveAttribute('aria-current', 'true');
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
         const ask = screen.getByTestId('handy-desk-ask-input');
         await waitFor(() => expect(ask).toHaveFocus());
