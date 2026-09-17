@@ -126,6 +126,13 @@ describe('the invoice question', () => {
         expect(invoiceMoneyQuestion('what do I owe on the invoice and what is your price for a gate')).toBe(false);
         expect(invoiceMoneyQuestion('how much do I still owe on my invoice?')).toBe(true);
     });
+    it('keeps a haggle, terms of payment or an offered figure on an invoice with Ben', () => {
+        expect(invoiceMoneyQuestion('Will you take £60 cash for the invoice balance?')).toBe(false);
+        expect(invoiceMoneyQuestion("That's a bit steep for my invoice")).toBe(false);
+        expect(invoiceMoneyQuestion("can I pay it in parts, it's for my invoice")).toBe(false);
+        expect(invoiceMoneyQuestion('could I pay monthly for the outstanding balance?')).toBe(false);
+        expect(invoiceMoneyQuestion('I can do 50 quid towards the invoice')).toBe(false);
+    });
 });
 
 describe('identity recognises a customer the CRM holds', () => {

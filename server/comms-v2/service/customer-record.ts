@@ -26,6 +26,7 @@
  */
 import { assertCommsV2DatabaseFor, type DatabasePurpose } from '../live-database';
 import { RECORD_READ_FIELD_PREFIX } from '../desk/case-file';
+import { haggles, RE_FIGURE } from '../desk/lexicon';
 import type { CanonicalKey } from '../desk/identity';
 import { bookingRowToDiary, branchInUse, formatDiaryDate, notStandingReason, unacceptedReason, type DiaryBooking } from '../scheduling/diary';
 import { pounds, statusOfRow, type QuoteStatus } from '../quoting/quote-record';
@@ -192,9 +193,13 @@ export function asksAboutInvoice(text: string): boolean {
     return RE_INVOICE_QUESTION.test(text);
 }
 
-/** A money question the invoice row may answer: it asks about an invoice or payment and nothing an invoice cannot settle. */
+/**
+ * A money question the invoice row may answer: it asks about an invoice or payment and nothing an
+ * invoice cannot settle. A haggle or terms of payment (desk/lexicon.ts) and a figure the customer
+ * names are Ben's.
+ */
 export function invoiceMoneyQuestion(text: string): boolean {
-    return RE_INVOICE_QUESTION.test(text) && !RE_NOT_A_RECORD_READ.test(text);
+    return RE_INVOICE_QUESTION.test(text) && !RE_NOT_A_RECORD_READ.test(text) && !haggles(text) && !RE_FIGURE.test(text);
 }
 
 // ---------------------------------------------------------------- readers
