@@ -131,9 +131,9 @@ describe('lexicon', () => {
     });
     it('reads haggling in everyday words as money, but not job talk that looks like it', () => {
         for (const body of [
-            'Is that the best you can do?', 'Any wiggle room on that?', "Bit steep isn't it", "That's a bit dear", "That's over my budget", 'My budget is 200', "I'm on a tight budget", 'Can you do it for £100?', 'You quoted me £150, any cheaper?',
+            'Is that the best you can do?', 'Any wiggle room on that?', "That's a bit steep isn't it", 'Can you do it for less than that?', 'Would you do it for less than 150?', "That's a bit dear", "That's over my budget", 'My budget is 200', "I'm on a tight budget", 'Can you do it for £100?', 'You quoted me £150, any cheaper?',
             'Someone else quoted me 80 for it', 'Can you match 90?', 'Could you do mates rates?', 'Can I pay cash for less?', 'Can you do any better on that?',
-            'Can you go any lower?', 'Is there any room to move on that?', 'That seems a lot for a tap', 'Any chance of a deal if I book two jobs?',
+            'Could you go any lower on the price?', 'Can you go lower than 150?', 'Is there any room to move on that?', 'That seems a lot for a tap', 'Any chance of a deal if I book two jobs?',
             'Do you do a pensioner rate?', 'Can you do it for 100?', 'Would you take 120?', 'Can you accept 90?', 'Would u take 80 cash?', 'Can you knock a tenner off?', 'Would you do 150 cash?',
             'Too pricey for me', 'Can you meet me halfway?', 'That is a bit steep for a tap', 'Too dear for me', 'Can you do it for less money?', 'Is that negotiable?', 'Can I pay in instalments?', 'Could you knock some off?',
         ]) {
@@ -147,6 +147,7 @@ describe('lexicon', () => {
             'I can take 20 photos if you like', 'what budget hinges do you use', 'you quoted me last week for the shelves, can you also do the gate', 'Can you do it for 10am?', "We'll go lower on the shelf height", 'Sounds a lot like a washer',
             'The roof is quite steep, can you still do the gutters?', 'the stairs are very steep', 'The mirror is too high, could it go lower?',
             'Can you do the shelf for less than an hour?', 'We paid for less work last time',
+            'The roof is a bit steep, will you need scaffolding?', 'Could you go lower with the TV bracket?',
         ]) {
             expect(moneyQuestionMatch(body), body).toBeNull();
         }
@@ -164,6 +165,12 @@ describe('lexicon', () => {
         expect(offersCall('Happy to give you a quick call this morning if easier?')).toBeTruthy();
         expect(offersCall('As I said I can give you a ring tomorrow.')).toBeTruthy();
         expect(scopingQuestionCount('Happy to give you a quick call this morning if easier?')).toBe(0);
+        for (const past of [
+            'As we spoke about on the phone, could you send a photo?', 'As we talked about on the phone, could you send a photo?',
+            'We spoke earlier on the phone.', 'Thanks for chatting with me on the phone.',
+        ]) expect(offersCall(past), past).toBeNull();
+        expect(scopingQuestionCount('As we spoke about on the phone, could you send a photo?')).toBe(1);
+        expect(scopingQuestionCount('As we talked about on the phone, could you send a photo?')).toBe(1);
         expect(scopingQuestionCount('Would a quick call help?')).toBe(0);
         expect(textAsks('If it is easy, could you send a photo?', 'media')).toBe(true);
         expect(textAsks('No worries about photos, what size is the tile?', 'media')).toBe(false);
