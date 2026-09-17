@@ -418,3 +418,42 @@ round (below).
   `server/comms-v2/api/store.ts:26`, built with `{}` from `server/index.ts:522`) is still silent the
   same way; left alone this round because that singleton is built by whichever caller reaches it
   first.
+- Round 14 (17 Sep 2026) — a customer who goes quiet and the chase lanes, WhatsApp, driven on the
+  app's own comms-v2 sandbox door against the branch database. The desk's own rungs all held. A
+  complaint from the drama customer held for Ben (with no Anthropic credit the hold reason is
+  `router_failed`, see the NOTE at the top of this file; the chase ladder is template-only and needs
+  no model, which is why this round was drivable at all). With the intervals set to 30 and 60 minutes
+  (`POST /chase-intervals`): the first pass did nothing (*"held for 0 min; Ben is chased after 30
+  min"*); ageing an hour drew exactly one template to Ben's drama number, `desk_approver_chase_v1`,
+  *"Hi Ben, a customer thread is waiting on you: a held thread from Marguerite. Open the desk to pick
+  it up."*, under `agent.comms_v2` with its own run id and the label `{purpose: marketing, context:
+  comms_v2:approver_chase}` (deliberate: `outboundLabelFor`, `server/comms-v2/desk/sender.ts:90`, puts
+  a desk-started send in the fail-closed marketing class); the next pass did nothing (*"Ben chased;
+  the owner is told after a further 60 min"*, one action per pass); another hour drew
+  `desk_owner_escalation_v1` to the owner; the pass after that *"Ben chased and the owner told;
+  nothing further until Ben replies"*. Ben's reply through `POST /ben-replies` released the hold and
+  cleared the chase record (`GET /chase` → `record: null`, `releases: 1`), and a later hold on the
+  same file started a fresh record (`releasesBefore: 1`) and chased him again. The quiet customer
+  half: with the hold released and the customer silent, the file aged 72 hours and three clock passes
+  in a row said *"no customer turn, nothing to reply to; the desk never chases the customer"* and
+  sent nothing — which matches the registry, where the only customer-facing chase rung,
+  `enquiry_chase`, is `wired: false` (`server/window-templates.ts:315`). No issue on the desk.
+  The fault this round found is on the sandbox door itself, and it had been poisoning every round of
+  the night: `POST /reset` answered `{"ok":true}` while its quote cleanup had thrown —
+  `update or delete on table "personalized_quotes" violates foreign key constraint
+  "invoices_quote_id_personalized_quotes_id_fk" on table "invoices"`. `deleteSandbox`
+  (`server/comms-v2/quoting/quote-store.ts:275`) cleared `quote_estimates`, `quote_price_verdicts`
+  and `agent_runs` and then deleted the quotes, but never the invoice a round had raised against one
+  of them, so the foreign key blocked the whole delete and every sandbox quote survived. One sent
+  invoice (`INV-2026-0281`) had been holding them since: **265 sandbox quote rows** were on the branch
+  under the drama number, two of them accepted and deposit-paid, so any round whose path looks for
+  "the newest draft for this contact" (`findDraft`, `quote-store.ts:220`) or reads the drama
+  customer's quotes was reading earlier rounds' rows. Fix: `deleteSandbox` deletes the invoices whose
+  `quote_id` is one of the sandbox's own quotes before deleting the quotes, guarded like the other
+  side tables and counted in the reply (`invoices`), with one regression test
+  (`quoting/quote-store-sandbox.test.ts`, failing against the old code: no invoice delete is issued
+  at all). Re-driven on a restarted door: `POST /reset` → `{"quotes":265,"invoices":1,...}` and the
+  branch now reads 0 sandbox quotes and 0 invoices against them. Not an ESCALATE: nothing went to a
+  customer and no live money row moved — the deleted invoice is the sandbox's own, on the branch.
+  One product question filed as entry 5 in OVERNIGHT-QUESTIONS.md (a chase to Ben that cannot go
+  blocks the owner escalation for ever).

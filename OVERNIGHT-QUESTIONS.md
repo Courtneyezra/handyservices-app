@@ -126,3 +126,32 @@ all:
 request, not an enquiry), so the file moves and the chase stops? And is the instant-price lead an
 enquiry the desk should acknowledge, or is the customer's own WhatsApp message the enquiry? Either
 one is a new input on the intake bridge, which is why this is not guessed at here.
+
+## 5. A chase to Ben that cannot go blocks the owner escalation for ever
+
+Found: round 14 (17 Sep 2026), driving the chase lanes on the sandbox door.
+
+The ladder is time-based on the way up — `chaseIfDue` measures both rungs from the hold's own age
+(`age < cfg.chaseAfterMs`, then `age < cfg.chaseAfterMs + cfg.escalateAfterMs`,
+`server/comms-v2/service/chase.ts:160`) — but the second rung is gated on the first having
+*succeeded*: the owner is considered only `if (!record.chased)` is false. A chase that is refused
+leaves `record.chased` null, so every later pass tries Ben again and returns `refused`, and the owner
+is never told, however old the hold is. The repo's own test already pins that shape
+(`service/chase.test.ts:50`: with no address for Ben, three passes in a row are `refused`).
+
+The refusals are per recipient and live-plausible: a missing `COMMS_V2_CHASE_BEN_E164` (the code
+anticipates it — "a number that is not set is a recorded refusal on the first due chase",
+`chase.ts:103`), Ben's handset not on WhatsApp, or the deliverer refusing that one number. In each
+case the rung that exists precisely for "nobody has picked this thread up" is the rung that never
+fires, and the only record is inside the case file's `chase.attempts`.
+
+The wording pulls both ways, which is why this is not guessed at here: `contracts.md:484` says "a
+held thread chases Ben after one interval and the owner after a second", which reads as two
+intervals off the hold; behaviour.md answer 67 says "Ben is chased, then the owner", which reads as
+a sequence.
+
+**The decision needed:** when the chase to Ben cannot go, should the owner still be told once the
+second interval passes (the fix is a fall-through in `chaseIfDue` plus a test), or is the owner's
+message only ever a follow-on from a chase Ben actually received? If the second, the refusal
+deserves an alarm of its own, because today a held thread can sit for ever with nobody reachable
+and nothing said outside the case file.

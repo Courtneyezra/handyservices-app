@@ -61,7 +61,7 @@ export const BEN_APPROVER = 'human:ben' as const;
  */
 const deskOf = (g: Gateway): DeskLike => g['desk'];
 
-export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; reset(): Promise<{ quotes: number; estimates: number; verdicts: number; runs: number } | { error: string }> } {
+export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; reset(): Promise<{ quotes: number; invoices: number; estimates: number; verdicts: number; runs: number } | { error: string }> } {
     const router = Router();
     const quotingDeps = (): QuotingDeps => ({ ...opts.deps.quoting, now: opts.now, newId: opts.deps.newId });
     const respond = (res: Response, file: CaseFile, result: DeskResult, extra: Record<string, unknown> = {}) => {
