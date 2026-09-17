@@ -70,6 +70,7 @@ describe('<CommsV2BoardPage>', () => {
             card({ stage: 'quoted', id: 'case_not_told', customerName: 'Untold Customer', quoteReissue: { amount: '£126.00', previous: '£120.00', automatic: true, sentAt: null, notSent: 'send refused', at: new Date().toISOString() } }),
         ];
         mockFetch([{ url: '/api/comms-v2/board', reply: () => ({ json: board }) }]);
+        stubViewport(true);
         renderWithQuery(<CommsV2BoardPage />);
         await waitFor(() => expect(screen.getByTestId('board-card-reissue-case_reissued')).toBeTruthy());
         expect(screen.getByTestId('board-card-reissue-case_reissued').textContent).toBe('Quote reissued automatically: £105.00 (was £100.00), sent 5m ago');
@@ -83,16 +84,19 @@ describe('<CommsV2BoardPage>', () => {
             { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
         ]);
 
+        stubViewport(true);
         renderWithQuery(<CommsV2BoardPage />);
 
         for (const stage of STAGES) {
             await waitFor(() => expect(screen.getByTestId(`board-column-${stage}`)).toBeTruthy());
         }
         expect(screen.getByText('Held Customer')).toBeTruthy();
-        expect(screen.getAllByText(/Held for ben/)).toHaveLength(2);
-        expect(screen.getByText('a complaint')).toBeTruthy();
-        expect(screen.getByTestId('board-card-hold-case_unassigned').textContent).toContain('No approver assigned');
-        expect(screen.getByTestId('board-card-hold-case_held').textContent).not.toContain('No approver assigned');
+        expect(screen.getByTestId('board-card-held-pill-case_held').textContent).toContain('Held');
+        expect(screen.getByTestId('board-card-hold-case_held').textContent).toBe('a complaint');
+        expect(screen.getByTestId('board-card-no-slot-case_unassigned').textContent).toBe('Approver ben has no session slot');
+        expect(screen.queryByTestId('board-card-no-slot-case_held')).toBeNull();
+        // Held cards float first in their column, as the API sorted them.
+        expect(screen.getByTestId('board-column-first_contact').querySelectorAll('[data-testid^="board-card-case"]')[0].getAttribute('data-testid')).toBe('board-card-case_held');
         expect(screen.getByText('Customer scoping')).toBeTruthy();
         expect(screen.getByText('Customer done')).toBeTruthy();
     });
@@ -174,7 +178,7 @@ describe('<CommsV2BoardPage>', () => {
         ]);
 
         renderWithQuery(<CommsV2BoardPage />);
-        await waitFor(() => expect(screen.getByTestId('board-column-first_contact')).toBeTruthy());
+        await waitFor(() => expect(screen.getByTestId('sandbox-thread-control')).toBeTruthy());
 
         const text = screen.getByLabelText('Customer says');
         await user.type(text, 'Hi, a leaking tap');
@@ -448,7 +452,7 @@ describe('<CommsV2BoardPage>', () => {
 
         // Before a card is opened, the docked panel is already there with a placeholder.
         expect(screen.getByTestId('docked-case-file-panel')).toBeTruthy();
-        expect(screen.getByText(/Select a conversation/)).toBeTruthy();
+        expect(screen.getByText(/Select a card to open its thread/)).toBeTruthy();
 
         await user.click(screen.getByTestId('board-card-case_held'));
         await waitFor(() => expect(screen.getByText('Can you do it for less?')).toBeTruthy());
@@ -469,8 +473,7 @@ describe('<CommsV2BoardPage>', () => {
         await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
 
         expect(screen.queryByTestId('sandbox-thread-control')).toBeNull();
-        expect(screen.queryByRole('button', { name: /sandbox only/i })).toBeNull();
-        expect(screen.queryByRole('button', { name: /live only/i })).toBeNull();
+        expect(screen.queryByTestId('board-mode-switch')).toBeNull();
         expect(screen.queryByText(/^sandbox$/i)).toBeNull();
         expect(screen.queryByText(/^live$/i)).toBeNull();
 
@@ -488,8 +491,8 @@ describe('<CommsV2BoardPage>', () => {
         await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
 
         expect(screen.getByTestId('sandbox-thread-control')).toBeTruthy();
-        expect(screen.getByRole('button', { name: /sandbox only/i })).toBeTruthy();
-        expect(screen.getByRole('button', { name: /live only/i })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Sandbox' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Live' })).toBeTruthy();
         expect(screen.getAllByText(/^sandbox$/i).length).toBeGreaterThan(0);
     });
 
@@ -500,9 +503,9 @@ describe('<CommsV2BoardPage>', () => {
 
         renderWithQuery(<CommsV2BoardPage />);
         await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
-        expect(screen.getByText('Customer conversations')).toBeTruthy();
+        expect(screen.getByRole('heading', { name: 'Comms board' })).toBeTruthy();
         const total = Object.values(board.columns).reduce((n, c) => n + c.length, 0);
-        expect(screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === `${total} conversations`)).toBeTruthy();
+        expect(screen.getByTestId('board-counts').textContent).toBe(`${total} open files · 2 held`);
     });
     it('a call bubble shows its summary and hides the transcript behind a toggle; a bare call says nothing has landed yet', async () => {
         const user = userEvent.setup();

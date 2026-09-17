@@ -28,14 +28,18 @@
  * sends the next customer message through the board's own sandbox door. The board itself polls
  * every fifteen seconds; no websockets.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Clock, Loader2, MessageSquare, Send } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { AlertTriangle, Loader2, MessageSquare, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { boardCounts, defaultPhoneTab, relativeTime, STAGE_LABELS, type HoldException, type PhoneTab, type Stage } from '@/lib/comms-board';
+import {
+    BoardEmpty, BoardError, BoardFloor, BoardKanban, BoardPhone, BoardSkeleton, HeldOnlyButton, ModeSwitch,
+    ReadOnlyNotice, ViewToggle, type BoardView,
+} from '@/components/comms-board/BoardViews';
 
 /** How often an open case file re-checks for new turns; matches the board query's own interval. */
 const CASE_FILE_REFETCH_MS = 15_000;
@@ -69,18 +73,8 @@ function getAuthHeaders(): Record<string, string> {
 
 // ---------------------------------------------------------------- shapes (mirror server/comms-v2/api/board.ts)
 
-export const STAGES = ['first_contact', 'scoping', 'ready', 'quoted', 'accepted', 'booked', 'done'] as const;
-export type Stage = (typeof STAGES)[number];
-
-export const STAGE_LABELS: Record<Stage, string> = {
-    first_contact: 'First contact',
-    scoping: 'Scoping',
-    ready: 'Ready',
-    quoted: 'Quoted',
-    accepted: 'Accepted',
-    booked: 'Booked',
-    done: 'Done',
-};
+export { relativeTime, STAGE_LABELS, STAGES } from '@/lib/comms-board';
+export type { Stage } from '@/lib/comms-board';
 
 export type BoardMode = 'sandbox' | 'live';
 
@@ -93,6 +87,10 @@ export interface BoardCard {
     holdApprover: string | null;
     holdApproverAssigned: boolean;
     holdSince: string | null;
+    /** The router exception that raised the hold, when one did; null otherwise (server/comms-v2/api/board.ts, always sent). */
+    holdException?: HoldException | null;
+    /** The hold carries a draft the desk held back: the "Draft ready" pill (always sent). */
+    hasDraft?: boolean;
     customerName: string | null;
     customerAddress: string;
     role: string;
@@ -118,6 +116,12 @@ export interface Board {
      * this is true, so the control it drives stays available there.
      */
     sandboxAvailable?: boolean;
+    /**
+     * The slot this session occupies (server/comms-v2/api/routes.ts `viewerOf`). `canAct: false` is
+     * the read-only board: every write would be refused 403, so the actions are hidden. Missing
+     * (an older server) is not read as read-only; the server still refuses whatever it refuses.
+     */
+    viewer?: { approver: string | null; canAct: boolean };
 }
 
 export interface TurnMedia {
@@ -232,96 +236,6 @@ export function boardQuery(filters: BoardFilters): string {
     if (filters.mode !== 'all') params.set('mode', filters.mode);
     const qs = params.toString();
     return `/api/comms-v2/board${qs ? `?${qs}` : ''}`;
-}
-
-// ---------------------------------------------------------------- presentation helpers
-
-export function relativeTime(iso: string | null, nowMs: number = Date.now()): string {
-    if (!iso) return '';
-    const ms = nowMs - Date.parse(iso);
-    if (ms < 60_000) return 'just now';
-    const mins = Math.floor(ms / 60_000);
-    if (mins < 60) return `${mins}m ago`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
-}
-
-const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email' };
-
-// ---------------------------------------------------------------- board card
-
-export function BoardCardView({ card, onOpen, showMode = false }: { card: BoardCard; onOpen: () => void; showMode?: boolean }) {
-    return (
-        <button
-            type="button"
-            onClick={onOpen}
-            data-testid={`board-card-${card.id}`}
-            className={cn(
-                'w-full select-none rounded-lg border bg-card p-3 text-left shadow-sm transition-colors',
-                'hover:border-primary/50',
-                card.held && 'border-red-500/60 bg-red-500/5',
-            )}
-        >
-            {card.held && (
-                <div data-testid={`board-card-hold-${card.id}`} className="mb-2 rounded bg-red-500/10 px-2 py-1 text-xs font-semibold text-red-600">
-                    <div className="flex items-center gap-1"><AlertTriangle className="h-3 w-3 shrink-0" /> Held for {card.holdApprover ?? 'approval'}</div>
-                    <div className="mt-0.5 font-normal text-red-600/90">{card.holdReason}</div>
-                    {!card.holdApproverAssigned && <div className="mt-0.5 font-normal text-red-600/90">No approver assigned</div>}
-                </div>
-            )}
-            <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-semibold">{card.customerName || card.customerAddress || 'Unknown'}</span>
-                {showMode && <Badge variant={card.mode === 'live' ? 'default' : 'secondary'} className="shrink-0 text-[10px] uppercase">{card.mode}</Badge>}
-            </div>
-            {(card.jobType || card.location) && (
-                <p className="mt-1 truncate text-xs text-muted-foreground">
-                    {card.jobType ?? 'job not yet known'}{card.location ? ` · ${card.location}` : ''}
-                </p>
-            )}
-            {card.lastCustomerMessage && (
-                <p className="mt-2 line-clamp-2 text-xs italic text-muted-foreground">&ldquo;{card.lastCustomerMessage}&rdquo;</p>
-            )}
-            {card.benToRequest.length > 0 && (
-                <div data-testid={`board-card-ben-to-request-${card.id}`} className="mt-2 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-700">
-                    <span className="font-semibold">Ask for:</span> {card.benToRequest.join(', ')}
-                </div>
-            )}
-            {card.quoteReissue && (
-                <div data-testid={`board-card-reissue-${card.id}`} className="mt-2 rounded bg-sky-500/10 px-2 py-1 text-xs text-sky-700">
-                    <span className="font-semibold">Quote reissued automatically:</span> {card.quoteReissue.amount} (was {card.quoteReissue.previous}),{' '}
-                    {card.quoteReissue.sentAt ? `sent ${relativeTime(card.quoteReissue.sentAt)}` : `not sent: ${card.quoteReissue.notSent ?? 'unknown'}`}
-                </div>
-            )}
-            <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
-                <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {relativeTime(card.lastCustomerMessageAt ?? card.openedAt)}</span>
-                {card.replyChannel && <span>{CHANNEL_LABEL[card.replyChannel] ?? card.replyChannel}</span>}
-            </div>
-        </button>
-    );
-}
-
-// ---------------------------------------------------------------- column
-
-export function BoardColumn({ stage, cards, onOpenCard, showMode = false }: { stage: Stage; cards: BoardCard[]; onOpenCard: (id: string) => void; showMode?: boolean }) {
-    return (
-        <div
-            data-testid={`board-column-${stage}`}
-            className="flex h-full w-72 shrink-0 flex-col rounded-lg bg-muted/40 p-3"
-        >
-            <div className="mb-3 flex items-center gap-2 border-b pb-2">
-                <h3 className="text-sm font-semibold">{STAGE_LABELS[stage]}</h3>
-                <span className="ml-auto rounded-full bg-background px-2 py-0.5 text-xs text-muted-foreground">{cards.length}</span>
-            </div>
-            <div className="flex-1 space-y-2 overflow-y-auto pr-1">
-                {cards.length === 0 ? (
-                    <p className="py-6 text-center text-xs text-muted-foreground/60">No conversations</p>
-                ) : (
-                    cards.map((card) => <BoardCardView key={card.id} card={card} onOpen={() => onOpenCard(card.id)} showMode={showMode} />)
-                )}
-            </div>
-        </div>
-    );
 }
 
 // ---------------------------------------------------------------- release form
@@ -561,7 +475,14 @@ export function AnswerForm({ fileId, held, onAnswered, lastInboundTurnId }: {
 
 // ---------------------------------------------------------------- case file detail
 
-export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = false }: { fileId: string; onReleased: () => void; onAnswered: () => void; showMode?: boolean }) {
+export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = false, readOnly = false }: {
+    fileId: string;
+    onReleased: () => void;
+    onAnswered: () => void;
+    showMode?: boolean;
+    /** The viewer holds no approver slot: the hold is shown, and Send, Release and Answer are hidden rather than offered to be refused. */
+    readOnly?: boolean;
+}) {
     const { data, isLoading, error } = useQuery<CaseFileDetail>({
         queryKey: ['comms-v2-case-file', fileId],
         queryFn: async () => {
@@ -647,7 +568,12 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
             </div>
 
             <div className="shrink-0 space-y-3 border-t pt-3">
-                {data.hold && (
+                {readOnly ? (
+                    <div data-testid="case-file-read-only" className="rounded-lg border p-3 text-xs text-muted-foreground">
+                        {data.hold && <p className="mb-1 font-semibold text-amber-700">Held for {data.hold.approver.id}: {data.hold.reason}</p>}
+                        <p>Read only: no approver slot is assigned to your login.</p>
+                    </div>
+                ) : data.hold && (
                     <ReleaseForm
                         fileId={data.id}
                         holdReason={data.hold.reason}
@@ -658,7 +584,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
                         lastInboundTurnId={lastInboundTurnId}
                     />
                 )}
-                <AnswerForm fileId={data.id} held={!!data.hold} onAnswered={onAnswered} lastInboundTurnId={lastInboundTurnId} />
+                {!readOnly && <AnswerForm fileId={data.id} held={!!data.hold} onAnswered={onAnswered} lastInboundTurnId={lastInboundTurnId} />}
             </div>
         </div>
     );
@@ -671,6 +597,9 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
  * own sandbox door (POST /api/comms-v2/sandbox/start and /message). Start clears the door, so the
  * board shows one sandbox thread at a time, the one being watched.
  */
+const SANDBOX_INPUT = 'mt-0.5 min-h-9 rounded-full border border-slate-700 bg-slate-900 px-3 text-sm text-white placeholder:text-slate-500 focus:border-amber-400 focus:outline-none';
+const SANDBOX_BUTTON = 'inline-flex min-h-9 items-center gap-1.5 rounded-full border border-slate-600 px-3.5 text-xs font-semibold text-white transition-colors duration-200 ease-[var(--ease-out)] hover:border-amber-400 hover:text-amber-400 disabled:cursor-not-allowed disabled:opacity-50';
+
 export function SandboxThreadControl({ onChanged }: { onChanged: () => void }) {
     const [name, setName] = useState('Sam');
     const [text, setText] = useState('');
@@ -701,80 +630,66 @@ export function SandboxThreadControl({ onChanged }: { onChanged: () => void }) {
     return (
         <div className="flex flex-wrap items-end gap-2" data-testid="sandbox-thread-control">
             <div>
-                <label className="block text-[10px] font-medium uppercase text-muted-foreground" htmlFor="sandbox-name">Customer</label>
-                <input id="sandbox-name" value={name} onChange={(e) => setName(e.target.value)} className="mt-0.5 w-24 rounded-md border bg-background px-2 py-1 text-sm" />
+                <label className="block text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400" htmlFor="sandbox-name">Customer</label>
+                <input id="sandbox-name" value={name} onChange={(e) => setName(e.target.value)} className={cn(SANDBOX_INPUT, 'w-24')} />
             </div>
             <div className="min-w-64 flex-1">
-                <label className="block text-[10px] font-medium uppercase text-muted-foreground" htmlFor="sandbox-text">Customer says</label>
+                <label className="block text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400" htmlFor="sandbox-text">Customer says</label>
                 <input
                     id="sandbox-text"
                     value={text}
                     onChange={(e) => setText(e.target.value)}
                     placeholder="Hi, can I get a quote for a leaking tap?"
-                    className="mt-0.5 w-full rounded-md border bg-background px-2 py-1 text-sm"
+                    className={cn(SANDBOX_INPUT, 'w-full')}
                 />
             </div>
-            <Button size="sm" variant="outline" disabled={!!busy || !text.trim()} onClick={() => post('start')}>
-                {busy === 'start' ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+            <button type="button" className={SANDBOX_BUTTON} disabled={!!busy || !text.trim()} onClick={() => post('start')}>
+                {busy === 'start' ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                 Start sandbox thread
-            </Button>
-            <Button size="sm" variant="outline" disabled={!!busy || !text.trim()} onClick={() => post('message')}>
-                {busy === 'message' ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+            </button>
+            <button type="button" className={SANDBOX_BUTTON} disabled={!!busy || !text.trim()} onClick={() => post('message')}>
+                {busy === 'message' ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                 Send as customer
-            </Button>
-            {error && <p className="w-full text-xs text-red-600">{error}</p>}
-        </div>
-    );
-}
-
-// ---------------------------------------------------------------- filter bar
-
-export function FilterBar({ filters, onChange, showModeFilter = false }: { filters: BoardFilters; onChange: (f: BoardFilters) => void; showModeFilter?: boolean }) {
-    return (
-        <div className="flex items-center gap-2">
-            <Button
-                size="sm"
-                variant={filters.heldOnly ? 'default' : 'outline'}
-                onClick={() => onChange({ ...filters, heldOnly: !filters.heldOnly })}
-            >
-                Held only
-            </Button>
-            {showModeFilter && (['all', 'sandbox', 'live'] as const).map((m) => (
-                <Button
-                    key={m}
-                    size="sm"
-                    variant={filters.mode === m ? 'default' : 'outline'}
-                    onClick={() => onChange({ ...filters, mode: m })}
-                >
-                    {m === 'all' ? 'All' : m === 'sandbox' ? 'Sandbox only' : 'Live only'}
-                </Button>
-            ))}
+            </button>
+            {error && <p className="w-full text-xs text-red-300">{error}</p>}
         </div>
     );
 }
 
 // ---------------------------------------------------------------- page
 
+/**
+ * The comms board (B3): header controls, then Kanban or Floor on a laptop and one column at a time
+ * on a phone, over GET /api/comms-v2/board polled every fifteen seconds. A card or token opens the
+ * file beside the board at 1024px and up, in a sheet below.
+ */
 export default function CommsV2BoardPage() {
     const queryClient = useQueryClient();
     const [filters, setFilters] = useState<BoardFilters>({ heldOnly: false, mode: 'all' });
+    const [view, setView] = useState<BoardView>('kanban');
+    const [phoneTab, setPhoneTab] = useState<PhoneTab | null>(null);
     const [openCardId, setOpenCardId] = useState<string | null>(null);
     const wide = useIsWideBoard();
+    // The phone has no Held only button: its Held chip is that filter, over the whole board.
+    const query = wide ? filters : { ...filters, heldOnly: false };
 
-    const { data, isLoading, error } = useQuery<Board>({
-        queryKey: ['comms-v2-board', filters],
+    const { data, isLoading, error, dataUpdatedAt, refetch, isFetching } = useQuery<Board>({
+        queryKey: ['comms-v2-board', query],
         queryFn: async () => {
-            const res = await fetch(boardQuery(filters), { headers: getAuthHeaders() });
+            const res = await fetch(boardQuery(query), { headers: getAuthHeaders() });
             if (!res.ok) throw new Error(`Failed to load board (${res.status})`);
             return res.json();
         },
         refetchInterval: 15_000,
+        placeholderData: (previous) => previous,
     });
 
-    const total = useMemo(() => Object.values(data?.columns ?? {}).reduce((n, c) => n + c.length, 0), [data]);
+    const counts = useMemo(() => boardCounts(data), [data]);
     // Fails towards hiding: only a confirmed `true` from the server (live-database.ts's
     // commsV2DatabaseCheck) shows sandbox-only controls; missing, loading or errored data hides them.
     const sandboxAvailable = data?.sandboxAvailable === true;
+    const readOnly = data?.viewer?.canAct === false;
+    const tab = phoneTab ?? defaultPhoneTab(data);
 
     const refresh = () => {
         queryClient.invalidateQueries({ queryKey: ['comms-v2-board'] });
@@ -784,54 +699,56 @@ export default function CommsV2BoardPage() {
         setOpenCardId(null);
         refresh();
     };
+    const detail = (id: string) => (
+        // Keyed by the open file so a cached conversation never inherits the last one's typed words or send state.
+        <CaseFileDetailView key={id} fileId={id} onReleased={handleReleased} onAnswered={refresh} showMode={sandboxAvailable} readOnly={readOnly} />
+    );
 
+    let body: ReactNode;
+    if (!data) {
+        body = isLoading ? <BoardSkeleton /> : <div className="flex-1" />;
+    } else if (counts.total === 0) {
+        body = <BoardEmpty heldOnly={query.heldOnly} onShowAll={() => setFilters({ ...filters, heldOnly: false })} />;
+    } else if (!wide) {
+        body = <BoardPhone board={data} tab={tab} onTab={setPhoneTab} onOpenCard={setOpenCardId} showMode={sandboxAvailable} />;
+    } else if (view === 'floor') {
+        body = <BoardFloor board={data} onOpenCard={setOpenCardId} />;
+    } else {
+        body = <BoardKanban board={data} onOpenCard={setOpenCardId} showMode={sandboxAvailable} />;
+    }
+
+    // Height leaves out the layout's 64px header and its scroll container's p-4 / lg:p-8 padding,
+    // as the Handy Desk page does.
     return (
-        <div className="flex h-[calc(100vh-64px)] flex-col overflow-hidden">
-            <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-background px-4 py-3">
-                <div>
-                    <h1 className="text-xl font-bold tracking-tight">Customer conversations</h1>
-                    <p className="text-xs text-muted-foreground">{total} conversation{total === 1 ? '' : 's'}</p>
-                </div>
-                <FilterBar filters={filters} onChange={setFilters} showModeFilter={sandboxAvailable} />
+        <div data-testid="comms-board" className="flex h-[calc(100vh-6rem)] flex-col overflow-hidden bg-slate-900 font-sans lg:h-[calc(100vh-8rem)]">
+            <header className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-800 px-4 sm:px-6">
+                <h1 className="text-lg font-extrabold tracking-[-0.02em] text-white">Comms board</h1>
+                <p className="hidden truncate text-xs text-slate-400 lg:block">Every open file · tap a card to open its thread</p>
+                <div className="ml-auto">{wide && <ViewToggle view={view} onChange={setView} />}</div>
+            </header>
+            <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-slate-800 px-4 py-3 sm:px-6">
+                {wide && <HeldOnlyButton on={filters.heldOnly} onToggle={() => setFilters({ ...filters, heldOnly: !filters.heldOnly })} />}
+                {sandboxAvailable && <ModeSwitch mode={filters.mode} onChange={(mode) => setFilters({ ...filters, mode })} />}
+                <p data-testid="board-counts" className="ml-auto text-xs text-slate-400">
+                    {data ? `${counts.total} open file${counts.total === 1 ? '' : 's'} · ${counts.held} held` : '…'}
+                </p>
                 {sandboxAvailable && (
-                    <div className="w-full border-t pt-3">
+                    <div className="w-full border-t border-slate-800 pt-3">
                         <SandboxThreadControl onChanged={refresh} />
                     </div>
                 )}
             </div>
+            {readOnly && <ReadOnlyNotice />}
+            {error && <BoardError lastGoodAt={data ? dataUpdatedAt : null} onRetry={() => { void refetch(); }} retrying={isFetching} />}
 
             <div className="flex min-h-0 flex-1">
-                {error ? (
-                    <div className="m-4 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-500">
-                        <AlertTriangle className="h-4 w-4" /> Could not load the board - retrying automatically.
-                    </div>
-                ) : isLoading ? (
-                    <div className="flex flex-1 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-                ) : (
-                    <div className="flex-1 overflow-x-auto overflow-y-hidden p-4">
-                        <div className="flex h-full gap-3">
-                            {(data?.stages ?? STAGES).map((stage) => (
-                                <BoardColumn
-                                    key={stage}
-                                    stage={stage}
-                                    cards={data?.columns[stage] ?? []}
-                                    onOpenCard={setOpenCardId}
-                                    showMode={sandboxAvailable}
-                                />
-                            ))}
-                        </div>
-                    </div>
-                )}
-
+                <div className="flex min-w-0 flex-1 flex-col">{body}</div>
                 {wide && (
-                    <aside data-testid="docked-case-file-panel" className="flex w-[420px] shrink-0 flex-col overflow-hidden border-l bg-background p-4">
-                        {openCardId ? (
-                            // Keyed by the open file so a cached conversation never inherits the last one's typed words or send state.
-                            <CaseFileDetailView key={openCardId} fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} showMode={sandboxAvailable} />
-                        ) : (
-                            <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center text-sm text-muted-foreground">
+                    <aside data-testid="docked-case-file-panel" className="flex w-[420px] shrink-0 flex-col overflow-hidden border-l border-slate-800 bg-white p-4">
+                        {openCardId ? detail(openCardId) : (
+                            <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center text-sm text-slate-500">
                                 <MessageSquare className="h-5 w-5 opacity-60" />
-                                <p>Select a conversation to see it.</p>
+                                <p>Select a card to open its thread.</p>
                             </div>
                         )}
                     </aside>
@@ -845,7 +762,7 @@ export default function CommsV2BoardPage() {
                             <SheetTitle>Conversation</SheetTitle>
                             <SheetDescription>The conversation, with the release and answer actions docked below it.</SheetDescription>
                         </SheetHeader>
-                        {openCardId && <div className="mt-4 min-h-0 flex-1"><CaseFileDetailView key={openCardId} fileId={openCardId} onReleased={handleReleased} onAnswered={refresh} showMode={sandboxAvailable} /></div>}
+                        {openCardId && <div className="mt-4 min-h-0 flex-1">{detail(openCardId)}</div>}
                     </SheetContent>
                 </Sheet>
             )}
