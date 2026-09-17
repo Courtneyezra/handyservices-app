@@ -114,10 +114,10 @@ describe('offer_call and regulated', () => {
     });
     it('reads a combi, a pilot light and a flue beside a gas word as gas, but not a combi oven, microwave or drill, or a wood burner\'s flue', () => {
         const t = (body: string): Turn => ({ ...fixture(body).turns[0] });
-        for (const body of ['My combi keeps losing pressure', 'My combi boiler is not firing up and there is no hot water', "the combi's lost pressure again", 'my combi flue is leaking', 'the boiler flue is dripping', 'the flue on my gas fire is loose', 'The pilot light keeps going out', 'both pilot lights are out']) {
+        for (const body of ['My combi keeps losing pressure', 'My combi boiler is not firing up and there is no hot water', 'I need a new cupboard built in the hall and my boiler serviced', 'Fitted a new box shelf last week, now my boiler is leaking water', 'The kitchen cupboard hinge is loose, and my combi keeps losing pressure', 'can you box in the pipes under my boiler', "the combi's lost pressure again", 'my combi flue is leaking', 'the boiler flue is dripping', 'the flue on my gas fire is loose', 'The pilot light keeps going out', 'both pilot lights are out']) {
             expect(regulated(t(body)).regulated, body).toBe(true);
         }
-        for (const body of ['can you fit a combi oven', 'my combi microwave bracket fell off', 'can I borrow your combi drill', 'the flue pipe on my wood burner', 'the chimney flue needs sweeping', 'Need the stove flue looked at', 'the boiler cupboard needs a new door', 'can you box in the pipes under my boiler', 'The door on my combi boiler cupboard has come off its hinges', 'Can you build a casing for my combi', 'my combination lock is stuck', 'it has a big influence on the price']) {
+        for (const body of ['can you fit a combi oven', 'my combi microwave bracket fell off', 'can I borrow your combi drill', 'the flue pipe on my wood burner', 'the chimney flue needs sweeping', 'Need the stove flue looked at', 'the boiler cupboard needs a new door', 'The door on my combi boiler cupboard has come off its hinges', 'Can you build a casing for my combi', 'my combination lock is stuck', 'it has a big influence on the price']) {
             expect(regulated(t(body)).regulated, body).toBe(false);
         }
     });
