@@ -146,18 +146,22 @@ const RE_ABOUT_A_QUESTION = /\b(?:on|about) (?:that|this)\b|\bquestion\b|\bfind 
  */
 const RE_JOB_ASK = /\b(?:can|could|would|will) (?:you|someone|ben)\b[^.?!\n]{0,20}\b(?:fix|repair|replace|do|sort|put|hang|mount|install|fit|come|pop|look|help|paint|build|change|remove|unblock|assemble|take a look)\b|\bhow (?:long|soon|quickly)\b/i;
 
-/** A second question joined on by "and" or "but": "can you fix my tap and do you work weekends?". */
-const RE_JOINED_QUESTION = /\s+(?:and|but)\s+(?=(?:do|does|are|is|can|could|will|would|have|what|when|where|which|who|how)\b)/i;
+/** Where a question starts: an auxiliary and its subject ("do you", "is there"), or a wh-word and an auxiliary ("when do", "what is"). */
+const QUESTION_START = '(?:(?:do|does|did|are|is|can|could|will|would|have|has) (?:you|they|he|she|ben|it|there)|(?:what|when|where|which|who|why|how) (?:do|does|did|are|is|can|could|will|would|have|has))\\b';
+const RE_QUESTION_START = new RegExp(`^${QUESTION_START}`, 'i');
+/** A second question joined on by a comma, "and" or "but": "can you fix my tap and do you work weekends?". "When you get a chance, could you..." stays one ask. */
+const RE_JOINED_QUESTION = new RegExp(`(?:\\s*[,;:]\\s*|\\s+(?:and|but)\\s+)(?=${QUESTION_START})`, 'i');
 
 /**
  * The words of a reply that put off a question the customer asked on this turn, or null. A clause
- * of the customer's words must ask something (RE_ASKING) that is not the job itself, and the reply's sentence must say it will
+ * of the customer's words, split where a second question starts, must be a question (opening as one or
+ * carrying its question mark) that asks something (RE_ASKING) that is not the job itself, and the reply's sentence must say it will
  * check or come back on that question. A sentence about the quote is the wrap-up or its delivery
  * ("I'll get the quote over to you"), not a question left open, so it is skipped.
  */
 export function deferralMatch(reply: string, asked: string): string | null {
-    const clauses = sentencesOf(asked).flatMap((s) => clausesOf(s)).flatMap((c) => c.split(RE_JOINED_QUESTION));
-    if (!clauses.some((c) => RE_ASKING.test(c) && !RE_JOB_ASK.test(c))) return null;
+    const clauses = sentencesOf(asked).flatMap((s) => s.split(RE_JOINED_QUESTION));
+    if (!clauses.some((c) => (RE_QUESTION_START.test(c) || c.includes('?')) && RE_ASKING.test(c) && !RE_JOB_ASK.test(c))) return null;
     for (const sentence of sentencesOf(reply)) {
         if (/\bquote\b/i.test(sentence) || !RE_ABOUT_A_QUESTION.test(sentence)) continue;
         const m = RE_DEFERS.exec(sentence);

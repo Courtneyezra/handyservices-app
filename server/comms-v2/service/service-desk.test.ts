@@ -188,6 +188,19 @@ describe('the Service specialist on the desk', () => {
             expect(out.result.decision).toBe('send');
             expect(out.file.hold).toBeNull();
         });
+        it('a job request, however it is joined, is the job: no card', async () => {
+            for (const asked of [
+                'Hi, when you get a chance, could you have a look at my dripping tap?',
+                'Hi, can you fix my dripping tap and have a look at the sink?',
+                'Hi, can you fix my dripping tap and do the shelves too?',
+            ]) {
+                const { gateway } = scopingOnly("A dripping tap, got it. Once I've seen a photo I'll let you know on that.");
+                const out = await gateway.inbound(turn(asked, '2026-09-11T10:00:00.000Z'));
+                if (out.kind !== 'handled') throw new Error(out.kind);
+                expect(out.result.decision).toBe('send');
+                expect(out.file.hold, asked).toBeNull();
+            }
+        });
         it('a customer who asked nothing leaves no card, whatever the reply puts off', async () => {
             const { gateway } = scopingOnly("A dripping kitchen tap, got it. I'll check and come back to you on that.");
             const out = await gateway.inbound(turn('Hi, my kitchen tap is dripping.', '2026-09-11T10:00:00.000Z'));
