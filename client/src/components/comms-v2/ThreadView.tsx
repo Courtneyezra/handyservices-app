@@ -31,7 +31,8 @@ import {
     channelLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, slotLabel, threadRows,
     type Refusal, type SentReply, type TemplateOffer, type ThreadRow,
 } from '@/lib/comms-v2-thread';
-import { STAGE_LABELS, type CaseFileDetail, type TurnMedia } from '@/pages/admin/CommsV2BoardPage';
+import { STAGE_LABELS } from '@/lib/comms-board';
+import type { CaseFileDetail, TurnMedia } from '@/pages/admin/CommsV2BoardPage';
 
 /** How often an open thread re-reads its case file; matches the board and the queue. */
 export const THREAD_REFETCH_MS = 15_000;
@@ -64,10 +65,12 @@ async function readFile(fileId: string): Promise<CaseFileDetail> {
     return res.json();
 }
 
-/** Whether the focus is in a thread's reply box that holds words, which Esc must not throw away. */
+/** Whether the focus is in a box of the thread's own - the reply, or the close-file words - that holds words a dismissal must not throw away. */
 function typingInThread(): boolean {
     const el = document.activeElement;
-    return el instanceof HTMLTextAreaElement && el.id.startsWith('thread-words-') && el.value !== '';
+    return el instanceof HTMLTextAreaElement
+        && (el.id.startsWith('thread-words-') || el.id.startsWith('close-words-'))
+        && el.value !== '';
 }
 
 /** Whether the focus is in any editable field on the page, where Esc belongs to that field, not the docked panel. */
@@ -252,6 +255,8 @@ export interface ThreadViewProps {
     /** Name shown while the file loads. */
     fallbackName?: string;
     showMode?: boolean;
+    /** Offered in the sheet's header: leave the thread for the ask bar with this card still the context. */
+    onAskAbout?: () => void;
 }
 
 interface Pending {
@@ -261,7 +266,7 @@ interface Pending {
     turnId: string | null;
 }
 
-export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChanged, canAct = true, viewerApprover = null, fallbackName, showMode = false }: ThreadViewProps) {
+export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChanged, canAct = true, viewerApprover = null, fallbackName, showMode = false, onAskAbout }: ThreadViewProps) {
     const queryClient = useQueryClient();
     const { data, isLoading, error, refetch, isFetching } = useQuery<CaseFileDetail>({
         queryKey: ['comms-v2-case-file', fileId],
@@ -322,7 +327,7 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
 
     if (isLoading) {
         return (
-            <ThreadFrame layout={layout} backTo={backTo} onClose={onClose} title={fallbackName ?? ''} line="">
+            <ThreadFrame layout={layout} backTo={backTo} onClose={onClose} onAskAbout={onAskAbout} title={fallbackName ?? ''} line="">
                 <div data-testid="thread-loading" className="flex flex-1 flex-col gap-2.5 px-4 py-3.5" aria-busy="true">
                     <div className="h-10 w-3/5 animate-pulse rounded-lg bg-slate-100" />
                     <div className="h-10 w-1/2 animate-pulse self-end rounded-lg bg-slate-100" />
@@ -337,7 +342,7 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
 
     if (error || !data) {
         return (
-            <ThreadFrame layout={layout} backTo={backTo} onClose={onClose} title={fallbackName ?? ''} line="">
+            <ThreadFrame layout={layout} backTo={backTo} onClose={onClose} onAskAbout={onAskAbout} title={fallbackName ?? ''} line="">
                 <div className="p-4">
                     <div role="alert" data-testid="thread-error" className="flex flex-col gap-1.5 rounded-lg border border-red-200 bg-red-50 p-3">
                         <p className="text-[13px] font-semibold text-red-700">Couldn&apos;t open this thread</p>
@@ -439,7 +444,7 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
     const pills = [data.party?.role ?? null, STAGE_LABELS[data.stage] ?? data.stage, showMode ? data.mode : null].filter(Boolean) as string[];
 
     return (
-        <ThreadFrame layout={layout} backTo={backTo} onClose={onClose} title={name} pills={pills} line={headerLine(data)}>
+        <ThreadFrame layout={layout} backTo={backTo} onClose={onClose} onAskAbout={onAskAbout} title={name} pills={pills} line={headerLine(data)}>
             <div data-testid="thread-turns" className="flex min-h-[120px] flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3.5">
                 {rows.map((row) => <Row key={row.id} row={row} />)}
                 {pending && (
@@ -570,10 +575,11 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
     );
 }
 
-function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, children }: {
+function ThreadFrame({ layout, backTo, onClose, onAskAbout, title, pills = [], line, children }: {
     layout: 'panel' | 'sheet';
     backTo: string;
     onClose: () => void;
+    onAskAbout?: () => void;
     title: string;
     pills?: string[];
     line: string;
@@ -605,6 +611,11 @@ function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, childre
                             <p data-testid="thread-name" className="truncate text-[15px] font-semibold">{title}</p>
                             {(pills.length > 1 || line) && <p data-testid="thread-line" className="truncate text-[11px] text-slate-500">{[...pills.slice(1), line].filter(Boolean).join(' · ')}</p>}
                         </div>
+                        {onAskAbout && (
+                            <button type="button" data-testid="thread-ask-about" onClick={onAskAbout} className={cn(BTN_OUTLINE, 'h-11 shrink-0 px-3 text-xs')}>
+                                Ask about this
+                            </button>
+                        )}
                     </div>
                 </div>
             )}
@@ -613,14 +624,35 @@ function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, childre
     );
 }
 
-/** The thread as a bottom sheet below 1024px: the board or queue stays behind it, and closing returns to it. */
-export function ThreadSheet({ fileId, onClose, ...rest }: Omit<ThreadViewProps, 'fileId' | 'layout'> & { fileId: string | null }) {
+/**
+ * The thread as a bottom sheet below 1024px: the board or queue stays behind it, and closing returns
+ * to it. Escape and a tap above the sheet are ignored while one of the thread's own boxes holds
+ * words, so neither throws away a half-written reply or close. "Ask about this", when the page offers
+ * one, closes the sheet and hands the page back the focus once the dialog has let go of it.
+ */
+export function ThreadSheet({ fileId, onClose, onAskAbout, ...rest }: Omit<ThreadViewProps, 'fileId' | 'layout'> & { fileId: string | null }) {
+    const asking = useRef(false);
     return (
         <Sheet open={!!fileId} onOpenChange={(open) => !open && onClose()}>
-            <SheetContent side="bottom" onEscapeKeyDown={(e) => { if (typingInThread()) e.preventDefault(); }} className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-xl border-0 p-0 [&>button:last-child]:hidden">
+            <SheetContent
+                side="bottom"
+                onEscapeKeyDown={(e) => { if (typingInThread()) e.preventDefault(); }}
+                onPointerDownOutside={(e) => { if (typingInThread()) e.preventDefault(); }}
+                onCloseAutoFocus={(e) => { if (!asking.current) return; asking.current = false; e.preventDefault(); onAskAbout?.(); }}
+                className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-xl border-0 p-0 [&>button:last-child]:hidden"
+            >
                 <SheetTitle className="sr-only">Conversation</SheetTitle>
                 <SheetDescription className="sr-only">The conversation, with the held draft and your reply beneath it.</SheetDescription>
-                {fileId && <ThreadView key={fileId} fileId={fileId} layout="sheet" onClose={onClose} {...rest} />}
+                {fileId && (
+                    <ThreadView
+                        key={fileId}
+                        {...rest}
+                        fileId={fileId}
+                        layout="sheet"
+                        onClose={onClose}
+                        onAskAbout={onAskAbout && (() => { asking.current = true; onClose(); })}
+                    />
+                )}
             </SheetContent>
         </Sheet>
     );

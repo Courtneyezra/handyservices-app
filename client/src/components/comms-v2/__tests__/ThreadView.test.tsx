@@ -102,6 +102,37 @@ describe('<ThreadView>', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
+    it('Esc leaves the sheet open while the close-file box holds words', async () => {
+        const onClose = vi.fn();
+        mockFetch([fileRoute(detail())]);
+        renderWithQuery(<ThreadSheet fileId="case_p" onClose={onClose} onChanged={vi.fn()} viewerApprover="ben" />);
+        await ready();
+        await userEvent.click(screen.getByTestId('close-file'));
+        const box = screen.getByLabelText(/Your words, for the file/) as HTMLTextAreaElement;
+        await userEvent.type(box, 'customer sorted it themselves');
+        fireEvent.keyDown(box, { key: 'Escape' });
+
+        expect(onClose).not.toHaveBeenCalled();
+        expect(screen.getByTestId('close-file-confirm')).toBeInTheDocument();
+        expect(box.value).toBe('customer sorted it themselves');
+    });
+
+    it('a tap above the sheet leaves it open while the reply box holds words, and dismisses it once the box is empty', async () => {
+        const onClose = vi.fn();
+        mockFetch([fileRoute(detail())]);
+        renderWithQuery(<ThreadSheet fileId="case_p" onClose={onClose} onChanged={vi.fn()} viewerApprover="ben" />);
+        const box = await ready();
+        await userEvent.type(box, 'half a reply');
+        fireEvent.pointerDown(document.body);
+        expect(onClose).not.toHaveBeenCalled();
+        expect(words().value).toBe('half a reply');
+
+        await userEvent.clear(box);
+        box.focus();
+        fireEvent.pointerDown(document.body);
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
     it('as a sheet, closes with the back button named for where it returns', async () => {
         const { onClose } = mount([fileRoute(detail())], { layout: 'sheet', backTo: 'Queue' });
         await ready();

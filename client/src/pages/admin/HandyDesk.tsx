@@ -51,8 +51,10 @@
  * Selecting a card sets the selected conversation (`DeskSelection`): the answer surface opens that
  * customer's thread (client/src/components/comms-v2/ThreadView.tsx, B4), with the held draft and
  * Ben's own reply, docked on the right at 1024px and up and as a bottom sheet below; the ask bar
- * takes it as context. A ready-to-price card has no conversation, so it selects nothing. The mapping
- * from a held file to the card's copy lives in client/src/lib/handy-desk-queue.ts.
+ * takes it as context. A ready-to-price card has no conversation, so it selects nothing. The sheet is
+ * its own open state, so dismissing it leaves the card selected and the ask bar's context with it;
+ * "Ask about this" in its header closes it back onto the ask bar. The mapping from a held file to the
+ * card's copy lives in client/src/lib/handy-desk-queue.ts.
  *
  * The ask bar (T2) asks the new desk's ask agent (/api/comms-v2/ask, useAskSession); while it runs
  * the answer surface shows the thinking card, then the answer, until Ben closes it. With no ask on
@@ -61,7 +63,7 @@
  * the one AnswerCard, whose body (client/src/components/handy-desk/AnswerSurface.tsx, T3) carries
  * the typed surface and confirm.
  */
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2, MoreHorizontal } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
@@ -72,7 +74,7 @@ import { AnswerCard } from '@/components/handy-desk/AnswerCard';
 import { AskBar } from '@/components/handy-desk/AskBar';
 import type { AskMessageDTO, AskVia, OpsSessionDTO } from '@shared/ops-types';
 import { ThreadSheet, ThreadView } from '@/components/comms-v2/ThreadView';
-import { useIsWideBoard } from '@/pages/admin/CommsV2BoardPage';
+import { useIsWideBoard } from '@/hooks/useIsWideBoard';
 import { exchangeOfAnswered, latestAnswered, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
     ACTION_ROUTE, QUEUE_KEY, isReadyToPrice, isShutWindow, needsWords, needsYouView, queueCardCopy, queueQuery, readStateOf, readyToPriceCardCopy, refusalMessage, selectionOf,
@@ -394,6 +396,7 @@ const FIRST_LOAD = Symbol('first answer load');
 export default function HandyDesk() {
     const queryClient = useQueryClient();
     const [selection, setSelection] = useState<DeskSelection | null>(null);
+    const [sheetOpen, setSheetOpen] = useState(false);
     const [done, setDone] = useState<{ key: number; note: string }[]>([]);
     const [askText, setAskText] = useState('');
     const [showAnswer, setShowAnswer] = useState(false);
@@ -403,6 +406,7 @@ export default function HandyDesk() {
     const [dismissed, setDismissed] = useState<ReadonlySet<string | typeof FIRST_LOAD>>(() => new Set());
     const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
     const wide = useIsWideBoard();
+    const askInput = useRef<HTMLInputElement>(null);
 
     const { data, isError, dataUpdatedAt } = useQuery<DeskQueue>({
         queryKey: QUEUE_KEY,
@@ -460,6 +464,7 @@ export default function HandyDesk() {
 
     const select = (item: QueueItem) => {
         setSelection(selectionOf(item));
+        setSheetOpen(!wide);
         if (latest === undefined) dismiss(FIRST_LOAD);
         else if (latest) dismiss(latest.id);
     };
@@ -561,6 +566,7 @@ export default function HandyDesk() {
                         )}
                     </div>
                     <AskBar
+                        inputRef={askInput}
                         selection={selection}
                         ready={!!askSession.sessionId}
                         busy={askSession.busy}
@@ -574,10 +580,11 @@ export default function HandyDesk() {
             </div>
             {!wide && (
                 <ThreadSheet
-                    fileId={selection?.caseFileId ?? null}
+                    fileId={sheetOpen ? selection?.caseFileId ?? null : null}
                     backTo="Queue"
                     fallbackName={selection?.name}
-                    onClose={() => setSelection(null)}
+                    onClose={() => setSheetOpen(false)}
+                    onAskAbout={() => askInput.current?.focus()}
                     onChanged={refreshQueue}
                     canAct={canAct}
                     viewerApprover={viewerApprover}

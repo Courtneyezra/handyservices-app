@@ -18,11 +18,8 @@ vi.mock('@/components/layout/SidebarLayout', () => {
 vi.mock('@/contexts/LiveCallContext', () => ({
     LiveCallProvider: ({ children }: { children: ReactNode }) => <div data-testid="live-call-provider">{children}</div>,
 }));
-// The desk reads useIsWideBoard from the board page module, so the stub carries it too; with no card
-// selected neither width shows a thread, so the routing under test is the same either way.
 vi.mock('@/pages/admin/CommsV2BoardPage', () => ({
     default: () => <div data-testid="comms-board-page" />,
-    useIsWideBoard: () => true,
 }));
 
 let App: ComponentType;
