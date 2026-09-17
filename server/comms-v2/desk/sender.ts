@@ -512,7 +512,7 @@ export const liveDeliverer: Deliverer = {
         const switches = [registryEntryFor(DESK_APPROVER)?.switchKey ?? null, ...(entry.switchKey ? [entry.switchKey] : [])];
         const off = switches.find((key) => !key || cfg.senders?.[key]?.enabled !== true);
         if (off !== undefined) return { ok: false, reason: `spine.senders.${off}.enabled is not true; the new desk stays in the sandbox until it is`, delivered, label };
-        // The opt-out ledger, asked about every address the party is known by, phone and email alike,
+        // The opt-out ledger, asked about every address the party wrote to us on, phone and email alike,
         // so an opt-out that arrived on one channel stops a send on any other. It runs before the
         // channel rule, so an email to an opted-out address is refused as that even while email is
         // refused outright. The outbound send below asks again about the number it sends to.
