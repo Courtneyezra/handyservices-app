@@ -16,6 +16,8 @@ import { FakeDrafter, type DraftIntake } from './quoting/draft-quote';
 import { MemoryQuoteStore } from './quoting/quote-store';
 import { draftQuote, type QuotingDeps } from './quoting/quoting-tools';
 import { closeByHand, closeLiveFileForQuote, fileBooked, fileDone, type FileCloseDeps } from './file-close';
+import { MemoryDiary } from './scheduling/diary';
+import { pickerLink } from './scheduling/scheduling-tools';
 
 const AT = '2026-09-17T10:00:00.000Z';
 const now = () => new Date(AT);
@@ -223,10 +225,10 @@ describe('the automatic close on live events', () => {
         const paid = fileFor('p2', 'booked');
         paid.job.quoteRef = 'QP';
         const a = live([signed], { slug: 'QS' });
-        expect((await fileDone('qs-id', 'signed_off', a.deps)).closed).toEqual([{ caseId: signed.id, to: 'done' }]);
+        expect((await fileDone('qs-id', null, 'signed_off', a.deps)).closed).toEqual([{ caseId: signed.id, to: 'done' }]);
         expect(signed.stageHistory[signed.stageHistory.length - 1]).toMatchObject({ from: 'booked', to: 'done', why: 'the job was signed off as complete' });
         const b = live([paid], { slug: 'QP' });
-        expect((await fileDone('qp-id', 'invoice_paid', b.deps)).closed).toEqual([{ caseId: paid.id, to: 'done' }]);
+        expect((await fileDone('qp-id', null, 'invoice_paid', b.deps)).closed).toEqual([{ caseId: paid.id, to: 'done' }]);
         expect(paid.stageHistory[paid.stageHistory.length - 1]).toMatchObject({ from: 'booked', to: 'done', why: 'the invoice for the job was paid' });
     });
 
@@ -236,12 +238,58 @@ describe('the automatic close on live events', () => {
         const booked = fileFor('p2', 'booked');
         booked.job.quoteRef = 'QB';
         const { deps, puts } = live([done, booked], { slug: null });
-        expect(await fileDone('QD', 'invoice_paid', deps)).toEqual({ closed: [], skipped: 'no live case file carries the quote' });
+        expect(await fileDone('QD', null, 'invoice_paid', deps)).toEqual({ closed: [], skipped: 'no live case file carries the quote or booking' });
         expect(await fileBooked('QB', 'bk2', deps)).toEqual({ closed: [], skipped: null });
-        expect(await fileBooked('nope', 'bk3', deps)).toEqual({ closed: [], skipped: 'no live case file carries the quote' });
-        expect(await fileDone(null, 'signed_off', deps)).toEqual({ closed: [], skipped: 'the event names no quote' });
+        expect(await fileBooked('nope', 'bk3', deps)).toEqual({ closed: [], skipped: 'no live case file carries the quote or booking' });
+        expect(await fileDone(null, null, 'signed_off', deps)).toEqual({ closed: [], skipped: 'the event names no quote or booking' });
         expect(puts).toEqual([]);
         expect(booked.job.bookingRef).toBeNull();
+    });
+
+    it('a done event closes a file that carries only its booking, and one naming only the booking closes it too', async () => {
+        const followUp = fileFor('p1', 'first_contact');
+        followUp.job.bookingRef = 'bk5';
+        const unrelated = fileFor('p2', 'scoping');
+        unrelated.job.bookingRef = 'bk6';
+        const { deps, puts } = live([followUp, unrelated], { slug: 'Q5' });
+        expect(await fileDone('q5', 'bk5', 'signed_off', deps)).toEqual({ closed: [{ caseId: followUp.id, to: 'done' }], skipped: null });
+        expect(followUp.stage).toBe('done');
+        expect(unrelated.stage).toBe('scoping');
+        expect(puts).toEqual([followUp.id]);
+        const byBooking = fileFor('p3', 'booked');
+        byBooking.job.bookingRef = 'bk9';
+        expect((await fileDone(null, 'bk9', 'invoice_paid', live([byBooking]).deps)).closed).toEqual([{ caseId: byBooking.id, to: 'done' }]);
+    });
+
+    it('a booked customer\'s follow-up file closes with the job, and their next enquiry opens a fresh file whose date picker is not refused', async () => {
+        const g = new Gateway({ desk: fakeDesk });
+        const quoting = quotingDeps();
+        const old = await quotedThread(g, quoting);
+        const deps: FileCloseDeps = { liveState: async () => ({ live: true }), store: async () => g.store, slugOf: async () => old.job.quoteRef, now, log: () => {} };
+        expect((await fileBooked('old-quote-id', 'bk1', deps)).closed).toEqual([{ caseId: old.id, to: 'booked' }]);
+
+        const asked = await g.inbound(turn('When are you coming?', '2026-09-18T09:00:00.000Z'));
+        if (asked.kind !== 'handled') throw new Error(asked.kind);
+        const followUp = asked.file;
+        expect(followUp.id).not.toBe(old.id);
+        followUp.job.bookingRef = 'bk1';
+
+        const out = await fileDone('old-quote-id', 'bk1', 'signed_off', deps);
+        expect(out.closed.map((c) => c.caseId).sort()).toEqual([old.id, followUp.id].sort());
+        expect(followUp.stage).toBe('done');
+
+        const next = await g.inbound(turn('Hi again, can you hang a door? NG9 2AB', '2026-09-25T09:00:00.000Z'));
+        if (next.kind !== 'handled') throw new Error(next.kind);
+        expect(next.file.id).not.toBe(followUp.id);
+        expect(next.file.job).toEqual({ type: null, location: null, quoteRef: null, bookingRef: null });
+        recordFact(next.file, { key: 'job_type', value: 'hang a door', source: { kind: 'thread', turnId: next.file.turns[0].id }, by: 'scoping' });
+        recordFact(next.file, { key: 'location', value: 'NG9 2AB', source: { kind: 'thread', turnId: next.file.turns[0].id }, by: 'scoping' });
+        expect((await draftQuote(next.file, next.file.parties[0], intake, quoting)).ok).toBe(true);
+        const quoteRef = next.file.job.quoteRef!;
+        const diary = new MemoryDiary();
+        diary.quotes.push({ id: quoteRef, slug: 'newslug1', isDraft: false, supersededAt: null, revokedAt: null, expiresAt: null });
+        const diaryDown = { ok: false as const, state: 'unknown' as const, reason: 'the diary could not be read', bookingRef: null };
+        expect(await pickerLink(next.file, { diary, now, baseUrl: 'https://test.local' }, diaryDown)).toMatchObject({ ok: true, slug: 'newslug1' });
     });
 
     it('does nothing while the new desk is not the live desk, and never throws into the event', async () => {

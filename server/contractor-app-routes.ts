@@ -1463,7 +1463,7 @@ router.post('/:token/jobs/:bookingId/complete', async (req: Request, res: Respon
     }).catch((e: any) => console.warn('[ContractorApp] completion filing failed:', e?.message));
     // Signed off: the new desk's live case file for this quote closes as done
     // (server/comms-v2/file-close.ts). Never throws.
-    await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(booking.quoteId, 'signed_off'))
+    await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(booking.quoteId, bookingId, 'signed_off'))
       .catch((e: any) => console.error('[ContractorApp] comms-v2 file close failed:', e?.message));
 
     // (b) Customer invoice/receipt + payment link for the QR.

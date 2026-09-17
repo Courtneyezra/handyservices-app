@@ -1315,7 +1315,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
 
                         // The invoice is paid: the new desk's live case file for its quote closes as done
                         // (server/comms-v2/file-close.ts). Never throws.
-                        await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(paidInvoice.quoteId, 'invoice_paid'))
+                        await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(paidInvoice.quoteId, null, 'invoice_paid'))
                             .catch((e) => console.error('[Stripe Webhook] comms-v2 file close failed:', e));
 
                         // Phone push alert (Pushover) — final payment received.
@@ -1358,6 +1358,16 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                     .where(inArray(invoices.id, notesData.childInvoiceIds));
 
                                 console.log(`[Stripe Webhook] Marked ${notesData.childInvoiceIds.length} child invoices as paid (consolidated payment)`);
+
+                                // Each child invoice's job is done too: its live case file closes (server/comms-v2/file-close.ts). Never throws.
+                                await (async () => {
+                                    const children = await db.select({ quoteId: invoices.quoteId }).from(invoices)
+                                        .where(inArray(invoices.id, notesData.childInvoiceIds));
+                                    const { fileDone } = await import('./comms-v2/file-close');
+                                    for (const quoteId of new Set(children.map((c) => c.quoteId).filter((q): q is string => !!q))) {
+                                        await fileDone(quoteId, null, 'invoice_paid');
+                                    }
+                                })().catch((e) => console.error('[Stripe Webhook] comms-v2 file close for child invoices failed:', e));
                             }
                         } catch (e) {
                             // notes might not be JSON — that's fine, not a consolidated invoice
@@ -1382,7 +1392,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             .where(eq(invoices.id, invoiceResults[0].id));
 
                         console.log('[Stripe Webhook] Invoice marked as paid:', invoiceResults[0].invoiceNumber);
-                        await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(invoiceResults[0].quoteId, 'invoice_paid'))
+                        await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(invoiceResults[0].quoteId, null, 'invoice_paid'))
                             .catch((e) => console.error('[Stripe Webhook] comms-v2 file close failed:', e));
                     }
                 }

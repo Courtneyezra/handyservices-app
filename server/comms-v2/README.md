@@ -414,12 +414,15 @@ already at or past the stage, so an event delivered twice changes nothing.
 | Close | Event | Where it is called |
 |---|---|---|
 | booked | the booking from the file's quote lands, its id written onto the job | `server/booking-engine.ts` `confirmBooking` (the quote page's picker: the slot the customer reserved, promoted by the Stripe webhook once paid; the flex placements reuse it) and `assignFromPool` (the dispatch pool, a slot offer the customer took, the webhook's auto-assign) |
-| done | the job is signed off | `server/job-lifecycle.ts` `finalizeJobCompletion` (the job routes and the ops actions) and the field app's `POST /:token/jobs/:bookingId/complete` (`server/contractor-app-routes.ts`) |
-| done | the job's invoice is paid | the Stripe webhook's invoice payment (`server/stripe-routes.ts`, both the `invoiceId` path and the payment-intent fallback) and `POST /api/invoices/:id/mark-paid`. The public `POST /api/pay/:shortCode/complete` is not wired: it is unauthenticated and verifies no payment, and the webhook already covers a real one |
+| done | the job is signed off | `server/job-lifecycle.ts` `finalizeJobCompletion` (the job routes and the ops actions; the job row is the booking, so its id is the booking's) and the field app's `POST /:token/jobs/:bookingId/complete` (`server/contractor-app-routes.ts`), each naming the booking as well as the quote |
+| done | the job's invoice is paid | the Stripe webhook's invoice payment (`server/stripe-routes.ts`, both the `invoiceId` path and the payment-intent fallback; a consolidated invoice, whose own quote is empty, closes the file of each child invoice's quote once the children are marked paid) and `POST /api/invoices/:id/mark-paid`. The public `POST /api/pay/:shortCode/complete` is not wired: it is unauthenticated and verifies no payment, and the webhook already covers a real one |
 | done, by hand | Ben on the board | `POST /api/comms-v2/case-files/:id/close { words? }` (below; words required on a held file) |
 
-An event finds its file by the quote it names, matching the job's quote reference as the quote's short
-slug (Quoting's draft) or its id (the scheduling fixture), among files not yet done, on the live
+An event finds its files by the quote it names, matching the job's quote reference as the quote's short
+slug (Quoting's draft) or its id (the scheduling fixture), and by the booking it names, matching the
+job's booking reference: a booked customer's follow-up file, opened by their next message and given only
+the booking by `linkPartyBooking` when they ask when we are coming, closes with the job, so their next
+enquiry opens a fresh file rather than one still naming the old booking. Only files not yet done, on the live
 intake's store and only while the new desk is the live desk (`commsV2Live`). Each call is awaited
 after the event's own write and never throws into it; no log line carries a value from a file.
 

@@ -16,8 +16,10 @@
  *   by hand  POST /api/comms-v2/case-files/:id/close from the board (api/routes.ts, `closeByHand`),
  *            recorded on the stage change as `human:<email or user id>`.
  *
- * Each event names a quote, which is how a file is found: the quote reference on its job is the
- * quote's short slug (Quoting's draft) or its id (the scheduling fixture), so both are matched. Only
+ * Each event names a quote and, where it has one, the booking, which is how a file is found: the
+ * quote reference on its job is the quote's short slug (Quoting's draft) or its id (the scheduling
+ * fixture), so both are matched, and a follow-up file that carries only the booking (the booked
+ * customer asking when we are coming, scheduling-tools.ts `linkPartyBooking`) is matched on it. Only
  * while the new desk is the live desk (switch.ts `commsV2Live`), on the live intake's store, and
  * only files that are not done. Nothing here throws into the event that called it, and no log line
  * carries a value from a file.
@@ -43,10 +45,11 @@ export interface FileCloseDeps {
 export interface AutoCloseInput {
     /** The quote the event is about, by its id. */
     quoteId: string | null | undefined;
+    /** The booking the event is about, by its id; files carrying it close too. */
+    bookingId?: string | null;
     to: AutoCloseEvent;
     /** The event, in the desk's own words, for the stage history: "booking <id> landed". */
     why: string;
-    bookingRef?: string | null;
 }
 
 export type AutoCloseOutcome =
@@ -67,47 +70,50 @@ async function liveSlugOf(quoteId: string): Promise<string | null> {
     return row?.slug ?? null;
 }
 
-/** The files not yet done whose job names this quote, by its id or its slug. */
-export function filesForQuote(files: CaseFile[], refs: ReadonlyArray<string | null>): CaseFile[] {
-    const wanted = new Set(refs.filter((r): r is string => !!r));
-    return files.filter((f) => f.stage !== 'done' && !!f.job.quoteRef && wanted.has(f.job.quoteRef));
+/** The files not yet done whose job names this quote, by its id or its slug, or this booking. */
+export function filesForJob(files: CaseFile[], quoteRefs: ReadonlyArray<string | null>, bookingId: string | null): CaseFile[] {
+    const wanted = new Set(quoteRefs.filter((r): r is string => !!r));
+    return files.filter((f) => f.stage !== 'done'
+        && ((!!f.job.quoteRef && wanted.has(f.job.quoteRef)) || (!!bookingId && f.job.bookingRef === bookingId)));
 }
 
-/** Closes the live file an event's quote names. Never throws; a refusal or a failure is logged and the event goes on. */
+/** Closes the live files an event's quote or booking names. Never throws; a refusal or a failure is logged and the event goes on. */
 export async function closeLiveFileForQuote(input: AutoCloseInput, deps: FileCloseDeps = {}): Promise<AutoCloseOutcome> {
     const log = deps.log ?? defaultLog;
     const out: AutoCloseOutcome = { closed: [], skipped: null };
+    const bookingId = input.bookingId || null;
     try {
-        if (!input.quoteId) return { ...out, skipped: 'the event names no quote' };
+        if (!input.quoteId && !bookingId) return { ...out, skipped: 'the event names no quote or booking' };
         const readState = deps.liveState ?? (async () => (await import('./switch')).commsV2LiveState());
         if (!(await readState()).live) return { ...out, skipped: 'the new desk is not the live desk' };
         const store = await (deps.store ?? liveStore)();
-        const slug = await (deps.slugOf ?? liveSlugOf)(input.quoteId);
-        const files = filesForQuote(store.all(), [input.quoteId, slug]);
-        if (!files.length) return { ...out, skipped: 'no live case file carries the quote' };
+        const slug = input.quoteId ? await (deps.slugOf ?? liveSlugOf)(input.quoteId) : null;
+        const files = filesForJob(store.all(), [input.quoteId ?? null, slug], bookingId);
+        if (!files.length) return { ...out, skipped: 'no live case file carries the quote or booking' };
+        const bookingRef = input.to === 'booked' ? bookingId : null;
         for (const file of files) {
-            const r = closeFile(file, input.to, { why: input.why, bookingRef: input.bookingRef ?? null }, { now: deps.now });
-            if (!r.ok) { log(`case file ${file.id} not moved to ${input.to} for quote ${input.quoteId}: ${r.reason}`); continue; }
+            const r = closeFile(file, input.to, { why: input.why, bookingRef }, { now: deps.now });
+            if (!r.ok) { log(`case file ${file.id} not moved to ${input.to} for quote ${input.quoteId ?? '-'} booking ${bookingId ?? '-'}: ${r.reason}`); continue; }
             store.put(file);
             out.closed.push({ caseId: file.id, to: input.to });
             log(`case file ${file.id} is ${input.to}: ${input.why}`);
         }
         return out;
     } catch (err: any) {
-        log(`closing the case file for quote ${input.quoteId} (${input.to}) failed: ${err?.message ?? err}`);
+        log(`closing the case file for quote ${input.quoteId ?? '-'} booking ${bookingId ?? '-'} (${input.to}) failed: ${err?.message ?? err}`);
         return { ...out, skipped: 'failed' };
     }
 }
 
 /** The booking from a quote has landed. */
 export function fileBooked(quoteId: string | null | undefined, bookingId: string | null | undefined, deps: FileCloseDeps = {}): Promise<AutoCloseOutcome> {
-    return closeLiveFileForQuote({ quoteId, to: 'booked', why: bookingId ? `booking ${bookingId} landed from the quote` : 'a booking landed from the quote', bookingRef: bookingId ?? null }, deps);
+    return closeLiveFileForQuote({ quoteId, bookingId, to: 'booked', why: bookingId ? `booking ${bookingId} landed from the quote` : 'a booking landed from the quote' }, deps);
 }
 
-/** The job from a quote is done: signed off, or its invoice paid. */
-export function fileDone(quoteId: string | null | undefined, event: 'signed_off' | 'invoice_paid', deps: FileCloseDeps = {}): Promise<AutoCloseOutcome> {
+/** The job from a quote, or the booking, is done: signed off, or its invoice paid. */
+export function fileDone(quoteId: string | null | undefined, bookingId: string | null | undefined, event: 'signed_off' | 'invoice_paid', deps: FileCloseDeps = {}): Promise<AutoCloseOutcome> {
     const why = event === 'signed_off' ? 'the job was signed off as complete' : 'the invoice for the job was paid';
-    return closeLiveFileForQuote({ quoteId, to: 'done', why }, deps);
+    return closeLiveFileForQuote({ quoteId, bookingId, to: 'done', why }, deps);
 }
 
 // ---------------------------------------------------------------- by hand
