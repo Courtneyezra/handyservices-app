@@ -283,6 +283,7 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('queue-card-case_gemma')).toBeInTheDocument();
     });
     it('shows the newest ask answer on the right, confirms it through send-held-draft, and a selected card puts it away', async () => {
+        stubWide();
         const { calls } = routes([
             ...askRoutes(),
             { method: 'POST', url: '/api/comms-v2/case-files/case_rob/send-held-draft', reply: () => ({ json: { ok: true } }) },
@@ -323,6 +324,7 @@ describe('HandyDesk', () => {
     });
 
     it('a card selected before the ask answer loads is not replaced by that answer, only by a different one', async () => {
+        stubWide();
         let open!: () => void;
         const gate = new Promise<void>((r) => { open = r; });
         let answerId = 'a1';
