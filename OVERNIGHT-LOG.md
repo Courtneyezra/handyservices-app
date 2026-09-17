@@ -301,3 +301,34 @@ round (below).
   the newly-excluded sources are a product question rather than a defect, raised as
   OVERNIGHT-QUESTIONS.md entry 4 (a reserved slot and the instant-price tool now reach the desk not
   at all).
+
+- Round 11 (17 Sep 2026) — bubble size and pacing across a longer exchange, WhatsApp, driven on the
+  app's own comms-v2 sandbox door: a five-job enquiry from a Bramcote flat and four customer turns
+  (the shelf wall, two more jobs plus availability, a rambling turn with a job withdrawn, then five
+  questions fired at once). The bubble rules held on every turn: three bubbles at most and never one
+  over the soft 160 characters (answer 93) — 153/141/114, 138/131/63, 145/112/41 and 147/137/92
+  characters — with typing gaps of 4590/4230/3420, 4140/3930/2500, 4350/3360/2500 and 4410/4110/2760
+  ms, each roughly its own bubble's typing time inside the 2.5 to 7 second band (answer 91). The
+  five-question turn was answered with what the file could answer, one wrap-up, and the rest held for
+  Ben (`no_source: Is parking a problem, our road is permit only on one side?`), still in three
+  bubbles, and the render never had to ask the composer to shorten. No bubble or pacing fault.
+  **The fault this round found is in the pricing path.** Twice inside the one quote the desk drafted
+  for Ben, the estimator's `search_web` came back `{"summary":"Web search failed: results is not
+  iterable","sources":[]}`: Anthropic's web-search tool puts an **object** in a result block's
+  `content` when that search errored (`web_search_tool_result_error`, with an `error_code` such as a
+  rate limit, which the reply before it said in words: "my search access got rate-limited"), and
+  `server/agents/estimator-tools.ts:139` iterated that object, so the `for ... of` threw, the catch
+  around the whole request caught it, and the model's own text — the material prices it had already
+  found and written out — was replaced with that error string. Live, every quote the new desk drafts
+  is priced by this estimator, so a search that part-errored lost its price evidence silently and the
+  line fell back to a model estimate. Fixed on the round: `webSearchAnswer` (same file) reads the
+  block shape before iterating it, keeps the text and the sources of the blocks that worked, names
+  each `error_code` to the estimator and warns with it, so a part-refused search is a search with an
+  error named rather than a search that never happened. Three regression tests in
+  `server/agents/estimator-tools.test.ts`, all three failing against the old reader with exactly the
+  live message (`TypeError: results is not iterable`).
+  Re-driven after the fix on a fresh five-job enquiry (Sherwood): the estimator's three parallel
+  searches all came back with their answers and the log carries no `results is not iterable` and no
+  part-refused search, so the reader is no longer the thing that decides whether a search counted.
+  The post-fix drive's own reply kept the rules too: 95/147/144 characters in three bubbles, gaps
+  2850/4410/4320 ms.
