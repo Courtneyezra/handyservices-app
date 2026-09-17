@@ -18,7 +18,7 @@ import { MemoryAskActionStore, confirmAction, proposeAction, type ActionDeps } f
 import { ACTION_KINDS, type ActionKinds } from '../action-kinds';
 import { runAskTurn } from '../agent';
 import { BEN_PERSON, memorySource, scriptedLoop } from '../ask-fixtures';
-import { INSTRUCTION_FACT_KEY, messageSendKind, parseMessageSendArgs } from './message-send';
+import { EMAIL_TARGET_REFUSAL, INSTRUCTION_FACT_KEY, messageSendKind, parseMessageSendArgs } from './message-send';
 
 const ASK = 'send a whatsapp message to sarah from tena properties telling her that we will call her this afternoon';
 const ASK_ID = 'msg_ask_1';
@@ -150,16 +150,64 @@ describe('the Sarah example, window shut', () => {
         expect(done.ok && done.action.result).toMatchObject({ how: 'freeform', fallback: 'sms' });
     });
 
-    it('never sends freeform on the shut window, and refuses when there is no number to text either', async () => {
+    it('names the channel the customer wrote on when no template is true for it', async () => {
+        const r = open({
+            identity: { ok: true, personId: 'person_sarah', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900555', propertyId: null, landlordId: null, name: 'Sarah Ellis' },
+            channel: 'sms', address: SARAH_WA,
+            firstTurn: { at: '2026-09-17T09:30:00.000Z', channel: 'sms', kind: 'text', body: 'Hi, it is Sarah. The fan has stopped.', media: [] },
+        }, { now: () => new Date('2026-09-17T09:30:00.000Z') });
+        if (!r.ok) throw new Error(r.reason);
+        r.value.parties[0].channels.push({ kind: 'whatsapp', address: SARAH_WA, lastInboundAt: '2026-09-01T09:00:00.000Z' });
+        const { propose } = setup([r.value]);
+        const out = await propose({ caseFileId: r.value.id, channel: 'whatsapp', words: WORDS, instruction: INSTRUCTION });
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.outgoing[0]).toMatchObject({ channel: 'sms', to: SARAH_WA });
+        expect(out.outgoing[0].guardNote).toMatch(/no approved template is true for a thread the customer wrote on by SMS, so this goes by SMS/);
+        expect(out.outgoing[0].guardNote).not.toMatch(/has not written/);
+    });
+});
+
+describe('never by email (answer A3; outbound email stays in dry run, answer 113)', () => {
+    function emailOnly(): CaseFile {
         const r = open({
             identity: { ok: true, personId: 'person_mail', customerId: null, role: 'homeowner', isNew: true, canonical: 'email:sarah@example.test', propertyId: null, landlordId: null, name: 'Sarah' },
             channel: 'email', address: 'sarah@example.test',
-            firstTurn: { at: '2026-09-15T09:30:00.000Z', channel: 'email', kind: 'text', body: 'Thanks.', media: [] },
+            firstTurn: { at: '2026-09-17T09:30:00.000Z', channel: 'email', kind: 'text', body: 'Thanks.', media: [] },
         });
         if (!r.ok) throw new Error(r.reason);
-        const { propose } = setup([r.value]);
-        const out = await propose({ caseFileId: r.value.id, channel: 'whatsapp', words: WORDS, instruction: INSTRUCTION });
-        expect(out).toEqual({ ok: false, reason: expect.stringMatching(/WhatsApp thread.*no number to text instead/) });
+        return r.value;
+    }
+
+    it('refuses a customer the desk can reach only by email, whatever channel is asked for, and sends nothing', async () => {
+        const file = emailOnly();
+        const { propose, cases } = setup([file]);
+        for (const channel of [undefined, 'whatsapp', 'sms']) {
+            expect(await propose({ caseFileId: file.id, channel, words: WORDS, instruction: INSTRUCTION }))
+                .toEqual({ ok: false, reason: 'a message from the Handy Desk goes by WhatsApp or SMS only, and there is no number on file for this customer' });
+        }
+        expect(cases.get(file.id)!.sends).toEqual([]);
+    });
+
+    it('does not take email as a channel', () => {
+        expect(parseMessageSendArgs({ caseFileId: 'case_1', words: WORDS, channel: 'email' })).toBeNull();
+    });
+
+    it('refuses an email address as the target, even one identity knows, and opens no file', async () => {
+        const identity = new Identity();
+        identity.directory.upsert({ id: 'person_mail', role: 'homeowner', customerId: null, name: 'Sarah', keys: ['email:sarah@example.test'], propertyId: null, landlordId: null });
+        const { propose, cases } = setup([], nothingApproved, identity);
+        expect(await propose({ to: { address: 'sarah@example.test', name: 'Sarah' }, words: 'Hi Sarah.' }))
+            .toEqual({ ok: false, reason: EMAIL_TARGET_REFUSAL });
+        expect(cases.all()).toEqual([]);
+    });
+
+    it('answers a customer who wrote by email on their number instead', async () => {
+        const file = emailOnly();
+        file.parties[0].channels.push({ kind: 'sms', address: SARAH_WA, lastInboundAt: null });
+        const { propose } = setup([file]);
+        const out = await propose({ caseFileId: file.id, channel: 'sms', words: WORDS, instruction: INSTRUCTION });
+        expect(out.ok && out.outgoing[0]).toMatchObject({ channel: 'sms', to: SARAH_WA });
     });
 });
 
@@ -265,8 +313,10 @@ describe('a message Ben starts to someone with no file open (N6)', () => {
 describe('the ask agent proposes it (propose_message)', () => {
     const route = { intents: ['find', 'message'], domains: ['clients', 'messages'], surface: 'thread', steps: ['Find Sarah', 'Message Sarah'], moneyAction: false, wantsDraft: true };
 
-    async function ask(file: CaseFile, input: Record<string, unknown>, composed: string[] = [WORDS], instructions = [{ id: ASK_ID, text: ASK }]) {
-        const { source, kinds, store, cases } = setup([file]);
+    async function ask(file: CaseFile, input: Record<string, unknown>, composed: string[] = [WORDS], instructions = [{ id: ASK_ID, text: ASK }], identity?: Identity, actions?: MemoryAskActionStore) {
+        const made = setup([file], nothingApproved, identity);
+        const { source, kinds, cases } = made;
+        const store = actions ?? made.store;
         const words = [...composed];
         const client = new FakeModelClient({ router: () => route, composer: () => ({ words: words.shift() ?? composed[composed.length - 1] }) });
         const seen: { results: unknown[] } = { results: [] };
@@ -322,5 +372,38 @@ describe('the ask agent proposes it (propose_message)', () => {
         const { seen } = await ask(file, { address: '07700900321', name: 'Tom', brief: 'We will call this afternoon', instruction: 'we will call him this afternoon' }, [WORDS.replace('Sarah', 'Tom')], [{ id: ASK_ID, text: typed }]);
         // The desk in this test cannot look people up, so the proposal itself is refused: but not as a guess.
         expect(seen.results[1]).toEqual({ status: 'refused', reason: expect.stringMatching(/cannot look people up/) });
+    });
+
+    it('cites an instruction Ben typed with a contraction, given back spelled out', async () => {
+        const file = sarahFile('2026-09-17T09:30:00.000Z');
+        const typed = "tell sarah from tena properties we'll call her this afternoon.";
+        const { seen, store } = await ask(file, { caseFileId: file.id, brief: 'Tell Sarah we will call her this afternoon', instruction: 'we will call her this afternoon' }, [WORDS], [{ id: ASK_ID, text: typed }]);
+        expect(seen.results[1]).toMatchObject({ status: 'proposed', words: WORDS });
+        expect(Array.from(store.rows.values())[0].args).toMatchObject({ instruction: INSTRUCTION });
+    });
+
+    it('refuses an email address or an email channel before writing anything', async () => {
+        const file = sarahFile('2026-09-17T09:30:00.000Z');
+        const byAddress = await ask(file, { address: 'sarah@example.test', name: 'Sarah', brief: 'Say hello' }, [WORDS], [{ id: ASK_ID, text: 'email sarah@example.test and say hello' }]);
+        expect(byAddress.seen.results[1]).toEqual({ status: 'refused', reason: EMAIL_TARGET_REFUSAL });
+        const byChannel = await ask(file, { caseFileId: file.id, channel: 'email', brief: 'Say hello' });
+        expect(byChannel.seen.results[1]).toEqual({ status: 'refused', reason: expect.stringMatching(/WhatsApp or SMS only/) });
+        expect(byAddress.client.calls.filter((c) => c.role === 'composer').length + byChannel.client.calls.filter((c) => c.role === 'composer').length).toBe(0);
+    });
+
+    it('proposes on the open file of the person a number belongs to, so a second message to that number waits for the first', async () => {
+        const file = sarahFile('2026-09-17T09:30:00.000Z');
+        const identity = new Identity();
+        identity.directory.upsert({ id: 'person_sarah', role: 'homeowner', customerId: null, name: 'Sarah Ellis', keys: ['phone:07700900555'], propertyId: null, landlordId: null });
+        const input = { address: SARAH_WA, name: 'Sarah Ellis', brief: 'Tell Sarah we will call her this afternoon', instruction: 'we will call her this afternoon' };
+        const first = await ask(file, input, [WORDS], undefined, identity);
+        expect(first.seen.results[1]).toMatchObject({ status: 'proposed' });
+        const [action] = Array.from(first.store.rows.values());
+        expect(action.caseFileId).toBe(file.id);
+        expect(action.args).toMatchObject({ caseFileId: file.id, to: null });
+
+        const second = await ask(file, input, [WORDS.replace('Hi Sarah', 'Hello Sarah')], undefined, identity, first.store);
+        expect(second.seen.results[1]).toEqual({ status: 'refused', reason: expect.stringMatching(/already waiting for a confirm/) });
+        expect(first.store.rows.size).toBe(1);
     });
 });

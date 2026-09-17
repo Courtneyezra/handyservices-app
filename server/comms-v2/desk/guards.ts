@@ -131,12 +131,20 @@ function citedInstructions(input: GuardInput): Fact[] {
     return citedFacts(input).filter((f) => f.source.kind === 'instruction' && looked.has(f.id));
 }
 
-/** Contractions spelled out and spacing collapsed, so "we'll call" and "we will call" read the same. */
-function instructionKey(s: string): string {
+/**
+ * Contractions spelled out and punctuation dropped, so "We'll call, this afternoon." and "we will
+ * call this afternoon" read the same. The one key a person's instruction is matched on: here for a
+ * claim, and in ask/tools.ts for the ask it was copied from. A point, colon or slash between digits
+ * stays, so "9.30" never reads as "9 30".
+ */
+export function instructionKey(s: string): string {
     return s.toLowerCase().replace(/[\u2018\u2019\u02bc`]/g, "'")
         .replace(/\b(i|we|you|he|she|they|ben)'ll\b/g, '$1 will')
         .replace(/\b(i|we|you|they)'ve\b/g, '$1 have')
-        .replace(/\s+/g, ' ').trim();
+        .replace(/(?<![a-z])'|'(?![a-z])/g, ' ')
+        .replace(/(?<!\d)[.:/]|[.:/](?!\d)/g, ' ')
+        .replace(/[^a-z0-9\u00c0-\u024f'£.:/]+/g, ' ')
+        .trim();
 }
 
 /** Whether a cited instruction says this claim, whole words, as the person gave it. */
