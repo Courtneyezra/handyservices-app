@@ -335,8 +335,8 @@ export default function HandyDesk() {
     const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
     const wide = useIsWideBoard();
     const askInput = useRef<HTMLInputElement>(null);
-    // The card the sheet was left on, for the one leaving that keeps it: "Ask about this".
-    const leftOn = useRef<DeskSelection | null>(null);
+    // The ask bar takes the focus as the sheet goes, once the dialog it was under has let go of it.
+    useEffect(() => { if (sheetDismissed) askInput.current?.focus(); }, [sheetDismissed]);
     // The dismissal is the sheet's alone: once the thread has docked instead, a narrower window opens it again.
     useEffect(() => { if (wide) setSheetDismissed(false); }, [wide]);
 
@@ -485,8 +485,8 @@ export default function HandyDesk() {
                     words={selection ? threadWords[selection.caseFileId] ?? '' : ''}
                     onWords={(w) => selection && setThreadWords((kept) => ({ ...kept, [selection.caseFileId]: w }))}
                     fallbackName={selection?.name}
-                    onClose={() => { leftOn.current = selection; setSelection(null); }}
-                    onAskAbout={() => { setSelection(leftOn.current); setSheetDismissed(true); askInput.current?.focus(); }}
+                    onClose={() => setSelection(null)}
+                    onAskAbout={() => setSheetDismissed(true)}
                     onChanged={refreshQueue}
                     canAct={canAct}
                     viewerApprover={viewerApprover}
