@@ -616,9 +616,14 @@ Reused from the old Ops Manager's wire: `OpsSessionDTO`, `OpsMessageDTO` (extend
 `ops_*` event names and shapes, and the one-run-per-session lock. Replaced: its tables
 (`ops_sessions`/`ops_messages`), its tools, its `queue_draft` write and its model choice.
 
-Not produced yet: this is the server half of the Handy Desk, the ask agent and its `OpsAnswer`
-contract. The queue page (T1), the ask bar and answer surface UIs (T2, T3) and the confirm
-executor (T4) are separate follow-up tasks. Typed in `AnswerSurface` but not yet produced: `diary`
+The client half: the queue (T1, above) and the ask bar (T2) on `/admin/handy-desk`. The ask bar
+(`client/src/hooks/useAskSession.ts`, pure state in `client/src/lib/handy-desk-ask.ts`, components in
+`client/src/components/handy-desk/`) opens `POST /sessions/today`, posts each ask with the selected
+card as `context`, and folds this session's `ops_*` events into the thinking card (tool names in
+mono, the newest step amber); it never calls the old `/api/ops` routes. The answer's typed surface
+renders through `AnswerSurfaceBody`, the seam the answer surface UI (T3) fills; until then it shows
+the note and any held draft, which is sent from its queue card. The confirm executor (T4) is a
+separate follow-up task. Typed in `AnswerSurface` but not yet produced: `diary`
 (`server/lib/contractor-week.ts`), `map` (`server/dispatch-map-routes.ts`), `quote` and `ledger`
 (both wait on money actions). The agent proposes only `draft.release` today; T4 adds
 `POST /api/ops/confirm`, which executes a person's confirm, and the `booking.move`,

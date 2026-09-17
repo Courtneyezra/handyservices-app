@@ -11,15 +11,22 @@
  * the board offers.
  *
  * Selecting a card sets the selected conversation (`DeskSelection`): the answer surface shows its
- * thread while idle, and the ask bar (T2) takes it as context. The mapping from a held file to the
+ * thread while idle, and the ask bar takes it as context. The mapping from a held file to the
  * card's copy lives in client/src/lib/handy-desk-queue.ts.
+ *
+ * The ask bar (T2) asks the new desk's ask agent (/api/comms-v2/ask, useAskSession); while it runs
+ * the answer surface shows the thinking card, then the answer (AnswerCard), until Ben closes it.
  */
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2 } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { useOldComms } from '@/hooks/useOldComms';
+import { useAskSession } from '@/hooks/useAskSession';
 import { cn } from '@/lib/utils';
+import { AnswerCard } from '@/components/handy-desk/AnswerCard';
+import { AskBar } from '@/components/handy-desk/AskBar';
+import type { AskVia } from '@shared/ops-types';
 import type { CaseFileDetail, Turn } from '@/pages/admin/CommsV2BoardPage';
 import {
     ACTION_ROUTE, isShutWindow, needsWords, queueCardCopy, queueQuery, refusalMessage, selectionOf,
@@ -279,6 +286,10 @@ export default function HandyDesk() {
     const queryClient = useQueryClient();
     const [selection, setSelection] = useState<DeskSelection | null>(null);
     const [done, setDone] = useState<{ key: number; note: string }[]>([]);
+    const [askText, setAskText] = useState('');
+    const [showAnswer, setShowAnswer] = useState(false);
+    const askSession = useAskSession();
+    const exchange = askSession.exchange;
 
     const { data, isLoading, error } = useQuery<DeskQueue>({
         queryKey: ['comms-v2-queue'],
@@ -298,6 +309,12 @@ export default function HandyDesk() {
         setDone((d) => [{ key: Date.now(), note }, ...d].slice(0, 3));
         queryClient.invalidateQueries({ queryKey: ['comms-v2-queue'] });
         queryClient.invalidateQueries({ queryKey: ['comms-v2-case-file'] });
+    };
+
+    const ask = async (text: string, via: AskVia) => {
+        const ok = await askSession.ask(text, via, selection);
+        if (ok) setShowAnswer(true);
+        return ok;
     };
 
     // Height leaves out the layout's 64px header and its scroll container's p-4 / lg:p-8
@@ -343,15 +360,24 @@ export default function HandyDesk() {
 
                 <section aria-label="Answer" className="flex min-h-[50vh] flex-col bg-slate-50 lg:min-h-0">
                     <div className="flex-1 px-4 py-6 sm:px-8 lg:overflow-y-auto">
-                        {selection ? (
+                        {exchange && (showAnswer || exchange.live) ? (
+                            <AnswerCard exchange={exchange} onClose={() => setShowAnswer(false)} />
+                        ) : selection ? (
                             <SelectedThread key={selection.caseFileId} selection={selection} />
                         ) : (
                             <p className="py-16 text-center text-sm text-slate-500">Pick something from the queue to see its conversation.</p>
                         )}
                     </div>
-                    <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 sm:px-8">
-                        <span data-testid="handy-desk-context">Context · {selection ? selection.name : 'nothing selected'}</span>
-                    </footer>
+                    <AskBar
+                        selection={selection}
+                        ready={!!askSession.sessionId}
+                        busy={askSession.busy}
+                        error={askSession.error}
+                        disabledReason={askSession.sessionError}
+                        onAsk={ask}
+                        text={askText}
+                        onText={setAskText}
+                    />
                 </section>
             </div>
         </div>
