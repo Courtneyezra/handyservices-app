@@ -187,8 +187,8 @@ inbound email is on) retries each row the desk does not have yet with backoff, u
 An attempt holds its row for ten minutes, so two never run at once. The row is done once the intake
 has returned, the desk has handled the turn, and the durable case file store has written the file
 the turn landed on (`forwardNow` flushes that file alone, so another file's failing write does not
-hold this email). An
-email that spends every attempt is kept as failed, logged at error level and paged. The hand-over
+hold this email). An email that spends every attempt is kept as failed, logged at error level and
+paged. The hand-over
 carries a delivery id (`resend:<email id>`) that the gateway records on the turn (`Turn.deliveryId`)
 and refuses to land twice (`duplicate`), so a redelivery, an attempt racing another, or a restart
 between the desk taking the email and the row being marked adds no second turn. The desk runs on
