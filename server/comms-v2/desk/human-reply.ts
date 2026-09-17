@@ -107,6 +107,7 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     if (!choice.ok) return refuse(choice.reason);
     let rendered = render(choice.channel, words, input.deskDraft ? { name: party.name } : { asTyped: true });
     if (input.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(choice.channel, words, { name: party.name, softWidth: true });
+    if (input.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(choice.channel, words, { asTyped: true });
     if (!rendered.ok) {
         if (rendered.reason === 'empty') return refuse('the reply rendered to nothing');
         const over = shortenBriefFor(choice.channel, words, rendered.bubbles);

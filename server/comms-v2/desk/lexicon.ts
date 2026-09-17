@@ -7,10 +7,10 @@
 /**
  * Only gas and asbestos are out of scope (behaviour.md, checklist cross-cutting 5). Plumbing, roofing, structural and electrical are ours.
  * A combi and a pilot light are gas appliances in everyday words ("my combi keeps losing pressure"), but not a combi oven,
- * microwave or drill; a boiler's cupboard, casing or box is joinery. A flue is gas only beside a gas word, which is matched on its
+ * microwave or drill; a boiler's or combi's cupboard, casing or box is joinery. A flue is gas only beside a gas word, which is matched on its
  * own, so a wood burner's or a chimney's flue is ours.
  */
-export const RE_REGULATED = /\b(?:gas(?:\s|-)?(?:boiler|hob|cooker|fire|meter|pipe|leak|safe|engineer|supply|work|appliance|heater)|boilers?\b(?![^.?!]*\b(?:cupboard|casing|box)\b)|combis?\b(?!\s+(?:ovens?|microwaves?|drills?))|pilot\s+lights?|gas\b|asbestos|artex(?:\s+\w+)?\s+(?:ceiling|test)|corgi)\b/i;
+export const RE_REGULATED = /\b(?:gas(?:\s|-)?(?:boiler|hob|cooker|fire|meter|pipe|leak|safe|engineer|supply|work|appliance|heater)|(?<!\b(?:cupboard|casing|box)\b[^.?!]*)(?:boilers?|combis?(?!\s+(?:ovens?|microwaves?|drills?)))\b(?![^.?!]*\b(?:cupboard|casing|box)\b)|pilot\s+lights?|gas\b|asbestos|artex(?:\s+\w+)?\s+(?:ceiling|test)|corgi)\b/i;
 
 export function regulatedMatch(text: string): string | null {
     const m = RE_REGULATED.exec(text);

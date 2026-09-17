@@ -427,6 +427,22 @@ describe('the channel desk on a call', () => {
         expect(b.result.bubbles.map((x) => x.text).join(' ')).not.toMatch(/photo/i);
         expect(b.file.ledger.find((l) => l.subject === 'media')).toMatchObject({ askCount: 1 });
     });
+    it('a late transcript where the caller asked us to stop is read by no model and holds for Ben to record the opt-out, with nothing sent', async () => {
+        const { gateway, client } = rig({ specialist: () => read(), router: () => routeScoping(), composer: () => ({ reply: 'unused', factIds: [], kbIds: [] }) }, approvedAll);
+        const live = (transcript: string | null) => fromFinishedCall({ phone: '+447700900942', name: null, direction: 'inbound', missed: false, transcript, durationSeconds: 60, at: '2026-09-11T10:00:00.000Z', jobSummary: null, callId: 'call_live_stop' })!;
+        const a = await gateway.inbound(live(null), { whatsapp: true });
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.file.hold).toBeNull();
+        const b = await gateway.inbound(live('Customer: Please stop contacting me.'), {}, { attachOnly: true });
+        expect(b).toMatchObject({ kind: 'attached', changed: true });
+        const file = gateway.store.get(a.file.id)!;
+        expect(client.calls).toHaveLength(0);
+        expect(file.hold?.reason).toContain('customer may have asked to stop on a call; check and record the opt-out');
+        expect(file.job.type).toBeNull();
+        expect(file.ledger).toEqual([]);
+        expect(file.sends).toEqual([]);
+        expect(file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+    });
     it('a live answered call reaches the desk before its transcript: nothing is read at hang-up, and the transcript that lands later is read for the job, the location and what Ben asked for, with nothing sent', async () => {
         const users: string[] = [];
         const { gateway, client } = rig({

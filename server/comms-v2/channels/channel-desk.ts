@@ -94,11 +94,13 @@ export class ChannelDesk implements DeskLike {
 
     /**
      * A transcript that landed on a call turn after hang-up (channel-gateway.ts `attachCall`): read
-     * for facts, and Ben's asks on the ledger, exactly as a call read at hang-up is. Never a send,
-     * a hold or a template: the follow-up, if any, was decided at hang-up.
+     * for facts, and Ben's asks on the ledger, exactly as a call read at hang-up is. Never a send or
+     * a template: the follow-up, if any, was decided at hang-up. A caller who asked us to stop is
+     * held for Ben as at hang-up, and nothing is read.
      */
     async readLateTranscript(file: CaseFile, turn: Turn): Promise<string[]> {
         if (turn.direction !== 'inbound' || turn.kind !== 'call_transcript' || callOutcomeOnFile(file, turn) === 'missed' || !hasTranscript(turn)) return [];
+        if (this.optOutHold(file, turn)) return [];
         const read = await readCall(file, turn, this.client);
         if (!read.output) { (this.deps.log ?? (() => undefined))(`call reader (late transcript): ${read.error}`); return []; }
         const deps = this.fileDeps();
@@ -106,6 +108,15 @@ export class ChannelDesk implements DeskLike {
         if (isReady(file) && (file.stage === 'scoping' || file.stage === 'first_contact')) setStage(file, 'ready', 'job type and location both on the file, from the call', deps);
         ledgerAfterCall(file, benAskedSubjects(file, read.output), deps);
         return factIds;
+    }
+
+    private optOutHold(file: CaseFile, turn: Turn): ReturnType<typeof optOutOnTurn> {
+        const optOut = optOutOnTurn(file, turn);
+        if (optOut?.holdReason) {
+            if (file.hold) noteOnHold(file, { reason: optOut.holdReason });
+            else setHold(file, { approver: approverFor(file, null), reason: optOut.holdReason }, this.fileDeps());
+        }
+        return optOut;
     }
 
     private fileDeps(): CaseFileDeps { return { now: this.now, newId: this.deps.newId }; }
@@ -124,12 +135,8 @@ export class ChannelDesk implements DeskLike {
         if (!party) return this.result(file, file.parties[0].personId, runId, calls, { decision: 'none', note: 'the call\'s party is not on the file' });
         const deps = this.fileDeps();
         // A caller who asked us to stop gets no follow-up and no model reads the transcript; the call is Ben's to check and record.
-        const optOut = optOutOnTurn(file, turn);
+        const optOut = this.optOutHold(file, turn);
         if (optOut) {
-            if (optOut.holdReason) {
-                if (file.hold) noteOnHold(file, { reason: optOut.holdReason });
-                else setHold(file, { approver: approverFor(file, null), reason: optOut.holdReason }, deps);
-            }
             return this.result(file, party.personId, runId, calls, { decision: optOut.holdReason ? 'hold' : 'none', note: optOut.note });
         }
         if (file.stage === 'first_contact') setStage(file, 'scoping', 'first customer turn: a call', deps);

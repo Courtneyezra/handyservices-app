@@ -331,6 +331,20 @@ describe('one tap: sending the reply the desk held back as-is', () => {
         expect(texts.join(' ')).toBe(draft);
     });
 
+    it('a draft held for staying over the bubble ceiling still goes as it stands, split only at its blank lines', async () => {
+        const { file } = fixture();
+        const first = 'Thanks Sam, that helps a lot. A standard mixer tap swap is usually straightforward if the isolation valves under the sink are working, and most of the time the old tap comes off without any trouble at all, although older fittings can sometimes be seized and need a bit more work to free up before the new one goes on.';
+        const second = 'Could you send a photo of the pipework under the sink so I can check what fittings are there, and one of the tap itself from above so I can see the size of the hole in the worktop? Once I have those I can put the price together for you and let you know when we could come round to do it.';
+        const draft = `${first}\n\n${second}`;
+        setHold(file, { approver: BEN, reason: 'the reply stayed over the bubble ceiling', exception: null, draft }, { now: now('2026-09-11T10:00:01.000Z') });
+
+        const out = await sendHeldDraft({ file, approver: BEN, person: BEN_PERSON }, { now: now() });
+
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.result.bubbles.map((b) => b.text)).toEqual([first, second]);
+    });
+
     it('an email draft goes as the desk\'s own letter would, with the greeting and sign-off around it', async () => {
         const r = open({
             identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'email:sam@example.invalid', propertyId: null, landlordId: null, name: 'Sam Jones' },
