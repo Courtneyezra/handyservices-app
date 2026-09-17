@@ -440,7 +440,7 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
 
     return (
         <ThreadFrame layout={layout} backTo={backTo} onClose={onClose} title={name} pills={pills} line={headerLine(data)}>
-            <div data-testid="thread-turns" className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3.5">
+            <div data-testid="thread-turns" className="flex min-h-[120px] flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3.5">
                 {rows.map((row) => <Row key={row.id} row={row} />)}
                 {pending && (
                     <Bubble
@@ -473,7 +473,9 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
                 <div ref={endRef} />
             </div>
 
-            <div className={cn('flex shrink-0 flex-col gap-2.5 border-t border-slate-200 bg-white px-4 pt-3', layout === 'sheet' ? 'pb-5' : 'pb-3.5')}>
+            {/* Capped and scrolling on its own, so a tall hold, shut notice and template card never push the
+                reply box and its buttons out of a fixed-height panel or squeeze the conversation to nothing. */}
+            <div data-testid="thread-footer" className={cn('flex max-h-[60%] shrink-0 flex-col gap-2.5 overflow-y-auto border-t border-slate-200 bg-white px-4 pt-3', layout === 'sheet' ? 'pb-5' : 'pb-3.5')}>
                 {hold && (
                     <div data-testid="held-block" className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5">
                         <div className="flex flex-wrap items-center gap-1.5">
