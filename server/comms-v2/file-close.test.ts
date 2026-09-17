@@ -6,7 +6,7 @@
  * one. A file at quoted or accepted stays open and takes the message, as before.
  */
 import { describe, expect, it } from 'vitest';
-import { appendTurn, closeFile, hold, invariantViolations, staleClosed, isClosed, open, recordFact, setStage, type CaseFile, type Stage } from './desk/case-file';
+import { appendTurn, closeFile, hold, invariantViolations, staleClosed, isClosed, open, recordFact, reopenStaleClosed, setStage, snapshot, type CaseFile, type Stage } from './desk/case-file';
 import type { DeskLike, DeskResult } from './desk/desk-types';
 import { Gateway } from './desk/gateway';
 import { MemoryCaseFileStore, newestOpenFor } from './desk/store';
@@ -493,6 +493,18 @@ describe('a stale-closed quote taken up later reopens its file', () => {
         expect(file.turns.at(-1)).toMatchObject({ kind: 'system', direction: 'inbound' });
         expect(file.turns.at(-1)!.body).toMatch(/Reopened: the stale quote Q7SLUG was taken up/);
         expect(puts).toEqual([file.id]);
+    });
+
+    it('a reopened file still walks the seven stages, and a backward move without the stale close and reopen records does not', () => {
+        const file = staleClosedFile('p1', 'Q7SLUG');
+        const r = reopenStaleClosed(file, 'the quote was paid', { now: () => new Date(Date.parse(AT) + DAY_MS) });
+        if (!r.ok) throw new Error(r.reason);
+        expect(r.value).toMatchObject({ from: 'done', to: 'quoted', reopened: true });
+        expect(invariantViolations(file)).toEqual([]);
+
+        const unrelated = snapshot(file);
+        unrelated.stageHistory.push({ from: 'quoted', to: 'scoping', at: AT, why: 'a step back nothing allows' });
+        expect(invariantViolations(unrelated)).toContain('stage move quoted -> scoping is not allowed');
     });
 
     it('only a stale close reopens: a file closed by its completion or by hand stays done', async () => {

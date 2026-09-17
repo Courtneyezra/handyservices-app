@@ -64,9 +64,11 @@ specialists share; nothing passes between them any other way.
 | `record_send` | records an outbound reply after the sender confirms it | No run id or approver. Facts named that are not on the file. |
 
 **Invariants a test can check.** Every send on the file cites facts that are on the file. Every
-fact has a source. No subject is asked twice unanswered. The stage history is a walk through the
-seven stages. A held file has a named approver. Two parties never share a channel address on one
-file.
+fact has a source. No subject is asked twice unanswered. The stage history is a walk forward through
+the seven stages, with one named exception: a file the stale-quote close closed may step back from
+`done` to `quoted`, recorded as a reopen with its reason, when a late acceptance, payment or booking
+takes that quote up and walks it on to the stage the event implies. Every other backward move is
+refused. A held file has a named approver. Two parties never share a channel address on one file.
 
 ## Contract 3 - Router and composer
 
