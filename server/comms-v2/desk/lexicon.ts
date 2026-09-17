@@ -34,7 +34,7 @@ const HAGGLE = [
     "(?:that's|thats|that is|seems|sounds) (?:like )?(?:a lot|a bit much|too much)(?! (?:of|like|better|worse|easier|harder|clearer|quicker|nicer|more|less)\\b)",
     "(?:within|over|under|above|outside|beyond|on|stretch|exceeds?|out of) (?:my |our |your |the |a )?(?:tight |small |limited )?budget",
     "(?:my|our) budget (?:is|was|isn['’]?t|wasn['’]?t|won['’]?t|doesn['’]?t|can['’]?t|only|max|of|for|would|will)", 'tight budget',
-    'quoted (?:me|us) (?:£ ?\\d|\\d{2,})', 'you go (?:any )?lower(?= (?:on |than )?(?:the |that |this |your |my )?(?:price|quote|cost|total|figure|£ ?\\d|\\d))',
+    'quoted (?:me|us) (?:£ ?\\d|\\d{2,})', 'go any lower', 'you go (?:any )?lower(?= (?:on |than )?(?:the |that |this |your |my )?(?:price|quote|cost|total|figure|£ ?\\d|\\d))',
     '(?:match|beat) (?:(?:that|their|his|her|this|the other|another) )?(?:quote|figure|£ ?\\d+|\\d+)',
     "mates?'?s? rates?", '(?:pensioner|oap|student|nhs|forces|cash) (?:rate|price|discount|deal)',
     '(?:any|special|better|cash) deal', 'chance of a deal', 'do (?:me|us) a deal',
@@ -282,8 +282,9 @@ export function asksForCall(text: string): boolean {
 
 // A call that already happened or was already tried ("as we discussed on the phone", "great speaking to
 // you on the phone earlier", "we tried to call you back") is not an offer of one. The past words must come
-// before the call: "as I said, I can give you a ring tomorrow" and "a call this morning" still offer one.
-const RE_CALL_PAST = /\b(?:discussed|mentioned|spoke|spoken|speaking|talked|talking|chatted|chatting|tried|trying|earlier)\b/i;
+// before the call, anywhere in the clause for a call that happened, straight before it otherwise: "as I said, I can
+// give you a ring tomorrow", "a call this morning" and "we're trying to fit you in so Ben will call you" still offer one.
+const RE_CALL_PAST = /\b(?:spoke|talked|chatted|earlier)\b|\b(?:(?:discussed|mentioned|spoken|speaking|talking|chatting)(?:\s+(?:to|with)\s+(?:you|u|me))?|(?:tried|trying)\s+to)\s*$/i;
 
 /** The offer of a call a clause makes, if it makes one. */
 function callOfferIn(clause: string): string | null {
