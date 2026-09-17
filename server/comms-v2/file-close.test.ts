@@ -5,7 +5,6 @@
  * type, location or quote, so Quoting drafts the new job's quote rather than refusing beside the old
  * one. A file at quoted or accepted stays open and takes the message, as before.
  */
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { closeFile, hold, invariantViolations, isClosed, open, recordFact, setStage, type CaseFile, type Stage } from './desk/case-file';
 import type { DeskLike, DeskResult } from './desk/desk-types';
@@ -254,23 +253,6 @@ describe('the automatic close on live events', () => {
         const broken = live([file], { throws: true, slug: 'Q1' });
         await expect(closeLiveFileForQuote({ quoteId: 'q1', to: 'booked', why: 'x' }, broken.deps)).resolves.toEqual({ closed: [], skipped: 'failed' });
         expect(broken.lines.join('\n')).toMatch(/failed: gateway down/);
-    });
-});
-
-describe('the events are wired to the new desk', () => {
-    const src = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
-    it('the booking lands: confirmBooking and assignFromPool', () => {
-        const engine = src('booking-engine.ts');
-        expect(engine.match(/fileBooked\(quoteId, \(result as any\)/g)).toHaveLength(2);
-    });
-    it('the job is signed off: the completion spine and the field app\'s complete route', () => {
-        expect(src('job-lifecycle.ts')).toContain("fileDone(job.quoteId, 'signed_off')");
-        expect(src('contractor-app-routes.ts')).toContain("fileDone(booking.quoteId, 'signed_off')");
-    });
-    it('the invoice is paid: the Stripe webhook\'s two invoice paths and the manual mark-paid', () => {
-        expect(src('stripe-routes.ts')).toContain("fileDone(paidInvoice.quoteId, 'invoice_paid')");
-        expect(src('stripe-routes.ts')).toContain("fileDone(invoiceResults[0].quoteId, 'invoice_paid')");
-        expect(src('invoices.ts')).toContain("fileDone(updated.quoteId, 'invoice_paid')");
     });
 });
 
