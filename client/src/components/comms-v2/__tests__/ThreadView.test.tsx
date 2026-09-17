@@ -68,21 +68,21 @@ describe('<ThreadView>', () => {
         expect(onClose).toHaveBeenCalledTimes(2);
     });
 
-    it('Esc leaves the panel open while the focused box holds words, and closes it with an empty box or focus elsewhere', async () => {
+    it('Esc leaves the panel open while focus is in a field, and closes it once focus is elsewhere', async () => {
         const { onClose } = mount([fileRoute(detail())]);
         const box = await ready();
         box.focus();
         fireEvent.keyDown(box, { key: 'Escape' });
-        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(onClose).not.toHaveBeenCalled();
 
         await userEvent.type(box, 'half a reply');
         fireEvent.keyDown(box, { key: 'Escape' });
-        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(onClose).not.toHaveBeenCalled();
         expect(words().value).toBe('half a reply');
 
         box.blur();
         fireEvent.keyDown(window, { key: 'Escape' });
-        expect(onClose).toHaveBeenCalledTimes(2);
+        expect(onClose).toHaveBeenCalledTimes(1);
     });
 
     it('Esc leaves the sheet open while the focused box holds words, and closes it with an empty box', async () => {

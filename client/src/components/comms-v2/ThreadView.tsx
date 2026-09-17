@@ -69,6 +69,13 @@ function typingInThread(): boolean {
     return el instanceof HTMLTextAreaElement && el.id.startsWith('thread-words-') && el.value !== '';
 }
 
+/** Whether the focus is in any editable field on the page, where Esc belongs to that field, not the docked panel. */
+function focusInField(): boolean {
+    const el = document.activeElement;
+    return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement
+        || (el instanceof HTMLElement && el.isContentEditable);
+}
+
 const PILL = 'rounded-full bg-slate-100 px-[7px] py-0.5 text-[10px] font-semibold text-slate-500';
 const BTN = 'inline-flex items-center justify-center gap-1.5 rounded-md font-semibold transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50';
 const BTN_AMBER = cn(BTN, 'bg-amber-400 text-slate-900 hover:bg-amber-300');
@@ -271,10 +278,10 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
     const [released, setReleased] = useState(false);
     const [factsOpen, setFactsOpen] = useState(false);
 
-    // Esc closes the docked panel, unless it would throw away words being typed; a sheet's own dialog handles Esc.
+    // Esc closes the docked panel, unless focus is in a field anywhere on the page; a sheet's own dialog handles Esc.
     useEffect(() => {
         if (layout !== 'panel') return;
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !typingInThread()) onClose(); };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !focusInField()) onClose(); };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [layout, onClose]);

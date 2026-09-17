@@ -263,6 +263,28 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
     });
 
+    it('Esc while typing in the ask bar leaves the thread open and the ask context set, and closes it once focus leaves the field', async () => {
+        stubWide();
+        routes();
+        renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const thread = await screen.findByTestId('handy-desk-thread');
+        expect(await within(thread).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+
+        const ask = screen.getByTestId('handy-desk-ask-input');
+        await waitFor(() => expect(ask).not.toBeDisabled());
+        await userEvent.type(ask, 'What did she say about the leak?');
+        await userEvent.keyboard('{Escape}');
+        expect(screen.getByTestId('handy-desk-thread')).toBeInTheDocument();
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+        expect(ask).toHaveValue('What did she say about the leak?');
+
+        (document.activeElement as HTMLElement).blur();
+        await userEvent.keyboard('{Escape}');
+        expect(screen.queryByTestId('handy-desk-thread')).toBeNull();
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
+    });
+
     it('on a phone a card tap opens the thread as a sheet, and ‹ Queue returns to the queue', async () => {
         routes();
         renderWithQuery(<HandyDesk />);
