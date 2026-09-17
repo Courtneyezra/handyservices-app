@@ -4,6 +4,25 @@ One line per round: the scenario, what happened, and the fix (or "no issue").
 An `ESCALATE:` line at the top of this file is a live compliance or money finding, added on the
 round it was found.
 
+ESCALATE: (round 10, 17 Sep 2026) — **a customer who had just paid was answered as a brand new
+enquiry.** `POST /api/leads` is the web form's route, but it is not only the web form's: the
+personalized quote page posts a lead the moment Stripe has taken the money
+(`client/src/pages/PersonalizedQuotePage.tsx:4161`, `source: 'personalized_quote'` with a
+`stripePaymentId`), the instant-quote card does the same
+(`client/src/components/InstantActionQuote.tsx:62`), and a quote link posts one to reserve a slot.
+`server/leads.ts:158` forwarded **every** one of them into the new desk as `kind: 'web_form'`, with
+no filter at all, while the old ingest twenty lines below it has always refused exactly these
+(`isPostPaymentRecord`, `isWebForm`: "A lead posted AFTER a successful payment ... is not a new
+enquiry"). Live, with the desk answering customers, the paid booking therefore lands on the gateway
+as a fresh web enquiry: the file that closed on the payment is closed, so it opens a **new** case
+file, and the desk sends the web-form acknowledgement — driven on the door this round, word for
+word: *"Hi Meredith, thanks for getting in touch. We got your message: "Our bathroom extractor fan
+has packed in and the ceiling is". Is it OK if we give you a quick call in the morning to run
+through it? Or just reply here with the details and we will price it up."* — and Scoping runs on to
+draft a second quote for Ben to price (`quoting: drafted aqsvrl07 for Ben to price`) for the job
+they have paid for. Money state: a paid job re-enters the desk as unquoted, is offered a re-price
+in writing, and a duplicate quote draft is put in front of Ben. Fixed on the round (below).
+
 ESCALATE: (round 5, 17 Sep 2026) — **an inbound email's opt-out was not honoured at all.** The
 email adapter puts `Subject: <subject>` in front of what the person wrote, and the opt-out detector
 reads the turn's body, so the whole-message rule could never fire on email: an email whose entire
@@ -249,3 +268,36 @@ round (below).
   bubbles (38/73/99 characters) that ask for none of it again: "No worries Rhian, good to chat
   earlier. / I'm usually booking in about 4 days at the moment, so not too long a wait. / With it
   being a fair list, is there one bit you'd want doing first, say the grab rails for your mum?"
+- Round 10 (17 Sep 2026) — the web enquiry form as a front door in its own right, driven on the
+  app's own comms-v2 sandbox door against the branch database (the form door, `POST /start` with
+  `door: "form"`). The front door itself is in good shape on both of its branches. On a number that
+  is on WhatsApp the reply is the approved acknowledgement and nothing else: `windowState: "shut"`,
+  `templateId: "web_enquiry_ack_context"`, one bubble quoting the enquiry back and "in the morning"
+  for `{{3}}` (the drive ran at 22:13 UTC, outside Ben's hours, which is the meaning the registry
+  row declares), every guard passing, approver `agent.comms_v2`, no hold. The intake facts land as
+  the adapter promises — `customer_name` and `location` NG7 2QP written `by: "form_adapter"` at the
+  form turn, the job type left to Scoping, which then wrote it — and the file goes to `ready` with a
+  quote drafted for Ben to price. On a number that is not on WhatsApp the same enquiry opens SMS
+  instead (`channel: "sms"`, no template, one message of 293 characters inside the two-segment
+  ceiling) and carries the `move_to_whatsapp` fixed line exactly once ("If it's easier, you can
+  message us on WhatsApp on this same number"), which is checklist 1.4 on a door that is not SMS.
+  The finding is not in the door but in what feeds it live: `POST /api/leads` is the web form's
+  route and also four other screens', and `server/leads.ts:158` forwarded every lead it inserts into
+  the new desk as `kind: 'web_form'` with no filter, so a booking the quote page records after Stripe
+  has taken the money reached the desk as a fresh enquiry — see the ESCALATE line at the top of this
+  file for what the customer would have received, driven word for word on the door. The old ingest
+  in the same handler has always refused exactly those leads (`isPostPaymentRecord`, and an
+  `isWebForm` allow-list of the web form's own sources), so the fix is one rule both paths read:
+  `isWebFormEnquiry` (`server/leads.ts`) — never a lead carrying a `stripePaymentId`, never
+  `personalized_quote`, otherwise the web form's own sources (`web_quote`, `webform`, `website`,
+  `*hero_flow`) — with the forward gated on it and `isWebForm` now derived from it, so a source
+  added later cannot be added to one path and forgotten on the other. Five regression tests in
+  `server/leads-comms-v2-forward.test.ts` drive the real route handler: a `desktop_hero_flow`
+  enquiry is forwarded, a paid `personalized_quote` booking is not, a paid `instant_quote` booking
+  is not, a `quote_link_reservation` slot is not, and the rule itself is pinned source by source;
+  the three "not" tests fail against the old code. The forward itself could not be driven live,
+  because it runs only under `COMMS_V2_INTAKE`, which this run may not set — the door drive shows
+  what the desk does with that envelope and the route tests show which leads now build one. Two of
+  the newly-excluded sources are a product question rather than a defect, raised as
+  OVERNIGHT-QUESTIONS.md entry 4 (a reserved slot and the instant-price tool now reach the desk not
+  at all).

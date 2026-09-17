@@ -97,3 +97,32 @@ on the opt-out turn itself, (b) send the held acknowledgement only, as an except
 is one line in the desk's held-thread branch that reads an opt-out hold like an exception hold, plus
 a test; either way it should be written down, because today it is the one hold whose standing
 changes nothing about what the desk says next.
+
+## 4. Which of the lead route's other front ends should reach the desk, and as what
+
+Found: round 10 (17 Sep 2026), driving the web enquiry form as a front door.
+
+`POST /api/leads` is the web form's route, but four other screens post to it: the personalized
+quote page after Stripe has taken the money (`source: 'personalized_quote'`), the instant-quote
+card after the same (`instant_quote`), a quote link reserving a slot (`quote_link_reservation`)
+and the instant-price tool (`instant_price`, which hands the customer a WhatsApp link to write
+themselves). Every one of them was being forwarded to the new desk as `kind: 'web_form'`, so a
+customer who had just paid was answered as a fresh enquiry (the ESCALATE line in OVERNIGHT-LOG.md).
+The fix draws the forward's line where the old ingest has always drawn its own
+(`isWebFormEnquiry`, `server/leads.ts`): the web form's own sources only.
+
+That is right for the two paid ones, which are bookkeeping of a booking the desk should never
+answer. It is a judgement call for the other two, and the fix leaves both reaching the desk not at
+all:
+
+- **A slot reserved on a quote link.** The customer has picked a date on a quote we sent. Nothing
+  on the new desk hears about it, so the file stays at `quoted` and the chase clock keeps running
+  against someone who has already said yes to a day.
+- **The instant-price tool.** They typed a job and got a figure; the lead is real, but the tool
+  then opens WhatsApp with the words already written, so their own first message is what the desk
+  is meant to answer — a desk acknowledgement as well would be the second one.
+
+**The decision needed:** should a reserved slot reach the desk as its own kind of turn (a booking
+request, not an enquiry), so the file moves and the chase stops? And is the instant-price lead an
+enquiry the desk should acknowledge, or is the customer's own WhatsApp message the enquiry? Either
+one is a new input on the intake bridge, which is why this is not guessed at here.
