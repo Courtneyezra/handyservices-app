@@ -1,7 +1,7 @@
 /**
  * A person's reply from Ben's board, through the desk's one sender (Contract 5, behaviour.md
  * answers 29 and 43): Ben writes to the customer in his own words, the desk never rewrites them,
- * and they go out as a human-authored send with Ben as approver and a fresh run id. The approver is
+ * and they go out as a human-authored send with Ben as approver and a fresh run id (or the ask confirm's own). The approver is
  * the signed-in person, `human:<their email or user id>` as server/approver.ts defines it, so a
  * slot two people share still records which of them wrote the words. The send lands on the file as
  * Ben's turn (an outbound turn carrying that approver), any hold clears with Ben's words as the
@@ -144,7 +144,7 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     const shut = shutWindowRefusal(channel, window);
     if (shut) return refuse(shut);
 
-    // The one sender, with Ben as approver and a fresh run id. No guards: a person's own words are his (answer 43).
+    // The one sender, with Ben as approver and the run id above. No guards: a person's own words are his (answer 43).
     const sent = await send({ file, partyId: party.personId, channel: channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
     if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
 
