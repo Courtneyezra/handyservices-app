@@ -151,7 +151,7 @@ variationRouter.post('/api/contractor-app/:token/jobs/:bookingId/variation', asy
                 variationId: row.id,
                 contractorName: await contractorName(profile.id),
                 customerName: ctx.quote?.customerName ?? null,
-                jobTitle: ctx.dispatch.title ?? ctx.quote?.jobDescription ?? null,
+                jobTitle: ctx.dispatch?.title ?? ctx.quote?.jobDescription ?? null,
                 title: extra.title,
                 notes: extra.notes,
                 photos: extra.photoUrls.length,

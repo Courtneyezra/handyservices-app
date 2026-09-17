@@ -30,8 +30,13 @@ const intakeOutput = { lines: [{ title: 'Fit handles and hinges to 4 internal do
 
 const WRAP_UP = "That's everything I need for now. I'll put the quote together and send it over to you here.";
 
+// A reply lands a millisecond after the turn it answers when both fall in the same millisecond, so a
+// message stamped from the wall clock straight after it could be dated before it and refused as out of
+// order. Each message is stamped clear of the one before.
+let lastMessageAt = 0;
 function message(text: string): InboundTurn {
-    return { channel: 'whatsapp', address: '+447700900942', name: 'Sam', text, media: [], at: new Date().toISOString(), providerMessageId: null, via: 'door', mediaFailures: [] };
+    lastMessageAt = Math.max(Date.now(), lastMessageAt + 10);
+    return { channel: 'whatsapp', address: '+447700900942', name: 'Sam', text, media: [], at: new Date(lastMessageAt).toISOString(), providerMessageId: null, via: 'door', mediaFailures: [] };
 }
 
 /** A drafter that takes its time, like the live chain did, and can be told to fail. */

@@ -4149,7 +4149,10 @@ export const contractorJobLinks = pgTable('contractor_job_links', {
 // Herbert-style admin amendment with a structured flow.
 export const dispatchVariations = pgTable('dispatch_variations', {
   id: text('id').primaryKey().$defaultFn(() => `dv_${crypto.randomUUID()}`),
-  dispatchId: text('dispatch_id').notNull().references(() => jobDispatches.id, { onDelete: 'cascade' }),
+  // A job booked straight off the quote has no dispatch row; it hangs off the booking instead
+  // (migration 20260907_p15_variations_and_expenses.sql checks one parent is set).
+  dispatchId: text('dispatch_id').references(() => jobDispatches.id, { onDelete: 'cascade' }),
+  bookingId: varchar('booking_id'),
   contractorId: varchar('contractor_id').notNull(),
   taskNum: integer('task_num'), // which task this relates to (optional)
   description: text('description').notNull(),
