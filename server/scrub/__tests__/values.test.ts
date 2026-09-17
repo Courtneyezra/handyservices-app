@@ -242,6 +242,17 @@ describe('json', () => {
             ctx({ table: 'conversations', column: 'metadata' })) as { customerName: string };
         expect(after.customerName).not.toContain('Margaret');
     });
+
+    it('regenerates a refused draft the ask agent read back or wrote', () => {
+        const before = { tool: 'draft_reply', result: {
+            standingDraft: 'We can come to 14 Beechdale Road on Tuesday.',
+            lastDraft: 'Could you send a photo of the tap at 14 Beechdale Road?',
+        } };
+        const after = scrubJson(before, ctx({ table: 'comms_v2_ask_messages', column: 'transcript' })) as typeof before;
+        expect(isSyntheticProse(after.result.standingDraft)).toBe(true);
+        expect(isSyntheticProse(after.result.lastDraft)).toBe(true);
+        expect(JSON.stringify(after)).not.toContain('Beechdale');
+    });
 });
 
 describe('the sweep', () => {

@@ -590,6 +590,40 @@ the board's own sandbox door under `/api/comms-v2/sandbox` seeding the thread:
 6. A reply the sender will not carry, one over the bubble ceiling of three, is refused with the
    sender's own reason shown on the board and nothing sent: no turn on the thread, no hold cleared.
 
+## Handy Desk: the ask agent (`ask/`)
+
+Ben's ask bar for the Handy Desk (the Claude Design handoff, tasks T2 and T3), built on the new desk
+and nothing else. It reads the comms-v2 board and case files from the same store the kanban reads
+(`api/store.ts`), holds at most one drafted reply per file for Ben, and answers with an `OpsAnswer`
+(`shared/ops-types.ts`) that a client renders as the answer surface. It is not the old Ops Manager
+(`server/agents/ops-manager.ts`, left for the legacy sunset): it never reads `message_drafts`, the
+old inbox board, the VA call sheet or the old comms agent, and `ask/agent.test.ts` fails on an
+import of any of them.
+
+| Piece | File | What it is |
+|---|---|---|
+| the turn | `ask/agent.ts` | `runAskTurn`. Haiku 4.5 (`ROUTER_MODEL`) routes: which surface the ask wants, whether it asks for a money action (answered with a refusal before any tool runs: no money actions yet), whether it wants a draft. Sonnet 5 (`SPECIALIST_MODEL`) reasons, in the generic tool loop (`server/agents/runner.ts`, recorded in `agent_runs` under trigger `comms_v2_ask_turn`). The selected card (`context.caseFileId`, or `context.phone` matched against the file's canonical key and channel addresses) is named in the goal. |
+| the tools | `ask/tools.ts` | `get_board`, `find_case_files`, `get_case_file` (read only); `draft_reply` (the one write); `give_answer` (what the surface shows: `thread`, `floor` or `words`). |
+| the writer | `ask/composer.ts` | `draft_reply` hands a brief to the writing model (`COMPOSER_MODEL`) over the file's thread and customer-visible facts; one more attempt with the refusal named if the guards or the render refuse. |
+| the hold | `ask/hold-draft.ts` | The draft goes onto `Hold.draft`, the shape the desk uses for a reply it held back, after the eight guards (`desk/guards.ts` `runGuards`, as a person's action, nothing cited, so no figure, date, commitment, business claim, disclosure, repeated ask or unlined regulated work) and the channel's render as typed. A file with no hold is held for `approverFor` with the reason "Asked on the Handy Desk: <person> asked for a reply to be drafted (<brief>)"; a standing hold with no draft gets the draft and the note (`noteOnHold`); a standing draft is never overwritten. A shut window still holds, with a warning. A session with no approver slot cannot draft. |
+| the send | `api/routes.ts` | None in `ask/`. The draft reaches a customer only when a person presses send on it: `POST /case-files/:id/send-held-draft` (`desk/human-reply.ts` `sendHeldDraft`), with its slot check, window rule, bubble ceiling and, live, the opt-out ledger in `server/outbound.ts`. `ask/routes.test.ts` holds that an ask-held draft is refused there with exactly the words a desk-held draft gets. |
+| the answer | `ask/surface.ts` | `buildAnswer` reads the surface's data off the store after the loop, never from the model: `thread` is the file's last forty turns (`SurfaceTurn`, a call turn with its summary), `floor` is `boardOf`'s seven columns with the hold ring and whether a draft stands, `words` is the reply alone. `outgoing` lists the drafts this run held, as they stand on the files; `confirm` is `{ kind: 'draft.release', args: { caseFileId } }`, offered only when this run held exactly one. A thread naming a file the store does not hold falls back to `words` with the reason on the note. |
+| sessions | `ask/sessions.ts`, `ask/routes.ts` | `/api/comms-v2/ask` (mounted inside the board router, so behind `requireAdmin`): `POST /sessions/today` (one per person per London day), `POST /sessions`, `GET /sessions`, `GET /sessions/:id`, `POST /sessions/:id/archive`, `POST /sessions/:id/messages { text, via: typed\|voice\|tap, context: { caseFileId?, phone? } }` → 202 `{ runId }`. A session is its creator's; anyone else gets 404. The run streams on the comms event bus (`GET /api/comms/events`) as `ops_message` (the ask), `ops_run_started`, `ops_run_event` (`LeanRunStep`, the first of type `route`), `ops_message` (the answer, `AskMessageDTO.answer`), and `ops_run_finished`, which always fires. Rows live in `comms_v2_ask_sessions` and `comms_v2_ask_messages` (migration `migrations/20260917_comms_v2_ask_sessions.sql`; `server/scrub/plan.ts` classifies them). |
+
+Reused from the old Ops Manager's wire: `OpsSessionDTO`, `OpsMessageDTO` (extended as
+`AskMessageDTO`), `LeanRunStep` and its shaper (`server/agents/transcript-lean.ts`), the four
+`ops_*` event names and shapes, and the one-run-per-session lock. Replaced: its tables
+(`ops_sessions`/`ops_messages`), its tools, its `queue_draft` write and its model choice.
+
+Not produced yet: this is the server half of the Handy Desk, the ask agent and its `OpsAnswer`
+contract. The queue page (T1), the ask bar and answer surface UIs (T2, T3) and the confirm
+executor (T4) are separate follow-up tasks. Typed in `AnswerSurface` but not yet produced: `diary`
+(`server/lib/contractor-week.ts`), `map` (`server/dispatch-map-routes.ts`), `quote` and `ledger`
+(both wait on money actions). The agent proposes only `draft.release` today; T4 adds
+`POST /api/ops/confirm`, which executes a person's confirm, and the `booking.move`,
+`booking.create` and `call.start` actions alongside `draft.release`. `invoice.chase` and
+`contractor.pay` stay out: no money actions yet.
+
 ## Environment
 
 The door needs the branch database string and the model keys from the ordinary environment. The

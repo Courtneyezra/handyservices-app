@@ -4911,3 +4911,40 @@ export const commsV2InboundEmails = pgTable("comms_v2_inbound_emails", {
     index("idx_comms_v2_inbound_emails_due").on(table.nextAttemptAt).where(sql`${table.status} = 'pending'`),
 ]);
 export type CommsV2InboundEmailRow = typeof commsV2InboundEmails.$inferSelect;
+
+/**
+ * The Handy Desk ask agent's sessions and messages (server/comms-v2/ask/). One session per admin per
+ * London day (`day`), the OpsSessionDTO shape on the wire; kept apart from the old Ops Manager's
+ * ops_sessions so the old dock and the new desk never share a thread. An assistant row carries the
+ * run's lean transcript and its OpsAnswer (shared/ops-types.ts), which the answer surface renders.
+ * Migration `migrations/20260917_comms_v2_ask_sessions.sql`.
+ */
+export const commsV2AskSessions = pgTable("comms_v2_ask_sessions", {
+    id: text("id").primaryKey().notNull(),
+    title: text("title").notNull(),
+    createdBy: text("created_by").notNull(),
+    day: text("day").notNull(),
+    status: text("status").notNull().default('active'),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index("idx_comms_v2_ask_sessions_owner_day").on(table.createdBy, table.day),
+]);
+export type CommsV2AskSessionRow = typeof commsV2AskSessions.$inferSelect;
+
+export const commsV2AskMessages = pgTable("comms_v2_ask_messages", {
+    id: text("id").primaryKey().notNull(),
+    sessionId: text("session_id").notNull().references(() => commsV2AskSessions.id),
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    via: text("via"),
+    askContext: jsonb("ask_context"),
+    runId: text("run_id"),
+    transcript: jsonb("transcript"),
+    answer: jsonb("answer"),
+    usage: jsonb("usage"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index("idx_comms_v2_ask_messages_session").on(table.sessionId, table.createdAt),
+]);
+export type CommsV2AskMessageRow = typeof commsV2AskMessages.$inferSelect;
