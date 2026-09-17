@@ -55,14 +55,17 @@ describe('holdChip', () => {
 });
 
 describe('cardWait', () => {
-    it("reads a held card's office working-hours wait as the queue does", () => {
-        expect(cardWait(card({ held: true, holdSince: ago(600), waitingWorkingHours: 2 }), NOW)).toBe('2 h');
-        expect(cardWait(card({ held: true, holdSince: ago(600), waitingWorkingHours: 0.25 }), NOW)).toBe('15 min');
-        expect(cardWait(card({ held: true, holdSince: ago(600), waitingWorkingHours: 0 }), NOW)).toBe('just now');
+    it("reads a held card by how long the hold has actually stood", () => {
+        expect(cardWait(card({ held: true, holdSince: ago(80) }), NOW)).toBe('1h 20m');
+        expect(cardWait(card({ held: true, holdSince: ago(600) }), NOW)).toBe('10h');
     });
 
-    it("falls back to the hold's plain age when the server sends no wait", () => {
-        expect(cardWait(card({ held: true, holdSince: ago(80) }), NOW)).toBe('1h 20m');
+    it('never reads a hold raised out of office hours as brand new', () => {
+        // Friday 18:30 in London, scanned Saturday 09:00: no office hours have passed, but the hold is 14 h old.
+        const saturday = Date.parse('2026-09-19T08:00:00.000Z');
+        const friday = card({ held: true, holdSince: '2026-09-18T17:30:00.000Z', waitingWorkingHours: 0 });
+        expect(cardWait(friday, saturday)).toBe('14h 30m');
+        expect(cardWait(friday, saturday)).not.toBe('just now');
     });
 
     it('reads an unheld card by when the customer last wrote, else when the file opened', () => {

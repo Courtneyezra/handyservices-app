@@ -34,8 +34,9 @@ function item(over: Partial<QueueItem>): QueueItem {
     };
 }
 
-const ROB = item({ id: 'case_rob', customerName: 'Rob Hale', draft: 'Hi Rob, Tuesday morning works.', holdReason: 'guard hold', waitingWorkingHours: 5 });
-const GEMMA = item({ id: 'case_gemma', customerName: 'Gemma Patel', holdReason: 'complaint', waitingWorkingHours: 2 });
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+const ROB = item({ id: 'case_rob', customerName: 'Rob Hale', draft: 'Hi Rob, Tuesday morning works.', holdReason: 'guard hold', holdSince: hoursAgo(14), waitingWorkingHours: 0 });
+const GEMMA = item({ id: 'case_gemma', customerName: 'Gemma Patel', holdReason: 'complaint', holdSince: hoursAgo(2), waitingWorkingHours: 2 });
 
 function detail(id: string, name: string) {
     return {
@@ -97,10 +98,11 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('2 things');
         const cards = screen.getAllByTestId(/^queue-card-case_[a-z]+$/).map((el) => el.dataset.testid);
         expect(cards).toEqual(['queue-card-case_rob', 'queue-card-case_gemma']);
-        // Scanning information only: the hold chip, the working-hours wait and a Draft ready dot, no words.
+        // Scanning information only: the hold chip, the hold's real age and a Draft ready dot, no words.
+        // Rob's hold stood through the night, so it has no office working hours behind it but is 14 h old.
         const rob = within(screen.getByTestId('queue-card-case_rob'));
         expect(rob.getByTestId('queue-card-hold-case_rob')).toHaveTextContent('guard hold');
-        expect(rob.getByTestId('queue-card-wait-case_rob')).toHaveTextContent('5 h');
+        expect(rob.getByTestId('queue-card-wait-case_rob')).toHaveTextContent('14h');
         expect(rob.getByRole('img', { name: 'Draft ready' })).toBe(screen.getByTestId('queue-card-draft-case_rob'));
         expect(rob.getByRole('img', { name: 'WhatsApp' })).toBeInTheDocument();
         expect(screen.getByTestId('queue-card-case_rob').textContent).not.toContain('Hi Rob, Tuesday morning works.');

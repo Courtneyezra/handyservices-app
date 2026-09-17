@@ -63,7 +63,7 @@ export function FullScreenHeader({ title, logoTestId, children }: { title: strin
                 <QuickLinks variant="desk" location={location} heldCount={heldCount} updatedAt={updatedAt} />
             </div>
             {children}
-            <div className={children ? '' : 'ml-auto'}><MoreMenu /></div>
+            <MoreMenu />
         </header>
     );
 }

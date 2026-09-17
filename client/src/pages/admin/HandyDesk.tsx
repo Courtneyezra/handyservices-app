@@ -34,15 +34,15 @@ import { AnswerCard } from '@/components/handy-desk/AnswerCard';
 import { AskBar } from '@/components/handy-desk/AskBar';
 import type { AskMessageDTO, AskVia, OpsSessionDTO } from '@shared/ops-types';
 import { ThreadSheet, ThreadView } from '@/components/comms-v2/ThreadView';
-import { useIsWideBoard } from '@/pages/admin/CommsV2BoardPage';
 import { exchangeOfAnswered, latestAnswered, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
     ACTION_ROUTE, isShutWindow, needsWords, queueCardCopy, queueQuery, refusalMessage, selectionOf,
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem,
 } from '@/lib/handy-desk-queue';
 import { FullScreenHeader } from '@/components/layout/FullScreenHeader';
+import { useIsWideBoard } from '@/lib/handy-desk-path';
 import { ChannelIcon, DraftDot } from '@/components/comms-board/CardScan';
-import { holdChip } from '@/lib/comms-board';
+import { holdAge, holdChip } from '@/lib/comms-board';
 
 const QUEUE_REFETCH_MS = 15_000;
 
@@ -161,8 +161,8 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
                     <ChannelIcon channel={item.replyChannel} className="text-amber-300" />
                     <span className="min-w-0 flex-1 truncate text-[15px] font-bold text-white">{copy.name}</span>
                     {copy.hasDraft && <DraftDot testId={`queue-card-draft-${item.id}`} />}
-                    <span data-testid={`queue-card-wait-${item.id}`} title="Waiting on you, in office working hours" className="shrink-0 text-[10px] font-semibold tabular-nums text-amber-300">
-                        {copy.wait}
+                    <span data-testid={`queue-card-wait-${item.id}`} title="How long the hold has stood" className="shrink-0 text-[10px] font-semibold tabular-nums text-amber-300">
+                        {holdAge(item.holdSince)}
                     </span>
                 </span>
                 <span className="mt-1.5 flex flex-wrap items-center gap-1">

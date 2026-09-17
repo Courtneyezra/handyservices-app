@@ -30,7 +30,8 @@ import {
     channelLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, slotLabel, threadLinks, threadRows,
     type Refusal, type SentReply, type TemplateOffer, type ThreadLinks, type ThreadRow,
 } from '@/lib/comms-v2-thread';
-import { STAGE_LABELS, type CaseFileDetail, type TurnMedia } from '@/pages/admin/CommsV2BoardPage';
+import { STAGE_LABELS } from '@/lib/comms-board';
+import type { CaseFileDetail, TurnMedia } from '@/pages/admin/CommsV2BoardPage';
 
 /** How often an open thread re-reads its case file; matches the board and the queue. */
 export const THREAD_REFETCH_MS = 15_000;
@@ -63,10 +64,10 @@ async function readFile(fileId: string): Promise<CaseFileDetail> {
     return res.json();
 }
 
-/** Whether the focus is in a thread's reply box that holds words, which Esc must not throw away. */
+/** Whether the focus is in a box on the thread that holds words, which Esc must not throw away. */
 function typingInThread(): boolean {
     const el = document.activeElement;
-    return el instanceof HTMLTextAreaElement && el.id.startsWith('thread-words-') && el.value !== '';
+    return el instanceof HTMLTextAreaElement && el.value !== '';
 }
 
 /** Whether the focus is in any editable field on the page, where Esc belongs to that field, not the docked panel. */

@@ -6,48 +6,12 @@
  * the page.
  *
  * Every datum comes from the new desk: an answer's surface is read off the comms-v2 case file and
- * board by the server, and the idle thread (a card selected with no answer showing) is the same
- * `thread` surface mapped here from GET /api/comms-v2/case-files/:id.
+ * board by the server.
  */
 import type {
-    AnswerSurface, AskMessageDTO, AskVia, CaseStage, ConfirmAction, OpsAnswer, OpsOutgoing, SurfaceTurn,
+    AskMessageDTO, AskVia, CaseStage, ConfirmAction, OpsAnswer, OpsOutgoing, SurfaceTurn,
 } from '@shared/ops-types';
 import type { AskExchange } from '@/lib/handy-desk-ask';
-import type { CaseFileDetail, Turn } from '@/pages/admin/CommsV2BoardPage';
-
-export type ThreadSurface = Extract<AnswerSurface, { type: 'thread' }>;
-
-// ---------------------------------------------------------------- the idle thread
-
-function whoOfDetailTurn(turn: Turn): SurfaceTurn['who'] {
-    if (turn.direction === 'inbound') return turn.kind === 'system' ? 'system' : 'customer';
-    if (turn.approver?.startsWith('human:')) return 'person';
-    return turn.kind === 'system' ? 'system' : 'desk';
-}
-
-/**
- * The selected card's conversation as a `thread` surface, the same shape the agent's answer
- * carries, so one renderer shows both. Mirrors `surfaceTurnOf` in server/comms-v2/ask/surface.ts.
- */
-export function threadSurfaceOfDetail(detail: CaseFileDetail): ThreadSurface {
-    return {
-        type: 'thread',
-        caseFileId: detail.id,
-        phone: detail.party?.address ?? '',
-        customerName: detail.party?.name ?? null,
-        stage: detail.stage,
-        turns: detail.turns.map((t) => ({
-            id: t.id,
-            at: t.at,
-            who: whoOfDetailTurn(t),
-            channel: t.channel,
-            kind: t.kind,
-            body: t.call ? (t.call.headline || t.body) : t.body,
-            approver: t.approver ?? null,
-            ...(t.call ? { callSummary: t.call.summary } : {}),
-        })),
-    };
-}
 
 /**
  * The label over a thread turn: the customer's name, "Desk" for the desk's own sends, and for a

@@ -125,7 +125,7 @@ export function BoardCardView({ card, onOpen, showMode = false, showStage = fals
                 {card.held && card.hasDraft && <DraftDot testId={`board-card-draft-${card.id}`} />}
                 <span
                     data-testid={`board-card-wait-${card.id}`}
-                    title={card.held ? 'Waiting on you, in office working hours' : 'Customer last wrote'}
+                    title={card.held ? 'How long the hold has stood' : 'Customer last wrote'}
                     className={cn('shrink-0 text-[10px] font-semibold tabular-nums', card.held ? 'text-amber-300' : 'text-slate-500')}
                 >
                     {cardWait(card, nowMs)}

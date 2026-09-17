@@ -102,6 +102,19 @@ describe('<ThreadView>', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
+    it('Esc leaves the sheet open while the Close-file box holds words', async () => {
+        const onClose = vi.fn();
+        mockFetch([fileRoute(detail())]);
+        renderWithQuery(<ThreadSheet fileId="case_p" onClose={onClose} onChanged={vi.fn()} viewerApprover="ben" />);
+        await ready();
+        await userEvent.click(screen.getByTestId('close-file'));
+        const why = screen.getByPlaceholderText('Why it is closed');
+        await userEvent.type(why, 'done on site');
+        fireEvent.keyDown(why, { key: 'Escape' });
+        expect(onClose).not.toHaveBeenCalled();
+        expect((why as HTMLTextAreaElement).value).toBe('done on site');
+    });
+
     it('as a sheet, closes with the back button named for where it returns', async () => {
         const { onClose } = mount([fileRoute(detail())], { layout: 'sheet', backTo: 'Queue' });
         await ready();

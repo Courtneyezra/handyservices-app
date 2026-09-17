@@ -1,9 +1,9 @@
 /**
  * Handy Desk T1 - how a held case file from the new desk (GET /api/comms-v2/queue,
  * server/comms-v2/api/queue.ts) reads as a "Needs you" card: scanning information only, as on the
- * comms board (captain, 17 Sep 2026) - the name and the hold's working-hours wait, with the hold's
- * own chip read straight off the card (`holdChip`, client/src/lib/comms-board.ts) - and which of the
- * board's own human-send routes its buttons call. Pure, so the mapping is tested apart from the page.
+ * comms board (captain, 17 Sep 2026) - the name, with the hold's own chip and its age read straight
+ * off the card (`holdChip` and `holdAge`, client/src/lib/comms-board.ts) - and which of the board's
+ * own human-send routes its buttons call. Pure, so the mapping is tested apart from the page.
  */
 import type { BoardCard, BoardViewer } from '@/pages/admin/CommsV2BoardPage';
 
@@ -33,8 +33,6 @@ export interface QueueButton {
 
 export interface QueueCardCopy {
     name: string;
-    /** The hold's wait in office working hours. */
-    wait: string;
     /** The desk held a reply back, so the card wears the Draft ready dot and offers "Send as is". */
     hasDraft: boolean;
     primary: QueueButton;
@@ -66,13 +64,6 @@ export function initialsOf(name: string): string {
     return letters.toUpperCase();
 }
 
-/** A wait in working hours as a badge reads it: minutes under an hour, whole hours after. */
-export function formatWait(hours: number): string {
-    if (hours < 1 / 60) return 'just now';
-    if (hours < 1) return `${Math.round(hours * 60)} min`;
-    return `${Math.round(hours)} h`;
-}
-
 /** The customer as the card names them: the name, else the channel address without its kind prefix. */
 export function displayName(item: Pick<BoardCard, 'customerName' | 'customerAddress'>): string {
     return item.customerName || item.customerAddress.replace(/^[a-z]+:/, '') || 'Unknown';
@@ -82,7 +73,6 @@ export function queueCardCopy(item: QueueItem): QueueCardCopy {
     const hasDraft = !!item.draft;
     return {
         name: displayName(item),
-        wait: formatWait(item.waitingWorkingHours),
         hasDraft,
         primary: hasDraft ? { action: 'send_held_draft', label: 'Send as is' } : { action: 'answer', label: 'Answer in words' },
         secondary: hasDraft ? { action: 'rewrite', label: 'Rewrite' } : null,

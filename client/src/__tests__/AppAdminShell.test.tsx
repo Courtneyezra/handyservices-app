@@ -18,8 +18,7 @@ vi.mock('@/components/layout/SidebarLayout', () => {
 vi.mock('@/contexts/LiveCallContext', () => ({
     LiveCallProvider: ({ children }: { children: ReactNode }) => <div data-testid="live-call-provider">{children}</div>,
 }));
-// The desk reads the board page's width hook as well as the page itself, so the stub keeps it.
-vi.mock('@/pages/admin/CommsV2BoardPage', () => ({ default: () => <div data-testid="comms-board-page" />, useIsWideBoard: () => false }));
+vi.mock('@/pages/admin/CommsV2BoardPage', () => ({ default: () => <div data-testid="comms-board-page" /> }));
 vi.mock('@/pages/admin/ClientsPage', () => ({ default: () => <div data-testid="clients-page" /> }));
 
 let App: ComponentType;

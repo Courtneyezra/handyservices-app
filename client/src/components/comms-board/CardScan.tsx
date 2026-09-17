@@ -7,15 +7,14 @@
  */
 import { Mail, MessageCircle, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { channelLabel } from '@/lib/comms-v2-thread';
 import type { BoardCard } from '@/pages/admin/CommsV2BoardPage';
-
-export const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email' };
 
 const CHANNEL_ICON: Record<string, typeof MessageSquare> = { whatsapp: MessageCircle, sms: MessageSquare, email: Mail };
 
 /** The channel a reply would go on, as an icon that names itself. */
 export function ChannelIcon({ channel, className }: { channel: BoardCard['replyChannel']; className?: string }) {
-    const label = channel ? CHANNEL_LABEL[channel] ?? channel : 'No reply channel';
+    const label = channelLabel(channel) || 'No reply channel';
     const Icon = (channel && CHANNEL_ICON[channel]) || MessageSquare;
     return (
         <span role="img" aria-label={label} title={label} className={cn('inline-flex shrink-0', !channel && 'opacity-40', className)}>

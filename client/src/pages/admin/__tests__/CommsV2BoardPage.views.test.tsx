@@ -78,11 +78,11 @@ describe('comms board views (B3)', () => {
         expect(within(gemma).getByRole('img', { name: 'WhatsApp' })).toBeTruthy();
         expect(screen.getByTestId('board-card-hold-case_gemma').textContent).toBe('money');
         expect(screen.getByTestId('board-card-hold-case_gemma').getAttribute('title')).toBe('Asked for a discount');
-        expect(screen.getByTestId('board-card-wait-case_gemma').textContent).toBe('2 h');
+        expect(screen.getByTestId('board-card-wait-case_gemma').textContent).toBe('12m');
         expect(within(gemma).getByRole('img', { name: 'Draft ready' })).toBe(screen.getByTestId('board-card-draft-case_gemma'));
-        expect(gemma.textContent).toBe('Gemma Hallam2 hmoney');
+        expect(gemma.textContent).toBe('Gemma Hallam12mmoney');
 
-        // A hold no exception raised shows its reason as worded; no working-hours wait from the server falls back to the hold's age.
+        // A hold no exception raised shows its reason as worded; the wait is always the hold's real age.
         expect(screen.getByTestId('board-card-hold-case_rob').textContent).toBe('Guard: a duration');
         expect(screen.getByTestId('board-card-wait-case_rob').textContent).toBe('1h 20m');
         expect(screen.queryByTestId('board-card-draft-case_rob')).toBeNull();
@@ -143,7 +143,7 @@ describe('comms board views (B3)', () => {
         const gemmaToken = screen.getByTestId('floor-token-case_gemma');
         expect(gemmaToken.getAttribute('data-held')).toBe('true');
         expect(gemmaToken.textContent).toContain('GH');
-        expect(gemmaToken.textContent).toContain('held 2 h');
+        expect(gemmaToken.textContent).toContain('held 12m');
         expect(within(gemmaToken).getByRole('img', { name: 'Draft ready' })).toBeTruthy();
         expect(gemmaToken.getAttribute('title')).toBe('Gemma Hallam');
         expect(screen.getByTestId('floor-token-case_tom').getAttribute('data-held')).toBeNull();

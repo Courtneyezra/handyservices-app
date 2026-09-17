@@ -4,7 +4,7 @@
  * page. Every value comes from the `/board` response; the Floor is the same response re-rendered.
  */
 import type { Board, BoardCard } from '@/pages/admin/CommsV2BoardPage';
-import { displayName, formatWait } from '@/lib/handy-desk-queue';
+import { displayName } from '@/lib/handy-desk-queue';
 
 /** Contract 2's stages, in the board's column order (server/comms-v2/desk/case-file.ts). */
 export const STAGES = ['first_contact', 'scoping', 'ready', 'quoted', 'accepted', 'booked', 'done'] as const;
@@ -72,12 +72,12 @@ export function holdChip(card: Pick<BoardCard, 'held' | 'holdReason' | 'holdExce
 }
 
 /**
- * The card's wait: a held file's office working-hours wait, as the Handy Desk queue counts it (the
- * hold's plain age from a server that does not send it); otherwise when the customer last wrote.
+ * The card's wait: how long a held file has actually stood, otherwise when the customer last wrote.
+ * The office working-hours wait the queue orders by (`waitingWorkingHours`) is a different figure,
+ * and reads as nothing at all out of hours, so no card shows it.
  */
-export function cardWait(card: Pick<BoardCard, 'held' | 'holdSince' | 'waitingWorkingHours' | 'lastCustomerMessageAt' | 'openedAt'>, nowMs: number = Date.now()): string {
+export function cardWait(card: Pick<BoardCard, 'held' | 'holdSince' | 'lastCustomerMessageAt' | 'openedAt'>, nowMs: number = Date.now()): string {
     if (!card.held) return relativeTime(card.lastCustomerMessageAt ?? card.openedAt, nowMs);
-    if (typeof card.waitingWorkingHours === 'number') return formatWait(card.waitingWorkingHours);
     return holdAge(card.holdSince, nowMs);
 }
 

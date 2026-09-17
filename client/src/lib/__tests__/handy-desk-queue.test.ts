@@ -1,12 +1,11 @@
 /**
- * Handy Desk T1 - a held case file from the new desk reads as a "Needs you" card: the badge is the
- * hold reason and the working-hours wait, a held draft offers "Send as is" / "Rewrite", no draft
- * offers "Answer in words" with "Release" under "More", each on the board's own route, and a refusal reads as the
- * desk said it.
+ * Handy Desk T1 - a held case file from the new desk reads as a "Needs you" card: the customer's
+ * name, a held draft offers "Send as is" / "Rewrite", no draft offers "Answer in words" with
+ * "Release" under "More", each on the board's own route, and a refusal reads as the desk said it.
  */
 import { describe, expect, it } from 'vitest';
 import {
-    ACTION_ROUTE, displayName, formatWait, initialsOf, isShutWindow, needsWords, queueCardCopy,
+    ACTION_ROUTE, displayName, initialsOf, isShutWindow, needsWords, queueCardCopy,
     queueQuery, refusalMessage, selectionOf, updatedAgoLabel, type QueueItem,
 } from '@/lib/handy-desk-queue';
 
@@ -37,11 +36,11 @@ function item(over: Partial<QueueItem> = {}): QueueItem {
 }
 
 describe('queueCardCopy', () => {
-    it('names the customer and the working-hours wait, and carries no message, job line or draft text', () => {
+    it('names the customer, and carries no message, job line, wait or draft text', () => {
         const copy = queueCardCopy(item());
-        expect(copy).toMatchObject({ name: 'Rob Hale', wait: '3 h', hasDraft: false, blocked: null });
+        expect(copy).toMatchObject({ name: 'Rob Hale', hasDraft: false, blocked: null });
         // A card is scanning information only: the customer's words and the desk's draft live in the thread.
-        expect(Object.keys(copy).sort()).toEqual(['blocked', 'hasDraft', 'more', 'name', 'primary', 'secondary', 'wait']);
+        expect(Object.keys(copy).sort()).toEqual(['blocked', 'hasDraft', 'more', 'name', 'primary', 'secondary']);
     });
 
     it('a held draft offers Send as is, on send-held-draft, and Rewrite, on answer', () => {
@@ -73,16 +72,6 @@ describe('queueCardCopy', () => {
     it('a card with nothing known yet still reads: the address stands in for the name', () => {
         const copy = queueCardCopy(item({ customerName: null, jobType: null, location: null, replyChannel: null, holdReason: null }));
         expect(copy.name).toBe('07700900942');
-        expect(copy.wait).toBe('3 h');
-    });
-});
-
-describe('formatWait', () => {
-    it('reads minutes under an hour and whole hours after', () => {
-        expect(formatWait(0)).toBe('just now');
-        expect(formatWait(0.5)).toBe('30 min');
-        expect(formatWait(1)).toBe('1 h');
-        expect(formatWait(11.6)).toBe('12 h');
     });
 });
 
