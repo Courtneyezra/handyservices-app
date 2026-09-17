@@ -188,6 +188,15 @@ describe('the Service specialist on the desk', () => {
             expect(out.result.decision).toBe('send');
             expect(out.file.hold).toBeNull();
         });
+        it('a business question joined to a job request by a dash or an opener still holds on no_source', async () => {
+            for (const asked of ['Can you fix my tap - are you insured?', 'Can you fix my tap, any chance you are on Checkatrade?']) {
+                const { gateway } = scopingOnly("A dripping tap, got it. Once I've seen a photo I'll let you know on that.");
+                const out = await gateway.inbound(turn(asked, '2026-09-11T10:00:00.000Z'));
+                if (out.kind !== 'handled') throw new Error(out.kind);
+                expect(out.result.decision).toBe('send');
+                expect(out.file.hold?.exception, asked).toBe('no_source');
+            }
+        });
         it('a job request, however it is joined, is the job: no card', async () => {
             for (const asked of [
                 'Hi, when you get a chance, could you have a look at my dripping tap?',
