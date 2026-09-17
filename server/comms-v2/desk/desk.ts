@@ -72,6 +72,9 @@ export interface DeskDeps extends CaseFileDeps {
     persist?: (file: CaseFile) => void | Promise<void>;
 }
 
+/** The hold reason for an opt-out that came by email, which no inbound path records. */
+export const OPT_OUT_BY_EMAIL_HOLD = 'customer asked to stop by email; record the opt-out';
+
 /** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
 const DRAFT_FAILED_HOLD = 'the quote draft failed';
 
@@ -199,10 +202,16 @@ export class Desk implements DeskLike {
         const party = partyOf(file, turn.partyId);
         if (!party) return this.nothing(file, file.parties[0].personId, runId, calls, 'the turn\'s party is not on the file');
         if (turn.direction !== 'inbound') return this.nothing(file, party.personId, runId, calls, 'not a customer turn');
-        // A customer who has just asked us to stop hears nothing back, not even an acknowledgement: the
-        // ledger is written by the old inbound path, and the provider sends its own STOP reply (server/opt-out.ts).
+        // A customer who has just asked us to stop hears nothing back, not even an acknowledgement. On SMS and
+        // WhatsApp the old inbound path writes the ledger (server/agents/comms-lanes.ts gate 0, server/opt-out.ts);
+        // nothing records an emailed opt-out, so that thread holds for Ben to record it.
         const optOut = detectOptOut(turn.body);
-        if (optOut) return this.nothing(file, party.personId, runId, calls, `the customer asked us to stop ("${optOut.keyword}", ${optOut.scope}): no reply, no model call`);
+        if (optOut) {
+            const asked = `the customer asked us to stop ("${optOut.keyword}", ${optOut.scope})`;
+            if (turn.channel !== 'email') return this.nothing(file, party.personId, runId, calls, `${asked}: no reply, no model call`);
+            this.holdFor(file, null, `${OPT_OUT_BY_EMAIL_HOLD}: ${asked}`);
+            return this.nothing(file, party.personId, runId, calls, `${asked} by email: no reply, no model call, held for Ben to record the opt-out`, 'hold');
+        }
         const log = this.deps.log ?? (() => undefined);
         // Ben's note of what the draft is missing, true as of this turn: a photo that has just landed is no longer his to request.
         refreshBenToRequest(file, this.fileDeps());

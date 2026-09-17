@@ -1,30 +1,62 @@
 /**
- * The opt-out words as server/opt-out-detect.ts holds them, read from its source so a test can walk
- * every one without the detector exporting its lists. Comment lines are dropped first: they quote
- * words that are deliberately absent.
+ * The words that count as an opt-out today (17 Sep 2026, "Keep today's words"), written out by hand
+ * so a test can walk every one against the detector. Changing one is a decision for Ben, not a
+ * test update.
  */
-import { createHash } from 'crypto';
-import { readFileSync } from 'fs';
-import path from 'path';
+import type { OptOutScope } from '../opt-out-detect';
 
-const SOURCE = path.resolve(__dirname, '../opt-out-detect.ts');
+/** A whole message that is nothing but one of these is an opt-out. */
+export const EXACT_WORDS: Record<OptOutScope, string[]> = {
+    marketing: [
+        'stop', 'stopp', 'stop stop',
+        'unsubscribe', 'unsub', 'unsubscribe me',
+        'optout', 'opt out', 'opt me out',
+        'end', 'quit',
+        'remove me', 'take me off', 'take me off your list', 'take me off the list',
+        'no more messages', 'no more texts', 'no more msgs',
+        'stop messages', 'stop messaging', 'stop messaging me',
+        'stop texting', 'stop texting me', 'stop text',
+        'stop contacting me', 'stop emails',
+        'stop sending messages', 'stop sending me messages', 'stop sending me texts',
+    ],
+    all: [
+        'stop all', 'stopall',
+        'do not contact', 'do not contact me', 'dont contact', 'dont contact me',
+        'do not message me', 'dont message me', 'do not call me', 'dont call me again',
+        'delete my number', 'delete my details', 'delete my data',
+        'remove my number', 'remove my details',
+        'lose my number', 'leave me alone',
+        'never contact me', 'never contact me again', 'never message me again',
+    ],
+};
 
-export type OptOutList = 'EXACT_MARKETING' | 'EXACT_ALL' | 'PHRASE_ALL' | 'PHRASE_MARKETING';
+/** A short message carrying one of these is an opt-out. */
+export const PHRASES: Record<OptOutScope, string[]> = {
+    all: [
+        'do not contact', 'dont contact me', 'do not ever contact', 'never contact me',
+        'delete my number', 'delete my details', 'remove my number', 'lose my number',
+        'leave me alone', 'stop all messages', 'stop all contact',
+    ],
+    marketing: [
+        'unsubscribe',
+        'opt out', 'opt me out', 'opted out',
+        'stop messaging', 'stop texting', 'stop contacting',
+        'stop sending me messages', 'stop sending me texts', 'stop sending me anything',
+        'stop sending me these', 'stop sending these', 'stop sending any more',
+        'stop these messages', 'stop the messages', 'stop these texts', 'stop the texts',
+        'no more messages', 'no more texts', 'no more marketing',
+        'any more of these messages', 'any more of these texts', 'any more of these',
+        'take me off your list', 'take me off the list', 'take me off your mailing list',
+        'take me off this list', 'take me off your database',
+        'remove me from your list', 'remove me from the list', 'remove me from your database',
+        'remove me from your mailing list', 'remove me from this list',
+        'no longer wish to receive', 'do not wish to receive', 'dont want any more messages',
+        'stop the marketing', 'stop spamming', 'stop spamming me',
+    ],
+};
 
-export function optOutWords(list: OptOutList): string[] {
-    const src = readFileSync(SOURCE, 'utf8');
-    const body = new RegExp(`const ${list} = \\[([\\s\\S]*?)\\];`).exec(src)?.[1];
-    if (body === undefined) throw new Error(`${list} is not in server/opt-out-detect.ts`);
-    const code = body.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
-    return Array.from(code.matchAll(/'([^']*)'/g), (m) => m[1]);
-}
+/** Every word and phrase above, each on its own as a whole message. */
+export const ALL_OPT_OUT_WORDS: string[] = [...EXACT_WORDS.marketing, ...EXACT_WORDS.all, ...PHRASES.all, ...PHRASES.marketing];
 
-/** SHA-256 of the detection rules: from the politeness wrappers to the end of detectOptOut. */
-export function detectionRulesHash(): string {
-    const src = readFileSync(SOURCE, 'utf8');
-    const start = src.indexOf('const LEADING_NOISE');
-    const fn = src.indexOf('export function detectOptOut');
-    const end = src.indexOf('\n}\n', fn) + 3;
-    if (start < 0 || fn < 0 || end < 3) throw new Error('the detection rules are not where this test expects them');
-    return createHash('sha256').update(src.slice(start, end)).digest('hex');
-}
+/** Messages that carry a stop-like word and are deliberately not opt-outs. */
+export const NEAR_MISSES = ['cancel', 'remove', 'no more', 'stop sending someone round on Fridays', 'can you stop the leak', "the tap won't stop dripping", 'stop by on Tuesday'];

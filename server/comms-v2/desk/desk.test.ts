@@ -6,7 +6,8 @@
  * nothing; the ledger is written from what went; cost is recorded per call on the send.
  */
 import { describe, expect, it } from 'vitest';
-import { Desk, type DeskDeps } from './desk';
+import { Desk, OPT_OUT_BY_EMAIL_HOLD, type DeskDeps } from './desk';
+import { open, type CaseFile } from './case-file';
 import { noFixedLineSource, DEFAULT_FIXED_LINES, type FixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
 import { FakeModelClient } from './models';
@@ -18,7 +19,7 @@ import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore, type QuoteStore } from '../quoting/quote-store';
 import { markQuoteSent, priceQuote } from '../quoting/quoting-tools';
 import { detectOptOut } from '../../opt-out-detect';
-import { optOutWords } from '../../__tests__/opt-out-words';
+import { ALL_OPT_OUT_WORDS } from '../../__tests__/opt-out-words';
 
 const routeScoping = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry', ...over });
 const specialistFacts = (facts: Array<{ key: string; value: string }>, answered: string[] = []) => ({ facts, jobUnknowns: [], answeredSubjects: answered });
@@ -32,7 +33,7 @@ function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], clock 
     const now = () => new Date(clock.t += 1000);
     const store = new MemoryQuoteStore();
     const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier }, ...extra });
-    return { client, gateway: new Gateway({ desk: d, now }), now };
+    return { client, gateway: new Gateway({ desk: d, now }), now, desk: d };
 }
 
 describe('the desk', () => {
@@ -203,7 +204,7 @@ describe('the desk', () => {
     });
 
     it('every word today\'s detector takes as an opt-out gets no reply, no model call and no hold on the new desk', async () => {
-        const words = [...optOutWords('EXACT_MARKETING'), ...optOutWords('EXACT_ALL'), ...optOutWords('PHRASE_ALL'), ...optOutWords('PHRASE_MARKETING')];
+        const words = ALL_OPT_OUT_WORDS;
         expect(words).toHaveLength(99);
         for (const [i, text] of [...words, 'STOP', 'Stop.', 'please stop, thanks', 'S T O P'].entries()) {
             expect(detectOptOut(text), text).not.toBeNull();
@@ -217,6 +218,47 @@ describe('the desk', () => {
             expect(out.file.hold, text).toBeNull();
             expect(out.file.turns.filter((t) => t.direction === 'outbound'), text).toHaveLength(0);
         }
+    });
+
+    const noModel = () => desk({ router: () => { throw new Error('no router'); }, specialist: () => { throw new Error('no specialist'); }, composer: () => { throw new Error('no composer'); } });
+    const fileOn = (channel: 'sms' | 'whatsapp' | 'email', body: string): CaseFile => {
+        const address = channel === 'email' ? 'sam@example.invalid' : '+447700900944';
+        const r = open({
+            identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: channel === 'email' ? `email:${address}` : 'phone:07700900944', propertyId: null, landlordId: null, name: 'Sam' },
+            channel, address,
+            firstTurn: { at: '2026-09-11T10:00:00.000Z', channel, kind: 'text', body, media: [] },
+        });
+        if (!r.ok) throw new Error(r.reason);
+        return r.value;
+    };
+
+    it('an opt-out by SMS or WhatsApp, which the old inbound path records, gets no reply, no model call and no hold', async () => {
+        for (const channel of ['sms', 'whatsapp'] as const) {
+            const { client, desk: d } = noModel();
+            const file = fileOn(channel, 'STOP');
+            const r = await d.handleTurn(file, file.turns[0]);
+            expect(r.decision, channel).toBe('none');
+            expect(r.delivered, channel).toBe(false);
+            expect(r.bubbles, channel).toEqual([]);
+            expect(client.calls, channel).toHaveLength(0);
+            expect(file.hold, channel).toBeNull();
+            expect(file.turns.filter((t) => t.direction === 'outbound'), channel).toHaveLength(0);
+        }
+    });
+
+    it('an opt-out by email, which nothing records, sends nothing and calls no model, but holds for Ben to record it', async () => {
+        const { client, desk: d } = noModel();
+        const file = fileOn('email', 'Subject: Unsubscribe\n\nPlease unsubscribe me');
+        const r = await d.handleTurn(file, file.turns[0]);
+        expect(r.decision).toBe('hold');
+        expect(r.delivered).toBe(false);
+        expect(r.bubbles).toEqual([]);
+        expect(r.approver).toBeNull();
+        expect(client.calls).toHaveLength(0);
+        expect(file.sends).toHaveLength(0);
+        expect(file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+        expect(file.hold?.reason.startsWith(`${OPT_OUT_BY_EMAIL_HOLD}: `)).toBe(true);
+        expect(r.hold).toBe(file.hold);
     });
 
     it('a message today\'s detector does not take as an opt-out is handled as before: routed, composed and sent', async () => {
