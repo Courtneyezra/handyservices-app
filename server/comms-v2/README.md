@@ -450,7 +450,9 @@ never touched (`staleQuoteDue`). Run by the live clock tick (`closeStaleQuotes`,
 pass queued behind any desk pass on the file (`Gateway.passOn`) and asks again there, so it never
 closes a file under a customer's turn. As with the events above: only the live intake's store, only
 while the new desk is the live desk, never throws into the tick, and the customer's next message then
-opens a fresh file.
+opens a fresh file. The sandbox door's `POST /run` runs the same close before its clock pass, on its
+own in-memory files, and names what it closed in `staleClosed`, so the 30 days can be driven there
+(`POST /age {"hours": 720}` twice over, then `POST /run`) rather than only in the worker.
 
 A stale close is the one close that reopens (`reopenStaleQuoteFiles`): a payment on its quote (the
 Stripe webhook, `quoting/live-acceptance.ts`) or a booking or completion naming it puts the file back
@@ -519,7 +521,8 @@ being `customer: 'known'`, `prefersText`, `alreadyRung`, `whatsapp: true | false
 known to be on WhatsApp, or not), `facts`, `ledger`), `POST /message` (`{ text, channel: 'whatsapp'
 | 'sms' | 'email', subject? }`, or multipart with `media` files on whatsapp and email), `POST /call`
 (`{ transcript, outcome?, durationSeconds? }`: Ben rings them on the current thread), `POST /run` (a
-clock pass; the unpriced-quote chase fires here once due), `POST /age` (`{ hours }`), `POST /reset`,
+clock pass, as the live tick runs it: the stale-quote close first (`staleClosed` on the response), then
+the pass, where the unpriced-quote chase fires once due), `POST /age` (`{ hours }`), `POST /reset`,
 `GET /` (the thread and the case file; `state.quote` is the quote as the file records it, with Ben's
 recorded pushes). Goal 4 adds `POST /price` (`{}` for the chain's suggestions, or
 `{ lines: [{ lineId, finalPence }] }`), `POST /accept` and `GET /quote`. Every response carries

@@ -19,3 +19,19 @@ round it was found.
   like `heldOnQuestion`, with two regression tests in `desk/human-reply.test.ts`. Re-driven live:
   the complaint still draws nothing, and the question now reaches the template rung (refused only
   by this branch's unapproved `service_reply` rung, an environment limit).
+- Round 2 (17 Sep 2026) — file close, WhatsApp, driven on the app's own comms-v2 sandbox door and
+  board as Ben. Ben's hand close is right end to end: a `ready` file (Nadia, kitchen tap SE13) closed
+  from the board recorded `human:ben@handyservices.com` with his words, and her next message about a
+  different job opened a NEW file carrying no job type, location or quote; a held file (Owen, a
+  no-show complaint held for `ben`) refused the close with no words ("release needs the approver's
+  words") and nothing changed, then closed with his words, releasing the hold, and his next message
+  opened a new unheld file. The finding was on the 30-day stale-quote close (answer 95): it runs only
+  in the live worker's clock tick, and the sandbox door's `POST /run` did not run it, so the one
+  close that reopens could not be driven on the sandbox at all — a live behaviour with no sandbox
+  path. Fix: the door's `/run` runs `closeStaleQuotes` before its clock pass, as `liveClockTick`
+  does, on its own in-memory files, and names them in `staleClosed`
+  (`server/comms-v2/desk/sandbox-door.ts`), with a door-level regression test in
+  `desk/sandbox-door.test.ts` (31 days closes, 29 does not; it fails without the change). Re-driven
+  live: Priya's quote (au64wlx9, £205) aged 31 days closed as `done` on a `/run`, and her later "is
+  that quote still good? how much now?" opened a fresh file and held for Ben on `money` with no
+  price and no reissue — correct, since the new file carries no quote.
