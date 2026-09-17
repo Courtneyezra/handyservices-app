@@ -79,6 +79,7 @@ describe('one turn', () => {
         expect(steps.map((s) => [s.type, s.tool])).toEqual([
             ['route', undefined],
             ['tool_call', 'get_case_file'], ['tool_result', 'get_case_file'],
+            ['tool_call', 'get_case_file'], ['tool_result', 'get_case_file'],
             ['tool_call', 'draft_reply'], ['tool_result', 'draft_reply'],
             ['tool_call', 'give_answer'], ['tool_result', 'give_answer'],
         ]);
@@ -170,6 +171,47 @@ describe('one turn', () => {
 
         const silent = await runAskTurn(ask({ context: { phone: file.parties[0].channels[0].address } }), { source, assignments: async () => ({}), client, now: now(), loop: scriptedLoop([]) });
         expect(silent.answer).toMatchObject({ finalText: 'Done.', surface: { type: 'thread', caseFileId: file.id } });
+    });
+});
+
+describe('a stale session', () => {
+    const staleHistory = [
+        { role: 'user' as const, content: 'What needs me?' },
+        { role: 'assistant' as const, content: "One item needs you: Sam's file (kitchen cupboard) is held with a drafted reply." },
+    ];
+
+    it('answers "What needs me?" from the board as it is now, not from an earlier answer', async () => {
+        const sam = whatsappFile({ name: 'Sam', body: 'Can you fix my kitchen cupboard?' });
+        const shelf = whatsappFile({ name: 'Priya', body: 'I need a shelf put up.' });
+        setHold(shelf, { approver: BEN, reason: 'money: how much', exception: 'money' }, { now: now() });
+        const { source } = memorySource([sam, shelf]);
+        const client = new FakeModelClient({ router: () => route({ surface: 'floor' }) });
+        const seen: { opts?: any; results: unknown[] } = { results: [] };
+        const steps: LeanRunStep[] = [];
+        // The reasoner calls no tool at all, as it did live: the fresh read must still be there.
+        await runAskTurn(ask({ userMessage: 'What needs me?', via: 'tap', history: [...staleHistory, { role: 'user', content: 'What needs me?' }], onEvent: (s) => steps.push(s) }), {
+            source, assignments: async () => ({ ben: ['u1'] }), client, now: now(), loop: scriptedLoop([], seen),
+        });
+        expect(steps.map((s) => [s.type, s.tool])).toEqual([['route', undefined], ['tool_call', 'get_board'], ['tool_result', 'get_board']]);
+        expect(seen.opts.priorMessages).toEqual(staleHistory);
+        const goal: string = seen.opts.goal;
+        const read = JSON.parse(goal.slice(goal.indexOf('{', goal.indexOf('Fresh get_board read'))));
+        expect(read).toMatchObject({ total: 2, held: 1 });
+        expect(read.cards.map((c: { caseFileId: string; held: boolean }) => [c.caseFileId, c.held])).toEqual([[shelf.id, true], [sam.id, false]]);
+    });
+
+    it('answers a thread ask from the selected file\'s current hold', async () => {
+        const sam = whatsappFile({ name: 'Sam' });
+        setHold(sam, { approver: BEN, reason: 'callback: which door', exception: 'callback', draft: 'Which door should we use?' }, { now: now() });
+        const { source } = memorySource([sam]);
+        const client = new FakeModelClient({ router: () => route() });
+        const seen: { opts?: any; results: unknown[] } = { results: [] };
+        await runAskTurn(ask({ userMessage: 'Is this one waiting on me?', context: { caseFileId: sam.id }, history: [...staleHistory, { role: 'user', content: 'Is this one waiting on me?' }] }), {
+            source, assignments: async () => ({ ben: ['u1'] }), client, now: now(), loop: scriptedLoop([], seen),
+        });
+        const goal: string = seen.opts.goal;
+        const read = JSON.parse(goal.slice(goal.indexOf('{', goal.indexOf('Fresh get_case_file read'))));
+        expect(read).toMatchObject({ caseFileId: sam.id, hold: { reason: 'callback: which door', draft: 'Which door should we use?' } });
     });
 });
 
