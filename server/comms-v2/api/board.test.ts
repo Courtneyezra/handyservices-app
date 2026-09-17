@@ -132,7 +132,7 @@ describe('detailOf', () => {
         expect(detail.turns).toHaveLength(1);
         expect(detail.facts).toHaveLength(1);
         expect(detail.party?.name).toBe('Sam');
-        expect(Object.keys(detail).sort()).toEqual(['facts', 'hold', 'holdApproverAssigned', 'id', 'job', 'mode', 'party', 'stage', 'turns']);
+        expect(Object.keys(detail).sort()).toEqual(['facts', 'hold', 'holdApproverAssigned', 'id', 'job', 'mode', 'party', 'replyChannel', 'replyRefusal', 'replyWindow', 'stage', 'turns']);
     });
 
     it('a held file carries the hold with the draft the desk held back', () => {
@@ -176,5 +176,72 @@ describe('a held card knows whether its slot has anyone assigned', () => {
         expect(detailOf(file, { ben: ['user_ben'] }).holdApproverAssigned).toBe(true);
         expect(detailOf(file).holdApproverAssigned).toBe(false);
         expect(boardOf([file], {}, { ben: ['user_ben'] }).columns.first_contact[0].holdApproverAssigned).toBe(true);
+    });
+});
+
+describe('cardOf draft and exception', () => {
+    it('an unheld card has no draft and no exception', () => {
+        expect(cardOf(openFile())).toMatchObject({ hasDraft: false, holdException: null });
+    });
+
+    it('a hold with a draft is "Draft ready", and carries the exception that raised it', () => {
+        const file = openFile();
+        hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'money: how much', exception: 'money', draft: 'Hi Sam, about £80 fitted.' }, { now });
+        expect(cardOf(file)).toMatchObject({ held: true, hasDraft: true, holdException: 'money' });
+    });
+
+    it('a hold with no draft is not "Draft ready", and a hold no exception raised says so', () => {
+        const file = openFile();
+        hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint' }, { now });
+        expect(cardOf(file)).toMatchObject({ held: true, hasDraft: false, holdException: null });
+    });
+
+    it('the floor surface reads the same flag off the card', async () => {
+        const { floorSurface } = await import('../ask/surface');
+        const drafted = openFile();
+        hold(drafted, { approver: { kind: 'human', id: 'ben' }, reason: 'money', exception: 'money', draft: 'Hi' }, { now });
+        const bare = openFile();
+        const cards = floorSurface([drafted, bare]).bays.flatMap((b) => b.cards);
+        expect(cards.map((c) => [c.id, c.hasDraft])).toEqual(expect.arrayContaining([[drafted.id, true], [bare.id, false]]));
+    });
+});
+
+describe('detailOf reply route', () => {
+    it('names the channel a reply would go on and when its WhatsApp window closes', () => {
+        const file = openFile();
+        const wrote = file.turns[0].at;
+        const detail = detailOf(file, {}, new Date(Date.parse(wrote) + 60_000));
+        expect(detail.replyChannel).toBe('whatsapp');
+        expect(detail.replyWindow).toMatchObject({ state: 'open', closesAt: new Date(Date.parse(wrote) + 24 * 3_600_000).toISOString() });
+        expect(detail.replyRefusal).toBeNull();
+    });
+
+    it('a shut window has no closing time and says why', () => {
+        const file = openFile();
+        const detail = detailOf(file, {}, new Date(Date.parse(file.turns[0].at) + 25 * 3_600_000));
+        expect(detail.replyChannel).toBe('whatsapp');
+        expect(detail.replyWindow?.state).toBe('shut');
+        expect(detail.replyWindow?.closesAt).toBeNull();
+        expect(detail.replyWindow?.reason).toMatch(/more than 24 hours ago/);
+    });
+
+    it('an SMS reply has no window to close', () => {
+        const opened = open({
+            identity: resolved({ canonical: 'phone:07700900950' }),
+            channel: 'sms',
+            address: '+447700900950',
+            firstTurn: { at: now().toISOString(), channel: 'sms', kind: 'text', body: 'Hi, a dripping tap', media: [] },
+        }, { now, newId });
+        if (!opened.ok) throw new Error(opened.reason);
+        const detail = detailOf(opened.value, {}, new Date(clock.t + 48 * 3_600_000));
+        expect(detail.replyChannel).toBe('sms');
+        expect(detail.replyWindow).toMatchObject({ state: 'open', closesAt: null });
+    });
+
+    it('no customer turn: no channel, no window, and the send\'s refusal', () => {
+        const file = openFile();
+        file.turns = [];
+        const detail = detailOf(file);
+        expect(detail).toMatchObject({ replyChannel: null, replyWindow: null, replyRefusal: 'no customer turn to answer' });
     });
 });

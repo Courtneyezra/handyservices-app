@@ -100,3 +100,15 @@ describe('queueOf', () => {
         expect(queueOf([answered, held], { mode: 'live' }, {}, NOW).handledToday).toBe(0);
     });
 });
+
+describe('queueOf hold exception', () => {
+    it('carries the router exception that raised the hold, and null when a hold names none', () => {
+        const money = openFile('Money', '2026-09-11T10:00:00.000Z');
+        const raised = hold(money, { approver: { kind: 'human', id: 'ben' }, reason: 'money', exception: 'money', draft: 'Hi' }, { now: at('2026-09-11T10:00:00.000Z') });
+        if (!raised.ok) throw new Error(raised.reason);
+        const plain = heldFile('Plain', '2026-09-11T11:00:00.000Z');
+
+        const { items } = queueOf([money, plain], {}, {}, NOW);
+        expect(items.map((i) => [i.customerName, i.holdException, i.hasDraft])).toEqual([['Money', 'money', true], ['Plain', null, false]]);
+    });
+});

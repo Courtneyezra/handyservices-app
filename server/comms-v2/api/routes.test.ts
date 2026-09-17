@@ -362,7 +362,7 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         return file;
     }
 
-    async function harness(sandboxAvailable: () => boolean = () => false) {
+    async function harness(sandboxAvailable: () => boolean = () => false, templates?: TemplateStatusSource) {
         const store = new MemoryCaseFileStore();
         const listed: ApproverAssignments = { ben: ['user_Ben.Real@handyservices.app'] };
         const app = express();
@@ -372,7 +372,7 @@ describe('one tap: send the held draft, and a template send on a shut window', (
             client: new FakeModelClient({ router: () => ({ subjects: [], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry' }), specialist: () => ({ facts: [], jobUnknowns: [], answeredSubjects: [] }), composer: () => ({ reply: 'ignored', factIds: [], kbIds: [] }) }),
             fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb,
         });
-        app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => listed, async () => ({ store, live: true, mode: 'dry_run' as const }), undefined, undefined, sandboxAvailable));
+        app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => listed, async () => ({ store, live: true, mode: 'dry_run' as const }), undefined, undefined, sandboxAvailable, undefined, templates));
         const srv = await new Promise<import('node:http').Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
         const root = `http://127.0.0.1:${(srv.address() as { port: number }).port}/api/comms-v2`;
         const call = async (method: string, route: string, as?: string) => {
@@ -444,6 +444,95 @@ describe('one tap: send the held draft, and a template send on a shut window', (
             expect(refused.status).toBe(409);
             expect(refused.json.error).toMatch(/no approved template/);
             expect(store.get(file.id)!.hold).not.toBeNull();
+        } finally {
+            await close();
+        }
+    });
+
+    it('template-offer: gates on session and slot the same as send-template', async () => {
+        const { store, call, close } = await harness();
+        try {
+            const file = fileWithShutWindow();
+            store.put(file);
+            expect((await call('GET', `/case-files/${file.id}/template-offer`)).status).toBe(401);
+            expect((await call('GET', `/case-files/${file.id}/template-offer`, 'ben@handyservices.app')).status).toBe(403);
+            expect((await call('GET', '/case-files/case_nope/template-offer', 'Ben.Real@handyservices.app')).status).toBe(404);
+        } finally {
+            await close();
+        }
+    });
+
+    it('template-offer: shows the template and its wording, sends nothing, and the send that follows carries exactly that wording', async () => {
+        const reopen: TemplateStatusSource = { async approved(name) { return name === 'answer_ready_reopen_v1' ? { contentSid: 'HX_reopen' } : null; } };
+        const { store, call, close } = await harness(undefined, reopen);
+        try {
+            const file = fileWithShutWindow();
+            store.put(file);
+            const offer = await call('GET', `/case-files/${file.id}/template-offer`, 'Ben.Real@handyservices.app');
+            expect(offer.status).toBe(200);
+            expect(offer.json).toMatchObject({ ok: true, template: 'answer_ready_reopen_v1', channel: 'whatsapp' });
+            expect(offer.json.body).toMatch(/Dara/);
+            expect(store.get(file.id)!.sends).toHaveLength(0);
+            expect(store.get(file.id)!.hold).not.toBeNull();
+
+            const sent = await call('POST', `/case-files/${file.id}/send-template`, 'Ben.Real@handyservices.app');
+            expect(sent.status).toBe(200);
+            expect(sent.json.sent.bubbles).toEqual([offer.json.body]);
+        } finally {
+            await close();
+        }
+    });
+
+    it('template-offer: a refusal is the send\'s own words, as a 200 with ok false', async () => {
+        const { store, call, close } = await harness();
+        try {
+            const file = fileWithShutWindow();
+            store.put(file);
+            const offer = await call('GET', `/case-files/${file.id}/template-offer`, 'Ben.Real@handyservices.app');
+            const sent = await call('POST', `/case-files/${file.id}/send-template`, 'Ben.Real@handyservices.app');
+            expect(offer.status).toBe(200);
+            expect(offer.json.ok).toBe(false);
+            expect(offer.json.reason).toMatch(/no approved template/);
+            expect(sent.status).toBe(409);
+            expect(offer.json.reason).toBe(sent.json.error);
+
+            const open = fileWithDraftHold();
+            store.put(open);
+            const openOffer = await call('GET', `/case-files/${open.id}/template-offer`, 'Ben.Real@handyservices.app');
+            expect(openOffer.json).toEqual({ ok: false, reason: 'the whatsapp window is open; send a freeform reply instead of a template' });
+        } finally {
+            await close();
+        }
+    });
+
+    it('/board and /queue tell the viewer whether this session holds a slot, from the same lookup the writes use', async () => {
+        const { store, call, close } = await harness();
+        try {
+            store.put(fileWithDraftHold());
+            for (const route of ['/board', '/queue']) {
+                expect((await call('GET', route, 'Ben.Real@handyservices.app')).json.viewer).toEqual({ approver: 'ben', canAct: true });
+                expect((await call('GET', route, 'ben@handyservices.app')).json.viewer).toEqual({ approver: null, canAct: false });
+                expect((await call('GET', route)).json.viewer).toEqual({ approver: null, canAct: false });
+            }
+            const queue = await call('GET', '/queue', 'Ben.Real@handyservices.app');
+            expect(queue.json.items[0]).toMatchObject({ hasDraft: true, holdException: 'money', draft: 'Hi Priya, that is usually around £80 fitted.' });
+        } finally {
+            await close();
+        }
+    });
+
+    it('/case-files/:id carries the reply channel and window a send from the thread would use', async () => {
+        const { store, call, close } = await harness();
+        try {
+            const shut = fileWithShutWindow();
+            const open = fileWithDraftHold();
+            store.put(shut);
+            store.put(open);
+            const shutDetail = (await call('GET', `/case-files/${shut.id}`)).json;
+            expect(shutDetail).toMatchObject({ replyChannel: 'whatsapp', replyWindow: { state: 'shut', closesAt: null }, replyRefusal: null });
+            const openDetail = (await call('GET', `/case-files/${open.id}`)).json;
+            expect(openDetail).toMatchObject({ replyChannel: 'whatsapp', replyWindow: { state: 'open' } });
+            expect(Date.parse(openDetail.replyWindow.closesAt)).toBe(Date.parse(OPEN_AT) + 24 * 3_600_000);
         } finally {
             await close();
         }
