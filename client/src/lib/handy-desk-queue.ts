@@ -3,7 +3,7 @@
  * server/comms-v2/api/queue.ts) reads as a "Needs you" card: its badge, its lines, and which of the
  * board's own human-send routes its buttons call. Pure, so the mapping is tested apart from the page.
  */
-import type { BoardCard } from '@/pages/admin/CommsV2BoardPage';
+import type { BoardCard, BoardViewer } from '@/pages/admin/CommsV2BoardPage';
 
 export interface QueueItem extends BoardCard {
     /** The reply the desk held back, exactly as it stands; null when the hold carries none. */
@@ -17,6 +17,8 @@ export interface DeskQueue {
     /** Turns the new desk or a person answered since local midnight in London. */
     handledToday?: number;
     sandboxAvailable?: boolean;
+    /** The approver slot this session occupies, as on /board. */
+    viewer?: BoardViewer;
 }
 
 /** What a card button does. Every one lands on a /api/comms-v2/case-files/:id route. */
