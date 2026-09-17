@@ -13,7 +13,6 @@ import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
 import { cn } from "@/lib/utils";
 import handyLogo from "@/assets/handy-logo.webp";
-import { adminAuthHeaders } from "@/lib/admin-auth";
 
 interface SidebarLayoutProps {
     children: React.ReactNode;
