@@ -50,9 +50,6 @@ const EXACT_MARKETING = [
     'stop texting', 'stop texting me', 'stop text',
     'stop contacting me', 'stop emails',
     'stop sending messages', 'stop sending me messages', 'stop sending me texts',
-    // Added 16 Sep 2026 (overnight round 19): the short forms people text, and a bare "stop" with a word after it.
-    'stop now', 'stop it', 'stop msg', 'stop msgs', 'stop msging', 'stop msging me', 'stop txt', 'stop txts',
-    'stop txting', 'stop txting me', 'stop sms', 'stop sending texts',
 ];
 
 /** Whole-message "leave me alone entirely". Stronger than a plain STOP, so it suppresses everything. */
@@ -64,8 +61,6 @@ const EXACT_ALL = [
     'remove my number', 'remove my details',
     'lose my number', 'leave me alone',
     'never contact me', 'never contact me again', 'never message me again',
-    'dont text me', 'do not text me', 'dont text me again', 'do not text me again',
-    'dont message me again', 'do not message me again',
 ];
 
 /**
@@ -82,18 +77,6 @@ const PHRASE_ALL = [
     'leave me alone', 'stop all messages', 'stop all contact',
 ];
 
-/**
- * "Don't text me again" and its kin, as phrases. Consulted only when the message does not go on to
- * name another way to reach them: "don't text me again, just call me" is a channel preference, not
- * an opt-out. Added 16 Sep 2026 (overnight round 19).
- */
-const PHRASE_ALL_UNLESS_REDIRECT = [
-    'dont text me again', 'do not text me again', 'dont message me again', 'do not message me again',
-    'dont text me anymore', 'dont text me any more', 'do not text me anymore', 'do not text me any more',
-    'dont message me anymore', 'dont message me any more', 'do not message me anymore', 'do not message me any more',
-];
-const REDIRECT = /\b(call|ring|phone|email|e mail|whatsapp|instead)\b/;
-
 const PHRASE_MARKETING = [
     'unsubscribe',
     'opt out', 'opt me out', 'opted out',
@@ -108,7 +91,6 @@ const PHRASE_MARKETING = [
     'any more of these messages', 'any more of these texts', 'any more of these',
     'take me off your list', 'take me off the list', 'take me off your mailing list',
     'take me off this list', 'take me off your database',
-    'take my number off', 'take my details off',
     'remove me from your list', 'remove me from the list', 'remove me from your database',
     'remove me from your mailing list', 'remove me from this list',
     'no longer wish to receive', 'do not wish to receive', 'dont want any more messages',
@@ -122,30 +104,6 @@ const PHRASE_MARKETING = [
  */
 const SHORT_CHARS = 90;
 const SHORT_WORDS = 14;
-
-/**
- * A bare stop said alongside the reason for it: "Wrong number, please stop", "Stop, found someone
- * else", "Stop please I'm not interested". The bare keyword alone stays whole-message only; these
- * reasons are what make it unambiguous, and they never describe a job. Added 16 Sep 2026.
- */
-const BARE_STOP = new Set(['stop', 'stop it', 'stop now', 'stop please', 'please stop', 'stop thanks', 'stop stop']);
-const STOP_REASON = /^(?:(?:i|im|i am|we are|were|sorry|but|as|because|cos|coz|ive|weve|i have|we have|already|just)\s+)*(?:wrong number|not interested|found someone|found somebody|got someone|not needed|no longer need|dont need|didnt ask|never asked|who is this|who are you|sorted|all sorted)\b/;
-const CLAUSE_BREAK = /[,.;:!?\n]+|\s[-–—]+\s?/;
-
-function stopWithReason(text: string): boolean {
-    const clauses = text.split(CLAUSE_BREAK).map(normaliseForMatch).filter(Boolean);
-    if (clauses.length >= 2) {
-        const first = clauses[0];
-        const last = clauses[clauses.length - 1];
-        if (BARE_STOP.has(first) && clauses.slice(1).some((c) => STOP_REASON.test(c))) return true;
-        if (BARE_STOP.has(last) && clauses.slice(0, -1).some((c) => STOP_REASON.test(c))) return true;
-    }
-    // Unpunctuated: "stop please im not interested". The reason must follow the keyword directly, so
-    // "stop cock not needed" is not read as one.
-    const whole = normaliseForMatch(text);
-    const m = /^(?:please )?stop(?: it| now| please| thanks)? (.+)$/.exec(whole);
-    return !!m && STOP_REASON.test(m[1]);
-}
 
 /** Lowercase, drop invisible marks and apostrophes, turn punctuation and emoji into spaces. */
 function normaliseForMatch(text: string): string {
@@ -201,11 +159,7 @@ export function detectOptOut(text: string | null | undefined): OptOutMatch | nul
     if (s.length > SHORT_CHARS || words > SHORT_WORDS) return null;
 
     for (const p of PHRASE_ALL) if (s.includes(p)) return { scope: 'all', keyword: p, rule: 'phrase' };
-    if (!REDIRECT.test(s)) {
-        for (const p of PHRASE_ALL_UNLESS_REDIRECT) if (s.includes(p)) return { scope: 'all', keyword: p, rule: 'phrase' };
-    }
     for (const p of PHRASE_MARKETING) if (s.includes(p)) return { scope: 'marketing', keyword: p, rule: 'phrase' };
-    if (stopWithReason(text)) return { scope: 'marketing', keyword: 'stop', rule: 'phrase' };
 
     return null;
 }

@@ -112,12 +112,12 @@ describe('offer_call and regulated', () => {
         expect(regulated(t('a socket has stopped working and a wall needs a lintel')).regulated).toBe(false);
         expect(regulated(t('the boiler cupboard door is hanging off')).regulated).toBe(false);
     });
-    it('reads a combi, a flue and a pilot light as gas, but not a combi oven, microwave or drill', () => {
+    it('reads a combi, a pilot light and a flue beside a gas word as gas, but not a combi oven, microwave or drill, or a wood burner\'s flue', () => {
         const t = (body: string): Turn => ({ ...fixture(body).turns[0] });
-        for (const body of ['My combi keeps losing pressure', "the combi's lost pressure again", 'Need my flue looked at', 'flue pipe is dripping', 'The pilot light keeps going out', 'both pilot lights are out']) {
+        for (const body of ['My combi keeps losing pressure', "the combi's lost pressure again", 'my combi flue is leaking', 'the boiler flue is dripping', 'the flue on my gas fire is loose', 'The pilot light keeps going out', 'both pilot lights are out']) {
             expect(regulated(t(body)).regulated, body).toBe(true);
         }
-        for (const body of ['can you fit a combi oven', 'my combi microwave bracket fell off', 'can I borrow your combi drill', 'the flue cupboard needs a new door', 'my combination lock is stuck', 'it has a big influence on the price']) {
+        for (const body of ['can you fit a combi oven', 'my combi microwave bracket fell off', 'can I borrow your combi drill', 'the flue pipe on my wood burner', 'the chimney flue needs sweeping', 'Need the stove flue looked at', 'the boiler cupboard needs a new door', 'my combination lock is stuck', 'it has a big influence on the price']) {
             expect(regulated(t(body)).regulated, body).toBe(false);
         }
     });
@@ -131,7 +131,7 @@ describe('lexicon', () => {
     });
     it('reads haggling in everyday words as money, but not job talk that looks like it', () => {
         for (const body of [
-            'Is that the best you can do?', 'Any wiggle room on that?', "Bit steep isn't it", "That's a bit dear", "That's over my budget",
+            'Is that the best you can do?', 'Any wiggle room on that?', "Bit steep isn't it", "That's a bit dear", "That's over my budget", 'My budget is 200', "I'm on a tight budget", 'Can you do it for £100?', 'You quoted me £150, any cheaper?',
             'Someone else quoted me 80 for it', 'Can you match 90?', 'Could you do mates rates?', 'Can I pay cash for less?', 'Can you do any better on that?',
             'Can you go any lower?', 'Is there any room to move on that?', 'That seems a lot for a tap', 'Any chance of a deal if I book two jobs?',
             'Do you do a pensioner rate?', 'Can you do it for 100?', 'Would you take 120?', 'Can you knock a tenner off?', 'Would you do 150 cash?',
@@ -143,7 +143,8 @@ describe('lexicon', () => {
             'Any news on the quote?', 'Can you match the paint colour?', 'Could you lower the shelf a bit?', "I'll take it", 'The drip is a lot worse today',
             'Can you do any better than a patch repair?', "That's a lot better, thanks", "That's a lot of water", "It'll take 20 minutes",
             'Can you do it for 2 hours on Friday?', 'Can you take 3 of the old doors away?', 'Dear Ben, my tap drips', 'Is there any room to move the wardrobe?',
-            'Could you knock the old tiles off?', 'Can you do it for 10am?', "We'll go lower on the shelf height", 'Sounds a lot like a washer',
+            'Could you knock the old tiles off?', 'I can take 2 photos when I get home', 'It will take 2 people to lift', 'Could you do it for 3 doors?',
+            'I can take 20 photos if you like', 'what budget hinges do you use', 'you quoted me last week for the shelves, can you also do the gate', 'Can you do it for 10am?', "We'll go lower on the shelf height", 'Sounds a lot like a washer',
         ]) {
             expect(moneyQuestionMatch(body), body).toBeNull();
         }

@@ -202,8 +202,8 @@ describe('the desk', () => {
         expect(out.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
     });
 
-    it('a combi, a flue or a pilot light in everyday words is gas too: the fixed line and a hold, and no composer call', async () => {
-        for (const body of ['My combi keeps losing pressure, can you have a look?', 'Can you look at my flue? Water is dripping from it', 'The pilot light keeps going out on the fire']) {
+    it('a combi, a pilot light or a gas flue in everyday words is gas too: the fixed line and a hold, and no composer call', async () => {
+        for (const body of ['My combi keeps losing pressure, can you have a look?', 'Can you look at my combi flue? Water is dripping from it', 'The pilot light keeps going out on the fire']) {
             const { client, gateway } = desk({ router: () => routeScoping(), specialist: () => specialistFacts([]), composer: () => { throw new Error('the composer must not be called'); } });
             const out = await gateway.inbound(turn(body, '2026-09-11T10:00:00.000Z'));
             if (out.kind !== 'handled') throw new Error(out.kind);
@@ -239,15 +239,6 @@ describe('the desk', () => {
         expect(leave.result.delivered).toBe(false);
         expect(fresh.client.calls).toHaveLength(0);
         expect(leave.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
-
-        // Round 19: an opt-out with its reason, and a "don't text me again", were answered.
-        for (const [i, body] of ['Wrong number, please stop', "Don't text me again"].entries()) {
-            const again = desk({ router: () => { throw new Error('the router must not be called'); }, specialist: () => { throw new Error('no specialist'); }, composer: () => { throw new Error('no composer'); } });
-            const r = await again.gateway.inbound({ ...turn(body, '2026-09-11T12:00:00.000Z'), address: `+44770090095${i}` });
-            if (r.kind !== 'handled') throw new Error(r.kind);
-            expect(r.result.decision).toBe('none');
-            expect(again.client.calls).toHaveLength(0);
-        }
     });
 
     it('every word today\'s detector takes as an opt-out gets no reply, no model call and no hold on the new desk', async () => {
