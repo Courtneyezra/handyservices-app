@@ -11,6 +11,7 @@ import { ArrowLeft, Loader2, AlertTriangle, CreditCard, Calendar, CheckCircle2 }
 import { QuoteBuilder } from '@/components/quote/QuoteBuilder';
 import type { TaskItem, Segment, AnalyzedJobData, ExistingQuoteData } from '@/types/quote-builder';
 import { poundsToPence, penceToPounds, mapApiTasksToTaskItems } from '@/lib/quote-price-calculator';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 export default function EditQuotePage() {
   const { slug } = useParams<{ slug: string }>();
@@ -136,7 +137,7 @@ export default function EditQuotePage() {
 
       const response = await fetch(`/api/admin/personalized-quotes/${quote.id}/edit`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
 

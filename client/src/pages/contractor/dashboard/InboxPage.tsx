@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { AdminRecordingAudio } from "@/components/calls/AdminRecordingAudio";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquare, Phone, Globe, Mic, CheckCircle2, Loader2, Check, ChevronDown, MapPin, Play, Eye, PhoneCallback } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -420,11 +421,9 @@ export default function InboxPage() {
                                                                 <Play className="w-3 h-3" />
                                                                 <span>Call Recording</span>
                                                             </div>
-                                                            <audio
-                                                                controls
-                                                                preload="none"
+                                                            <AdminRecordingAudio
+                                                                callId={item.id}
                                                                 className="w-full h-10 rounded-lg"
-                                                                src={`/api/calls/${item.id}/recording`}
                                                             />
                                                         </div>
                                                     )}

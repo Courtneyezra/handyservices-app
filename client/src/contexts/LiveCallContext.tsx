@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from "@/hooks/use-toast";
 import type { CallScriptSegment } from '@shared/schema';
 import type { DetectedJob } from '@/components/live-call/JobsDetectedPanel';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 // --- Types ---
 
@@ -147,7 +148,7 @@ interface LiveCallContextType {
 const LiveCallContext = createContext<LiveCallContextType | undefined>(undefined);
 
 async function fetchActiveCall(): Promise<any> {
-    const res = await fetch('/api/calls/active');
+    const res = await fetch('/api/calls/active', { headers: adminAuthHeaders() });
     if (!res.ok) {
         if (res.status === 404) return null;
         throw new Error('Failed to fetch active call');

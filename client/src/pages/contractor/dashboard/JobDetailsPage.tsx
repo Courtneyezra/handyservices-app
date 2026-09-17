@@ -195,7 +195,8 @@ export default function JobDetailsPage() {
     const { data: job, isLoading } = useQuery<Job>({
         queryKey: ["job", id],
         queryFn: async () => {
-            const res = await fetch(`/api/jobs/${id}`);
+            const token = localStorage.getItem('contractorToken');
+            const res = await fetch(`/api/jobs/${id}`, { headers: { "Authorization": `Bearer ${token}` } });
             if (!res.ok) throw new Error("Failed to load job");
             return res.json();
         },

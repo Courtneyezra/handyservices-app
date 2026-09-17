@@ -137,7 +137,7 @@ function QuotesTab() {
     const { data: quotes = [], isLoading } = useQuery<QuoteRow[]>({
         queryKey: ["/api/personalized-quotes"],
         queryFn: async () => {
-            const res = await fetch("/api/personalized-quotes");
+            const res = await fetch("/api/personalized-quotes", { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch quotes");
             return res.json();
         },
@@ -243,7 +243,7 @@ function JobsTab() {
     const { data: jobs = [], isLoading } = useQuery<JobRow[]>({
         queryKey: ["/api/admin/jobs"],
         queryFn: async () => {
-            const res = await fetch("/api/admin/jobs");
+            const res = await fetch("/api/admin/jobs", { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch jobs");
             return res.json();
         },
@@ -253,7 +253,7 @@ function JobsTab() {
     const { data: quotes = [] } = useQuery<QuoteRow[]>({
         queryKey: ["/api/personalized-quotes"],
         queryFn: async () => {
-            const res = await fetch("/api/personalized-quotes");
+            const res = await fetch("/api/personalized-quotes", { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch quotes");
             return res.json();
         },

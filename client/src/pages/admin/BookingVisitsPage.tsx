@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Search, Wrench, Copy, X, Phone, Eye, LayoutGrid, List as ListIcon } from 'lucide-react';
 import { format } from 'date-fns';
 import { QuotesList } from './components/QuotesList';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 interface PersonalizedQuote {
     id: string;
@@ -49,7 +50,7 @@ export default function BookingVisitsPage() {
     const { data: quotes = [], isLoading: isLoadingQuotes, refetch: refetchQuotes } = useQuery<PersonalizedQuote[]>({
         queryKey: ['/api/personalized-quotes'],
         queryFn: async () => {
-            const res = await fetch('/api/personalized-quotes');
+            const res = await fetch('/api/personalized-quotes', { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error('Failed to fetch quotes');
             return res.json();
         },
@@ -74,7 +75,7 @@ export default function BookingVisitsPage() {
         // So onDelete just needs to do the deletion.
 
         try {
-            const res = await fetch(`/api/personalized-quotes/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/personalized-quotes/${id}`, { method: 'DELETE', headers: adminAuthHeaders() });
             if (res.ok) {
                 await queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
                 refetchQuotes();

@@ -8,6 +8,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { queryClient } from '@/lib/queryClient';
 import { useToast } from "@/hooks/use-toast";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 interface ActionItem {
     id: string;
@@ -32,7 +33,7 @@ export default function ActionCenter() {
     const { data: actions = [], isLoading } = useQuery<ActionItem[]>({
         queryKey: ['/api/calls/actions'],
         queryFn: async () => {
-            const res = await fetch('/api/calls/actions');
+            const res = await fetch('/api/calls/actions', { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch actions");
             return res.json();
         },
@@ -47,7 +48,7 @@ export default function ActionCenter() {
         try {
             const res = await fetch(`/api/calls/${id}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ actionStatus: 'resolved' })
             });
             if (!res.ok) throw new Error("Failed to update");

@@ -12,6 +12,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 interface PaymentSummary {
     today: { total: number; count: number };
@@ -69,7 +70,7 @@ export default function PaymentsDashboardPage() {
     const { data: summary, isLoading: summaryLoading } = useQuery<PaymentSummary>({
         queryKey: ["paymentsSummary"],
         queryFn: async () => {
-            const res = await fetch("/api/admin/payments/summary");
+            const res = await fetch("/api/admin/payments/summary", { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch payment summary");
             return res.json();
         },
@@ -80,7 +81,7 @@ export default function PaymentsDashboardPage() {
     const { data: recentPayments, isLoading: paymentsLoading } = useQuery<RecentPayment[]>({
         queryKey: ["recentPayments"],
         queryFn: async () => {
-            const res = await fetch("/api/admin/payments/recent?limit=20");
+            const res = await fetch("/api/admin/payments/recent?limit=20", { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch recent payments");
             return res.json();
         },

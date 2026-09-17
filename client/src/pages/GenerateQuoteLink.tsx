@@ -24,6 +24,7 @@ import {
   desiredTimeframeEnum,
 } from '@shared/schema';
 import { RouteRecommendation, RouteAnalysis } from '../components/RouteRecommendation';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 // Outbound WhatsApp message context/style — prepends a short line to the message.
 // Message-only: no persistence, does not affect the quote page or pricing.
@@ -494,7 +495,7 @@ export default function GenerateQuoteLink() {
     try {
       const response = await fetch('/api/recalculate-optional-extra', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
           serviceType: extra.serviceType || 'general',
           complexity: extra.complexity || 'moderate',
@@ -547,7 +548,7 @@ export default function GenerateQuoteLink() {
     try {
       const response = await fetch('/api/parse-optional-extra', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ extraDescription: extraInputText }),
       });
 
@@ -753,7 +754,7 @@ export default function GenerateQuoteLink() {
         toast({ title: "Personalising Note...", description: "AI is formatting your reason for visit." });
         const res = await fetch('/api/generate-personalized-note', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ reason: assessmentReason, customerName, postcode, address: address || undefined })
         });
         const data = await res.json();
@@ -845,7 +846,7 @@ export default function GenerateQuoteLink() {
         try {
           const msgResponse = await fetch('/api/generate-quote-message', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify({
               conversationContext,
               customerName,
@@ -908,7 +909,7 @@ export default function GenerateQuoteLink() {
     try {
       const res = await fetch('/api/generate-personalized-note', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: assessmentReason, customerName, postcode, address: address || undefined })
       });
       const data = await res.json();
@@ -932,7 +933,7 @@ export default function GenerateQuoteLink() {
     try {
       const response = await fetch('/api/generate-quote-message', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversationContext,
           customerName,

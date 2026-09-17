@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { CallDetailsModal } from "@/components/calls/CallDetailsModal";
 import { CallInsights } from "@/pages/admin/CallPerformancePage";
 import { parseAiScore, scoreChipClassLight, formatNextStep } from "@/components/calls/CallScorecard";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 // ─── Row shape (from GET /api/calls) ────────────────────────────────────
 interface CallRow {
@@ -129,7 +130,7 @@ function CallsListTab() {
                 endDate: new Date().toISOString(),
             });
             if (search.trim()) params.set("search", search.trim());
-            const res = await fetch(`/api/calls?${params}`);
+            const res = await fetch(`/api/calls?${params}`, { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch calls");
             return res.json() as Promise<{ calls: CallRow[]; pagination: any }>;
         },

@@ -22,6 +22,7 @@ import {
   Inbox,
   ChevronRight,
 } from 'lucide-react';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 // ---------------------------------------------------------------------------
 // Jobber-style "Clients" list. Read-only view over the spine tables, served by
@@ -73,7 +74,7 @@ export default function ClientsPage() {
   const { data, isLoading, error } = useQuery<ClientsResponse>({
     queryKey: ['admin-clients'],
     queryFn: async () => {
-      const res = await fetch('/api/clients');
+      const res = await fetch('/api/clients', { headers: adminAuthHeaders() });
       if (!res.ok) throw new Error('Failed to fetch clients');
       return res.json();
     },

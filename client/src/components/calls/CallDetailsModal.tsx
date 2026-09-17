@@ -29,6 +29,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select"
+import { adminAuthHeaders } from "@/lib/admin-auth";
+import { useAdminRecordingUrl } from "@/hooks/useAdminRecording";
 
 interface CallDetailsModalProps {
     open: boolean;
@@ -54,13 +56,14 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
     const [duration, setDuration] = useState(0);
     const [volume, setVolume] = useState(1);
     const [isMuted, setIsMuted] = useState(false);
+    const recording = useAdminRecordingUrl(callId, open && activeTab === "recording");
 
     // Fetch call details
     const { data: call, isLoading } = useQuery({
         queryKey: ['call', callId],
         queryFn: async () => {
             if (!callId) return null;
-            const res = await fetch(`/api/calls/${callId}`);
+            const res = await fetch(`/api/calls/${callId}`, { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch call details");
             return res.json();
         },
@@ -72,7 +75,7 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
         mutationFn: async (data: any) => {
             const res = await fetch(`/api/calls/${callId}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
             });
             if (!res.ok) throw new Error("Failed to update call");
@@ -90,7 +93,7 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
         mutationFn: async (skuId: string) => {
             const res = await fetch(`/api/calls/${callId}/skus`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ skuId, quantity: 1, source: 'manual' }),
             });
             if (!res.ok) throw new Error("Failed to add SKU");
@@ -106,6 +109,7 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
         mutationFn: async (skuId: string) => {
             const res = await fetch(`/api/calls/${callId}/skus/${skuId}`, {
                 method: 'DELETE',
+                headers: adminAuthHeaders(),
             });
             if (!res.ok) throw new Error("Failed to remove SKU");
         },
@@ -119,7 +123,7 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
         mutationFn: async ({ skuId, quantity }: { skuId: string, quantity: number }) => {
             const res = await fetch(`/api/calls/${callId}/skus/${skuId}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ quantity }),
             });
             if (!res.ok) throw new Error("Failed to update quantity");
@@ -342,7 +346,7 @@ export function CallDetailsModal({ open, onClose, callId }: CallDetailsModalProp
                                             <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
                                                 <audio
                                                     ref={audioRef}
-                                                    src={`/api/calls/${call.id}/recording`}
+                                                    src={recording.url ?? undefined}
                                                     onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                                                     onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
                                                     onEnded={() => setIsPlaying(false)}

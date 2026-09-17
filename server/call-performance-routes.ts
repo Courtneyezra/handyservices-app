@@ -1,12 +1,16 @@
 import express, { type Request, Response } from "express";
 import { sql, type SQL } from "drizzle-orm";
 import { db } from "./db";
+import { requireAdmin } from "./auth";
 
 // VA Call Performance dashboard aggregates.
 // Mounted at /api/calls BEFORE the main calls router so "va-overview" is not
 // swallowed by the /:id catch-all in server/calls.ts.
 
 const router = express.Router();
+
+// Admin only (the VA dashboard and the quote form's call chip), like the calls router it sits in front of.
+router.use(requireAdmin);
 
 type Period = "today" | "yesterday" | "week" | "month" | "all";
 

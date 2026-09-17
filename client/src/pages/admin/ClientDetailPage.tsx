@@ -31,6 +31,7 @@ import {
   GitMerge,
   CheckCircle2,
 } from 'lucide-react';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 // ---------------------------------------------------------------------------
 // Per-client engagement timeline. Reads GET /api/clients/:clientKey
@@ -238,7 +239,7 @@ function ClientEditDialog({
     mutationFn: async () => {
       const res = await fetch(`/api/clients/${client.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Failed to save client');
@@ -320,7 +321,7 @@ function ClientMergeDialog({
       const digits = raw.replace(/\D/g, '');
       const key = digits.length >= 7 ? `phone:${digits}` : `email:${raw.toLowerCase()}`;
       // Resolve the duplicate to a real client id via the aggregation detail.
-      const lookup = await fetch(`/api/clients/${encodeURIComponent(key)}`);
+      const lookup = await fetch(`/api/clients/${encodeURIComponent(key)}`, { headers: adminAuthHeaders() });
       if (!lookup.ok) throw new Error('No client found for that contact');
       const dup = await lookup.json();
       const dupId: string | null = dup?.clientId ?? dup?.client?.id ?? null;
@@ -329,7 +330,7 @@ function ClientMergeDialog({
       // Fold the duplicate INTO this client (this one survives).
       const res = await fetch(`/api/clients/${dupId}/merge`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ intoId: client.id }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Merge failed');
@@ -384,7 +385,7 @@ export default function ClientDetailPage() {
   const { data, isLoading, error } = useQuery<ClientEngagement>({
     queryKey: ['admin-client', clientKey],
     queryFn: async () => {
-      const res = await fetch(`/api/clients/${encodeURIComponent(clientKey)}`);
+      const res = await fetch(`/api/clients/${encodeURIComponent(clientKey)}`, { headers: adminAuthHeaders() });
       if (res.status === 404) throw new Error('No engagement found for this client.');
       if (!res.ok) throw new Error('Failed to fetch client engagement');
       return res.json();
@@ -401,7 +402,7 @@ export default function ClientDetailPage() {
     mutationFn: async () => {
       const res = await fetch(`/api/clients/${client.id}/archive`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ archived: !isArchived }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'Failed to update client');

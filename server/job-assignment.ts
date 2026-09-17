@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { db } from './db';
 import { contractorBookingRequests, personalizedQuotes, contractorJobs } from '../shared/schema';
 import { eq } from 'drizzle-orm';
-import { requireContractor } from './auth';
+import { requireAdmin, requireContractor } from './auth';
 import { assignJobToContractor } from './ops/actions';
 
 export const jobAssignmentRouter = Router();
@@ -11,7 +11,7 @@ export const jobAssignmentRouter = Router();
 // Logic lives in ops/actions.assignJobToContractor (extracted verbatim so
 // it can be called as an agent tool) — this route is a thin HTTP adapter that
 // mirrors the original status codes and payloads exactly.
-jobAssignmentRouter.post('/api/jobs/:id/assign', async (req, res) => {
+jobAssignmentRouter.post('/api/jobs/:id/assign', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { contractorId, scheduledDate, scheduledStartTime, scheduledEndTime } = req.body;
@@ -151,9 +151,9 @@ jobAssignmentRouter.get('/api/jobs/assigned', requireContractor, async (req, res
     }
 });
 
-// Get specific job details (secured by contractorId check is implicit in UI, but explicit here is better)
-// In production, we'd use req.user.id
-jobAssignmentRouter.get('/api/jobs/:id', async (req, res) => {
+// Get specific job details for the contractor dashboard's job page: only the contractor the job was
+// requested from or assigned to, or an admin, may read it (it carries the customer's contact).
+jobAssignmentRouter.get('/api/jobs/:id', requireContractor, async (req, res) => {
     try {
         const { id } = req.params;
         const result = await db.select().from(contractorBookingRequests).where(eq(contractorBookingRequests.id, id)).limit(1);
@@ -163,6 +163,11 @@ jobAssignmentRouter.get('/api/jobs/:id', async (req, res) => {
         }
 
         const booking = result[0];
+        const contractorId = (req as any).contractorId;
+        const isAdmin = (req as any).user?.role === 'admin';
+        if (!isAdmin && booking.contractorId !== contractorId && booking.assignedContractorId !== contractorId) {
+            return res.status(404).json({ error: "Job not found" });
+        }
 
         // Enrich with payout data from contractorJobs if a linked job exists
         let payoutPence: number | null = null;
@@ -280,7 +285,7 @@ jobAssignmentRouter.post('/api/jobs/:id/complete', requireContractor, async (req
 });
 
 // Admin: Get all jobs for dispatch board
-jobAssignmentRouter.get('/api/admin/jobs', async (req, res) => {
+jobAssignmentRouter.get('/api/admin/jobs', requireAdmin, async (req, res) => {
     try {
         const { status } = req.query;
         const { desc } = await import('drizzle-orm');
@@ -306,7 +311,7 @@ jobAssignmentRouter.get('/api/admin/jobs', async (req, res) => {
 
 // B5: Get recommended contractors for a job
 // Uses skill-matching, location, and availability to rank contractors
-jobAssignmentRouter.get('/api/jobs/:id/recommend-contractors', async (req, res) => {
+jobAssignmentRouter.get('/api/jobs/:id/recommend-contractors', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { date } = req.query; // Optional: specific date to check availability
@@ -378,7 +383,7 @@ jobAssignmentRouter.get('/api/jobs/:id/recommend-contractors', async (req, res) 
 });
 
 // B5: Get available contractors for a specific date (admin dispatch helper)
-jobAssignmentRouter.get('/api/admin/contractors/available', async (req, res) => {
+jobAssignmentRouter.get('/api/admin/contractors/available', requireAdmin, async (req, res) => {
     try {
         const { date, lat, lng, categories } = req.query;
 
@@ -416,7 +421,7 @@ jobAssignmentRouter.get('/api/admin/contractors/available', async (req, res) => 
 });
 
 // B5: Check specific contractor's availability for a date
-jobAssignmentRouter.get('/api/contractors/:contractorId/availability/:date', async (req, res) => {
+jobAssignmentRouter.get('/api/contractors/:contractorId/availability/:date', requireAdmin, async (req, res) => {
     try {
         const { contractorId, date } = req.params;
 

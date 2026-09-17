@@ -150,7 +150,7 @@ export default function QuotesPage() {
     const { data: quotes = [], isLoading: isLoadingQuotes, refetch: refetchQuotes } = useQuery<PersonalizedQuote[]>({
         queryKey: ['/api/personalized-quotes'],
         queryFn: async () => {
-            const res = await fetch('/api/personalized-quotes');
+            const res = await fetch('/api/personalized-quotes', { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error('Failed to fetch quotes');
             return res.json();
         },
@@ -181,7 +181,7 @@ export default function QuotesPage() {
 
     const handleDelete = async (id: string) => {
         try {
-            const res = await fetch(`/api/personalized-quotes/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/personalized-quotes/${id}`, { method: 'DELETE', headers: adminAuthHeaders() });
             if (res.ok) {
                 await queryClient.invalidateQueries({ queryKey: ['/api/personalized-quotes'] });
                 refetchQuotes();
@@ -195,7 +195,7 @@ export default function QuotesPage() {
         try {
             const res = await fetch(`/api/admin/personalized-quotes/${quote.id}/renew`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
             });
             if (!res.ok) throw new Error('Failed to renew');
 
