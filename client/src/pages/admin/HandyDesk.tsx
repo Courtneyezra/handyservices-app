@@ -300,8 +300,10 @@ export default function HandyDesk() {
         queryClient.invalidateQueries({ queryKey: ['comms-v2-case-file'] });
     };
 
+    // Height leaves out the layout's 64px header and its scroll container's p-4 / lg:p-8
+    // padding, top and bottom, so the ask bar stays in view without scrolling.
     return (
-        <div data-testid="handy-desk" className="flex h-[calc(100vh-64px)] flex-col overflow-hidden bg-slate-900 font-sans">
+        <div data-testid="handy-desk" className="flex h-[calc(100vh-6rem)] flex-col lg:h-[calc(100vh-8rem)] overflow-hidden bg-slate-900 font-sans">
             <DeskHeader sandbox={sandbox} handled={data?.handledToday ?? null} deskLive={oldComms ? oldComms.retired : null} />
 
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
