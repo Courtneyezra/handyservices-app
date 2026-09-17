@@ -2,14 +2,15 @@
  * Handy Desk T2 - the answer surface's top half for one ask: "You said · typed|voice|tap" and the
  * quote, then the reply card. While the run is going the reply card is the thinking state: the
  * run's steps as they stream (tool name in mono, earlier steps green, the newest amber). Once the
- * answer lands it shows the reply line, with the steps folded behind a toggle, and hands the typed
- * surface to AnswerSurfaceBody (T3's seam).
+ * answer lands it shows the reply line, with the steps folded behind a toggle, and hands the answer
+ * to AnswerSurfaceBody (T3, ./AnswerSurface.tsx): the typed surface, what goes out when Ben
+ * confirms, the confirm and its done state. This is the Handy Desk's one answer card.
  */
 import { useState } from 'react';
 import { Check, ChevronDown, ChevronRight, CircleAlert, Loader2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { thinkingLines, type AskExchange } from '@/lib/handy-desk-ask';
-import { AnswerSurfaceBody } from './AnswerSurfaceBody';
+import { AnswerSurfaceBody } from './AnswerSurface';
 
 const EYEBROW = 'text-[10px] font-bold uppercase tracking-[0.1em]';
 
@@ -38,7 +39,15 @@ function Steps({ exchange }: { exchange: AskExchange }) {
     );
 }
 
-export function AnswerCard({ exchange, onClose }: { exchange: AskExchange; onClose: () => void }) {
+export function AnswerCard({ exchange, onClose, speakerNames, onChange, onConfirmed }: {
+    exchange: AskExchange;
+    onClose: () => void;
+    speakerNames?: Record<string, string>;
+    /** "Change something": hands the sentence back to the ask bar. */
+    onChange?: (text: string) => void;
+    /** A confirm on the answer went through. */
+    onConfirmed?: (note: string) => void;
+}) {
     const [showSteps, setShowSteps] = useState(false);
     const answer = exchange.answer?.answer ?? null;
     const reply = answer?.finalText ?? exchange.answer?.content ?? null;
@@ -47,8 +56,12 @@ export function AnswerCard({ exchange, onClose }: { exchange: AskExchange; onClo
         <section data-testid="handy-desk-answer" aria-live="polite" className="space-y-4">
             <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                    <p className={cn(EYEBROW, 'text-slate-500')}>You said · {exchange.ask.via}</p>
-                    <p data-testid="handy-desk-said" className="mt-1 text-lg font-semibold text-slate-900">&ldquo;{exchange.ask.text}&rdquo;</p>
+                    {exchange.ask.text && (
+                        <>
+                            <p className={cn(EYEBROW, 'text-slate-500')}>You said · {exchange.ask.via}</p>
+                            <p data-testid="handy-desk-said" className="mt-1 text-lg font-semibold text-slate-900">&ldquo;{exchange.ask.text}&rdquo;</p>
+                        </>
+                    )}
                 </div>
                 {!exchange.live && (
                     <button type="button" onClick={onClose} aria-label="Back to the conversation" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700">
@@ -88,7 +101,16 @@ export function AnswerCard({ exchange, onClose }: { exchange: AskExchange; onClo
                 </div>
             </div>
 
-            {answer && <AnswerSurfaceBody answer={answer} />}
+            {answer && exchange.answer && (
+                <AnswerSurfaceBody
+                    key={exchange.answer.id}
+                    answer={answer}
+                    answeredAt={exchange.answer.createdAt}
+                    speakerNames={speakerNames}
+                    onChange={onChange ? () => onChange(exchange.ask.text) : undefined}
+                    onConfirmed={onConfirmed}
+                />
+            )}
         </section>
     );
 }

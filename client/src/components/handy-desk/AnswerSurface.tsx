@@ -9,20 +9,20 @@
  * with the tile's draft as `expectedDraft`: a draft the desk replaced since is refused, re-read and
  * shown for another confirm. An answer from an earlier London day offers no send.
  * Whatever that refuses is shown as the desk said it, and a shut WhatsApp window offers the template
- * reply the queue card offers. The ask bar (T2) passes `pending` and `steps` for the thinking state
- * and `onChange` to take the sentence back.
+ * reply the queue card offers. AnswerCard (the one answer card the ask bar renders) shows the ask,
+ * the thinking state and the reply line, then hands the answer to AnswerSurfaceBody here.
  */
 import { useState } from 'react';
 import { Check, Loader2, MapPin } from 'lucide-react';
-import { HELD_DRAFT_CHANGED, type AnswerSurface, type LeanRunStep, type OpsAnswer } from '@shared/ops-types';
+import { HELD_DRAFT_CHANGED, type AnswerSurface, type OpsAnswer } from '@shared/ops-types';
 import { adminAuthHeaders } from '@/hooks/usePriceQueue';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import { cn } from '@/lib/utils';
 import { isShutWindow, refusalMessage } from '@/lib/handy-desk-queue';
 import {
-    CHANNEL_LABEL, STAGE_LABEL, VIA_LABEL, addressLabel, ageLabel, confirmCaseFileId, confirmRequest, confirmedNote,
-    diaryCellLook, expectedDraftOf, formatPence, isChangedCell, isEarlierDay, isLate, thinkingLines, tokenOf, turnLabel, turnText,
-    type AnsweredAsk, type DiaryCellLook,
+    CHANNEL_LABEL, STAGE_LABEL, addressLabel, ageLabel, confirmCaseFileId, confirmRequest, confirmedNote,
+    diaryCellLook, expectedDraftOf, formatPence, isChangedCell, isEarlierDay, isLate, tokenOf, turnLabel, turnText,
+    type DiaryCellLook,
 } from '@/lib/handy-desk-answer';
 
 const EYEBROW = 'text-[10px] font-bold uppercase tracking-[0.1em]';
@@ -211,56 +211,24 @@ export function SurfaceBody({ surface, speakerNames }: { surface: AnswerSurface;
     }
 }
 
-// ---------------------------------------------------------------- the reply card
+// ---------------------------------------------------------------- below the reply card
 
-function AiMark() {
-    return <span aria-hidden className="mt-0.5 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-slate-900 text-[10px] font-bold text-amber-400">AI</span>;
-}
-
-function Thinking({ steps }: { steps: readonly LeanRunStep[] }) {
-    const lines = thinkingLines(steps);
-    return (
-        <div data-testid="answer-thinking" className="flex gap-3">
-            <AiMark />
-            <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 text-[15px] font-semibold text-slate-900">
-                    <Loader2 className="h-4 w-4 animate-spin text-amber-500" /> Working on it…
-                </p>
-                {lines.length > 0 && (
-                    <ol className="mt-3 space-y-1.5">
-                        {lines.map((l, i) => {
-                            const last = i === lines.length - 1;
-                            return (
-                                <li key={l.key} data-testid="answer-thinking-step" data-last={last ? 'true' : 'false'} className={cn('flex items-center gap-2 text-xs', RISE)}>
-                                    <span aria-hidden className={cn('h-2 w-2 shrink-0 rounded-full', l.failed ? 'bg-red-500' : last ? 'bg-amber-400' : 'bg-green-600')} />
-                                    <span className={cn(l.mono ? 'font-mono' : '', last ? 'text-slate-900' : 'text-slate-500')}>{l.label}</span>
-                                </li>
-                            );
-                        })}
-                    </ol>
-                )}
-            </div>
-        </div>
-    );
-}
-
-export interface AnswerCardProps {
-    /** The newest answered ask, or null while a run is only thinking. */
-    answered: AnsweredAsk | null;
-    /** The sentence being worked on while `pending`, before the answer lands. */
-    pendingAsk?: AnsweredAsk['ask'];
-    pending?: boolean;
-    steps?: readonly LeanRunStep[];
+export interface AnswerSurfaceBodyProps {
+    answer: OpsAnswer;
+    /** When the answer was given (the answer row's createdAt): the tile's age and the earlier-day rule. */
+    answeredAt: string;
     speakerNames?: Record<string, string>;
     /** "Change something": hands the sentence back to the ask bar. */
-    onChange?: (text: string) => void;
+    onChange?: () => void;
     /** A confirm went through; the page refreshes its queue. */
     onConfirmed?: (note: string) => void;
 }
 
-export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], speakerNames, onChange, onConfirmed }: AnswerCardProps) {
-    const ask = pending ? (pendingAsk ?? null) : (answered?.ask ?? null);
-    const answer: OpsAnswer | null = pending ? null : (answered?.answer ?? null);
+/**
+ * The typed surface, "What goes out when you confirm" and the confirm footer, under the reply card.
+ * Keyed by the answer row on the card, so a re-read draft or a done state never outlives its answer.
+ */
+export function AnswerSurfaceBody({ answer, answeredAt, speakerNames, onChange, onConfirmed }: AnswerSurfaceBodyProps) {
     const [busy, setBusy] = useState<'confirm' | 'template' | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [templateError, setTemplateError] = useState<string | null>(null);
@@ -269,9 +237,9 @@ export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], 
     const [reread, setReread] = useState<string | null>(null);
     const [draftGone, setDraftGone] = useState(false);
     const now = new Date();
-    const staleDay = !!answered && isEarlierDay(answered.at, now);
-    const expectedDraft = reread ?? (answer ? expectedDraftOf(answer) : undefined);
-    const outgoing = answer?.outgoing && reread !== null ? [{ ...answer.outgoing[0], text: reread }] : answer?.outgoing;
+    const staleDay = isEarlierDay(answeredAt, now);
+    const expectedDraft = reread ?? expectedDraftOf(answer);
+    const outgoing = answer.outgoing && reread !== null ? [{ ...answer.outgoing[0], text: reread }] : answer.outgoing;
 
     const rereadDraft = async (caseFileId: string) => {
         try {
@@ -292,7 +260,7 @@ export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], 
     };
 
     const confirm = async () => {
-        if (!answer?.confirm || expectedDraft === undefined) return;
+        if (!answer.confirm || expectedDraft === undefined) return;
         setBusy('confirm');
         setError(null);
         setTemplateError(null);
@@ -310,7 +278,7 @@ export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], 
     };
 
     const sendTemplate = async () => {
-        if (!answer?.confirm) return;
+        if (!answer.confirm) return;
         setBusy('template');
         setTemplateError(null);
         const result = await post(`/api/comms-v2/case-files/${encodeURIComponent(confirmCaseFileId(answer.confirm.action))}/send-template`);
@@ -322,38 +290,19 @@ export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], 
     };
 
     return (
-        <section data-testid="answer-surface" aria-live="polite" className={cn('space-y-4', RISE)}>
-            {ask && (
-                <div>
-                    <p className={cn(EYEBROW, 'text-slate-500')}>You said · {VIA_LABEL[ask.via]}</p>
-                    <p data-testid="answer-you-said" className="mt-1 text-lg font-semibold text-slate-900">&ldquo;{ask.text}&rdquo;</p>
+        <div data-testid="handy-desk-surface" data-surface={answer.surface.type} className="space-y-4">
+            {answer.surface.type !== 'words' && (
+                <div data-testid={`answer-body-${answer.surface.type}`} className={cn('rounded-3xl bg-white p-5 shadow-[0_1px_3px_rgba(15,23,42,0.08)]', RISE)}>
+                    {answer.surface.type === 'thread' && (
+                        <p className={cn(EYEBROW, 'mb-3 text-slate-500')}>
+                            Thread · {answer.surface.customerName ?? addressLabel(answer.surface.phone)} · {STAGE_LABEL[answer.surface.stage]}
+                        </p>
+                    )}
+                    <SurfaceBody surface={answer.surface} speakerNames={speakerNames} />
                 </div>
             )}
 
-            <div className="rounded-3xl bg-white p-5 shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
-                {pending || !answer ? (
-                    <Thinking steps={steps} />
-                ) : (
-                    <>
-                        <div className="flex gap-3">
-                            <AiMark />
-                            <p data-testid="answer-reply" className="min-w-0 flex-1 whitespace-pre-wrap text-[15px] font-semibold text-slate-900">{answer.finalText}</p>
-                        </div>
-                        {answer.surface.type !== 'words' && (
-                            <div data-testid={`answer-body-${answer.surface.type}`} className="mt-4">
-                                {answer.surface.type === 'thread' && (
-                                    <p className={cn(EYEBROW, 'mb-3 text-slate-500')}>
-                                        Thread · {answer.surface.customerName ?? addressLabel(answer.surface.phone)} · {STAGE_LABEL[answer.surface.stage]}
-                                    </p>
-                                )}
-                                <SurfaceBody surface={answer.surface} speakerNames={speakerNames} />
-                            </div>
-                        )}
-                    </>
-                )}
-            </div>
-
-            {answer && outgoing && outgoing.length > 0 && !draftGone && (
+            {outgoing && outgoing.length > 0 && !draftGone && (
                 <div data-testid="answer-outgoing">
                     <p className={cn(EYEBROW, 'text-slate-500')}>What goes out when you confirm</p>
                     <ul className="mt-2 space-y-2">
@@ -361,7 +310,7 @@ export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], 
                             <li key={i} data-testid="answer-outgoing-tile" className="rounded-2xl bg-slate-100 p-3">
                                 <p className="text-xs font-semibold text-slate-600">
                                     {CHANNEL_LABEL[o.channel]} · {addressLabel(o.to)}
-                                    {answered && <span data-testid="answer-outgoing-age" className="font-normal text-slate-500"> · {reread !== null ? 'as it stands now' : `drafted ${ageLabel(answered.at, now)}`}</span>}
+                                    <span data-testid="answer-outgoing-age" className="font-normal text-slate-500"> · {reread !== null ? 'as it stands now' : `drafted ${ageLabel(answeredAt, now)}`}</span>
                                 </p>
                                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{o.text}</p>
                             </li>
@@ -370,43 +319,41 @@ export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], 
                 </div>
             )}
 
-            {answer && (
-                <footer className="space-y-2">
-                    {error && <p role="alert" data-testid="answer-confirm-error" className="text-sm text-red-700">{error}</p>}
-                    {staleDay && answer.confirm && !done && (
-                        <p data-testid="answer-stale-day" className="text-sm text-slate-600">This answer is from an earlier day, so its draft is not offered for sending. Ask again for the draft as it stands today.</p>
-                    )}
-                    {error && isShutWindow(error) && !done && (
-                        <div>
-                            {templateError && <p role="alert" data-testid="answer-template-error" className="mb-2 text-sm text-red-700">{templateError}</p>}
-                            <button type="button" className={PILL_OUTLINE} disabled={busy !== null} onClick={sendTemplate}>
-                                {busy === 'template' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                                Send a template reply
+            <footer className="space-y-2">
+                {error && <p role="alert" data-testid="answer-confirm-error" className="text-sm text-red-700">{error}</p>}
+                {staleDay && answer.confirm && !done && (
+                    <p data-testid="answer-stale-day" className="text-sm text-slate-600">This answer is from an earlier day, so its draft is not offered for sending. Ask again for the draft as it stands today.</p>
+                )}
+                {error && isShutWindow(error) && !done && (
+                    <div>
+                        {templateError && <p role="alert" data-testid="answer-template-error" className="mb-2 text-sm text-red-700">{templateError}</p>}
+                        <button type="button" className={PILL_OUTLINE} disabled={busy !== null} onClick={sendTemplate}>
+                            {busy === 'template' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                            Send a template reply
+                        </button>
+                    </div>
+                )}
+                {done ? (
+                    <p data-testid="answer-done" className={cn('flex items-center gap-2 text-sm font-semibold text-slate-800', RISE)}>
+                        <Check className="h-4 w-4 text-green-600" /> {done}
+                    </p>
+                ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                        {answer.note && <p data-testid="handy-desk-note" className="mr-auto min-w-0 flex-1 basis-60 text-xs text-slate-500">{answer.note}</p>}
+                        {onChange && (
+                            <button type="button" className={cn(PILL_OUTLINE, !answer.note && 'ml-auto')} disabled={busy !== null} onClick={onChange}>
+                                Change something
                             </button>
-                        </div>
-                    )}
-                    {done ? (
-                        <p data-testid="answer-done" className={cn('flex items-center gap-2 text-sm font-semibold text-slate-800', RISE)}>
-                            <Check className="h-4 w-4 text-green-600" /> {done}
-                        </p>
-                    ) : (
-                        <div className="flex flex-wrap items-center gap-2">
-                            {answer.note && <p data-testid="answer-note" className="mr-auto min-w-0 flex-1 basis-60 text-xs text-slate-500">{answer.note}</p>}
-                            {onChange && ask && (
-                                <button type="button" className={cn(PILL_OUTLINE, !answer.note && 'ml-auto')} disabled={busy !== null} onClick={() => onChange(ask.text)}>
-                                    Change something
-                                </button>
-                            )}
-                            {answer.confirm && expectedDraft !== undefined && !staleDay && !draftGone && (
-                                <button type="button" data-testid="answer-confirm" className={cn(PILL_PRIMARY, !answer.note && !(onChange && ask) && 'ml-auto')} disabled={busy !== null} onClick={confirm}>
-                                    {busy === 'confirm' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                                    {answer.confirm.label}
-                                </button>
-                            )}
-                        </div>
-                    )}
-                </footer>
-            )}
-        </section>
+                        )}
+                        {answer.confirm && expectedDraft !== undefined && !staleDay && !draftGone && (
+                            <button type="button" data-testid="answer-confirm" className={cn(PILL_PRIMARY, !answer.note && !onChange && 'ml-auto')} disabled={busy !== null} onClick={confirm}>
+                                {busy === 'confirm' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                                {answer.confirm.label}
+                            </button>
+                        )}
+                    </div>
+                )}
+            </footer>
+        </div>
     );
 }

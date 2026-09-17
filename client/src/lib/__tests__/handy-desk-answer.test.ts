@@ -9,7 +9,7 @@ import type { AskMessageDTO, OpsAnswer, SurfaceTurn } from '@shared/ops-types';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import {
     addressLabel, confirmCaseFileId, confirmRequest, confirmedNote, diaryCellLook, formatPence, isChangedCell,
-    isLate, latestAnswered, thinkingLines, threadSurfaceOfDetail, tokenOf, turnLabel, turnText,
+    exchangeOfAnswered, isLate, latestAnswered, threadSurfaceOfDetail, tokenOf, turnLabel, turnText,
 } from '@/lib/handy-desk-answer';
 
 function detail(over: Partial<CaseFileDetail> = {}): CaseFileDetail {
@@ -120,23 +120,6 @@ describe('the confirm', () => {
     });
 });
 
-describe('thinkingLines', () => {
-    it('lists tool calls in mono and other steps by type, dropping assistant text and tool results', () => {
-        const lines = thinkingLines([
-            { at: '1', type: 'route', detail: {} },
-            { at: '2', type: 'assistant', detail: 'x' },
-            { at: '3', type: 'tool_call', tool: 'get_board' },
-            { at: '4', type: 'tool_result', tool: 'get_board' },
-            { at: '5', type: 'tool_error', tool: 'draft_reply' },
-        ]);
-        expect(lines.map((l) => [l.label, l.mono, l.failed])).toEqual([
-            ['route', false, false],
-            ['get_board', true, false],
-            ['draft_reply', true, true],
-        ]);
-    });
-});
-
 describe('latestAnswered', () => {
     const base = { sessionId: 's', createdAt: '2026-09-17T09:00:00.000Z' };
     const words: OpsAnswer = { finalText: 'One', surface: { type: 'words' } };
@@ -150,7 +133,7 @@ describe('latestAnswered', () => {
             { ...base, id: 'a2', role: 'assistant', content: 'Two', answer: floor },
             { ...base, id: 'u3', role: 'user', content: 'still running' },
         ];
-        expect(latestAnswered(messages)).toEqual({ id: 'a2', at: base.createdAt, ask: { text: 'show the floor', via: 'voice' }, answer: floor });
+        expect(latestAnswered(messages)).toEqual({ id: 'a2', at: base.createdAt, ask: { text: 'show the floor', via: 'voice' }, answer: floor, message: messages[3] });
     });
 
     it('skips assistant rows without an answer, defaults via to typed, and is null with no answer', () => {
@@ -161,5 +144,13 @@ describe('latestAnswered', () => {
         ])).toMatchObject({ id: 'a1', ask: { text: 'hi', via: 'typed' } });
         expect(latestAnswered([{ ...base, id: 'a1', role: 'assistant', content: 'x', answer: words }])?.ask).toBeNull();
         expect(latestAnswered([])).toBeNull();
+    });
+
+    it('reads as a settled exchange for the answer card, with no "You said" when nothing asked it', () => {
+        const row: AskMessageDTO = { ...base, id: 'a1', role: 'assistant', content: 'One', answer: words, transcript: [{ at: '1', type: 'route' }] };
+        const asked = latestAnswered([{ ...base, id: 'u1', role: 'user', content: 'hi', via: 'tap' }, row])!;
+        expect(exchangeOfAnswered(asked)).toEqual({ ask: { text: 'hi', via: 'tap' }, answer: row, steps: [{ at: '1', type: 'route' }], live: false, failed: false });
+        const unasked = latestAnswered([{ ...row, transcript: null }])!;
+        expect(exchangeOfAnswered(unasked)).toMatchObject({ ask: { text: '' }, steps: [], live: false });
     });
 });

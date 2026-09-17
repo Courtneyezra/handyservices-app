@@ -1,20 +1,27 @@
 /**
- * Handy Desk T3 - the answer card renders each surface type the contract carries, the outgoing
- * tiles and the confirm footer; confirm posts only to send-held-draft, a refusal reads as the desk
- * said it (with the template offer on a shut window), and the thinking state shows the run's steps
- * with the last one amber.
+ * Handy Desk T3 - the one answer card (AnswerCard, with AnswerSurfaceBody under its reply) renders
+ * each surface type the contract carries, the outgoing tiles and the confirm footer; confirm posts
+ * only to send-held-draft with the tile's draft as expected, and a refusal reads as the desk said it
+ * (with the template offer on a shut window). The thinking state is covered in HandyDeskAsk.test.tsx.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { mockFetch } from '@test-utils';
-import type { OpsAnswer } from '@shared/ops-types';
-import { AnswerCard } from '@/components/handy-desk/AnswerSurface';
-import type { AnsweredAsk } from '@/lib/handy-desk-answer';
+import type { AskVia, OpsAnswer } from '@shared/ops-types';
+import { AnswerCard } from '@/components/handy-desk/AnswerCard';
+import type { AskExchange } from '@/lib/handy-desk-ask';
 
-function answered(answer: OpsAnswer, ask: AnsweredAsk['ask'] = { text: 'What did Sam say?', via: 'voice' }, at = new Date(Date.now() - 5 * 60_000).toISOString()): AnsweredAsk {
-    return { id: 'a1', at, ask, answer };
+function answered(answer: OpsAnswer, ask: { text: string; via: AskVia } = { text: 'What did Sam say?', via: 'voice' }, at = new Date(Date.now() - 5 * 60_000).toISOString()): AskExchange {
+    return {
+        ask,
+        answer: { id: 'a1', sessionId: 's1', role: 'assistant', content: answer.finalText, answer, createdAt: at },
+        steps: [],
+        live: false,
+        failed: false,
+    };
 }
+const close = () => {};
 
 const DRAFTED: OpsAnswer = {
     finalText: 'I drafted a reply to Sam.',
@@ -32,23 +39,23 @@ const DRAFTED: OpsAnswer = {
 
 describe('AnswerCard', () => {
     it('shows what was said, the reply, the thread, the outgoing tile and the confirm', () => {
-        render(<AnswerCard answered={answered(DRAFTED)} speakerNames={{ 'ben@example.test': 'Ben' }} onChange={() => {}} />);
+        render(<AnswerCard onClose={close} exchange={answered(DRAFTED)} speakerNames={{ 'ben@example.test': 'Ben' }} onChange={() => {}} />);
         expect(screen.getByText('You said · voice')).toBeInTheDocument();
-        expect(screen.getByTestId('answer-you-said')).toHaveTextContent('What did Sam say?');
-        expect(screen.getByTestId('answer-reply')).toHaveTextContent('I drafted a reply to Sam.');
+        expect(screen.getByTestId('handy-desk-said')).toHaveTextContent('What did Sam say?');
+        expect(screen.getByTestId('handy-desk-reply')).toHaveTextContent('I drafted a reply to Sam.');
         expect(screen.getByTestId('surface-turn-t1')).toHaveTextContent('Sam Reed');
         expect(screen.getByTestId('surface-turn-t2')).toHaveTextContent('Ben');
         expect(screen.getByTestId('answer-outgoing-tile')).toHaveTextContent('WhatsApp · +447700900942');
         expect(screen.getByTestId('answer-outgoing-tile')).toHaveTextContent('Hi Sam, let me check the diary.');
         expect(screen.getByTestId('answer-outgoing-age')).toHaveTextContent('drafted 5 min ago');
-        expect(screen.getByTestId('answer-note')).toHaveTextContent('Held on the card for you to send.');
+        expect(screen.getByTestId('handy-desk-note')).toHaveTextContent('Held on the card for you to send.');
         expect(screen.getByRole('button', { name: 'Send as is' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Change something' })).toBeInTheDocument();
     });
 
     it('a words answer has no body, no tiles and no confirm', () => {
-        render(<AnswerCard answered={answered({ finalText: 'No money actions yet.', surface: { type: 'words' } })} />);
-        expect(screen.getByTestId('answer-reply')).toHaveTextContent('No money actions yet.');
+        render(<AnswerCard onClose={close} exchange={answered({ finalText: 'No money actions yet.', surface: { type: 'words' } })} />);
+        expect(screen.getByTestId('handy-desk-reply')).toHaveTextContent('No money actions yet.');
         expect(screen.queryByTestId(/^answer-body-/)).toBeNull();
         expect(screen.queryByTestId('answer-outgoing')).toBeNull();
         expect(screen.queryByTestId('answer-confirm')).toBeNull();
@@ -57,7 +64,7 @@ describe('AnswerCard', () => {
     it('confirm posts send-held-draft with the tile\'s draft as expected, and shows the done state', async () => {
         const { calls } = mockFetch([{ method: 'POST', url: '/api/comms-v2/case-files/case_sam/send-held-draft', reply: () => ({ json: { ok: true } }) }]);
         const onConfirmed = vi.fn();
-        render(<AnswerCard answered={answered(DRAFTED)} onConfirmed={onConfirmed} />);
+        render(<AnswerCard onClose={close} exchange={answered(DRAFTED)} onConfirmed={onConfirmed} />);
         await userEvent.click(screen.getByRole('button', { name: 'Send as is' }));
         expect(await screen.findByTestId('answer-done')).toHaveTextContent('Sent to +447700900942 on WhatsApp.');
         expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/comms-v2/case-files/case_sam/send-held-draft']);
@@ -72,7 +79,7 @@ describe('AnswerCard', () => {
             { method: 'POST', url: '/api/comms-v2/case-files/case_sam/send-held-draft', reply: () => ({ status: 409, json: { error: shut } }) },
             { method: 'POST', url: '/api/comms-v2/case-files/case_sam/send-template', reply: () => ({ status: 409, json: { error: 'no template is true for this thread' } }) },
         ]);
-        render(<AnswerCard answered={answered(DRAFTED)} />);
+        render(<AnswerCard onClose={close} exchange={answered(DRAFTED)} />);
         await userEvent.click(screen.getByRole('button', { name: 'Send as is' }));
         expect(await screen.findByTestId('answer-confirm-error')).toHaveTextContent(shut);
         await userEvent.click(screen.getByRole('button', { name: 'Send a template reply' }));
@@ -94,7 +101,7 @@ describe('AnswerCard', () => {
             },
             { url: '/api/comms-v2/case-files/case_sam', reply: () => ({ json: { id: 'case_sam', hold: { approver: { kind: 'human', id: 'ben' }, reason: 'r', since: new Date().toISOString(), draft: 'Hi Sam, Tuesday 10am is free.' } } }) },
         ]);
-        render(<AnswerCard answered={answered(DRAFTED)} />);
+        render(<AnswerCard onClose={close} exchange={answered(DRAFTED)} />);
         await userEvent.click(screen.getByRole('button', { name: 'Send as is' }));
         await waitFor(() => expect(screen.getByTestId('answer-outgoing-tile')).toHaveTextContent('Hi Sam, Tuesday 10am is free.'));
         expect(screen.getByTestId('answer-outgoing-tile')).not.toHaveTextContent('let me check the diary');
@@ -116,7 +123,7 @@ describe('AnswerCard', () => {
     it('an answer from an earlier London day offers no send and says why', () => {
         const { calls } = mockFetch([]);
         const yesterday = new Date(Date.now() - 26 * 3_600_000).toISOString();
-        render(<AnswerCard answered={answered(DRAFTED, undefined, yesterday)} onChange={() => {}} />);
+        render(<AnswerCard onClose={close} exchange={answered(DRAFTED, undefined, yesterday)} onChange={() => {}} />);
         expect(screen.getByTestId('answer-outgoing-tile')).toHaveTextContent('Hi Sam, let me check the diary.');
         expect(screen.getByTestId('answer-outgoing-age')).toHaveTextContent('drafted 1 day ago');
         expect(screen.queryByTestId('answer-confirm')).toBeNull();
@@ -128,7 +135,7 @@ describe('AnswerCard', () => {
 
     it('a 403 reads as no approver slot, not a retry', async () => {
         mockFetch([{ method: 'POST', url: '/api/comms-v2/case-files/case_sam/send-held-draft', reply: () => ({ status: 403, json: { error: 'no approver slot is assigned to this user' } }) }]);
-        render(<AnswerCard answered={answered(DRAFTED)} />);
+        render(<AnswerCard onClose={close} exchange={answered(DRAFTED)} />);
         await userEvent.click(screen.getByRole('button', { name: 'Send as is' }));
         await waitFor(() => expect(screen.getByTestId('answer-confirm-error')).toHaveTextContent("You can't act on this desk"));
         expect(screen.queryByRole('button', { name: 'Send a template reply' })).toBeNull();
@@ -136,7 +143,7 @@ describe('AnswerCard', () => {
 
     it('"Change something" hands the sentence back', async () => {
         const onChange = vi.fn();
-        render(<AnswerCard answered={answered(DRAFTED)} onChange={onChange} />);
+        render(<AnswerCard onClose={close} exchange={answered(DRAFTED)} onChange={onChange} />);
         await userEvent.click(screen.getByRole('button', { name: 'Change something' }));
         expect(onChange).toHaveBeenCalledWith('What did Sam say?');
     });
@@ -147,7 +154,7 @@ describe('AnswerCard', () => {
             id, stage: 'scoping' as const, held, holdReason: held ? 'money question' : null, holdSince: null, hasDraft: false,
             customerName: 'Rob Hale', customerAddress: 'phone:07700900111', jobType: null, location: null, lastCustomerMessageAt: null,
         });
-        render(<AnswerCard answered={answered({
+        render(<AnswerCard onClose={close} exchange={answered({
             finalText: 'Here is the floor.',
             surface: { type: 'floor', bays: stages.map((stage) => ({ stage, cards: stage === 'scoping' ? [card('c1', true), card('c2', false)] : [] })) },
         })} />);
@@ -160,7 +167,7 @@ describe('AnswerCard', () => {
     });
 
     it('renders the diary, quote, ledger and map surfaces the contract types', () => {
-        const { unmount } = render(<AnswerCard answered={answered({
+        const { unmount } = render(<AnswerCard onClose={close} exchange={answered({
             finalText: 'Diary.',
             surface: {
                 type: 'diary', weekStart: '2026-09-14', changed: ['k1:2026-09-15:am'],
@@ -176,7 +183,7 @@ describe('AnswerCard', () => {
         expect(screen.getByTestId('diary-k1-2026-09-15-pm')).toHaveAttribute('data-look', 'off');
         unmount();
 
-        const q = render(<AnswerCard answered={answered({
+        const q = render(<AnswerCard onClose={close} exchange={answered({
             finalText: 'Quote.',
             surface: { type: 'quote', lines: [{ label: 'Hang door', note: 'two hinges', pence: 8500 }, { label: 'Materials', pence: 5550 }], totalPence: 14050 },
         })} />);
@@ -184,7 +191,7 @@ describe('AnswerCard', () => {
         expect(screen.getByTestId('surface-quote-total')).toHaveTextContent('£140.50');
         q.unmount();
 
-        const l = render(<AnswerCard answered={answered({
+        const l = render(<AnswerCard onClose={close} exchange={answered({
             finalText: 'Ledger.',
             surface: { type: 'ledger', rows: [
                 { phone: 'p1', name: 'Gemma', pence: 14000, daysLate: 20, chased: 'Chased twice' },
@@ -195,28 +202,11 @@ describe('AnswerCard', () => {
         expect(screen.getByTestId('ledger-late-p2').className).not.toMatch(/text-amber-700/);
         l.unmount();
 
-        render(<AnswerCard answered={answered({
+        render(<AnswerCard onClose={close} exchange={answered({
             finalText: 'Map.',
             surface: { type: 'map', jobs: [{ quoteId: 'q1', customerName: 'Sam', lat: 0, lng: 0, postcode: 'NG1', categories: [] }], contractors: [] },
         })} />);
         expect(screen.getByTestId('surface-map')).toHaveTextContent('Sam');
         expect(screen.getByTestId('surface-map')).toHaveTextContent('1 jobs · 0 contractors');
-    });
-
-    it('while pending, shows the ask and the run steps with the last one amber, and no footer', () => {
-        render(<AnswerCard
-            answered={answered(DRAFTED)}
-            pending
-            pendingAsk={{ text: 'Draft Sam a reply', via: 'typed' }}
-            steps={[{ at: '1', type: 'route' }, { at: '2', type: 'tool_call', tool: 'get_case_file' }]}
-        />);
-        expect(screen.getByTestId('answer-you-said')).toHaveTextContent('Draft Sam a reply');
-        const steps = screen.getAllByTestId('answer-thinking-step');
-        expect(steps.map((s) => s.textContent)).toEqual(['route', 'get_case_file']);
-        expect(steps[1]).toHaveAttribute('data-last', 'true');
-        expect(steps[1].querySelector('span')!.className).toMatch(/bg-amber-400/);
-        expect(steps[0].querySelector('span')!.className).toMatch(/bg-green-600/);
-        expect(screen.queryByTestId('answer-reply')).toBeNull();
-        expect(screen.queryByTestId('answer-confirm')).toBeNull();
     });
 });

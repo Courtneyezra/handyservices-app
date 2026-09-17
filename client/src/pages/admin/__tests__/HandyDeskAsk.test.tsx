@@ -93,7 +93,8 @@ describe('HandyDesk ask bar', () => {
         expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('I have held a reply for Rob.');
         expect(screen.queryByTestId('handy-desk-thinking')).toBeNull();
         expect(screen.getByTestId('handy-desk-surface')).toHaveTextContent('Hi Rob, we will give you a call.');
-        // Nothing on the answer sends: the draft goes from its card.
+        // Nothing sends until he confirms: the answer offers its confirm, and nothing was posted.
+        expect(screen.getByRole('button', { name: 'Send it' })).toBeInTheDocument();
         expect(calls.filter((c) => c.method === 'POST' && c.url.startsWith('/api/comms-v2/case-files/'))).toHaveLength(0);
 
         await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));

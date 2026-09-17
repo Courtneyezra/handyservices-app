@@ -15,11 +15,11 @@
  * card's copy lives in client/src/lib/handy-desk-queue.ts.
  *
  * The ask bar (T2) asks the new desk's ask agent (/api/comms-v2/ask, useAskSession); while it runs
- * the answer surface shows the thinking card, then the answer (AnswerCard), until Ben closes it.
- *
- * The right-hand side (T3) is the answer surface (client/src/components/handy-desk/AnswerSurface.tsx):
- * the ask agent's newest OpsAnswer on the person's session, until a card is selected, which shows
- * that card's thread through the same `thread` renderer (client/src/lib/handy-desk-answer.ts).
+ * the answer surface shows the thinking card, then the answer, until Ben closes it. With no ask on
+ * screen, the right-hand side shows the newest answer on the person's newest session until a card is
+ * selected or the answer is closed; a selected card shows its thread through the same `thread`
+ * renderer (client/src/lib/handy-desk-answer.ts). Both answers render in the one AnswerCard, whose
+ * body (client/src/components/handy-desk/AnswerSurface.tsx, T3) carries the typed surface and confirm.
  */
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -28,12 +28,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { useOldComms } from '@/hooks/useOldComms';
 import { useAskSession } from '@/hooks/useAskSession';
 import { cn } from '@/lib/utils';
-import { AnswerCard as AskAnswerCard } from '@/components/handy-desk/AnswerCard';
+import { AnswerCard } from '@/components/handy-desk/AnswerCard';
 import { AskBar } from '@/components/handy-desk/AskBar';
 import type { AskMessageDTO, AskVia, OpsSessionDTO } from '@shared/ops-types';
-import { AnswerCard, SurfaceBody } from '@/components/handy-desk/AnswerSurface';
+import { SurfaceBody } from '@/components/handy-desk/AnswerSurface';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
-import { latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
+import { exchangeOfAnswered, latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
     ACTION_ROUTE, isShutWindow, needsWords, queueCardCopy, queueQuery, refusalMessage, selectionOf,
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem,
@@ -329,6 +329,13 @@ export default function HandyDesk() {
         return ok;
     };
 
+    // Closing the asked answer puts the newest answer away too, so the same answer does not reappear under it.
+    const closeAsked = () => {
+        setShowAnswer(false);
+        const shown = exchange?.answer?.id;
+        if (shown && latest?.id === shown) setDismissedAnswer(shown);
+    };
+
     const select = (item: QueueItem) => {
         setSelection(selectionOf(item));
         setDismissedAnswer(latest === undefined ? FIRST_LOAD : latest?.id ?? null);
@@ -378,9 +385,9 @@ export default function HandyDesk() {
                 <section aria-label="Answer" className="flex min-h-[50vh] flex-col bg-slate-50 lg:min-h-0">
                     <div className="flex-1 px-4 py-6 sm:px-8 lg:overflow-y-auto">
                         {exchange && (showAnswer || exchange.live) ? (
-                            <AskAnswerCard exchange={exchange} onClose={() => setShowAnswer(false)} />
+                            <AnswerCard exchange={exchange} onClose={closeAsked} onConfirmed={handleHandled} />
                         ) : answered ? (
-                            <AnswerCard key={answered.id} answered={answered} onConfirmed={handleHandled} />
+                            <AnswerCard key={answered.id} exchange={exchangeOfAnswered(answered)} onClose={() => setDismissedAnswer(answered.id)} onConfirmed={handleHandled} />
                         ) : selection ? (
                             <SelectedThread key={selection.caseFileId} selection={selection} />
                         ) : (

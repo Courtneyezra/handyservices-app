@@ -10,8 +10,9 @@
  * `thread` surface mapped here from GET /api/comms-v2/case-files/:id.
  */
 import type {
-    AnswerSurface, AskMessageDTO, AskVia, CaseStage, ConfirmAction, LeanRunStep, OpsAnswer, OpsOutgoing, SurfaceTurn,
+    AnswerSurface, AskMessageDTO, AskVia, CaseStage, ConfirmAction, OpsAnswer, OpsOutgoing, SurfaceTurn,
 } from '@shared/ops-types';
+import type { AskExchange } from '@/lib/handy-desk-ask';
 import type { CaseFileDetail, Turn } from '@/pages/admin/CommsV2BoardPage';
 
 export type ThreadSurface = Extract<AnswerSurface, { type: 'thread' }>;
@@ -80,8 +81,6 @@ export const STAGE_LABEL: Record<CaseStage, string> = {
     booked: 'Booked',
     done: 'Done',
 };
-
-export const VIA_LABEL: Record<AskVia, string> = { typed: 'typed', voice: 'voice', tap: 'tap' };
 
 export const CHANNEL_LABEL: Record<OpsOutgoing['channel'], string> = { wa: 'WhatsApp', sms: 'SMS', email: 'Email' };
 
@@ -187,27 +186,6 @@ export function ageLabel(at: string, now: Date): string {
     return `${days} ${days === 1 ? 'day' : 'days'} ago`;
 }
 
-// ---------------------------------------------------------------- the thinking card
-
-/** One line of the thinking card: the tool (in mono) or the step type, and whether it errored. */
-export interface ThinkingLine {
-    key: string;
-    label: string;
-    mono: boolean;
-    failed: boolean;
-}
-
-export function thinkingLines(steps: readonly LeanRunStep[]): ThinkingLine[] {
-    return steps
-        .filter((s) => s.type !== 'assistant' && s.type !== 'tool_result')
-        .map((s, i) => ({
-            key: `${i}-${s.at}`,
-            label: s.tool ?? s.type,
-            mono: !!s.tool,
-            failed: s.type === 'tool_error' || s.type === 'error',
-        }));
-}
-
 // ---------------------------------------------------------------- the newest answer on a session
 
 /** The newest answered ask on a session: the assistant row carrying an answer, with the ask before it. */
@@ -216,6 +194,8 @@ export interface AnsweredAsk {
     at: string;
     ask: { text: string; via: AskVia } | null;
     answer: OpsAnswer;
+    /** The assistant row itself, for the answer card. */
+    message: AskMessageDTO;
 }
 
 export function latestAnswered(messages: readonly AskMessageDTO[]): AnsweredAsk | null {
@@ -229,7 +209,18 @@ export function latestAnswered(messages: readonly AskMessageDTO[]): AnsweredAsk 
                 break;
             }
         }
-        return { id: m.id, at: m.createdAt, ask, answer: m.answer };
+        return { id: m.id, at: m.createdAt, ask, answer: m.answer, message: m };
     }
     return null;
+}
+
+/** A settled answer as the answer card takes it; an answer with no ask before it shows no "You said". */
+export function exchangeOfAnswered(answered: AnsweredAsk): AskExchange {
+    return {
+        ask: answered.ask ?? { text: '', via: 'typed' },
+        answer: answered.message,
+        steps: answered.message.transcript ?? [],
+        live: false,
+        failed: false,
+    };
 }
