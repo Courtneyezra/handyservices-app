@@ -1364,7 +1364,7 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                                     const children = await db.select({ quoteId: invoices.quoteId }).from(invoices)
                                         .where(inArray(invoices.id, notesData.childInvoiceIds));
                                     const { fileDone } = await import('./comms-v2/file-close');
-                                    for (const quoteId of new Set(children.map((c) => c.quoteId).filter((q): q is string => !!q))) {
+                                    for (const quoteId of Array.from(new Set(children.map((c) => c.quoteId).filter((q): q is string => !!q)))) {
                                         await fileDone(quoteId, null, 'invoice_paid');
                                     }
                                 })().catch((e) => console.error('[Stripe Webhook] comms-v2 file close for child invoices failed:', e));
