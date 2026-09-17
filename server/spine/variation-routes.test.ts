@@ -6,9 +6,11 @@
  */
 import express from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { getTableColumns, type Table } from 'drizzle-orm';
 import { handymanProfiles, contractorBookingRequests, personalizedQuotes, jobDispatches } from '@shared/schema';
 
 const notifyVariationToPrice = vi.fn(async () => {});
+const inserted: Record<string, unknown>[] = [];
 
 vi.mock('../pushover', () => ({ notifyVariationToPrice }));
 vi.mock('./price-screen', () => ({ resolveConversationForQuote: vi.fn(async () => null) }));
@@ -44,12 +46,19 @@ vi.mock('../db', () => ({
                 };
             },
         }),
-        insert: (_table: unknown) => ({
+        // Like drizzle, keep only the keys the table declares, and like the database's
+        // dispatch_variations_has_parent check, refuse a row with neither parent.
+        insert: (table: Table) => ({
             values: (vals: Record<string, unknown>) => ({
-                returning: async () => [{
-                    id: 'dv_test0001', status: 'pending', createdAt: new Date('2026-09-03T09:00:00.000Z'),
-                    ...vals,
-                }],
+                returning: async () => {
+                    const declared = getTableColumns(table);
+                    const row = Object.fromEntries(Object.entries(vals).filter(([k]) => k in declared));
+                    if (row.dispatchId == null && row.bookingId == null) {
+                        throw new Error('new row for relation "dispatch_variations" violates check constraint "dispatch_variations_has_parent"');
+                    }
+                    inserted.push(row);
+                    return [{ id: 'dv_test0001', status: 'pending', createdAt: new Date('2026-09-03T09:00:00.000Z'), ...row }];
+                },
             }),
         }),
         update: (_table: unknown) => ({ set: () => ({ where: async () => {} }) }),
@@ -82,6 +91,8 @@ describe('POST /api/contractor-app/:token/jobs/:bookingId/variation — no dispa
         expect(res.status).toBe(200);
         const json = await res.json() as any;
         expect(json.ok).toBe(true);
+        expect(inserted).toHaveLength(1);
+        expect(inserted[0]).toMatchObject({ dispatchId: null, bookingId: BOOKING_ID });
 
         expect(notifyVariationToPrice).toHaveBeenCalledTimes(1);
         const call = notifyVariationToPrice.mock.calls[0][0] as any;
