@@ -13,7 +13,8 @@ import { useCommsEvents, type CommsEvent } from '@/hooks/useCommsEvents';
 import type { AskMessageDTO, AskVia, OpsSessionDTO } from '@shared/ops-types';
 import type { DeskSelection } from '@/lib/handy-desk-queue';
 import {
-    ASK_BASE, applyAskEvent, askBody, askRefusal, currentExchange, type AskRun, type PendingAsk,
+    ASK_BASE, LIVE_RUN_POLL_MS, applyAskEvent, askBody, askRefusal, currentExchange, settleRun,
+    type AskRun, type PendingAsk,
 } from '@/lib/handy-desk-ask';
 
 function authHeaders(): Record<string, string> {
@@ -61,9 +62,23 @@ export function useAskSession() {
         queryFn: () => askFetch<SessionDetail>('GET', `/sessions/${sessionId}`),
         enabled: !!sessionId,
         staleTime: 15_000,
+        refetchInterval: run && !run.finished ? LIVE_RUN_POLL_MS : false,
     });
 
     useEffect(() => { setRun(null); setPending(null); }, [sessionId]);
+
+    const invalidateHeldDrafts = useCallback(() => {
+        // A run may have held a draft on a file: the queue card shows it.
+        queryClient.invalidateQueries({ queryKey: ['comms-v2-queue'] });
+        queryClient.invalidateQueries({ queryKey: ['comms-v2-case-file'] });
+    }, [queryClient]);
+
+    useEffect(() => {
+        const settled = settleRun(run, detail.data?.messages ?? []);
+        if (settled === run) return;
+        setRun(settled);
+        invalidateHeldDrafts();
+    }, [run, detail.data, invalidateHeldDrafts]);
 
     useCommsEvents(useCallback((evt: CommsEvent) => {
         if (!sessionId) return;
@@ -71,12 +86,8 @@ export function useAskSession() {
         if (applyAskEvent(null, evt, sessionId).effect === 'refetch') {
             queryClient.invalidateQueries({ queryKey: ['comms-v2-ask-session', sessionId] });
         }
-        if (evt.type === 'ops_run_finished' && evt.sessionId === sessionId) {
-            // A run may have held a draft on a file: the queue card shows it.
-            queryClient.invalidateQueries({ queryKey: ['comms-v2-queue'] });
-            queryClient.invalidateQueries({ queryKey: ['comms-v2-case-file'] });
-        }
-    }, [sessionId, queryClient]));
+        if (evt.type === 'ops_run_finished' && evt.sessionId === sessionId) invalidateHeldDrafts();
+    }, [sessionId, queryClient, invalidateHeldDrafts]));
 
     const ask = useCallback(async (text: string, via: AskVia, selection: DeskSelection | null): Promise<boolean> => {
         const body = askBody(text, via, selection);

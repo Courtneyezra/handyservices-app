@@ -48,6 +48,19 @@ export interface AskRun {
 
 export type AskEventEffect = 'none' | 'refetch';
 
+/** How often the session detail is re-read while a run is live, so a missed finish event cannot hold the bar. */
+export const LIVE_RUN_POLL_MS = 5_000;
+
+/**
+ * A live run whose answer row is already in the session detail has finished, whether or not its
+ * ops_run_finished event arrived (a dropped stream, or a server restart mid-run).
+ */
+export function settleRun(run: AskRun | null, messages: AskMessageDTO[]): AskRun | null {
+    if (!run || run.finished) return run;
+    const answered = messages.some((m) => m.role === 'assistant' && m.runId === run.runId);
+    return answered ? { ...run, finished: { ok: true } } : run;
+}
+
 /**
  * Fold one comms event into the session's live run. Events for other sessions (another person's,
  * or the old Ops Manager's dock) are ignored. `refetch` means a message row landed and the session

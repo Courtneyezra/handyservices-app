@@ -97,6 +97,27 @@ describe('HandyDesk ask bar', () => {
         expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
     });
 
+    it('settles the run from the polled session when the finish event never arrives', async () => {
+        const { setMessages } = setup();
+        renderWithQuery(<HandyDesk />);
+        await screen.findByTestId('queue-card-case_rob');
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Show me the floor' })).toBeEnabled());
+        await userEvent.click(screen.getByRole('button', { name: 'Show me the floor' }));
+        expect(await screen.findByTestId('handy-desk-thinking')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'What needs me?' })).toBeDisabled();
+
+        // The server restarted mid-run: the answer row landed but no ops_* event ever will.
+        setMessages([
+            { id: 'u1', sessionId: 'sess_1', role: 'user', content: 'Show me the floor', via: 'tap', createdAt: AT } as AskMessageDTO,
+            { id: 'a1', sessionId: 'sess_1', role: 'assistant', content: 'Two files need you.', runId: 'run_1', createdAt: AT } as AskMessageDTO,
+        ]);
+
+        expect(await screen.findByTestId('handy-desk-reply', {}, { timeout: 8_000 })).toHaveTextContent('Two files need you.');
+        expect(screen.queryByTestId('handy-desk-thinking')).toBeNull();
+        expect(screen.getByRole('button', { name: 'What needs me?' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Back to the conversation' })).toBeInTheDocument();
+    }, 15_000);
+
     it('a chip asks as a tap with no context when nothing is selected', async () => {
         const { calls } = setup();
         renderWithQuery(<HandyDesk />);

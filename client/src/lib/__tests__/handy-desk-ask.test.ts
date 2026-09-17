@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AskMessageDTO, LeanRunStep } from '@shared/ops-types';
 import {
-    applyAskEvent, askBody, askRefusal, currentExchange, suggestions, thinkingLines, type AskRun,
+    applyAskEvent, askBody, askRefusal, currentExchange, settleRun, suggestions, thinkingLines, type AskRun,
 } from '@/lib/handy-desk-ask';
 
 const AT = '2026-09-17T09:00:00.000Z';
@@ -59,6 +59,22 @@ describe('applyAskEvent', () => {
         const joined = applyAskEvent(null, { type: 'ops_run_event', sessionId: 's1', runId: 'r2', step, at: AT }, 's1').run;
         expect(joined).toEqual({ runId: 'r2', steps: [step], finished: null });
         expect(applyAskEvent(joined, { type: 'ops_message', sessionId: 's1', message: msg({}), at: AT }, 's1')).toEqual({ run: joined, effect: 'refetch' });
+    });
+});
+
+describe('settleRun', () => {
+    const live: AskRun = { runId: 'run_1', steps: [], finished: null };
+
+    it('finishes a live run once its answer row is in the session, with no finish event', () => {
+        const messages = [msg({ role: 'user' }), msg({ role: 'assistant', runId: 'run_1' })];
+        expect(settleRun(live, messages)).toEqual({ ...live, finished: { ok: true } });
+    });
+
+    it('leaves a run alone with no answer row for it, or once already finished', () => {
+        expect(settleRun(live, [msg({ role: 'assistant', runId: 'run_0' })])).toBe(live);
+        const failed: AskRun = { ...live, finished: { ok: false } };
+        expect(settleRun(failed, [msg({ role: 'assistant', runId: 'run_1' })])).toBe(failed);
+        expect(settleRun(null, [])).toBeNull();
     });
 });
 
