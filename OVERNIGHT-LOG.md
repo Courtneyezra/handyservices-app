@@ -180,3 +180,36 @@ round (below).
   where best to leave it" and raised no hold, because the question reads as a job ask — the thread
   went on to draft a quote for Ben, so the question reaches him on the card, but the deferral itself
   is unrecorded.
+- Round 8 (17 Sep 2026) — photos and video on an enquiry, WhatsApp, driven on the app's own comms-v2
+  sandbox door against the branch database (a synthetic leaking-tap photo and a synthetic
+  dropped-door video generated for the drive; no real customer media). The finding is live and
+  reproduced on the desk and then straight against the provider: a photo on an enquiry was **not
+  described at all**. Tessa's "it is coming from round the bottom of the tap where it meets the
+  worktop" with the photo attached logged `[describe_video] ... attempt 1 failed (no JSON object in
+  model reply); retrying once` and then `no description after 2 attempt(s)`, so no `media_image`
+  fact was written, the photo added nothing to the scope, and the reply fell back to the
+  no-description wording ("Thanks for the photo too") with no detail off it — behaviour.md answer
+  92's one light detail never happens. The cause is the output ceiling: `callGemini`
+  (`server/spine/tools/describe-video.ts`) asked for `maxOutputTokens: 1024`, and Gemini 3 Flash
+  thinks on every call and cannot be told not to (the module's own T14 note), with Google counting
+  those thinking tokens against that same ceiling. Replaying the desk's exact request five times
+  against the provider: thinking cost 658, 749, 891, 965 and 979 tokens, and three of the five came
+  back `finishReason: MAX_TOKENS` with the JSON cut mid-object — so roughly half of all photo and
+  video descriptions die, silently and at random, the desk only ever seeing "no JSON object in model
+  reply". Fix: `MAX_OUTPUT_TOKENS` (4096) with the measurement written down beside it, and a reply
+  cut at the ceiling now says so ("gemini reply was cut at maxOutputTokens (4096); thinking tokens
+  count against it") instead of being reported as a model that answered off-schema, classified
+  `reply` and retried as before. Two regression tests in `describe-video.test.ts` (the request's
+  ceiling clears the measured thinking plus a description; a `MAX_TOKENS` reply is named, retried
+  once and never cached) — both fail without the fix. Not an ESCALATE: nothing wrong went to the
+  customer and no figure moved; the cost is every photo and video the desk half the time never
+  reads, and a quote brief built without it. Re-driven live on a restarted door: the same photo is
+  now described (`media_image`: chrome swan-neck tap, water pooling, green limescale at the base
+  flange) and the reply is three bubbles of 100/79/41 characters opening "Thanks for the photo
+  Tessa, that's really helpful. I can see the water pooling on the worktop there." — one light
+  detail, no defect, no brand, no mention of what is not shown. The next turn (postcode and "it's a
+  mixer tap") does not thank for the photo again, the media ledger reading thanked once. A second
+  thread with a video and a photo in the same turn described both, recorded `media_video` and
+  `media_image`, and answered in two bubbles: "both came through fine. I can see the door catching
+  on the frame in the video, and the water pooling on the worktop in the photo." — one light detail
+  each, every guard passing and no hold.
