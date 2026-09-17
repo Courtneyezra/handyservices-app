@@ -120,6 +120,21 @@ export function heldAckLine(turn: Pick<Turn, 'media'>, file: Pick<CaseFile, 'led
     return { kind: 'held_ack', text, kbId: null };
 }
 
+/**
+ * Whether an outbound text is the held acknowledgement and nothing else: the fixed line as it stands,
+ * or naming what the turn brought ("Thanks for the photos and the video, leave it with me..."). A
+ * send record keeps no fixed-line kind, so the wording `heldAckLine` writes is the only record; it
+ * says nothing about the customer's question, so a template send does not count it as an answer
+ * (human-reply.ts `unansweredQuestion`).
+ */
+export function isHeldAckText(text: string): boolean {
+    const t = text.trim();
+    if (t === DEFAULT_FIXED_LINES.held_ack) return true;
+    const rest = DEFAULT_FIXED_LINES.held_ack.replace(/^Thanks,/, '');
+    const m = /^Thanks for the (.+?),(.*)$/s.exec(t);
+    return !!m && m[2] === rest && /^(?:photos?|videos?)(?: and the videos?)?$/.test(m[1]);
+}
+
 /** Media that arrived longer ago than this before the turn being answered is thanked for as late. */
 export const LATE_MEDIA_MS = 30 * 60 * 1000;
 
