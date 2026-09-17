@@ -22,7 +22,7 @@ export const HANDY_DESK_PATH = "/admin/handy-desk";
  * The held-count badge's query. Same query key and interval as Handy Desk's own queue
  * (client/src/lib/handy-desk-queue.ts), so the header and the page share one cached fetch; queue
  * items are exactly the held case files, so items.length is the held count
- * (server/comms-v2/api/queue.ts). Off for VAs, who have no Handy Desk links.
+ * (server/comms-v2/api/queue.ts). The shell passes enabled=false for VAs, who get no quick links.
  */
 export function useHeldCount(enabled: boolean): { heldCount: number | null; updatedAt: number } {
     const { data, dataUpdatedAt } = useQuery<DeskQueue>({
@@ -65,6 +65,7 @@ export function QuickLinks({ variant, location, heldCount, updatedAt, onNavigate
     const linkClass = (active: boolean) => cn(
         "flex items-center gap-1.5 rounded-md text-sm font-medium transition-colors",
         vertical ? "px-3 py-2.5" : "px-3 py-2",
+        desk && "shrink-0 whitespace-nowrap",
         desk
             ? (active ? "bg-slate-800 text-amber-400" : "text-slate-300 hover:bg-slate-800 hover:text-white")
             : (active ? "bg-slate-900 text-amber-400" : "text-muted-foreground hover:text-foreground hover:bg-muted"),
@@ -89,7 +90,7 @@ export function QuickLinks({ variant, location, heldCount, updatedAt, onNavigate
                 data-testid={`topbar-link-diary-${variant}`}
                 className={cn(
                     "flex cursor-not-allowed items-center gap-1.5 rounded-md text-sm font-medium",
-                    desk ? "text-slate-500" : "text-muted-foreground/50",
+                    desk ? "shrink-0 whitespace-nowrap text-slate-500" : "text-muted-foreground/50",
                     vertical ? "px-3 py-2.5" : "px-3 py-2",
                 )}
             >

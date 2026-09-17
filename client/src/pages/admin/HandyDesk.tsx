@@ -78,7 +78,7 @@ function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled:
     const { heldCount, updatedAt } = useHeldCount(true);
     return (
         <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-800 px-4 py-2 sm:px-6">
-            <img data-testid="handy-desk-logo" src={handyLogo} alt="Handy Services" width={32} height={32} className="h-8 w-8 shrink-0 object-contain" />
+            <img data-testid="handy-desk-logo" src={handyLogo} alt="Handy Services" width={32} height={32} className="h-8 w-8 shrink-0 rounded-full object-cover" />
             <h1 className="text-lg font-extrabold tracking-[-0.02em] text-white">Handy Desk</h1>
             <div className="order-last w-full overflow-x-auto md:order-none md:w-auto">
                 <QuickLinks variant="desk" location={location} heldCount={heldCount} updatedAt={updatedAt} />

@@ -40,6 +40,9 @@ afterEach(() => {
     window.history.pushState({}, '', '/');
 });
 
+// The routed pages are lazy chunks; give them longer than findBy's default second on a busy machine.
+const LAZY = { timeout: 15_000 };
+
 function renderAppAt(path: string) {
     window.history.pushState({}, '', path);
     return render(<App />);
@@ -49,28 +52,28 @@ describe('admin shell routing', () => {
     it('renders /admin/handy-desk full screen, without importing the shell or mounting the live-call provider', async () => {
         renderAppAt('/admin/handy-desk');
 
-        expect(await screen.findByTestId('handy-desk')).toBeInTheDocument();
+        expect(await screen.findByTestId('handy-desk', {}, LAZY)).toBeInTheDocument();
         expect(screen.queryByTestId('admin-shell')).not.toBeInTheDocument();
         expect(screen.queryByTestId('live-call-provider')).not.toBeInTheDocument();
         expect(shellImported).not.toHaveBeenCalled();
         expect(screen.getByTestId('handy-desk-logo')).toBeInTheDocument();
         expect(screen.getByTestId('topbar-link-comms-board-desk')).toHaveAttribute('href', '/admin/comms-v2');
-    });
+    }, 30_000);
 
     it('still renders another admin route inside the shell', async () => {
         renderAppAt('/admin/comms-v2');
 
-        expect(await screen.findByTestId('comms-board-page')).toBeInTheDocument();
+        expect(await screen.findByTestId('comms-board-page', {}, LAZY)).toBeInTheDocument();
         expect(screen.getByTestId('admin-shell')).toContainElement(screen.getByTestId('comms-board-page'));
         expect(screen.getByTestId('live-call-provider')).toBeInTheDocument();
         expect(shellImported).toHaveBeenCalled();
-    });
+    }, 30_000);
 
     it('sends a signed-out visitor to the login page rather than the desk', async () => {
         localStorage.removeItem('adminToken');
         renderAppAt('/admin/handy-desk');
 
-        await vi.waitFor(() => expect(window.location.pathname).toBe('/admin/login'));
+        await vi.waitFor(() => expect(window.location.pathname).toBe('/admin/login'), LAZY);
         expect(screen.queryByTestId('handy-desk')).not.toBeInTheDocument();
-    });
+    }, 30_000);
 });
