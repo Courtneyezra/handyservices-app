@@ -160,7 +160,8 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
  * authority as a person typing his own — no separate window or approver check is invented for it.
  * The words are the desk's, so they render as the desk's own replies do (`deskDraft`): split into
  * bubbles, with the desk's punctuation rules, and otherwise unchanged. Refuses first when there is
- * no draft to send, then everything `humanReply` refuses.
+ * no draft to send, then with `HELD_DRAFT_CHANGED` when the caller's `expectedDraft` is not the
+ * draft now held, then everything `humanReply` refuses.
  */
 export async function sendHeldDraft(input: Omit<HumanReplyInput, 'words'> & { expectedDraft?: string }, deps: CaseFileDeps = {}): Promise<HumanReplyOutcome> {
     const { expectedDraft, ...rest } = input;
