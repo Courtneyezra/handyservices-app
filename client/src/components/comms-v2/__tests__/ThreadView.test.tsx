@@ -1,7 +1,7 @@
 /**
  * Handy Desk B4 - the thread a card tap opens. It reads one case file, shows each turn as a bubble,
- * a media row, a call row or a system rule, and shows the held draft block. "Send this" re-reads the
- * file and sends only the draft on screen. Ben's own words go to answer and release. A shut window
+ * a media row, a call row or a system rule, and shows the held draft block. "Send this" sends only the
+ * draft on screen, as `expectedDraft`. Ben's own words go to answer and release. A shut window
  * previews and sends the template. Every refusal is shown as the desk worded it, with the words kept.
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch, type Route } from '@test-utils';
 import { ThreadSheet, ThreadView, type ThreadViewProps } from '@/components/comms-v2/ThreadView';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
+import { HELD_DRAFT_CHANGED } from '@shared/ops-types';
 
 const FILE = '/api/comms-v2/case-files/case_p';
 const NOW = Date.now();
@@ -166,7 +167,7 @@ describe('<ThreadView>', () => {
         expect(screen.getByTestId('hold-draft')).toHaveTextContent('Usually around 2 hours for that, Priya.');
     });
 
-    it('Send this re-reads the file, posts send-held-draft with no body, and shows the sent reply', async () => {
+    it('Send this posts send-held-draft with the draft on screen as expectedDraft, and shows the sent reply', async () => {
         const { calls, onChanged } = mount([
             fileRoute(detail()),
             { method: 'POST', url: `${FILE}/send-held-draft`, reply: () => ({ json: { ok: true, sent: { approver: 'human:ben@x', runId: 'r1', bubbles: ['Usually around 2 hours for that, Priya.'], turnId: 't9' } } }) },
@@ -178,29 +179,35 @@ describe('<ThreadView>', () => {
         expect(pending).toHaveTextContent('Usually around 2 hours for that, Priya.');
         const post = calls.filter((c) => c.method === 'POST');
         expect(post).toHaveLength(1);
-        expect(post[0].body).toBeNull();
-        // The file was read again between the render and the send.
-        const reads = calls.map((c, i) => ({ ...c, i })).filter((c) => c.method === 'GET' && c.url === FILE);
-        expect(reads.length).toBeGreaterThanOrEqual(2);
-        expect(reads[1].i).toBeLessThan(calls.indexOf(post[0]));
+        expect(post[0].body).toEqual({ expectedDraft: 'Usually around 2 hours for that, Priya.' });
         expect(onChanged).toHaveBeenCalled();
     });
 
-    it('Send this does not send a draft that changed since it was shown: it shows the new one and asks again', async () => {
+    it('a 409 "the held draft changed since you saw it" re-reads the file, shows the new draft and asks again', async () => {
         let reads = 0;
         const changed = detail({ hold: { ...detail().hold!, draft: 'Around two hours, I will confirm on the quote.' } });
         const { calls } = mount([
             fileRoute(() => (reads++ === 0 ? detail() : changed)),
-            { method: 'POST', url: `${FILE}/send-held-draft`, reply: () => ({ json: { ok: true, sent: { bubbles: ['Around two hours, I will confirm on the quote.'], turnId: 't9' } } }) },
+            {
+                method: 'POST', url: `${FILE}/send-held-draft`,
+                reply: (c) => ((c.body as { expectedDraft?: string })?.expectedDraft === changed.hold!.draft
+                    ? { json: { ok: true, sent: { bubbles: [changed.hold!.draft], turnId: 't9' } } }
+                    : { status: 409, json: { error: HELD_DRAFT_CHANGED } }),
+            },
         ]);
         await userEvent.click(await screen.findByRole('button', { name: 'Send this' }));
 
         expect(await screen.findByTestId('draft-changed')).toHaveTextContent('The held draft changed since you saw it');
-        expect(screen.getByTestId('hold-draft')).toHaveTextContent('Around two hours, I will confirm on the quote.');
-        expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+        await waitFor(() => expect(screen.getByTestId('hold-draft')).toHaveTextContent('Around two hours, I will confirm on the quote.'));
+        expect(screen.queryByTestId('thread-pending')).toBeNull();
 
         await userEvent.click(screen.getByRole('button', { name: 'Send this' }));
-        await waitFor(() => expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1));
+        expect(await screen.findByTestId('thread-pending')).toHaveTextContent('Around two hours, I will confirm on the quote.');
+        const posts = calls.filter((c) => c.method === 'POST');
+        expect(posts.map((c) => c.body)).toEqual([
+            { expectedDraft: 'Usually around 2 hours for that, Priya.' },
+            { expectedDraft: 'Around two hours, I will confirm on the quote.' },
+        ]);
     });
 
     it('a 409 "there is no held draft to send" hides Send this, keeps the composer, and re-reads the file', async () => {
@@ -213,7 +220,7 @@ describe('<ThreadView>', () => {
         expect(await screen.findByTestId('thread-refusal')).toHaveTextContent('Nothing to send. there is no held draft to send');
         expect(screen.queryByRole('button', { name: 'Send this' })).toBeNull();
         expect(words().value).toBe('kept');
-        await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.url === FILE).length).toBeGreaterThanOrEqual(3));
+        await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.url === FILE).length).toBeGreaterThanOrEqual(2));
     });
 
     it('Send reply posts his words, shows a sending bubble at once, then the bubbles that went, and empties the box', async () => {

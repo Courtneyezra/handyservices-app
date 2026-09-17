@@ -118,7 +118,7 @@ describe('comms board views (B3)', () => {
 
         await user.click(gemmaToken);
         await screen.findByText('Gemma Hallam wrote in');
-        expect(within(screen.getByTestId('docked-case-file-panel')).getByTestId('answer-form')).toBeTruthy();
+        expect(within(screen.getByTestId('docked-case-file-panel')).getByLabelText('Your reply to the customer')).toBeTruthy();
 
         await user.click(within(screen.getByTestId('board-view-toggle')).getByRole('button', { name: 'Kanban' }));
         expect(screen.getByTestId('board-kanban')).toBeTruthy();
@@ -237,11 +237,12 @@ describe('comms board views (B3)', () => {
 
         await user.click(screen.getByTestId('board-card-case_gemma'));
         await screen.findByText('Gemma Hallam wrote in');
-        expect(screen.getByTestId('case-file-read-only').textContent).toContain('Held for ben: Asked for a discount');
-        expect(screen.queryByTestId('answer-form')).toBeNull();
+        expect(screen.getByTestId('held-reason').textContent).toContain('Asked for a discount');
+        expect(screen.getByTestId('hold-draft').textContent).toBe('The held draft');
+        expect(screen.queryByLabelText('Your reply to the customer')).toBeNull();
         expect(screen.queryByRole('button', { name: /release hold/i })).toBeNull();
-        expect(screen.queryByRole('button', { name: /send as it stands/i })).toBeNull();
-        expect(screen.queryByRole('button', { name: /send as me/i })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Send this' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Send reply' })).toBeNull();
     });
 
     it('a session that holds a slot, or a server that does not say, gets no read-only notice', async () => {
