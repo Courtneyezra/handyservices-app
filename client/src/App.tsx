@@ -72,6 +72,7 @@ const CommsPage = lazy(() => import("@/pages/admin/CommsPage"));
 const DeskPage = lazy(() => import("@/pages/admin/DeskPage"));
 const SandboxPage = lazy(() => import("@/pages/admin/SandboxPage"));
 const CommsV2BoardPage = lazy(() => import("@/pages/admin/CommsV2BoardPage"));
+const HandyDesk = lazy(() => import("@/pages/admin/HandyDesk"));
 const AgentStaffPage = lazy(() => import("@/pages/admin/AgentStaffPage"));
 const PriceAndSendPage = lazy(() => import("@/pages/admin/PriceAndSendPage")); // P8: Ben's phone-first price-and-send screen
 const VariationPricePage = lazy(() => import("@/pages/admin/VariationPricePage")); // P15/3: the one-line price screen for an extra found at the door
@@ -753,6 +754,13 @@ function Router() {
                     <ProtectedRoute role="admin">
                         <SidebarLayout>
                             <CommsV2BoardPage />
+                        </SidebarLayout>
+                    </ProtectedRoute>
+                </Route>
+                <Route path="/admin/handy-desk">
+                    <ProtectedRoute role="admin">
+                        <SidebarLayout>
+                            <HandyDesk />
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>

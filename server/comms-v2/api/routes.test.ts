@@ -98,6 +98,22 @@ describe('the board over the sandbox door', () => {
         expect(detail.json).not.toHaveProperty('sends');
     });
 
+    it('the Handy Desk queue lists the held file with its draft and its working-hours wait, and nothing unheld', async () => {
+        const held = await call('GET', '/board?held=true');
+        const id = cardsOn(held.json)[0].id as string;
+
+        const queue = await call('GET', '/queue');
+        expect(queue.status).toBe(200);
+        expect(queue.json.items.map((i: any) => i.id)).toEqual([id]);
+        const detail = await call('GET', `/case-files/${id}`);
+        expect(queue.json.items[0]).toMatchObject({ held: true, holdApprover: 'ben', lastCustomerMessage: 'How much roughly?', draft: detail.json.hold.draft });
+        expect(typeof queue.json.items[0].waitingWorkingHours).toBe('number');
+        expect(typeof queue.json.sandboxAvailable).toBe('boolean');
+
+        const liveOnly = await call('GET', '/queue?mode=live');
+        expect(liveOnly.json.items).toEqual([]);
+    });
+
     it('with no approvers row, nobody can release, not even an account whose email is ben@', async () => {
         const board = await call('GET', '/board?held=true');
         const id = cardsOn(board.json)[0].id as string;
