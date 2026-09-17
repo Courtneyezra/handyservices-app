@@ -436,7 +436,7 @@ describe('a template send on a shut window: only when the wording is true for th
         expect(file.sends[file.sends.length - 1]).toMatchObject({ approver: BEN_APPROVER, templateId: 'answer_ready_reopen_v1' });
     });
 
-    it('a long unanswered question: the template quotes a word-bounded excerpt, not a raw mid-word slice of the customer\'s message', async () => {
+    it('an unanswered question with no recorded job type: the template names "your enquiry", never the customer\'s own words', async () => {
         const longBody = 'Hi, I was wondering if you could possibly tell me roughly how much it would cost to replace a broken window pane in the back bedroom?';
         const r = open({
             identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900942', propertyId: null, landlordId: null, name: 'Sam' },
@@ -454,10 +454,8 @@ describe('a template send on a shut window: only when the wording is true for th
 
         expect(out.ok).toBe(true);
         if (!out.ok) return;
-        const expectedTopic = truncateWords(longBody, 60);
-        expect(expectedTopic.length).toBeLessThan(longBody.length);
-        expect(out.result.bubbles[0].text).toContain(`you asked us about ${expectedTopic} and we have an answer`);
-        expect(out.result.bubbles[0].text).not.toContain(longBody);
+        expect(out.result.bubbles[0].text).toBe('Hi Sam, you asked us about your enquiry and we have an answer for you. Reply to this message and we will send it straight over.');
+        expect(out.result.bubbles[0].text).not.toContain(truncateWords(longBody, 20));
     });
 
     it('a question the desk has already answered: no template is offered, even though the row exists', async () => {
