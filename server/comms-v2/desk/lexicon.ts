@@ -359,7 +359,7 @@ function callIsPast(offer: string, before: string, after: string): boolean {
 
 /** The offer of a call a clause makes, if it makes one: the first call in it that is neither turned down nor past. */
 function callOfferIn(clause: string): string | null {
-    for (const m of clause.matchAll(new RegExp(RE_CALL_OFFER.source, 'gi'))) {
+    for (const m of Array.from(clause.matchAll(new RegExp(RE_CALL_OFFER.source, 'gi')))) {
         const before = clause.slice(0, m.index);
         if (!RE_CALL_NEGATION.test(before) && !callIsPast(m[0], before, clause.slice(m.index + m[0].length))) return m[0];
     }
