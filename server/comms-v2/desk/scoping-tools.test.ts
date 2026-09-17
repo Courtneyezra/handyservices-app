@@ -173,6 +173,14 @@ describe('lexicon', () => {
             'Ben tried to call you earlier and will ring you again', 'Happy chatting on the phone if easier?',
             'Happy speaking to you on the phone if easier?', 'As I mentioned earlier a quick call might help.',
         ]) expect(offersCall(offer), offer).toBeTruthy();
+        for (const past of [
+            'Is that the door we talked about on the phone?', 'Did you get the quote after we spoke on the phone?',
+            'Did the photos I mentioned on the phone come through?', 'As we discussed on the phone could you send a photo?',
+            'Was it you I spoke to on the phone yesterday?',
+        ]) {
+            expect(offersCall(past), past).toBeNull();
+            expect(scopingQuestionCount(past), past).toBe(1);
+        }
         expect(offersCall('As we discussed yesterday on the phone, could you send a photo?')).toBeNull();
         expect(offersCall("We've spoken before on the phone.")).toBeNull();
         expect(scopingQuestionCount('Happy to give you a quick call this morning if easier?')).toBe(0);
