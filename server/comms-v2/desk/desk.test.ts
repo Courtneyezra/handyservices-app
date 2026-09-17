@@ -6,7 +6,11 @@
  * nothing; the ledger is written from what went; cost is recorded per call on the send.
  */
 import { describe, expect, it } from 'vitest';
-import { Desk, OPT_OUT_BY_EMAIL_HOLD, type DeskDeps } from './desk';
+import { Desk, type DeskDeps } from './desk';
+import type { DeskResult } from './desk-types';
+import { ChannelGateway } from '../channels/channel-gateway';
+import { transcriptBody } from '../channels/call-adapter';
+import { fromWebForm } from '../channels/form-adapter';
 import { open, type CaseFile } from './case-file';
 import { noFixedLineSource, DEFAULT_FIXED_LINES, type FixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
@@ -221,16 +225,25 @@ describe('the desk', () => {
     });
 
     const noModel = () => desk({ router: () => { throw new Error('no router'); }, specialist: () => { throw new Error('no specialist'); }, composer: () => { throw new Error('no composer'); } });
-    const fileOn = (channel: 'sms' | 'whatsapp' | 'email', body: string): CaseFile => {
+    const fileOn = (channel: 'sms' | 'whatsapp' | 'email' | 'call', body: string): CaseFile => {
         const address = channel === 'email' ? 'sam@example.invalid' : '+447700900944';
         const r = open({
             identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: channel === 'email' ? `email:${address}` : 'phone:07700900944', propertyId: null, landlordId: null, name: 'Sam' },
             channel, address,
-            firstTurn: { at: '2026-09-11T10:00:00.000Z', channel, kind: 'text', body, media: [] },
+            firstTurn: { at: '2026-09-11T10:00:00.000Z', channel, kind: channel === 'call' ? 'call_transcript' : 'text', body, media: [] },
         });
         if (!r.ok) throw new Error(r.reason);
         return r.value;
     };
+    const expectSilent = (r: DeskResult, file: CaseFile, calls: unknown[], label: string) => {
+        expect(r.delivered, label).toBe(false);
+        expect(r.bubbles, label).toEqual([]);
+        expect(r.approver, label).toBeNull();
+        expect(calls, label).toHaveLength(0);
+        expect(file.sends, label).toHaveLength(0);
+        expect(file.turns.filter((t) => t.direction === 'outbound'), label).toHaveLength(0);
+    };
+    const callOptOut = transcriptBody('answered_inbound', 'Take me off your list.');
 
     it('an opt-out by SMS or WhatsApp, which the old inbound path records, gets no reply, no model call and no hold', async () => {
         for (const channel of ['sms', 'whatsapp'] as const) {
@@ -238,27 +251,52 @@ describe('the desk', () => {
             const file = fileOn(channel, 'STOP');
             const r = await d.handleTurn(file, file.turns[0]);
             expect(r.decision, channel).toBe('none');
-            expect(r.delivered, channel).toBe(false);
-            expect(r.bubbles, channel).toEqual([]);
-            expect(client.calls, channel).toHaveLength(0);
+            expectSilent(r, file, client.calls, channel);
             expect(file.hold, channel).toBeNull();
-            expect(file.turns.filter((t) => t.direction === 'outbound'), channel).toHaveLength(0);
         }
     });
 
-    it('an opt-out by email, which nothing records, sends nothing and calls no model, but holds for Ben to record it', async () => {
-        const { client, desk: d } = noModel();
-        const file = fileOn('email', 'Subject: Unsubscribe\n\nPlease unsubscribe me');
+    it('an opt-out on a call or by email, which nothing records, sends nothing and calls no model, but holds for Ben naming the channel', async () => {
+        expect(detectOptOut(callOptOut)).not.toBeNull();
+        for (const [channel, body, where] of [['call', callOptOut, 'on a call'], ['email', 'Subject: Unsubscribe\n\nPlease unsubscribe me', 'by email']] as const) {
+            const { client, desk: d } = noModel();
+            const file = fileOn(channel, body);
+            const r = await d.handleTurn(file, file.turns[0]);
+            expect(r.decision, channel).toBe('hold');
+            expectSilent(r, file, client.calls, channel);
+            expect(file.hold?.reason, channel).toMatch(new RegExp(`^customer may have asked to stop ${where}; check and record the opt-out: `));
+            expect(r.hold, channel).toBe(file.hold);
+        }
+    });
+
+    it('a web form opt-out holds for Ben only when the form carried no phone, and sends nothing either way', async () => {
+        for (const [phone, held] of [['07700 900945', false], [null, true]] as const) {
+            const { client, desk: d } = noModel();
+            const g = new ChannelGateway({ desk: d, now: () => new Date('2026-09-11T10:00:00.000Z') });
+            const env = await fromWebForm({ customerName: 'Priya K', phone, email: 'priya@example.com', jobDescription: 'unsubscribe me', postcode: 'NG9 2AB', source: 'web_quote' }, { now: () => new Date('2026-09-11T09:59:00.000Z') });
+            const out = await g.inbound(env, { whatsapp: false });
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            const label = phone ? 'form with a phone' : 'email-only form';
+            expect(out.result.decision, label).toBe(held ? 'hold' : 'none');
+            expectSilent(out.result, out.file, client.calls, label);
+            if (held) expect(out.file.hold?.reason, label).toMatch(/^customer may have asked to stop on a web form with no phone number; check and record the opt-out: /);
+            else expect(out.file.hold, label).toBeNull();
+        }
+    });
+
+    it('a call with no opt-out in it is scoped as before: routed, gathered and composed, with no opt-out hold', async () => {
+        const { client, desk: d } = desk({
+            router: () => routeScoping(),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'dripping tap' }]),
+            composer: () => ({ reply: 'Hi Sam, a dripping tap, no problem. Whereabouts are you?', factIds: [], kbIds: [] }),
+        });
+        const body = transcriptBody('answered_inbound', 'My kitchen tap will not stop dripping, can someone come and look at it?', 40);
+        expect(detectOptOut(body)).toBeNull();
+        const file = fileOn('call', body);
         const r = await d.handleTurn(file, file.turns[0]);
-        expect(r.decision).toBe('hold');
-        expect(r.delivered).toBe(false);
-        expect(r.bubbles).toEqual([]);
-        expect(r.approver).toBeNull();
-        expect(client.calls).toHaveLength(0);
-        expect(file.sends).toHaveLength(0);
-        expect(file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
-        expect(file.hold?.reason.startsWith(`${OPT_OUT_BY_EMAIL_HOLD}: `)).toBe(true);
-        expect(r.hold).toBe(file.hold);
+        expect(client.calls.map((c) => c.role)).toEqual(['router', 'specialist', 'composer']);
+        expect(file.hold?.reason ?? '').not.toMatch(/asked to stop/);
+        expect(r.note ?? '').not.toMatch(/asked us to stop/);
     });
 
     it('a message today\'s detector does not take as an opt-out is handled as before: routed, composed and sent', async () => {
