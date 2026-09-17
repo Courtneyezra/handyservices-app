@@ -61,6 +61,7 @@ import { draftToRecover, markDraftFailed, type BackgroundDraftHooks } from '../q
 import { repeatedSentences, saidSinceLastQuestion, withoutSentences } from './repeat';
 import { detectOptOut } from '../../opt-out-detect';
 import { transcriptOf } from '../channels/call-adapter';
+import { withoutEmailSubject } from '../channels/email-adapter';
 
 export interface DeskDeps extends CaseFileDeps {
     client?: ModelClient;
@@ -118,11 +119,26 @@ function transcriptSentences(body: string): string[] {
     return said.flatMap((s) => s.split(/[.?!\n,;:]+|\b(?:so|but|and)\b/i)).map((s) => s.trim()).filter(Boolean);
 }
 
-/** An opt-out in any one message the turn carries, each read on its own as the old inbound path reads it; a call transcript sentence by sentence. */
+/**
+ * An email as the opt-out check reads it: the turn's body, and the message on its own without the
+ * subject line the adapter puts in front of it (channels/email-adapter.ts). An opt-out is a terse
+ * instruction and the detector is deliberately conservative about long messages, so an email whose
+ * whole message is "STOP" must be read as that message and not as the thread's subject plus a word.
+ */
+function emailTexts(body: string): string[] {
+    const message = withoutEmailSubject(body);
+    return message === body ? [body] : [body, message];
+}
+
+/** An opt-out in any one message the turn carries, each read on its own as the old inbound path reads it; a call transcript sentence by sentence, an email without its subject line as well. */
 function optOutIn(file: CaseFile, turn: Turn): ReturnType<typeof detectOptOut> {
     for (const id of messagesOf(turn)) {
         const body = file.turns.find((t) => t.id === id)?.body ?? (id === turn.id ? turn.body : null);
-        for (const text of turn.kind === 'call_transcript' && body ? transcriptSentences(body) : [body]) {
+        const texts = !body ? [body]
+            : turn.kind === 'call_transcript' ? transcriptSentences(body)
+            : turn.channel === 'email' ? emailTexts(body)
+            : [body];
+        for (const text of texts) {
             const match = detectOptOut(text);
             if (match) return match;
         }

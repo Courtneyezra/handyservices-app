@@ -9,7 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { open, type CaseFile } from '../desk/case-file';
 import { CALL_OUTCOMES, callOutcomeOf, callOutcomeOnFile, fromDoorCall, fromFinishedCall, transcriptBody, transcriptOf, validateDoorCall, TRANSCRIPT_BODY_MAX } from './call-adapter';
-import { EMAIL_FROM_MAX, EMAIL_PART_MAX, emailThreadingFor, fromDoorEmail, fromInboundEmail, htmlToText, messageIdsOf, parseEmailAddress, renderEmail, stripQuotedHistory } from './email-adapter';
+import { EMAIL_FROM_MAX, EMAIL_PART_MAX, emailThreadingFor, fromDoorEmail, fromInboundEmail, htmlToText, messageIdsOf, parseEmailAddress, renderEmail, stripQuotedHistory, withoutEmailSubject } from './email-adapter';
 import { firstNameOf, truncateWords } from './envelope';
 import { fromDoorForm, fromWebForm } from './form-adapter';
 import { MAX_PHOTO_BYTES } from './media';
@@ -57,6 +57,16 @@ describe('the SMS adapter', () => {
 });
 
 describe('the email adapter', () => {
+    it('gives the message back without the subject line it puts in front of it, for a reader that weighs the person\'s own words', () => {
+        const env = fromInboundEmail({ from: 'a@b.co', subject: 'Re: Your quote for the kitchen tap at 14 Elm Road', text: 'STOP' });
+        expect(env.text).toBe('Subject: Re: Your quote for the kitchen tap at 14 Elm Road\n\nSTOP');
+        expect(withoutEmailSubject(env.text)).toBe('STOP');
+        // No subject line to take off, or a subject-shaped line the person typed themselves inside
+        // the message: the body comes back whole either way.
+        expect(withoutEmailSubject('STOP')).toBe('STOP');
+        expect(withoutEmailSubject(fromInboundEmail({ from: 'a@b.co', text: 'Ref Subject: the fence\n\nCan you quote?' }).text)).toBe('Ref Subject: the fence\n\nCan you quote?');
+    });
+
     it('takes the door\'s shape, strips the quoted history, writes the door\'s media, keeps the thread', () => {
         const env = fromInboundEmail({
             from: 'Sam.Jones@Example.com', fromName: 'Sam Jones', subject: 'Leaking tap', messageId: '<m1@example.com>',
