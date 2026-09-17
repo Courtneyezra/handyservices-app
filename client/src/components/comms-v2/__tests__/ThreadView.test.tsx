@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch, type Route } from '@test-utils';
-import { ThreadView, type ThreadViewProps } from '@/components/comms-v2/ThreadView';
+import { ThreadSheet, ThreadView, type ThreadViewProps } from '@/components/comms-v2/ThreadView';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 
 const FILE = '/api/comms-v2/case-files/case_p';
@@ -83,6 +83,22 @@ describe('<ThreadView>', () => {
         box.blur();
         fireEvent.keyDown(window, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledTimes(2);
+    });
+
+    it('Esc leaves the sheet open while the focused box holds words, and closes it with an empty box', async () => {
+        const onClose = vi.fn();
+        mockFetch([fileRoute(detail())]);
+        renderWithQuery(<ThreadSheet fileId="case_p" onClose={onClose} onChanged={vi.fn()} viewerApprover="ben" />);
+        const box = await ready();
+        await userEvent.type(box, 'half a reply');
+        expect(box).toHaveFocus();
+        fireEvent.keyDown(box, { key: 'Escape' });
+        expect(onClose).not.toHaveBeenCalled();
+        expect(words().value).toBe('half a reply');
+
+        await userEvent.clear(box);
+        fireEvent.keyDown(box, { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledTimes(1);
     });
 
     it('as a sheet, closes with the back button named for where it returns', async () => {
