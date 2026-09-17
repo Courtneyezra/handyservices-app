@@ -18,7 +18,7 @@ import { normalizePhoneNumber } from "./phone-utils";
 import { updateLeadStage } from "./lead-stage-engine";
 import { markConversationWonByPhone } from "./conversation-stage";
 import { captureServerEvent } from "./posthog";
-import { optionalAuth, requireAdmin } from "./auth";
+import { optionalAuth, requireAdmin, requireAdminOrContractor } from "./auth";
 import { sendCustomerMessage } from "./outbound";
 import { newRunId } from "./approver";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
@@ -366,7 +366,7 @@ Write the WhatsApp reply:`
 });
 
 // Create Quote Endpoint
-quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, res) => {
+quotesRouter.post('/api/personalized-quotes/value', requireAdminOrContractor, async (req, res) => {
     try {
         console.log('[DEBUG-QUOTE] Received quote creation request. Body:', JSON.stringify(req.body, null, 2));
         const input = valuePricingInputSchema.parse(req.body);
@@ -599,7 +599,7 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             leadId: linkedLeadId, // Link to lead (fixes orphaned quotes)
             propertyId: resolvedPropertyId ?? undefined, // Spine property (WHERE)
             clientId: resolvedClientId ?? undefined,     // Spine client (WHO)
-            contractorId: input.contractorId || null, // Capture contractor ID
+            contractorId: (req as any).contractorId ?? input.contractorId ?? null,
             customerName: input.customerName,
             phone: input.phone,
             email: input.email || null,
@@ -721,7 +721,7 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
 });
 
 // Analyze Job Endpoint
-quotesRouter.post('/api/analyze-job', async (req, res) => {
+quotesRouter.post('/api/analyze-job', requireAdminOrContractor, async (req, res) => {
     try {
         const { jobDescription, optionalExtrasRaw, hourlyRate = 50, rateCard = {} } = req.body;
         if (!jobDescription) return res.status(400).json({ error: "Job description is required" });

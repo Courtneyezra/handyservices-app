@@ -597,7 +597,7 @@ export default function GenerateQuoteLink() {
         try {
           const res = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           });
           if (!res.ok) {
@@ -802,13 +802,9 @@ export default function GenerateQuoteLink() {
         optionalExtras: optionalExtras.length > 0 ? optionalExtras : undefined,
       };
 
-      const adminToken = localStorage.getItem('adminToken');
       const fetchResponse = await fetch('/api/personalized-quotes/value', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(adminToken ? { 'Authorization': `Bearer ${adminToken}` } : {}),
-        },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       });
 

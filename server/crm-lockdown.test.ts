@@ -23,6 +23,7 @@ const state = vi.hoisted(() => ({
     profile: null as Row | null,
     rows: new Map<unknown, Row[]>(),
     updates: [] as { table: unknown; values: Row }[],
+    inserts: [] as { table: unknown; values: Row }[],
     deletes: [] as unknown[],
 }));
 
@@ -47,7 +48,9 @@ vi.mock('./db', async () => {
     const db: any = {
         select: () => ({ from: (table: unknown) => chain(() => rowsFor(table)) }),
         selectDistinct: () => ({ from: (table: unknown) => chain(() => rowsFor(table)) }),
-        insert: () => ({ values: () => chain(() => []) }),
+        insert: (table: unknown) => ({
+            values: (values: Row) => chain(() => { state.inserts.push({ table, values }); return []; }),
+        }),
         update: (table: unknown) => ({
             set: (values: Row) => chain(() => { state.updates.push({ table, values }); return rowsFor(table); }),
         }),
@@ -71,6 +74,25 @@ vi.mock('./web-push', () => ({ pushEvent: vi.fn(async () => undefined) }));
 vi.mock('./posthog', () => ({ captureServerEvent: vi.fn() }));
 vi.mock('./outbound', () => ({ sendCustomerMessage: vi.fn(async () => ({ ok: true })) }));
 vi.mock('./twilio-client', () => ({ twilioClient: {} }));
+vi.mock('./openai', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('./openai')>()),
+    openai: {
+        chat: {
+            completions: {
+                create: vi.fn(async () => ({
+                    choices: [{ message: { content: JSON.stringify({ summary: 'Replace a tap', tasks: [] }) } }],
+                })),
+            },
+        },
+    },
+    classifyLead: vi.fn(async () => ({ jobType: 'commodity', jobClarity: 'known', clientType: 'residential', urgency: 'medium' })),
+}));
+vi.mock('./lib/geocoding', () => ({ geocodeAddress: vi.fn(async () => null) }));
+vi.mock('./lead-deduplication', () => ({ findDuplicateLead: vi.fn(async () => ({ isDuplicate: false })) }));
+vi.mock('./lead-stage-engine', () => ({ updateLeadStage: vi.fn(async () => undefined) }));
+vi.mock('./pipeline-events', () => ({ broadcastPipelineActivity: vi.fn() }));
+vi.mock('./properties', () => ({ resolveOrCreateProperty: vi.fn(async () => null) }));
+vi.mock('./clients', () => ({ resolveOrCreateClient: vi.fn(async () => null) }));
 
 import * as schema from '../shared/schema';
 import { quotesRouter } from './quotes';
@@ -151,6 +173,7 @@ beforeEach(() => {
     state.profile = null;
     state.rows = new Map();
     state.updates = [];
+    state.inserts = [];
     state.deletes = [];
 });
 
@@ -368,5 +391,65 @@ describe('the customer invoice view and pay still work with no session', () => {
     it('POST /api/invoices/:id/pay reaches its handler', async () => {
         const res = await call('POST', '/api/invoices/inv-1/pay', { body: {} });
         expect([401, 403]).not.toContain(res.status);
+    });
+});
+
+describe('quote creation and job analysis are for staff and contractors', () => {
+    const NEW_QUOTE = {
+        customerName: 'Test Customer',
+        phone: '07700900001',
+        postcode: 'NG1 1AA',
+        jobDescription: 'Replace a dripping tap',
+        baseJobPrice: 9000,
+        urgencyReason: 'low',
+        ownershipContext: 'homeowner',
+        desiredTimeframe: 'flex',
+        selectedRoute: 'instant',
+        contractorId: 'profile-2',
+    };
+    const insertedQuote = () => state.inserts.find(i => i.table === schema.personalizedQuotes)?.values;
+
+    it.each([
+        ['/api/personalized-quotes/value', NEW_QUOTE],
+        ['/api/analyze-job', { jobDescription: 'Replace a dripping tap' }],
+    ])('POST %s refuses a request with no session', async (path, body) => {
+        const res = await call('POST', path, { body });
+        expect(res.status).toBe(401);
+        expect(state.inserts).toEqual([]);
+    });
+
+    it('a customer-role session is refused', async () => {
+        signIn('contractor');
+        state.user = { ...state.user, role: 'customer' };
+        const res = await call('POST', '/api/analyze-job', { token: TOKEN, body: { jobDescription: 'Fix a door' } });
+        expect(res.status).toBe(403);
+    });
+
+    it('a contractor analyses a job', async () => {
+        signIn('contractor');
+        const res = await call('POST', '/api/analyze-job', { token: TOKEN, body: { jobDescription: 'Fix a door' } });
+        expect(res.status).toBe(200);
+        expect(res.body.summary).toBe('Replace a tap');
+    });
+
+    it('a contractor\'s quote is filed under their own profile, whatever the body names', async () => {
+        signIn('contractor');
+        const res = await call('POST', '/api/personalized-quotes/value', { token: TOKEN, body: NEW_QUOTE });
+        expect(res.status).toBe(201);
+        expect(insertedQuote()?.contractorId).toBe('profile-1');
+    });
+
+    it('an admin analyses a job', async () => {
+        signIn('admin');
+        const res = await call('POST', '/api/analyze-job', { token: TOKEN, body: { jobDescription: 'Fix a door' } });
+        expect(res.status).toBe(200);
+    });
+
+    it('an admin creates a quote and may name the contractor', async () => {
+        signIn('admin');
+        const res = await call('POST', '/api/personalized-quotes/value', { token: TOKEN, body: NEW_QUOTE });
+        expect(res.status).toBe(201);
+        expect(insertedQuote()?.contractorId).toBe('profile-2');
+        expect(insertedQuote()?.createdBy).toBe('user-1');
     });
 });

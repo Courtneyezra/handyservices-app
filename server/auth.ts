@@ -50,6 +50,55 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
 }
 
 /**
+ * Admits an admin or VA session, or a contractor session with a profile. For a contractor,
+ * attaches `contractorId` (their profile id); an admin or VA carries none.
+ */
+export async function requireAdminOrContractor(req: Request, res: Response, next: NextFunction) {
+    const authHeader = req.headers.authorization;
+    const sessionToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+    if (!sessionToken) {
+        return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    try {
+        const sessionResult = await db.select().from(contractorSessions).where(eq(contractorSessions.sessionToken, sessionToken)).limit(1);
+        const session = sessionResult[0];
+
+        if (!session || session.expiresAt < new Date()) {
+            return res.status(401).json({ error: 'Session expired' });
+        }
+
+        const user = await db.query.users.findFirst({
+            where: eq(users.id, session.userId),
+        });
+
+        if (user && (user.role === 'admin' || user.role === 'va')) {
+            (req as any).user = user;
+            return next();
+        }
+
+        if (!user || user.role !== 'contractor') {
+            return res.status(403).json({ error: 'Staff access required' });
+        }
+
+        const profile = await db.query.handymanProfiles.findFirst({
+            where: eq(handymanProfiles.userId, user.id),
+        });
+        if (!profile) {
+            return res.status(403).json({ error: 'Contractor profile not found' });
+        }
+
+        (req as any).user = user;
+        (req as any).contractorId = profile.id;
+        next();
+    } catch (error) {
+        console.error('[Auth] requireAdminOrContractor DB error:', error);
+        return res.status(503).json({ error: 'Service temporarily unavailable' });
+    }
+}
+
+/**
  * Optional auth middleware - extracts user if token present, but doesn't block.
  * Sets (req as any).user if authenticated, passes through if not.
  * Used on quote creation endpoints to track who created the quote (for VA commission).

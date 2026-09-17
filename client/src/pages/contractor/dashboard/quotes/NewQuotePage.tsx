@@ -3,6 +3,11 @@ import { useLocation } from 'wouter';
 import { useMutation } from '@tanstack/react-query';
 import { Sparkles, ArrowRight, ArrowLeft, Check, Loader2, Quote } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+
+function contractorAuthHeaders(): Record<string, string> {
+    const token = localStorage.getItem('contractorToken');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
 import { cn } from '@/lib/utils';
 import { useContractorAuth } from '@/hooks/use-contractor-auth';
 import { VoiceDictation } from '@/components/VoiceDictation';
@@ -119,7 +124,7 @@ export default function NewQuotePage() {
         mutationFn: async () => {
             const res = await fetch('/api/analyze-job', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...contractorAuthHeaders() },
                 body: JSON.stringify({
                     jobDescription,
                     optionalExtrasRaw,
@@ -170,7 +175,6 @@ export default function NewQuotePage() {
             if (!contractor?.user?.id) throw new Error("Contractor ID missing - please refresh");
 
             const payload = {
-                contractorId: contractor.user.id,
                 customerName: customerName || 'Valued Customer',
                 postcode: postcode || 'UK',
                 phone: phoneNumber || '00000000000',
@@ -201,7 +205,7 @@ export default function NewQuotePage() {
 
             const res = await fetch('/api/personalized-quotes/value', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...contractorAuthHeaders() },
                 body: JSON.stringify(payload)
             });
             if (!res.ok) throw new Error('Failed to create quote');
