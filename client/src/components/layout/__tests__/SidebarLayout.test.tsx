@@ -53,7 +53,7 @@ describe('SidebarLayout top bar (B1)', () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const { calls } = mockFetch([
             { url: '/api/contractor/inbox', reply: () => ({ json: [] }) },
-            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ id: 'a' }, { id: 'price:q1', kind: 'ready_to_price' }, { id: 'b', kind: 'held' }, { id: 'c' }], handledToday: 0 } }) },
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ id: 'a', kind: 'held' }, { id: 'price:q1', kind: 'ready_to_price' }, { id: 'b', kind: 'held' }, { id: 'c', kind: 'held' }], handledToday: 0 } }) },
         ], { fallback: 'notFound' });
         renderWithQuery(withLayout(<div>content</div>));
 

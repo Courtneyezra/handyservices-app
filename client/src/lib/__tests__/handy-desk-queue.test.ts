@@ -6,12 +6,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-    ACTION_ROUTE, displayName, formatWait, initialsOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy,
+    ACTION_ROUTE, displayName, formatWait, heldCountOf, initialsOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy,
     queueQuery, queueQueryKey, readyToPriceCardCopy, refusalMessage, selectionOf, updatedAgoLabel, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
 
 function item(over: Partial<QueueItem> = {}): QueueItem {
     return {
+        kind: 'held',
         id: 'case_1',
         stage: 'scoping',
         mode: 'sandbox',
@@ -181,9 +182,9 @@ describe('readyToPriceCardCopy (Q12)', () => {
         expect([twentyDays.badge, sixMonths.badge]).not.toContain('Ready to price · 100 h');
     });
 
-    it('tells the two kinds apart, reading an item with no kind as held', () => {
+    it('tells the two kinds apart, and counts only the holds for the badge', () => {
         expect(isReadyToPrice(priceItem())).toBe(true);
         expect(isReadyToPrice(item())).toBe(false);
-        expect(isReadyToPrice(item({ kind: 'held' }))).toBe(false);
+        expect(heldCountOf({ items: [item({ id: 'a' }), priceItem(), item({ id: 'b' })] })).toBe(2);
     });
 });

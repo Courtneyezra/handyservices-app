@@ -20,7 +20,7 @@ const ROB: QueueItem = {
     holdReason: 'money question', holdApprover: 'ben', holdApproverAssigned: true,
     holdSince: AT, customerName: 'Rob Hale', customerAddress: 'phone:07700900942',
     role: 'homeowner', jobType: null, location: null, lastCustomerMessage: 'How much?',
-    lastCustomerMessageAt: AT, replyChannel: 'whatsapp', openedAt: AT, benToRequest: [], draft: null, waitingWorkingHours: 1,
+    lastCustomerMessageAt: AT, replyChannel: 'whatsapp', openedAt: AT, benToRequest: [], draft: null, waitingWorkingHours: 1, kind: 'held',
 };
 const SESSION = { id: 'sess_1', title: 'Handy Desk, Thu 17 Sep', createdBy: 'ben@example.test', status: 'active', createdAt: AT, updatedAt: AT };
 

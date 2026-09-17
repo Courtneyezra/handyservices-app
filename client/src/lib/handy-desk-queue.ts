@@ -11,8 +11,7 @@ import { ageLabel } from '@/hooks/usePriceQueue';
 import type { BoardCard } from '@/pages/admin/CommsV2BoardPage';
 
 export interface QueueItem extends BoardCard {
-    /** Absent from a server that predates ready-to-price items; such an item is held. */
-    kind?: 'held';
+    kind: 'held';
     /** The reply the desk held back, exactly as it stands; null when the hold carries none. */
     draft: string | null;
     /** Office working hours since the hold was raised; the server already sorted longest first. */
@@ -44,7 +43,7 @@ export function isReadyToPrice(item: DeskQueueItem): item is ReadyToPriceItem {
 
 /** How many held case files the queue lists: the Comms board badge. Quotes to price are not holds. */
 export function heldCountOf(queue: Pick<DeskQueue, 'items'>): number {
-    return queue.items.filter((i) => !isReadyToPrice(i)).length;
+    return queue.items.filter((i) => i.kind === 'held').length;
 }
 
 export interface DeskQueue {

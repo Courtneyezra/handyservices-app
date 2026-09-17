@@ -16,7 +16,7 @@ import type { OpsAnswer } from '@shared/ops-types';
 
 function item(over: Partial<QueueItem>): QueueItem {
     return {
-        id: 'case_x', stage: 'scoping', mode: 'sandbox', held: true,
+        kind: 'held', id: 'case_x', stage: 'scoping', mode: 'sandbox', held: true,
         holdReason: 'money question', holdApprover: 'ben', holdApproverAssigned: true,
         holdSince: new Date().toISOString(), customerName: 'Sam', customerAddress: 'phone:07700900942',
         role: 'homeowner', jobType: null, location: null, lastCustomerMessage: 'How much?',
@@ -302,7 +302,7 @@ describe('HandyDesk', () => {
             pricePath: '/admin/price/sam123', signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
         };
         const { calls } = routes([
-            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ ...ROB, kind: 'held' }, GEMMA, SAM], sandboxAvailable: true } }) },
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB, GEMMA, SAM], sandboxAvailable: true } }) },
         ]);
         renderWithQuery(<HandyDesk />);
 
@@ -336,7 +336,7 @@ describe('HandyDesk', () => {
             pricePath: '/admin/price/sam123', signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
         };
         const { calls } = routes([
-            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [SAM, { ...ROB, kind: 'held' }], sandboxAvailable: true } }) },
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [SAM, ROB], sandboxAvailable: true } }) },
         ]);
         renderWithQuery(<HandyDesk />);
         const card = await screen.findByTestId('queue-card-price:sam123');
@@ -375,6 +375,9 @@ describe('HandyDesk', () => {
         expect(empty).toHaveTextContent('No held replies. The quotes to price could not be read.');
         expect(screen.queryByText(/Nothing needs you/)).toBeNull();
         expect(screen.getByTestId('handy-desk-price-error')).toBeInTheDocument();
+        // No number at all: a count the desk cannot stand behind is worse than none.
+        expect(screen.queryByTestId('handy-desk-count')).toBeNull();
+        expect(screen.queryByText(/\b\d+ things?\b/)).toBeNull();
     });
 
     it('says the desk is clear when there is nothing waiting and the quotes read fine', async () => {
@@ -383,6 +386,7 @@ describe('HandyDesk', () => {
         ]);
         renderWithQuery(<HandyDesk />);
         expect(await screen.findByTestId('handy-desk-empty')).toHaveTextContent('Nothing needs you.');
+        expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('0 things');
     });
 
     it('reads the queue once per poll for both the list and its header badge', async () => {

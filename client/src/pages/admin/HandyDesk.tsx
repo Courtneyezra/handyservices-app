@@ -455,9 +455,11 @@ export default function HandyDesk() {
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
                     <p className={cn(EYEBROW, 'text-amber-400')}>Needs you</p>
-                    <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
-                        {isLoading ? '…' : `${items.length} ${items.length === 1 ? 'thing' : 'things'}`}
-                    </p>
+                    {!data?.priceQueueError && (
+                        <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
+                            {isLoading ? '…' : `${items.length} ${items.length === 1 ? 'thing' : 'things'}`}
+                        </p>
+                    )}
                     <p className="mt-1 text-[13px] text-slate-400">Held replies first, longest wait in working hours; then the quotes to price, oldest first.</p>
                     {data?.priceQueueError && (
                         <p role="alert" data-testid="handy-desk-price-error" className="mt-2 text-xs text-red-300">{data.priceQueueError}. Held replies are still listed.</p>

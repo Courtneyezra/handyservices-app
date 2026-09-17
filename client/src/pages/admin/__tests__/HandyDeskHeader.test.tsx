@@ -22,7 +22,7 @@ function routes() {
         {
             url: '/api/comms-v2/queue',
             reply: (call) => call.headers.Authorization
-                ? ({ json: { items: [{ id: 'a', customerName: 'Sam' }, { id: 'b', customerName: 'Rob' }, { id: 'c', customerName: 'Gemma' }].map((i) => ({ ...i, stage: 'scoping', mode: 'sandbox', held: true, holdReason: 'complaint', holdApproverAssigned: true, benToRequest: [], draft: null, waitingWorkingHours: 1 })), handledToday: 0 } })
+                ? ({ json: { items: [{ id: 'a', customerName: 'Sam' }, { id: 'b', customerName: 'Rob' }, { id: 'c', customerName: 'Gemma' }].map((i) => ({ ...i, kind: 'held', stage: 'scoping', mode: 'sandbox', held: true, holdReason: 'complaint', holdApproverAssigned: true, benToRequest: [], draft: null, waitingWorkingHours: 1 })), handledToday: 0 } })
                 : ({ status: 401, json: { error: 'admin only' } }),
         },
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
