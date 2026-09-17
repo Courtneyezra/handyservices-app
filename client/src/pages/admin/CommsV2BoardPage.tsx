@@ -11,7 +11,7 @@
  * The thread also carries Close file (POST /case-files/:id/close, `CloseFileForm`) below its composer
  * on a file not yet done: Ben closes it by hand, with words for the file (required on a held file),
  * after a second tap to confirm. The file moves to Done under his name, a hold on it is
- * released by the same rule as the release form, and the customer's next message opens a new file.
+ * released by the same rule as "Release hold only", and the customer's next message opens a new file.
  *
  * It doubles as the window onto the sandbox while the rest of the desk is built, so the header
  * carries a control that starts a sandbox thread and sends the next customer message through the
