@@ -1,57 +1,18 @@
 /**
- * Handy Desk T3 - the answer surface's data mapping: a case file detail reads as the same `thread`
- * surface the ask agent returns, turns are labelled customer / Desk / the person's staff name, the
- * confirm posts only to the board's send-held-draft route, and the newest answered ask is found on a
- * session with the sentence that asked it.
+ * Handy Desk T3 - the answer surface's data mapping: turns are labelled customer / Desk / the
+ * person's staff name, the confirm posts only to the board's send-held-draft route, and the newest
+ * answered ask is found on a session with the sentence that asked it.
  */
 import { describe, expect, it } from 'vitest';
 import type { AskMessageDTO, OpsAnswer, SurfaceTurn } from '@shared/ops-types';
-import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import {
     addressLabel, confirmCaseFileId, confirmRequest, confirmedNote, diaryCellLook, formatPence, isChangedCell,
-    exchangeOfAnswered, isLate, latestAnswered, threadSurfaceOfDetail, tokenOf, turnLabel, turnText,
+    exchangeOfAnswered, isLate, latestAnswered, tokenOf, turnLabel, turnText,
 } from '@/lib/handy-desk-answer';
-
-function detail(over: Partial<CaseFileDetail> = {}): CaseFileDetail {
-    return {
-        id: 'case_1', stage: 'scoping', mode: 'sandbox',
-        party: { name: 'Sam Reed', role: 'homeowner', address: 'phone:07700900942' },
-        job: { type: null, location: null, quoteRef: null, bookingRef: null },
-        turns: [
-            { id: 't1', at: '2026-09-17T09:00:00.000Z', channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'How much?', media: [] },
-            { id: 't2', at: '2026-09-17T09:01:00.000Z', channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Checking', media: [], approver: 'agent.comms_v2' },
-            { id: 't3', at: '2026-09-17T09:02:00.000Z', channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'Ben here', media: [], approver: 'human:ben@example.test' },
-            { id: 't4', at: '2026-09-17T09:03:00.000Z', channel: 'call', direction: 'inbound', kind: 'call_transcript', body: 'long transcript', media: [], call: { outcome: 'answered_inbound', headline: 'Answered call', summary: null, transcript: null } },
-            { id: 't5', at: '2026-09-17T09:04:00.000Z', channel: 'whatsapp', direction: 'inbound', kind: 'system', body: 'window shut', media: [] },
-        ],
-        facts: [], hold: null, holdApproverAssigned: true, speakerNames: { 'ben@example.test': 'Ben' },
-        ...over,
-    };
-}
 
 function turn(over: Partial<SurfaceTurn>): SurfaceTurn {
     return { id: 't', at: '2026-09-17T09:00:00.000Z', who: 'desk', channel: 'whatsapp', kind: 'text', body: 'b', approver: null, ...over };
 }
-
-describe('threadSurfaceOfDetail', () => {
-    it('maps the case file into the thread surface the agent returns', () => {
-        const s = threadSurfaceOfDetail(detail());
-        expect(s).toMatchObject({ type: 'thread', caseFileId: 'case_1', phone: 'phone:07700900942', customerName: 'Sam Reed', stage: 'scoping' });
-        expect(s.turns.map((t) => t.who)).toEqual(['customer', 'desk', 'person', 'customer', 'system']);
-        expect(s.turns[2].approver).toBe('human:ben@example.test');
-    });
-
-    it('carries a call turn as its headline with the summary slot, and a plain turn without one', () => {
-        const s = threadSurfaceOfDetail(detail());
-        expect(s.turns[3]).toMatchObject({ body: 'Answered call', callSummary: null });
-        expect('callSummary' in s.turns[0]).toBe(false);
-    });
-
-    it('a file with no party still maps', () => {
-        const s = threadSurfaceOfDetail(detail({ party: null, turns: [] }));
-        expect(s).toMatchObject({ phone: '', customerName: null, turns: [] });
-    });
-});
 
 describe('turnLabel and turnText', () => {
     it('names the customer, the desk and a person by staff name, else the login local part', () => {

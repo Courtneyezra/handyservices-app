@@ -638,10 +638,13 @@ the sandbox while the rest of the desk is built. Tapping a card opens that custo
 Desk B4, `client/src/components/comms-v2/ThreadView.tsx`, a recreation of section 3 of the Claude
 Design export's `Comms Board.dc.html` in Handy Desk's slate and amber, with a hold in amber). The
 same component opens from a Handy Desk queue card. It is a panel beside the board at 1024px and up
-(`useIsWideBoard`, `client/src/pages/admin/CommsV2BoardPage.tsx`), closed with × or Esc (ignored
+(`useIsWideBoard`, `client/src/hooks/useIsWideBoard.ts`), closed with × or Esc (ignored
 while focus is in any field on the page, such as the ask bar). Below that width it is a bottom
-sheet, closed with ‹ Board (‹ Queue on the desk); Esc there keeps a half-written reply. On the Handy
-Desk an ask bar answer takes the right-hand side over the thread while it shows. It shows:
+sheet, closed with ‹ Board (‹ Queue on the desk); Esc and a tap above the sheet are ignored while one
+of the thread's own boxes (the reply, the close-file words) holds words. On the Handy Desk the sheet
+has its own open state, so leaving it keeps the card selected and the ask bar's context with it, and
+"Ask about this" in its header closes it back onto the ask bar. An ask bar answer takes the
+right-hand side over the thread while it shows. It shows:
 - a header with the reply channel and its window (`replyChannel`, `replyWindow`);
 - customer and desk bubbles, a staff member's by name;
 - media with its description and confidence;

@@ -3,7 +3,7 @@
  * and "Context · <name>". Typed asks go as `typed`, a chip as `tap`. The mic is shown as the design
  * has it but not wired: voice input is T6.
  */
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type RefObject } from 'react';
 import { Loader2, Mic } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -11,7 +11,7 @@ import type { AskVia } from '@shared/ops-types';
 import { MAX_ASK_CHARS, suggestions } from '@/lib/handy-desk-ask';
 import type { DeskSelection } from '@/lib/handy-desk-queue';
 
-export function AskBar({ selection, ready, busy, error, disabledReason, onAsk, text, onText }: {
+export function AskBar({ selection, ready, busy, error, disabledReason, onAsk, text, onText, inputRef }: {
     selection: DeskSelection | null;
     /** Today's session is open. */
     ready: boolean;
@@ -22,6 +22,8 @@ export function AskBar({ selection, ready, busy, error, disabledReason, onAsk, t
     onAsk: (text: string, via: AskVia) => Promise<boolean>;
     text: string;
     onText: (text: string) => void;
+    /** So the page can hand the focus back to the ask bar, e.g. on leaving the phone's thread sheet. */
+    inputRef?: RefObject<HTMLInputElement>;
 }) {
     const [submitting, setSubmitting] = useState(false);
     const blocked = !ready || busy || submitting || !!disabledReason;
@@ -66,6 +68,7 @@ export function AskBar({ selection, ready, busy, error, disabledReason, onAsk, t
                 </button>
                 <label htmlFor="handy-desk-ask" className="sr-only">Ask the desk</label>
                 <Input
+                    ref={inputRef}
                     id="handy-desk-ask"
                     data-testid="handy-desk-ask-input"
                     value={text}

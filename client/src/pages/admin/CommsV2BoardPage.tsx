@@ -17,38 +17,17 @@
  * carries a control that starts a sandbox thread and sends the next customer message through the
  * board's own sandbox door. The board itself polls every fifteen seconds; no websockets.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, MessageSquare } from 'lucide-react';
 import { ThreadSheet, ThreadView } from '@/components/comms-v2/ThreadView';
 import { cn } from '@/lib/utils';
 import { boardCounts, defaultPhoneTab, type HoldException, type PhoneTab, type Stage } from '@/lib/comms-board';
+import { useIsWideBoard } from '@/hooks/useIsWideBoard';
 import {
     BoardEmpty, BoardError, BoardFloor, BoardKanban, BoardPhone, BoardSkeleton, HeldOnlyButton, ModeSwitch,
     ReadOnlyNotice, ViewToggle, type BoardView,
 } from '@/components/comms-board/BoardViews';
-
-/**
- * Kanban + docked conversation panel (hsa-comms-v2-ben-board-layouts-s33, option 01): at this width
- * and up the board and the open case file sit side by side, permanent rather than an overlay sheet.
- * Below it, a bottom sheet (`ThreadSheet`), chat-first, with a way back to the board. jsdom has no matchMedia:
- * defaults to narrow, which is the existing sheet behaviour every current test exercises.
- */
-const WIDE_BOARD_QUERY = '(min-width: 1024px)';
-
-export function useIsWideBoard(): boolean {
-    const [wide, setWide] = useState<boolean>(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(WIDE_BOARD_QUERY).matches : false);
-    useEffect(() => {
-        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-        const mq = window.matchMedia(WIDE_BOARD_QUERY);
-        const on = () => setWide(mq.matches);
-        on();
-        if (typeof mq.addEventListener === 'function') { mq.addEventListener('change', on); return () => mq.removeEventListener('change', on); }
-        mq.addListener?.(on);
-        return () => mq.removeListener?.(on);
-    }, []);
-    return wide;
-}
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
