@@ -6,10 +6,11 @@
 
 /**
  * Only gas and asbestos are out of scope (behaviour.md, checklist cross-cutting 5). Plumbing, roofing, structural and electrical are ours.
- * A combi, a flue and a pilot light are gas appliances in everyday words ("my combi keeps losing pressure"), but not a combi oven,
- * microwave or drill; a boiler's or flue's cupboard, casing or box is joinery.
+ * A combi and a pilot light are gas appliances in everyday words ("my combi keeps losing pressure"), but not a combi oven,
+ * microwave or drill; a boiler's cupboard, casing or box is joinery. A flue is gas only beside a gas word, which is matched on its
+ * own, so a wood burner's or a chimney's flue is ours.
  */
-export const RE_REGULATED = /\b(?:gas(?:\s|-)?(?:boiler|hob|cooker|fire|meter|pipe|leak|safe|engineer|supply|work|appliance|heater)|(?:boiler|flue)s?\b(?![^.?!]*\b(?:cupboard|casing|box)\b)|combis?\b(?!\s+(?:ovens?|microwaves?|drills?))|pilot\s+lights?|gas\b|asbestos|artex(?:\s+\w+)?\s+(?:ceiling|test)|corgi)\b/i;
+export const RE_REGULATED = /\b(?:gas(?:\s|-)?(?:boiler|hob|cooker|fire|meter|pipe|leak|safe|engineer|supply|work|appliance|heater)|boilers?\b(?![^.?!]*\b(?:cupboard|casing|box)\b)|combis?\b(?!\s+(?:ovens?|microwaves?|drills?))|pilot\s+lights?|gas\b|asbestos|artex(?:\s+\w+)?\s+(?:ceiling|test)|corgi)\b/i;
 
 export function regulatedMatch(text: string): string | null {
     const m = RE_REGULATED.exec(text);
@@ -31,11 +32,13 @@ const HAGGLE = [
     'meet (?:me|us) (?:in the middle|half ?way)',
     '(?:bit|too|very|quite|rather|little) (?:steep|dear|pricey|pricy)', 'pric(?:e)?y',
     "(?:that's|thats|that is|seems|sounds) (?:like )?(?:a lot|a bit much|too much)(?! (?:of|like|better|worse|easier|harder|clearer|quicker|nicer|more|less)\\b)",
-    'budget', 'quoted (?:me|us)', '(?:you|it) go (?:any )?lower',
+    "(?:within|over|under|above|outside|beyond|on|stretch|exceeds?|out of) (?:my |our |your |the |a )?(?:tight |small |limited )?budget",
+    "(?:my|our) budget (?:is|was|isn['’]?t|wasn['’]?t|won['’]?t|doesn['’]?t|can['’]?t|only|max|of|for|would|will)", 'tight budget',
+    'quoted (?:me|us) (?:£ ?\\d|\\d{2,})', '(?:you|it) go (?:any )?lower',
     '(?:match|beat) (?:(?:that|their|his|her|this|the other|another) )?(?:quote|figure|£ ?\\d+|\\d+)',
     "mates?'?s? rates?", '(?:pensioner|oap|student|nhs|forces|cash) (?:rate|price|discount|deal)',
     '(?:any|special|better|cash) deal', 'chance of a deal', 'do (?:me|us) a deal',
-    '(?:do (?:it )?for|take|accept) £?\\d+(?:\\.\\d+)?\\b(?! ?(?:of|am|pm|hours?|hrs?|mins?|minutes?|days?|weeks?|months?|years?|o\'?clock|st|nd|rd|th|%|x|mm|cm|m)\\b)',
+    '(?:do (?:it )?for|take|accept) (?:£ ?\\d+(?:\\.\\d+)?|\\d{2,}(?:\\.\\d+)?(?= ?(?:cash|quid|pounds?)?\\s*(?:[?.!,;]|$)))',
     '\\d+ (?:quid|cash)', 'for (?:a (?:bit|little|touch) )?less',
     'knock (?:a |an )?(?:bit|some|anything|tenner|fiver|few quid|little|£ ?\\d+|\\d+) off',
     'instal(?:l)?ments?', 'payment plan', 'pay (?:it )?(?:monthly|in (?:parts|stages|bits))',
