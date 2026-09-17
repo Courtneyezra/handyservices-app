@@ -1,7 +1,7 @@
 /**
  * P15 part 2 — the routes behind "Message the customer" on the contractor's job.
  *
- *   POST /api/contractor-app/:token/jobs/:bookingId/message   his words → her thread
+ *   POST /api/contractor-app/:token/jobs/:bookingId/message   one preset → her thread (no free text)
  *   GET  /api/contractor-app/:token/jobs/:bookingId/messages  the exchange, for the drawer
  *
  * Mounted on the same base path as the contractor app and BEFORE it, so these two paths are served
@@ -16,8 +16,8 @@ import { eq } from 'drizzle-orm';
 import { db } from './db';
 import { contractorBookingRequests, handymanProfiles, users } from '@shared/schema';
 import {
-    RELAY_PRESETS, RELAY_DAILY_LIMIT, presetBody, relayToCustomer, liveRelayDeps, conversationForBooking,
-    countRelaysToday, relayThreadForBooking, type RelayPresetId,
+    RELAY_PRESETS, RELAY_DAILY_LIMIT, relayRequest, relayToCustomer, liveRelayDeps, conversationForBooking,
+    countRelaysToday, relayThreadForBooking,
 } from './contractor-relay';
 
 const router = Router();
@@ -51,7 +51,7 @@ async function acceptedJobFor(profileId: string, bookingId: string): Promise<Job
     return { booking: b };
 }
 
-// POST /:token/jobs/:bookingId/message — one message from him to her, through the business number.
+// POST /:token/jobs/:bookingId/message — one preset from him to her, through the business number.
 router.post('/:token/jobs/:bookingId/message', async (req: Request, res: Response) => {
     try {
         const contractor = await contractorFor(req.params.token);
@@ -59,17 +59,16 @@ router.post('/:token/jobs/:bookingId/message', async (req: Request, res: Respons
         const job = await acceptedJobFor(contractor.id, req.params.bookingId);
         if (job.error) return res.status(job.error.status).json({ error: job.error.msg });
 
-        const presetId = typeof req.body?.preset === 'string' ? (req.body.preset as RelayPresetId) : null;
-        const minutes = typeof req.body?.minutes === 'number' ? req.body.minutes : undefined;
-        const text = presetId ? presetBody(presetId, minutes) : String(req.body?.text ?? '');
-        if (!text) return res.status(400).json({ error: presetId ? 'That is not one of the quick messages.' : 'Type a message first.' });
+        // Presets only: typed words are refused before the customer's number is looked up.
+        const request = relayRequest(req.body);
+        if (!request.ok) return res.status(400).json({ error: request.error });
 
         const { conversationId, phone, customerName } = await conversationForBooking(req.params.bookingId);
         if (!phone) return res.status(409).json({ error: 'No number on this job. Ring the office.' });
 
         const outcome = await relayToCustomer(
             { bookingId: req.params.bookingId, contractorId: contractor.id, contractorName: contractor.name, customerPhone: phone, customerName, conversationId },
-            text,
+            request.text,
             await liveRelayDeps(),
         );
         if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.reason });

@@ -1,6 +1,6 @@
 /**
  * P15 part 2 jsdom: "Message the customer" on the contractor's job. The three presets post the
- * right thing, a free-text message posts his words, a held message reads as "it is with the office"
+ * right thing, there is no free-text box to type into, a held message reads as "it is with the office"
  * rather than an error, the five-a-day limit disables the controls, and nothing on his screen
  * carries the customer's number.
  */
@@ -64,22 +64,25 @@ describe('MessageCustomerPanel', () => {
         expect(calls.filter((c) => c.method === 'POST')[1].body).toEqual({ preset: 'running_late', minutes: 30 });
     });
 
-    it('free text posts his words and clears the box on a send', async () => {
-        const calls = mockFetch(thread());
+    it('offers the presets only: no text box and no send button for his own words', async () => {
+        mockFetch(thread());
         await openPanel();
-        expect(screen.getByTestId('relay-send')).toBeDisabled();
-        await userEvent.type(screen.getByTestId('relay-text'), '  the gate is locked  ');
-        await userEvent.click(screen.getByTestId('relay-send'));
-        await waitFor(() => expect(screen.getByTestId('relay-note-sent')).toBeInTheDocument());
-        expect(calls.find((c) => c.method === 'POST')!.body).toEqual({ text: 'the gate is locked' });
-        expect(screen.getByTestId('relay-text')).toHaveValue('');
+        expect(screen.queryByTestId('relay-text')).toBeNull();
+        expect(screen.queryByTestId('relay-send')).toBeNull();
+        expect(screen.queryByRole('textbox')).toBeNull();
+    });
+
+    it('a sent preset says so', async () => {
+        mockFetch(thread());
+        await openPanel();
+        await userEvent.click(screen.getByTestId('relay-preset-access'));
+        expect(await screen.findByTestId('relay-note-sent')).toHaveTextContent('Sent.');
     });
 
     it('a held message reads as "it is with the office", not as a failure', async () => {
         mockFetch(thread(), { ok: true, sent: false, held: true, message: 'That mentions money, and prices are the office\'s to give. It has gone to Ben.' });
         await openPanel();
-        await userEvent.type(screen.getByTestId('relay-text'), 'I can do it for £40');
-        await userEvent.click(screen.getByTestId('relay-send'));
+        await userEvent.click(screen.getByTestId('relay-preset-running_late'));
         const note = await screen.findByTestId('relay-note-held');
         expect(note).toHaveTextContent('gone to Ben');
         expect(screen.queryByTestId('relay-note-error')).toBeNull();
@@ -88,8 +91,7 @@ describe('MessageCustomerPanel', () => {
     it('a refusal shows the server\'s words', async () => {
         mockFetch(thread(), { error: 'That is 5 messages on this job today. Give the office a ring for anything else.' }, 429);
         await openPanel();
-        await userEvent.type(screen.getByTestId('relay-text'), 'hello');
-        await userEvent.click(screen.getByTestId('relay-send'));
+        await userEvent.click(screen.getByTestId('relay-preset-arrived'));
         expect(await screen.findByTestId('relay-note-error')).toHaveTextContent('Give the office a ring');
     });
 
@@ -98,7 +100,7 @@ describe('MessageCustomerPanel', () => {
         await openPanel();
         expect(screen.getByTestId('relay-remaining')).toHaveTextContent("today's five");
         expect(screen.getByTestId('relay-preset-arrived')).toBeDisabled();
-        expect(screen.getByTestId('relay-text')).toBeDisabled();
+        expect(screen.getByTestId('relay-preset-access')).toBeDisabled();
     });
 
     it('shows the exchange with no customer number anywhere on his screen', async () => {
@@ -113,13 +115,12 @@ describe('MessageCustomerPanel', () => {
 });
 
 describe('sendPayload', () => {
-    it('a preset beats the box, running late carries the minutes, and an empty box sends nothing', () => {
-        expect(sendPayload({ preset: 'arrived', minutes: 15, text: 'ignored' })).toEqual({ preset: 'arrived' });
-        expect(sendPayload({ preset: 'running_late', minutes: '25', text: '' })).toEqual({ preset: 'running_late', minutes: 25 });
-        expect(sendPayload({ preset: 'running_late', minutes: '999', text: '' })).toEqual({ preset: 'running_late', minutes: 120 });
-        expect(sendPayload({ preset: 'running_late', minutes: '', text: '' })).toEqual({ preset: 'running_late', minutes: 15 });
-        expect(sendPayload({ preset: null, minutes: 15, text: '  the gate is locked ' })).toEqual({ text: 'the gate is locked' });
-        expect(sendPayload({ preset: null, minutes: 15, text: '   ' })).toBeNull();
+    it('posts the preset alone, running late carries the minutes, and no preset sends nothing', () => {
+        expect(sendPayload({ preset: 'arrived', minutes: 15 })).toEqual({ preset: 'arrived' });
+        expect(sendPayload({ preset: 'running_late', minutes: '25' })).toEqual({ preset: 'running_late', minutes: 25 });
+        expect(sendPayload({ preset: 'running_late', minutes: '999' })).toEqual({ preset: 'running_late', minutes: 120 });
+        expect(sendPayload({ preset: 'running_late', minutes: '' })).toEqual({ preset: 'running_late', minutes: 15 });
+        expect(sendPayload({ preset: null, minutes: 15 })).toBeNull();
     });
     it('relayTime is a clock, not a date', () => {
         expect(relayTime('2026-09-05T09:05:00.000Z')).toMatch(/^\d{2}:\d{2}$/);

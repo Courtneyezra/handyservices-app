@@ -2,8 +2,9 @@
  * P15 part 2 — "Message the customer", on the contractor's accepted job.
  *
  * Three taps for the three phone calls he would otherwise make (arrived, running late, which door /
- * where to park) plus a free-text box for anything else. His words leave on the business number:
- * the customer never sees his mobile, and he never sees hers. Ben reads the exchange on the thread.
+ * where to park), and nothing else: there is no free-text box, and the server refuses typed words.
+ * The message leaves on the business number: the customer never sees his mobile, and he never sees
+ * hers. Ben reads the exchange on the thread.
  *
  * The panel says out loud what it will not carry: money and dates go to the office. When a guard
  * holds a message the reply is not an error, it is "that one is with Ben" — his words still reached
@@ -12,7 +13,7 @@
  * Pure rendering plus its own fetches; mounted with one line from the job drawer.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { MessageSquare, Send, Loader2, Check, Clock, DoorOpen, ShieldAlert } from 'lucide-react';
+import { MessageSquare, Loader2, Check, Clock, DoorOpen, ShieldAlert } from 'lucide-react';
 
 export interface RelayMessage { id: string; at: string; direction: 'in' | 'out'; body: string; heldForBen?: boolean }
 export interface RelayPresetOption { id: 'arrived' | 'running_late' | 'access'; label: string }
@@ -37,18 +38,15 @@ export function clampMinutes(raw: string | number): number {
     return Number.isFinite(n) && n > 0 ? Math.max(5, Math.min(120, n)) : 15;
 }
 
-/** Pure: what the send button does with the current box and preset. */
-export function sendPayload(input: { preset: string | null; minutes: string | number; text: string }): { preset?: string; minutes?: number; text?: string } | null {
+/** Pure: what a preset tap posts. Presets only; there is nothing else to send. */
+export function sendPayload(input: { preset: string | null; minutes: string | number }): { preset: string; minutes?: number } | null {
     if (input.preset === 'running_late') return { preset: 'running_late', minutes: clampMinutes(input.minutes) };
-    if (input.preset) return { preset: input.preset };
-    const text = input.text.replace(/\s+/g, ' ').trim();
-    return text ? { text } : null;
+    return input.preset ? { preset: input.preset } : null;
 }
 
 export function MessageCustomerPanel({ token, bookingId, accepted }: { token: string; bookingId: string; accepted: boolean }) {
     const [open, setOpen] = useState(false);
     const [thread, setThread] = useState<RelayThread | null>(null);
-    const [text, setText] = useState('');
     const [minutes, setMinutes] = useState('15');
     const [busy, setBusy] = useState<string | null>(null);
     const [note, setNote] = useState<{ kind: 'sent' | 'held' | 'error'; text: string } | null>(null);
@@ -63,10 +61,10 @@ export function MessageCustomerPanel({ token, bookingId, accepted }: { token: st
 
     useEffect(() => { if (open) void load(); }, [open, load]);
 
-    async function send(preset: string | null) {
-        const payload = sendPayload({ preset, minutes, text });
+    async function send(preset: string) {
+        const payload = sendPayload({ preset, minutes });
         if (!payload) return;
-        setBusy(preset ?? 'text'); setNote(null);
+        setBusy(preset); setNote(null);
         try {
             const res = await fetch(`/api/contractor-app/${token}/jobs/${bookingId}/message`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
@@ -74,7 +72,7 @@ export function MessageCustomerPanel({ token, bookingId, accepted }: { token: st
             const json = await res.json().catch(() => ({}));
             if (!res.ok) setNote({ kind: 'error', text: json.error ?? 'That did not send.' });
             else if (json.held) setNote({ kind: 'held', text: json.message ?? 'That one has gone to the office.' });
-            else { setNote({ kind: 'sent', text: 'Sent.' }); setText(''); }
+            else setNote({ kind: 'sent', text: 'Sent.' });
             await load();
         } catch {
             setNote({ kind: 'error', text: 'That did not send. Try again, or ring the office.' });
@@ -130,29 +128,11 @@ export function MessageCustomerPanel({ token, bookingId, accepted }: { token: st
                         minutes
                     </label>
 
-                    <div className="mt-2.5">
-                        <textarea
-                            value={text} onChange={(e) => setText(e.target.value)} rows={2} maxLength={480}
-                            placeholder="Anything else. No prices and no dates, those go through the office."
-                            disabled={!!busy || spent}
-                            className="w-full rounded-xl border border-slate-600 bg-slate-900 px-2.5 py-2 text-[13px] text-slate-100 placeholder:text-slate-500 disabled:opacity-40"
-                            data-testid="relay-text"
-                        />
-                        <div className="mt-1.5 flex items-center gap-2">
-                            <button
-                                type="button" disabled={!!busy || spent || !text.trim()} onClick={() => void send(null)}
-                                className="inline-flex items-center gap-1.5 rounded-xl bg-sky-500 px-3 py-2 text-[12px] font-bold text-white disabled:opacity-40"
-                                data-testid="relay-send"
-                            >
-                                {busy === 'text' ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Send
-                            </button>
-                            {remaining != null && (
-                                <span className="text-[11px] text-slate-400" data-testid="relay-remaining">
-                                    {spent ? 'That is today\'s five. Ring the office.' : `${remaining} left today`}
-                                </span>
-                            )}
+                    {remaining != null && (
+                        <div className="mt-2 text-[11px] text-slate-400" data-testid="relay-remaining">
+                            {spent ? 'That is today\'s five. Ring the office.' : `${remaining} left today`}
                         </div>
-                    </div>
+                    )}
 
                     {note && (
                         <div

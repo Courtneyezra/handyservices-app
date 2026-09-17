@@ -47,7 +47,8 @@ interface PipelineQuote {
   id: string;
   postcodeArea: string | null;
   jobDescription: string | null;
-  valuePence: number | null;
+  /** His estimated pay for the job, never the customer's price. */
+  estimatedPayPence: number | null;
   sentAt: string | null;
   viewed: boolean;
   viewCount: number;
@@ -65,10 +66,8 @@ interface PayLine {
   category: string;
   description: string | null;
   tier: string;
-  labourPence: number;
   payPence: number;
   materialsPence: number;
-  method: 'share' | 'floor';
 }
 
 interface BookedJob {
@@ -84,7 +83,6 @@ interface BookedJob {
   fullDescription: string | null;
   mapQuery: string | null;
   photoUrls: string[] | null;
-  valuePence: number | null;
   payoutPence: number | null;
   materialsAllowancePence: number | null;
   payLines: PayLine[] | null;
@@ -101,7 +99,6 @@ interface FlexJob {
   fullDescription: string | null;
   mapQuery: string | null;
   photoUrls: string[] | null;
-  valuePence: number | null;
   payoutPence: number | null;
   materialsAllowancePence: number | null;
   payLines: PayLine[] | null;
@@ -140,9 +137,8 @@ type DayPlanGoal = 'earnings' | 'fewest_days' | 'soonest';
 interface DayPlan {
   date: string;
   rationale: string;
-  totalPence: number;
   committedCount: number;
-  jobs: Array<{ quoteId: string; fixed: boolean; slot: string; customerName: string; postcodeArea: string | null; jobDescription: string | null; valuePence: number; payoutPence: number | null }>;
+  jobs: Array<{ quoteId: string; fixed: boolean; slot: string; customerName: string; postcodeArea: string | null; jobDescription: string | null; payoutPence: number | null }>;
   placements: Array<{ quoteId: string; date: string; slot: string }>;
 }
 
@@ -245,7 +241,6 @@ interface PastJob {
   fullDescription: string | null;
   mapQuery: string | null;
   photoUrls: string[] | null;
-  valuePence: number | null;
   payoutPence: number | null;
   materialsAllowancePence: number | null;
   payLines: PayLine[] | null;
@@ -260,7 +255,6 @@ interface PastWeek {
   weekStart: string;
   weekEnd: string;
   label: string;
-  earnedPence: number;
   jobs: PastJob[];
 }
 const pastToDetail = (j: PastJob): JobDetail => ({
@@ -372,7 +366,6 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
   const [patternDraft, setPatternDraft] = useState<PatternDay[] | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
   const [tab, setTab] = useState<'home' | 'week' | 'quotes' | 'jobs' | 'profile'>('home');
-  const [scoreRange, setScoreRange] = useState<'week' | 'month' | 'all'>('month');
   const [confirmPlace, setConfirmPlace] = useState<string | null>(null); // `${quoteId}|${date}|${slot}`
   const [placeError, setPlaceError] = useState<{ quoteId: string; message: string } | null>(null);
   const [planGoal, setPlanGoal] = useState<DayPlanGoal>('earnings');
@@ -415,10 +408,9 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
   });
   const badLink = (error as Error | null)?.message === 'not_found';
 
-  // Scorecard — his real career stats (pay booked/completed, jobs, tier).
+  // Scorecard — his job counts, tier and week fill (no money totals).
   const { data: score } = useQuery<{
-    tier: string; allTimePence: number; monthPence: number; weekPence: number;
-    completedPence: number; bookedPence: number; jobsCompleted: number; jobsBooked: number;
+    tier: string; jobsCompleted: number; jobsBooked: number;
     weekOpen: number; weekBooked: number; ratingTracked: boolean; onTimeTracked: boolean;
   }>({
     queryKey: ['contractor-app-scorecard', token],
@@ -1205,10 +1197,10 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                         {q.expiresAt && new Date(q.expiresAt) > new Date() && <> · expires {formatDistanceToNow(new Date(q.expiresAt), { addSuffix: true })}</>}
                       </div>
                     </div>
-                    {q.valuePence != null && q.valuePence > 0 && (
+                    {q.estimatedPayPence != null && q.estimatedPayPence > 0 && (
                       <div className="shrink-0 text-right">
-                        <div className="text-lg font-bold text-white">£{Math.round(q.valuePence / 100)}</div>
-                        <div className="text-[9px] text-slate-500 font-semibold">you earn</div>
+                        <div className="text-lg font-bold text-white">£{Math.round(q.estimatedPayPence / 100)}</div>
+                        <div className="text-[9px] text-slate-500 font-semibold">est. pay</div>
                       </div>
                     )}
                   </div>
@@ -1329,7 +1321,6 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                         <div className="flex items-center gap-2 pt-1">
                           <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600 shrink-0">{wk.label}</span>
                           <span className="flex-1 h-px bg-slate-800/70" />
-                          {wk.earnedPence > 0 && <span className="text-[10px] font-bold text-emerald-500/80 shrink-0">£{Math.round(wk.earnedPence / 100)} earned</span>}
                         </div>
                         {wk.jobs.length === 0 ? (
                           <p className="py-2 text-[11px] text-slate-600">No jobs this week</p>
@@ -1462,7 +1453,7 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                                   disabled={lockMutation.isPending}
                                   onClick={() => (confirming ? lockMutation.mutate(row.pack!.placements) : setConfirmLock(row.pack!.date))}
                                   className={`mt-2 w-full py-2 rounded-lg text-xs font-bold transition-all ${confirming ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>
-                                  {confirming ? (lockMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(row.pack.date + 'T00:00:00'), 'EEE d')}?`) : `Lock this day · £${Math.round(row.pack.totalPence / 100)}`}
+                                  {confirming ? (lockMutation.isPending ? 'Booking…' : `Confirm — book ${format(new Date(row.pack.date + 'T00:00:00'), 'EEE d')}?`) : 'Lock this day'}
                                 </button>
                               </div>
                             );
@@ -1632,8 +1623,6 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
 
         {/* ── PROFILE / scorecard — his real career, quality beside money ── */}
         {tab === 'profile' && score && (() => {
-          const rangePence = scoreRange === 'week' ? score.weekPence : scoreRange === 'month' ? score.monthPence : score.allTimePence;
-          const rangeLabel = scoreRange === 'week' ? 'this week' : scoreRange === 'month' ? 'this month' : 'all-time';
           const isCore = score.tier === 'core';
           return (
             <div className="space-y-3">
@@ -1644,28 +1633,15 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                 </span>
               </div>
 
-              {/* Earnings hero */}
-              <div className="p-5 rounded-2xl bg-gradient-to-br from-emerald-500/15 to-slate-900/40 border border-emerald-500/25">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-300/70 mb-1">Earned with Handy · {rangeLabel}</div>
-                <div className="text-4xl font-black">£{Math.round(rangePence / 100).toLocaleString()}</div>
-                <div className="flex gap-1.5 mt-3">
-                  {(['week', 'month', 'all'] as const).map((r) => (
-                    <button key={r} onClick={() => setScoreRange(r)} className={`px-3 py-1 rounded-lg text-[11px] font-bold ${scoreRange === r ? 'bg-emerald-400 text-emerald-950' : 'bg-slate-800 text-slate-400'}`}>
-                      {r === 'all' ? 'All-time' : r === 'week' ? 'This week' : 'This month'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Completed vs booked split */}
+              {/* Completed vs booked split — counts only; pay shows per job, as an estimate */}
               <div className="grid grid-cols-2 gap-2">
                 <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800">
-                  <div className="text-lg font-black text-white">£{Math.round(score.completedPence / 100).toLocaleString()}</div>
-                  <div className="text-[10px] text-slate-500 font-semibold">completed · {score.jobsCompleted} job{score.jobsCompleted === 1 ? '' : 's'}</div>
+                  <div className="text-lg font-black text-white">{score.jobsCompleted}</div>
+                  <div className="text-[10px] text-slate-500 font-semibold">completed job{score.jobsCompleted === 1 ? '' : 's'}</div>
                 </div>
                 <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/25">
-                  <div className="text-lg font-black text-blue-300">£{Math.round(score.bookedPence / 100).toLocaleString()}</div>
-                  <div className="text-[10px] text-blue-400/70 font-semibold">booked · {score.jobsBooked} job{score.jobsBooked === 1 ? '' : 's'}</div>
+                  <div className="text-lg font-black text-blue-300">{score.jobsBooked}</div>
+                  <div className="text-[10px] text-blue-400/70 font-semibold">booked job{score.jobsBooked === 1 ? '' : 's'}</div>
                 </div>
               </div>
 
@@ -2017,7 +1993,7 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                         <div key={i} className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-800/40 border border-slate-800">
                           <div className="min-w-0 flex-1">
                             <div className="text-xs font-semibold text-slate-200 leading-snug">{ln.description || ln.category}</div>
-                            <div className="text-[9px] text-slate-500 font-semibold mt-0.5">{TIER_LABEL[ln.tier] ?? ln.tier}{ln.method === 'floor' ? ' · min rate' : ''}</div>
+                            <div className="text-[9px] text-slate-500 font-semibold mt-0.5">{TIER_LABEL[ln.tier] ?? ln.tier}</div>
                           </div>
                           <div className="text-right shrink-0">
                             <div className="text-sm font-bold text-emerald-300">£{Math.round(ln.payPence / 100)}</div>
@@ -2027,7 +2003,7 @@ export default function MyWeekPage({ token: tokenProp, readOnly = false }: { tok
                       ))}
                     </div>
                     <div className="flex items-center gap-2 text-sm font-black mt-3 pt-3 border-t border-slate-800">
-                      <span className="flex-1 text-white">Total</span>
+                      <span className="flex-1 text-white">Estimated pay for this job</span>
                       <span className="text-emerald-300">£{Math.round((jobDetail.payoutPence ?? 0) / 100)}</span>
                       {(jobDetail.materialsAllowancePence ?? 0) > 0 && <span className="text-slate-400 text-xs">+ £{Math.round((jobDetail.materialsAllowancePence ?? 0) / 100)} mat.</span>}
                     </div>

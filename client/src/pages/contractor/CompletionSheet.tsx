@@ -39,7 +39,8 @@ const gbp = (pence: number) => `£${(pence / 100).toLocaleString('en-GB', { mini
 
 interface CompleteResult {
   paymentUrl: string | null;
-  balanceDuePence: number;
+  /** Whether the customer still owes a balance; the app is never told the amount. */
+  balanceDue: boolean;
   reviewUrl: string | null;
   segment: string | null;
 }
@@ -258,7 +259,7 @@ export default function CompletionSheet({ token, bookingId, customerName, payout
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || 'Could not complete');
-      setResult({ paymentUrl: d.paymentUrl ?? null, balanceDuePence: d.balanceDuePence ?? 0, reviewUrl: d.reviewUrl ?? null, segment: d.segment ?? null });
+      setResult({ paymentUrl: d.paymentUrl ?? null, balanceDue: d.balanceDue === true, reviewUrl: d.reviewUrl ?? null, segment: d.segment ?? null });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not complete');
       setBusy(false);
@@ -303,7 +304,7 @@ export default function CompletionSheet({ token, bookingId, customerName, payout
                 <div className="min-w-0">
                   <div className="text-sm font-bold text-white">Receipt sent to {customerName}</div>
                   <div className="text-xs text-slate-400">
-                    {result.balanceDuePence > 0 ? `Balance ${gbp(result.balanceDuePence)} — they can pay on the spot` : 'Paid in full — nothing left to collect'}
+                    {result.balanceDue ? 'Balance due — they can pay on the spot' : 'Paid in full — nothing left to collect'}
                   </div>
                 </div>
               </div>
@@ -312,8 +313,8 @@ export default function CompletionSheet({ token, bookingId, customerName, payout
               <div className="flex items-center gap-3 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/25">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0"><Clock size={20} className="text-emerald-400" /></div>
                 <div className="min-w-0">
-                  <div className="text-sm font-bold text-white">Your pay{payoutPence ? `: ${gbp(payoutPence)}` : ''} is queued</div>
-                  <div className="text-xs text-slate-400">Released once the office checks your photos — usually same day.</div>
+                  <div className="text-sm font-bold text-white">{payoutPence ? `Estimated pay for this job: ${gbp(payoutPence)}` : 'Job sent to the office'}</div>
+                  <div className="text-xs text-slate-400">The office checks your photos before any pay is released.</div>
                 </div>
               </div>
             </div>
@@ -355,7 +356,7 @@ export default function CompletionSheet({ token, bookingId, customerName, payout
             <h2 className="text-xl font-bold text-white">Job complete</h2>
             <p className="text-sm text-slate-400 mt-1 mb-6">Two more taps for {customerName} — get paid and get a review.</p>
 
-            {result.paymentUrl && result.balanceDuePence > 0 && (
+            {result.paymentUrl && result.balanceDue && (
               <div className="mb-5 p-5 rounded-2xl bg-white">
                 <div className="flex items-center justify-center gap-1.5 text-slate-900 font-bold text-sm mb-3"><CreditCard size={16} /> Take payment</div>
                 <QRCodeSVG value={result.paymentUrl} size={168} className="mx-auto" />

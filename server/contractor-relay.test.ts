@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
-    RELAY_DAILY_LIMIT, RELAY_PRESETS, RELAY_TAG, presetBody, firstNameOf, composeRelayBody, checkRelayBody, rateLimited,
+    RELAY_DAILY_LIMIT, RELAY_PRESETS, RELAY_TAG, RELAY_FREE_TEXT_REFUSAL, presetBody, relayRequest, firstNameOf, composeRelayBody, checkRelayBody, rateLimited,
     contractorApprover, replyNoticeBody, relayView, relayToCustomer, notifyContractorOfReply,
     type RelayDeps, type NotifyReplyDeps, type RelayTarget,
 } from './contractor-relay';
@@ -33,6 +33,25 @@ function deps(over: Partial<RelayDeps> = {}): RelayDeps & { send: any; queueForB
     };
     return d as any;
 }
+
+describe('relayRequest: presets only', () => {
+    it('turns a preset into its fixed words, with the late minutes', () => {
+        expect(relayRequest({ preset: 'arrived' })).toEqual({ ok: true, preset: 'arrived', text: "I'm outside now." });
+        expect(relayRequest({ preset: 'running_late', minutes: 30 })).toEqual({ ok: true, preset: 'running_late', text: presetBody('running_late', 30) });
+        expect(relayRequest({ preset: 'running_late', minutes: '30' })).toEqual({ ok: true, preset: 'running_late', text: presetBody('running_late') });
+        expect(relayRequest({ preset: 'access', text: '   ' })).toEqual({ ok: true, preset: 'access', text: presetBody('access') });
+    });
+    it('refuses typed words, alone or beside a preset', () => {
+        expect(relayRequest({ text: 'the gate is locked' })).toEqual({ ok: false, error: RELAY_FREE_TEXT_REFUSAL });
+        expect(relayRequest({ preset: 'arrived', text: 'I can knock £20 off' })).toEqual({ ok: false, error: RELAY_FREE_TEXT_REFUSAL });
+        expect(relayRequest({ preset: 'arrived', text: 42 })).toEqual({ ok: false, error: RELAY_FREE_TEXT_REFUSAL });
+    });
+    it('refuses no preset or an unknown one', () => {
+        expect(relayRequest(undefined)).toEqual({ ok: false, error: 'Pick one of the quick messages.' });
+        expect(relayRequest({ preset: '' })).toEqual({ ok: false, error: 'Pick one of the quick messages.' });
+        expect(relayRequest({ preset: 'discount' })).toEqual({ ok: false, error: 'That is not one of the quick messages.' });
+    });
+});
 
 describe('the presets are the three phone calls', () => {
     it('fixed wording, and the late one clamps the minutes rather than trusting the box', () => {

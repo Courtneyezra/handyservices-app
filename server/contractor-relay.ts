@@ -8,7 +8,8 @@
  *
  * This carries his words on the business number instead:
  *
- *   contractor → customer   his message, prefixed with his first name so she knows who is writing,
+ *   contractor → customer   one of the three presets (never free text, `relayRequest`), prefixed
+ *                           with his first name so she knows who is writing,
  *                           sent through the ONE exit (sendCustomerMessage) with approver
  *                           `contractor:<id>` and a run id, logged like every other send. Ben reads
  *                           the exchange on the thread as usual.
@@ -55,6 +56,25 @@ export const RELAY_PRESETS: RelayPreset[] = [
 export function presetBody(id: RelayPresetId, minutes?: number): string | null {
     const p = RELAY_PRESETS.find((x) => x.id === id);
     return p ? p.body({ minutes }) : null;
+}
+
+/** The refusal for anything typed: the relay carries the three presets and nothing else. */
+export const RELAY_FREE_TEXT_REFUSAL = 'Only the quick messages go to the customer from here: arrived, running late, or which door. For anything else, ring the office.';
+
+export type RelayRequest = { ok: true; preset: RelayPresetId; text: string } | { ok: false; error: string };
+
+/**
+ * Pure: the words a POST may send. Presets only: a request carrying typed text is refused even
+ * beside a preset, so the app can never put his own words in front of the customer.
+ */
+export function relayRequest(input: unknown): RelayRequest {
+    const b = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+    if (typeof b.text === 'string' ? b.text.trim() !== '' : b.text != null) return { ok: false, error: RELAY_FREE_TEXT_REFUSAL };
+    if (typeof b.preset !== 'string' || !b.preset) return { ok: false, error: 'Pick one of the quick messages.' };
+    const preset = b.preset as RelayPresetId;
+    const text = presetBody(preset, typeof b.minutes === 'number' ? b.minutes : undefined);
+    if (!text) return { ok: false, error: 'That is not one of the quick messages.' };
+    return { ok: true, preset, text };
 }
 
 // ---------------------------------------------------------------- compose + guard (pure)

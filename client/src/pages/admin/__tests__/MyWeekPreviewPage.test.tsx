@@ -40,7 +40,8 @@ function jobsPayload() {
         booked: [{
             id: BOOKING, quoteId: 'quote_p80XgGRDNXjT4ZdgOsDDG', materials: [], date: inDays(3), slot: 'am', durationDays: 1, customerName: 'MJ', postcodeArea: 'NG2',
             jobDescription: 'AC window kit to two sash windows', fullDescription: 'AC window kit to two sash windows', mapQuery: 'NG2 7QP', photoUrls: null,
-            valuePence: 22400, payoutPence: 15000, materialsAllowancePence: 2000, payLines: null,
+            payoutPence: 15000, payoutLabel: 'Estimated pay for this job', materialsAllowancePence: 2000, payLines: null,
+            dayOfStatus: 'scheduled', enRouteAt: null, arrivedAt: null,
             jobPack: pack, packChip: { complete: false, missing: 9, label: '9 missing' },
         }],
         flex: [], diaryItems: [],

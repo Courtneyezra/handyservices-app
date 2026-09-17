@@ -9,6 +9,10 @@
  *   GET  /api/contractor-app/:token           → provider + resolved weeks + pattern
  *   POST /api/contractor-app/:token/day       → { date, mode } day override
  *   POST /api/contractor-app/:token/pattern   → { days:[{dayOfWeek, mode}] } usual week
+ *   POST /api/contractor-app/:token/jobs/:bookingId/status → { status: on_my_way|arrived }
+ *
+ * Money is per-job estimate only and the customer's job value never reaches the app: every
+ * pay field is shaped by `server/lib/contractor-app-view.ts`.
  *
  * Writes land in the SAME tables the quote day-picker reads
  * (`contractor_availability_dates` + `handyman_availability`) and bump
@@ -38,6 +42,7 @@ import { computeContractorPay } from './lib/contractor-pay';
 import { resolveWeek, type DayAvailability } from './lib/contractor-week';
 import { modeToWindow, isDayMode, isIsoDate, isEditableDate, outwardPostcode, trimDescription, canCoexist, blockStartCandidates, activeLineItems, lineItemsToDescription, type DayMode, type DayLoadBooking } from './lib/contractor-app';
 import { scoreFlexPlacements, type PlacementCandidate } from './lib/contractor-flex-score';
+import { jobPayFields, PAY_ESTIMATE_LABEL, isAppJobStatus, statusVerdict, type StatusBooking } from './lib/contractor-app-view';
 import { reserveSlot, confirmBooking, isContractorAvailableForSlot } from './booking-engine';
 import { sendVisitRescheduledEmail } from './email-service';
 import { availabilityDayUTC } from './lib/availability-date';
@@ -60,12 +65,6 @@ async function packsForQuotes(quoteIds: Array<string | null | undefined>): Promi
     return new Map();
   }
 }
-
-// Customer-facing gross of one priced line (guarded labour + materials +
-// structural share) — matches computeSplitScope's `rawPence`. Used to show a
-// split booking's KEPT-scope value when the full basePrice no longer applies.
-const lineGrossPence = (l: any): number =>
-  (l?.guardedPricePence || 0) + (l?.materialsWithMarginPence || 0) + (l?.structuralSharePence || 0);
 
 // Flatten a job's active lines to their structured materials. The contractor
 // sees the FULL material (image + name + qty + buy link) — the customer-facing
@@ -185,33 +184,28 @@ router.get('/:token', async (req: Request, res: Response) => {
   }
 });
 
-// GET /:token/scorecard → his real career stats (pay booked vs completed,
-// jobs, tier ladder, week fill). Only tracks what's true — rating/on-time/
-// streak wait for the completion + review systems, flagged not-yet-tracked.
+// GET /:token/scorecard → his job counts (completed vs booked), tier and week
+// fill. No money: the app shows per-job estimates only, never a total. Only
+// tracks what's true — rating/on-time/streak wait for the completion + review
+// systems, flagged not-yet-tracked.
 router.get('/:token/scorecard', async (req: Request, res: Response) => {
   try {
     const profile = await findByAppToken(req.params.token);
     if (!profile) return res.status(404).json({ error: 'Link not recognised' });
 
-    const rows = await db.select({ payout: bookingAssignments.payoutPence, scheduledDate: contractorBookingRequests.scheduledDate, status: bookingAssignments.status })
+    const rows = await db.select({ scheduledDate: contractorBookingRequests.scheduledDate, status: bookingAssignments.status })
       .from(bookingAssignments)
       .innerJoin(contractorBookingRequests, eq(contractorBookingRequests.id, bookingAssignments.bookingId))
       .where(eq(bookingAssignments.contractorId, profile.id));
 
     const now = new Date();
     const todayStr = format(now, 'yyyy-MM-dd');
-    const monthStart = format(new Date(now.getFullYear(), now.getMonth(), 1), 'yyyy-MM-dd');
     const weekStartStr = format(startOfWeek(now, { weekStartsOn: 1 }), 'yyyy-MM-dd');
 
-    let allTime = 0, month = 0, week = 0, completedPence = 0, bookedPence = 0, jobsCompleted = 0, jobsBooked = 0;
+    let jobsCompleted = 0, jobsBooked = 0;
     for (const r of rows) {
-      const pay = r.payout ?? 0;
       const d = r.scheduledDate ? format(new Date(r.scheduledDate as any), 'yyyy-MM-dd') : todayStr;
-      const done = r.status === 'completed' || d < todayStr;
-      allTime += pay;
-      if (d >= monthStart) month += pay;
-      if (d >= weekStartStr) week += pay;
-      if (done) { completedPence += pay; jobsCompleted++; } else { bookedPence += pay; jobsBooked++; }
+      if (r.status === 'completed' || d < todayStr) jobsCompleted++; else jobsBooked++;
     }
 
     // Week fill from the resolved grid (this week).
@@ -223,8 +217,7 @@ router.get('/:token/scorecard', async (req: Request, res: Response) => {
 
     res.json({
       tier: profile.deliveryTier || 'adhoc',
-      allTimePence: allTime, monthPence: month, weekPence: week,
-      completedPence, bookedPence, jobsCompleted, jobsBooked,
+      jobsCompleted, jobsBooked,
       weekOpen, weekBooked,
       // Not yet tracked — surfaced honestly rather than faked.
       ratingTracked: false, onTimeTracked: false,
@@ -287,7 +280,8 @@ router.get('/:token/pipeline', async (req: Request, res: Response) => {
         jobDescription: trimDescription(r.jobDescription),
         // His estimated earn (labour share), NOT the customer total — the
         // contractor never sees the full job price. Matches the flex-job estimate.
-        valuePence: computeContractorPay((r.pricingLineItems as any[]) || [], profile.deliveryTier).totalPayPence,
+        estimatedPayPence: computeContractorPay((r.pricingLineItems as any[]) || [], profile.deliveryTier).totalPayPence,
+        payoutLabel: PAY_ESTIMATE_LABEL,
         sentAt: r.createdAt,
         viewed: !!r.viewedAt,
         viewCount: r.viewCount ?? 0,
@@ -343,6 +337,9 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
       acceptedAt: contractorBookingRequests.acceptedAt,
       contractorId: contractorBookingRequests.contractorId,
       assignedContractorId: contractorBookingRequests.assignedContractorId,
+      dayOfStatus: contractorBookingRequests.dayOfStatus,
+      enRouteAt: contractorBookingRequests.enRouteAt,
+      arrivedAt: contractorBookingRequests.arrivedAt,
     })
     .from(contractorBookingRequests)
     // Reach back 14 days: a multi-day span STARTING before today still
@@ -358,7 +355,7 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
   const bookingIds = booked.map((b) => b.id);
   const [quoteRows, payoutRows] = await Promise.all([
     quoteIds.length
-      ? db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, address: personalizedQuotes.address, photoUrls: personalizedQuotes.customerPhotoUrls, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice, pricingLineItems: personalizedQuotes.pricingLineItems, deferredLineItems: personalizedQuotes.deferredLineItems })
+      ? db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, address: personalizedQuotes.address, photoUrls: personalizedQuotes.customerPhotoUrls, jobDescription: personalizedQuotes.jobDescription, pricingLineItems: personalizedQuotes.pricingLineItems, deferredLineItems: personalizedQuotes.deferredLineItems })
           .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds))
       : Promise.resolve([]),
     bookingIds.length
@@ -455,8 +452,8 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
     .sort(byDayThenSlot)
     .map((b) => {
       const q = b.quoteId ? quoteById.get(b.quoteId) : undefined;
-      // Kept scope only — everything the contractor sees (value, materials,
-      // per-line pay, work-minutes) must exclude lines the customer deferred.
+      // Kept scope only — everything the contractor sees (materials, per-line
+      // pay, work-minutes) must exclude lines the customer deferred.
       const deferred = (q as any)?.deferredLineItems;
       const active = activeLineItems(q?.pricingLineItems, deferred);
       const hasDeferred = Array.isArray(deferred) && deferred.length > 0;
@@ -477,13 +474,13 @@ async function loadJobsAndGrid(profileId: string, deliveryTier?: string | null) 
         // Post-deposit: full address + photos available for the job sheet.
         mapQuery: (q?.address || q?.postcode) ?? null,
         photoUrls: (q?.photoUrls as string[] | null) ?? null,
-        // Split bookings: value is the kept scope, not the full quote base.
-        valuePence: hasDeferred ? active.reduce((s, l) => s + lineGrossPence(l), 0) : (q?.basePrice ?? null),
-        // His snapshotted pay for this booking (Model C + tier uplift).
-        payoutPence: payoutByBooking.get(b.id) ?? null,
-        // Materials allowance (cost) + per-line breakdown for the modal.
-        materialsAllowancePence: pay ? pay.totalMaterialsPence : null,
-        payLines: pay ? pay.lines : null,
+        // His snapshotted pay for this booking (Model C + tier uplift), shown as an
+        // estimate, with the materials allowance (cost) and per-line breakdown.
+        ...jobPayFields({ estimatedPayPence: payoutByBooking.get(b.id), pay }),
+        // Day-of status the app records ("on my way", "arrived").
+        dayOfStatus: b.dayOfStatus ?? 'scheduled',
+        enRouteAt: b.enRouteAt ?? null,
+        arrivedAt: b.arrivedAt ?? null,
         // Composed work minutes — drives the packing ceilings (canCoexist).
         minutes: totalScheduleMinutes(active, {}),
         // P13c: the job pack (codes + contact only once accepted) and the list chip; null without a pack.
@@ -538,7 +535,7 @@ async function loadPastWeek(profileId: string, deliveryTier: string | null | und
   const bookingIds = booked.map((b) => b.id);
   const [quoteRows, payoutRows] = await Promise.all([
     quoteIds.length
-      ? db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, address: personalizedQuotes.address, photoUrls: personalizedQuotes.customerPhotoUrls, jobDescription: personalizedQuotes.jobDescription, basePrice: personalizedQuotes.basePrice, pricingLineItems: personalizedQuotes.pricingLineItems, deferredLineItems: personalizedQuotes.deferredLineItems })
+      ? db.select({ id: personalizedQuotes.id, customerName: personalizedQuotes.customerName, postcode: personalizedQuotes.postcode, address: personalizedQuotes.address, photoUrls: personalizedQuotes.customerPhotoUrls, jobDescription: personalizedQuotes.jobDescription, pricingLineItems: personalizedQuotes.pricingLineItems, deferredLineItems: personalizedQuotes.deferredLineItems })
           .from(personalizedQuotes).where(inArray(personalizedQuotes.id, quoteIds))
       : Promise.resolve([]),
     bookingIds.length
@@ -571,10 +568,7 @@ async function loadPastWeek(profileId: string, deliveryTier: string | null | und
         fullDescription: description,
         mapQuery: (q?.address || q?.postcode) ?? null,
         photoUrls: (q?.photoUrls as string[] | null) ?? null,
-        valuePence: hasDeferred ? active.reduce((s, l) => s + lineGrossPence(l), 0) : (q?.basePrice ?? null),
-        payoutPence: payoutByBooking.get(b.id) ?? null,
-        materialsAllowancePence: pay ? pay.totalMaterialsPence : null,
-        payLines: pay ? pay.lines : null,
+        ...jobPayFields({ estimatedPayPence: payoutByBooking.get(b.id), pay }),
         // History-only completion proof.
         completed: b.status === 'completed' || b.assignmentStatus === 'completed',
         completedAt: b.completedAt ? format(new Date(b.completedAt as any), 'yyyy-MM-dd') : null,
@@ -584,13 +578,12 @@ async function loadPastWeek(profileId: string, deliveryTier: string | null | und
       };
     });
 
-  const earnedPence = jobs.reduce((s, j) => s + (j.payoutPence ?? 0), 0);
+  // No week total: the app shows each job's estimate, never a sum.
   return {
     weeksBack,
     weekStart: weekStartStr,
     weekEnd: format(addDays(weekEnd, -1), 'yyyy-MM-dd'),
     label: isThisWeek ? 'Earlier this week' : `Week of ${format(weekStart, 'd MMM')}`,
-    earnedPence,
     jobs,
     hasMore: true, // client stops when a fetched week returns empty AND older weeks empty; keep simple
   };
@@ -732,7 +725,6 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
         address: personalizedQuotes.address,
         photoUrls: personalizedQuotes.customerPhotoUrls,
         jobDescription: personalizedQuotes.jobDescription,
-        basePrice: personalizedQuotes.basePrice,
         depositPaidAt: personalizedQuotes.depositPaidAt,
         withinDays: personalizedQuotes.flexBookingWithinDays,
         pricingLineItems: personalizedQuotes.pricingLineItems,
@@ -831,11 +823,9 @@ router.get('/:token/jobs', async (req: Request, res: Response) => {
         fullDescription: description,
         mapQuery: (f.address || f.postcode) ?? null,
         photoUrls: (f.photoUrls as string[] | null) ?? null,
-        // Split bookings: value is the kept scope, not the full quote base.
-        valuePence: hasDeferred ? lines.reduce((s, l) => s + lineGrossPence(l), 0) : (f.basePrice ?? null),
-        payoutPence: pay.totalPayPence,
-        materialsAllowancePence: pay.totalMaterialsPence,
-        payLines: pay.lines,
+        ...jobPayFields({ estimatedPayPence: pay.totalPayPence, pay }),
+        // Work minutes on the kept scope, the same figure booked jobs carry.
+        minutes,
         deadline,
         multiDay,
         requiredDays,
@@ -1172,6 +1162,8 @@ router.post('/:token/jobs/:bookingId/move', async (req: Request, res: Response) 
 // Day Builder — the flex pool composed into candidate day-packs by the
 // dispatch optimiser (scoped to this contractor), under a goal Craig picks.
 // Proposals only; locking a day walks each job through placeFlexJob.
+// Not part of the new contractor app ("Drop it"); kept only because the
+// current My Week page still calls both routes.
 // ---------------------------------------------------------------------------
 
 const DAY_PLAN_GOALS = {
@@ -1252,8 +1244,6 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
       .map((g) => ({
         date: g.date,
         rationale: g.rationale,
-        // The day's ADDED pay = sum of the non-fixed (placeable) members' pay.
-        totalPence: g.members.filter((m) => !m.fixed).reduce((s, m) => s + (payoutByQuote.get(m.quoteId) ?? 0), 0),
         committedCount: g.committedCount ?? 0,
         jobs: g.members.map((m) => ({
           quoteId: m.quoteId,
@@ -1262,8 +1252,8 @@ router.get('/:token/day-plans', async (req: Request, res: Response) => {
           customerName: m.customerName,
           postcodeArea: outwardPostcode(m.postcode ?? null),
           jobDescription: trimDescription(m.jobDescription ?? null),
-          valuePence: m.valuePence,
           payoutPence: payoutByQuote.get(m.quoteId) ?? null,
+          payoutLabel: PAY_ESTIMATE_LABEL,
         })),
         // What lock-day actually places (anchors are already booked).
         // Full-day-needing jobs are coerced to full_day so locks can't 409
@@ -1398,6 +1388,51 @@ router.post('/:token/pattern', async (req: Request, res: Response) => {
   }
 });
 
+// POST /:token/jobs/:bookingId/status { status: on_my_way|arrived } → record
+// his day-of progress on the booking (enRouteAt / arrivedAt). The office sees
+// it; the customer is sent nothing from here (the relay's presets are the only
+// words he can send her).
+router.post('/:token/jobs/:bookingId/status', async (req: Request, res: Response) => {
+  try {
+    const profile = await findByAppToken(req.params.token);
+    if (!profile) return res.status(404).json({ error: 'Link not recognised' });
+    const next = req.body?.status;
+    if (!isAppJobStatus(next)) return res.status(400).json({ error: 'status must be on_my_way or arrived' });
+
+    const [booking] = await db.select({
+      id: contractorBookingRequests.id,
+      contractorId: contractorBookingRequests.contractorId,
+      assignedContractorId: contractorBookingRequests.assignedContractorId,
+      status: contractorBookingRequests.status,
+      assignmentStatus: contractorBookingRequests.assignmentStatus,
+      acceptedAt: contractorBookingRequests.acceptedAt,
+      dayOfStatus: contractorBookingRequests.dayOfStatus,
+      scheduledDate: contractorBookingRequests.scheduledDate,
+      durationDays: contractorBookingRequests.durationDays,
+      scheduledDates: contractorBookingRequests.scheduledDates,
+      enRouteAt: contractorBookingRequests.enRouteAt,
+      arrivedAt: contractorBookingRequests.arrivedAt,
+    }).from(contractorBookingRequests).where(eq(contractorBookingRequests.id, req.params.bookingId)).limit(1);
+
+    const verdict = statusVerdict(booking as StatusBooking | undefined, profile.id, next, ukToday());
+    if (!verdict.ok) return res.status(verdict.status).json({ error: verdict.error });
+    if (!verdict.changed) {
+      return res.json({ ok: true, status: next, changed: false, enRouteAt: booking.enRouteAt ?? null, arrivedAt: booking.arrivedAt ?? null });
+    }
+
+    const now = new Date();
+    const [row] = await db.update(contractorBookingRequests)
+      .set({ dayOfStatus: verdict.dayOfStatus, [verdict.stamp]: now, updatedAt: now })
+      .where(eq(contractorBookingRequests.id, booking.id))
+      .returning({ enRouteAt: contractorBookingRequests.enRouteAt, arrivedAt: contractorBookingRequests.arrivedAt });
+    console.log(`[ContractorApp] Booking ${booking.id} → ${verdict.dayOfStatus} by ${profile.id}`);
+    res.json({ ok: true, status: next, changed: true, enRouteAt: row?.enRouteAt ?? null, arrivedAt: row?.arrivedAt ?? null });
+  } catch (err: any) {
+    console.error('[ContractorApp] status failed:', err?.message);
+    res.status(500).json({ error: 'Could not save that. Try again, or ring the office.' });
+  }
+});
+
 // POST /:token/jobs/:bookingId/photo — a completion photo. Base64 data URL in
 // (client resizes first), public URL out. Ownership-checked.
 router.post('/:token/jobs/:bookingId/photo', async (req: Request, res: Response) => {
@@ -1463,12 +1498,14 @@ router.post('/:token/jobs/:bookingId/complete', async (req: Request, res: Respon
     }).catch((e: any) => console.warn('[ContractorApp] completion filing failed:', e?.message));
 
     // (b) Customer invoice/receipt + payment link for the QR.
+    // The app learns only WHETHER a balance is due, never the amount: the
+    // customer sees her figure on the pay page the QR opens.
     let paymentUrl: string | null = null;
-    let balanceDuePence = 0;
+    let balanceDue = false;
     try {
       const inv = await generateBalanceInvoice(bookingId);
       if (inv) {
-        balanceDuePence = inv.balanceDuePence;
+        balanceDue = inv.balanceDuePence > 0;
         const code = inv.invoiceNumber.replace('INV-', '').replace(/-/g, '');
         paymentUrl = `${process.env.BASE_URL || 'https://www.handyservices.app'}/pay/${code}`;
       }
@@ -1485,7 +1522,7 @@ router.post('/:token/jobs/:bookingId/complete', async (req: Request, res: Respon
       segment = q?.segment ?? null;
     }
 
-    res.json({ success: true, paymentUrl, balanceDuePence, reviewUrl, segment });
+    res.json({ success: true, paymentUrl, balanceDue, reviewUrl, segment });
   } catch (err: any) {
     console.error('[ContractorApp] complete failed:', err?.message);
     res.status(500).json({ error: 'Failed to complete job' });
