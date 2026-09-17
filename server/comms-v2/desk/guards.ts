@@ -111,6 +111,7 @@ function allOf(re: RegExp, text: string): string[] {
 export function checkDate(input: GuardInput): GuardVerdict {
     const looked = new Set(input.lookedUp ?? []);
     // The diary, or the customer's CRM record (an invoice's dates, a visit day), as this run read it.
+    // A person's cited instruction on the Handy Desk counts the same way (answer A2): it is this run's.
     const diary = citedFacts(input).filter((f) => isReadThisRunOnly(f) && looked.has(f.id)).map((f) => f.value.toLowerCase());
     // A bare ordinal is read as a day on its own words (lexicon.ts ordinalDays), not on whether the
     // reply gives a date elsewhere: "the 1st floor" beside a looked-up date is a floor, and "the 2nd"
@@ -118,12 +119,49 @@ export function checkDate(input: GuardInput): GuardVerdict {
     const matches = [...allOf(RE_DATE_TIME_DURATION, input.reply), ...ordinalDays(input.reply)];
     if (!matches.length) return pass();
     const bad = matches.filter((m) => !diary.some((v) => saysWhole(v, m.toLowerCase())));
-    return bad.length ? fail(`a date, time or duration appears that this turn did not look up in the diary or the customer's record: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
+    return bad.length ? fail(`a date, time or duration appears that this turn did not look up in the diary or the customer's record, and no instruction of Ben's gives: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
+}
+
+/**
+ * The instruction facts this run cited (case-file.ts `FactSource` kind `instruction`, answer A2):
+ * a person's own words on the Handy Desk, which license the one message they were given for.
+ */
+function citedInstructions(input: GuardInput): Fact[] {
+    const looked = new Set(input.lookedUp ?? []);
+    return citedFacts(input).filter((f) => f.source.kind === 'instruction' && looked.has(f.id));
+}
+
+/** Contractions spelled out and spacing collapsed, so "we'll call" and "we will call" read the same. */
+function instructionKey(s: string): string {
+    return s.toLowerCase().replace(/[\u2018\u2019\u02bc`]/g, "'")
+        .replace(/\b(i|we|you|he|she|they|ben)'ll\b/g, '$1 will')
+        .replace(/\b(i|we|you|they)'ve\b/g, '$1 have')
+        .replace(/\s+/g, ' ').trim();
+}
+
+/** Whether a cited instruction says this claim, whole words, as the person gave it. */
+function instructedClaim(input: GuardInput, claim: string): boolean {
+    const want = instructionKey(claim);
+    return citedInstructions(input).some((f) => saysWhole(instructionKey(f.value), want));
+}
+
+/**
+ * The dates, times and commitments in a reply that pass only because a cited instruction says them,
+ * for the preview to name ("'this afternoon' is from your instruction"). Empty when none does.
+ */
+export function instructedClaims(input: GuardInput): string[] {
+    if (!citedInstructions(input).length) return [];
+    const claims = [...allOf(RE_DATE_TIME_DURATION, input.reply), ...ordinalDays(input.reply), ...allOf(RE_COMMITMENT_OR_FAULT, input.reply)];
+    const out: string[] = [];
+    for (const c of claims) if (instructedClaim(input, c) && !out.includes(c)) out.push(c);
+    return out;
 }
 
 export function checkCommitment(input: GuardInput): GuardVerdict {
-    const m = RE_COMMITMENT_OR_FAULT.exec(input.reply);
-    if (m) return fail(`a commitment or an admission of fault appears: "${m[0]}"`);
+    // A commitment passes only when a person's cited instruction gives it word for word; an admission
+    // of fault is a commitment like any other here, so it too must be his words.
+    const m = allOf(RE_COMMITMENT_OR_FAULT, input.reply).find((c) => !instructedClaim(input, c));
+    if (m) return fail(`a commitment or an admission of fault appears: "${m}"`);
     // A request to move a date that nothing holds for Ben is not his to come back on: the gate only holds
     // a change to a booked job (checklist 5.5), so a promise that he will is one nobody keeps. The desk
     // raises every hold before the guards run, so the file's hold is this turn's, or a standing one.

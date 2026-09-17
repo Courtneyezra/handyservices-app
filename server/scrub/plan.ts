@@ -287,6 +287,11 @@ const OVERRIDES: Record<string, Treatment> = {
     // of details (server/comms-v2/service/service-tools.ts `changeOfDetails`), so it is a free-text
     // leaf like a note, regenerated rather than trusted to the sweep.
     'comms_v2_case_files.reason': 'note',
+    // A person's instruction on the Handy Desk, a fact's source (desk/case-file.ts `FactSource`
+    // kind `instruction`): `quote` is their words, which can name the customer; `person` is who said
+    // them; `ask_message_id` is kept by the id rule.
+    'comms_v2_case_files.quote': 'note',
+    'comms_v2_case_files.person': 'actor',
 
     // --- inbound emails kept until the desk has them (server/comms-v2/channels/inbound-email-store.ts).
     //     `email_id` is Resend's opaque id and `claim_id` a minted uuid, both kept by the id rule;
@@ -365,6 +370,9 @@ const OVERRIDES: Record<string, Treatment> = {
     'comms_v2_ask_actions.address': 'contact',
     'comms_v2_ask_actions.name': 'person_name',
     'comms_v2_ask_actions.approver': 'actor',
+    // A message.send's instruction (ask/kinds/message-send.ts): the person's words, and who said them.
+    'comms_v2_ask_actions.quote': 'note',
+    'comms_v2_ask_actions.person': 'actor',
     // A case file's system turn for a confirmed change (desk/case-file.ts `SystemTurn`): `body` is
     // a body by the rule, and `action_id` and `run_id` are kept by the id rule.
 

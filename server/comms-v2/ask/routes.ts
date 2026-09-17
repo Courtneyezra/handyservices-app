@@ -204,8 +204,10 @@ export function createAskRouter(deps: AskRouterDeps): Router {
                 emit({ type: 'ops_run_started', sessionId, runId, at: stamp() });
 
                 const assignments = await approvers();
+                // What a message may cite as the person's instruction: their own asks, never a chain's taps.
+                const instructions = [...input.prior, ask].filter((m) => m.role === 'user' && m.via !== 'tap').map((m) => ({ id: m.id, text: m.content }));
                 const result = await runTurn({
-                    sessionId, userMessage: content, via, context, history, person, askRunId: runId,
+                    sessionId, userMessage: content, via, context, history, person, askRunId: runId, instructions,
                     approver: slotOf((req as any).user, assignments),
                     onEvent: (step: LeanRunStep) => emit({ type: 'ops_run_event', sessionId, runId, step, at: stamp() }),
                 }, { source: deps.source, assignments: async () => assignments, actions, kinds: deps.kinds, now: actionClock, ...deps.turnDeps });

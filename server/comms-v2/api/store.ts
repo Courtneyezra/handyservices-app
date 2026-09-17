@@ -20,6 +20,7 @@
  */
 import { createSandboxDoor, type DoorDeps, type SandboxDoor } from '../desk/sandbox-door';
 import type { CaseFileStore } from '../desk/store';
+import type { Identity } from '../desk/identity';
 
 let door: SandboxDoor | null = null;
 
@@ -38,6 +39,8 @@ export interface BoardSource {
     store: CaseFileStore;
     live: boolean;
     mode: 'dry_run' | 'live';
+    /** The same gateway's identity, for a message a person starts to someone with no file open (ask/kinds/message-send.ts). */
+    identity?: Identity;
 }
 
 export type BoardSourceFor = (door: SandboxDoor) => Promise<BoardSource>;
@@ -45,8 +48,8 @@ export type BoardSourceFor = (door: SandboxDoor) => Promise<BoardSource>;
 /** The live intake's store while the new desk is live, else the sandbox door's. Throws when the new desk is live and its gateway cannot be built, with the reason. */
 export const boardSourceFor: BoardSourceFor = async (sandbox) => {
     const { commsV2Live } = await import('../switch');
-    if (!(await commsV2Live())) return { store: sandbox.gateway.store, live: false, mode: 'dry_run' };
+    if (!(await commsV2Live())) return { store: sandbox.gateway.store, identity: sandbox.gateway.identity, live: false, mode: 'dry_run' };
     const { INTAKE_DESK_MODE, liveChannelGateway } = await import('../channels/intake');
     const gateway = await liveChannelGateway();
-    return { store: gateway.store, live: true, mode: INTAKE_DESK_MODE.live };
+    return { store: gateway.store, identity: gateway.identity, live: true, mode: INTAKE_DESK_MODE.live };
 };

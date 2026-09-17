@@ -30,7 +30,7 @@ import type { ApproverSlot, CaseFile, ModelCallRecord } from '../desk/case-file'
 import { AnthropicModelClient, ROUTER_MODEL, SPECIALIST_MODEL, type ModelClient } from '../desk/models';
 import type { ApproverAssignments } from '../api/approvers';
 import type { BoardSource } from '../api/store';
-import { newRunState, proposeInRun, type AskRunState, type AskToolDeps } from './tools';
+import { newRunState, proposeInRun, type AskInstructionSource, type AskRunState, type AskToolDeps } from './tools';
 import { buildAnswer, customerOf, fileAnswersTo } from './surface';
 import { ASK_DOMAINS, offeredDomains, toolsFor, type AskDomain } from './tool-groups';
 import type { AskActionStore } from './actions';
@@ -78,18 +78,20 @@ export const ASK_SYSTEM = `You are the Handy Desk: the ops desk Ben, the owner o
 
 What you can do:
 - Read with the tools you are given. Every tool reads; none changes anything a customer sees.
-- Hold ONE drafted reply for Ben with draft_reply. It never sends. A draft you hold is proposed for sending: Ben reads it and confirms. Only draft when he asks you to reply, message or answer a customer, or clearly wants one.
+- Hold ONE drafted reply for Ben with draft_reply. It never sends. A draft you hold is proposed for sending: Ben reads it and confirms. Use it when he asks for a draft or a reply he will look over.
+- When Ben asks you to message, text, WhatsApp, email or tell a customer something, use propose_message: it writes the message and proposes it, and Ben confirms it on your answer. Pass on the day, time or promise he gave as instruction, copied exactly from his words. One message per proposal.
 - Propose ONE change per turn with a propose_ tool (for example propose_send_held_draft). Nothing runs until Ben confirms it on your answer. After proposing, stop and answer: the next step is proposed after he confirms, on a fresh read.
 - End with give_answer, exactly once, then one short closing line. For an ask with more than one step, give its plan, marking the steps you finished.
 
 Rules:
 1. You never send or change anything yourself. Every change is a proposal Ben confirms, one at a time. If a proposal is refused, stop: tell Ben why in plain words and propose nothing more.
 2. No money actions: never change, send or chase a price, quote, invoice or payment. You may report what a file says.
-3. Drafts carry no price, date, time, commitment or business claim; the desk refuses them. If a reply needs one of those, tell Ben what to say himself instead of drafting.
+3. Drafts and messages carry no price and no business claim; the desk refuses them. A message may carry a date, time or commitment only when Ben's own words gave it and you pass them as instruction; a draft never does. If a reply needs something the desk refuses, tell Ben what to say himself.
 4. Diary, map, quote and ledger views are not connected to this desk yet. If asked, answer in words with what the case files show and say so.
 5. Never invent data: every name, count and quote from a customer must come from a tool result. If the selected card is named, start there.
 6. If a draft is refused, say why in plain words; do not retry more than once with a different brief.
 7. Earlier messages in this conversation describe the desk as it was then. What is held, waiting or drafted now comes only from this ask's fresh read and your tool results.
+8. Never guess who someone is or their number: message a customer only by a case file or an address a tool result or Ben gave. If two people could be meant, ask Ben which.
 
 Answer surface: "thread" for one customer's conversation (always when you drafted or looked at one file), "floor" for the whole board, "words" otherwise. finalText is one to three short sentences, UK English, plain, no markdown.`;
 
@@ -123,6 +125,8 @@ export interface RunAskTurnOptions {
     approver: ApproverSlot | null;
     /** The ask run: the proposals it saves carry it, so its answer message can be named on them. */
     askRunId?: string | null;
+    /** The person's own asks in this session with their ids, this one included: what a message may cite as their instruction. */
+    instructions?: AskInstructionSource[];
     onEvent?: (step: LeanRunStep) => void;
 }
 
@@ -229,6 +233,7 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
     const toolDeps: AskToolDeps = {
         source: deps.source, assignments, approver: opts.approver, person: opts.person, client, now,
         actions: deps.actions, kinds: deps.kinds, sessionId: opts.sessionId, askRunId: opts.askRunId ?? null,
+        instructions: opts.instructions ?? [],
     };
 
     let autoRefusal: string | null = null;
