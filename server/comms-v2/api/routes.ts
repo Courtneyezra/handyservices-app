@@ -14,10 +14,13 @@
  *                                    hostname check, failing towards hidden on any refusal reason
  * GET  /queue                     - Handy Desk's "Needs you" list (queue.ts): every held file, with
  *                                    its held draft and its office working-hours wait, longest first,
- *                                    with the same `viewer` as /board, and the quotes waiting to be
- *                                    priced (spine/price-queue.ts) merged in as `ready_to_price`
- *                                    items on the same clock; if that read fails the held items
- *                                    still come back, with `priceQueueError`
+ *                                    with the same `viewer` as /board. The quotes waiting to be priced
+ *                                    (spine/price-queue.ts) are opt-in, `?readyToPrice=1`: without it
+ *                                    nothing reads them, so the held-count badge's poll stays an
+ *                                    in-memory read, and a `?mode=` filter reads none either. Asked
+ *                                    for, they follow below every hold as `ready_to_price` items,
+ *                                    oldest draft first; if that read fails the held items still come
+ *                                    back, with `priceQueueError`
  * GET  /case-files/:id            - one file's turns and facts, read-only, with the channel and
  *                                    window a reply from the thread would use
  * GET  /case-files/:id/template-offer - a dry run of send-template (desk/human-reply.ts

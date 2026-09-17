@@ -316,6 +316,8 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('queue-card-badge-price:sam123')).toHaveTextContent('Ready to price · 3 h');
         expect(screen.getByTestId('queue-card-body-price:sam123')).toHaveTextContent('Valves and a tap. 2 lines to check. Nothing sent.');
         expect(within(card).queryByRole('button', { name: /Send|Answer|Release/ })).toBeNull();
+        // One destination, so one keyboard stop: the link. No button duplicates it.
+        expect(within(card).queryAllByRole('button')).toEqual([]);
         const open = within(card).getByRole('link', { name: 'Open & price' });
         expect(open).toHaveAttribute('href', '/admin/price/sam123');
 

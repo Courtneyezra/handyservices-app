@@ -296,8 +296,9 @@ export function ReadyToPriceCard({ item }: { item: ReadyToPriceItem }) {
     const copy = readyToPriceCardCopy(item);
     const [, navigate] = useLocation();
     // A held card's tap selects the conversation; this card has none, so the whole card goes where Ben
-    // can act on it - Price and Send for this quote (/admin/price/:slug). The pill is the same
-    // destination as a real link, so it keeps its own click from firing the card's.
+    // can act on it - Price and Send for this quote (/admin/price/:slug), a big enough tap target on a
+    // phone. The pill is that same destination as a real link, the keyboard's way in, so it keeps its
+    // own click from firing the card's.
     const open = () => navigate(copy.primary.href);
     return (
         <article
@@ -306,13 +307,13 @@ export function ReadyToPriceCard({ item }: { item: ReadyToPriceItem }) {
             onClick={open}
             className="cursor-pointer rounded-3xl border border-slate-800 bg-[#111c33] p-4 transition-colors duration-200 ease-[var(--ease-out)] hover:border-amber-400 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-[240ms]"
         >
-            <button type="button" onClick={(e) => { e.stopPropagation(); open(); }} className="flex w-full items-center gap-3 text-left">
+            <div className="flex w-full items-center gap-3 text-left">
                 <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-700 text-sm font-bold text-white">{copy.initials}</span>
                 <span className="min-w-0 flex-1">
                     <span className="block truncate text-[15px] font-bold text-white">{copy.name}</span>
                     {copy.sub && <span className="block truncate text-xs text-slate-400">{copy.sub}</span>}
                 </span>
-            </button>
+            </div>
             <p data-testid={`queue-card-badge-${item.id}`} className={cn(EYEBROW, 'mt-3 text-slate-300')}>{copy.badge}</p>
             <p data-testid={`queue-card-body-${item.id}`} className="mt-2 text-[13px] text-slate-300">{copy.body}</p>
             <div className="mt-4 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
