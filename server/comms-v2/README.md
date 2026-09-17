@@ -643,8 +643,9 @@ while focus is in any field on the page, such as the ask bar). Below that width 
 sheet, closed with ‹ Board (‹ Queue on the desk); Esc and a tap above the sheet are ignored while one
 of the thread's own boxes (the reply, the close-file words) holds words. Which of the two shows
 follows the window as it is now, so narrowing it with a card selected brings that card's thread into
-the sheet. On the Handy Desk leaving the sheet dismisses it alone, keeping the card selected and the
-ask bar's context with it, and "Ask about this" in its header closes it back onto the ask bar. An ask bar answer takes the
+the sheet. On the Handy Desk leaving the sheet puts the card down with it, so the queue's highlight,
+the ask bar's context and the answer surface agree at every width; "Ask about this" in its header is
+the one leaving that keeps the card, closing the sheet back onto the ask bar. An ask bar answer takes the
 right-hand side over the thread while it shows, and the composer's half-written reply is the page's,
 kept per case file, so it is still there when the thread comes back. It shows:
 - a header with the reply channel and its window (`replyChannel`, `replyWindow`);

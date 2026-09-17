@@ -14,8 +14,9 @@
  * customer's thread (client/src/components/comms-v2/ThreadView.tsx, B4), with the held draft and
  * Ben's own reply, docked on the right at 1024px and up and as a bottom sheet below; the ask bar
  * takes it as context. Which of the two shows follows the window as it is now, so narrowing a window
- * with a card selected brings its thread with it; dismissing the sheet leaves the card selected and
- * the ask bar's context with it; "Ask about this" in its header closes it back onto the ask bar. The
+ * with a card selected brings its thread with it. Leaving the sheet puts the card down with it, so
+ * the queue, the ask bar's context and the answer surface always agree; "Ask about this" in its
+ * header is the one leaving that keeps the card, closing the sheet back onto the ask bar. The
  * thread's half-written reply is the page's, kept per case file, so an answer taking the right-hand
  * side never eats it. The mapping from a held file to the card's copy lives in
  * client/src/lib/handy-desk-queue.ts.
@@ -334,6 +335,8 @@ export default function HandyDesk() {
     const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
     const wide = useIsWideBoard();
     const askInput = useRef<HTMLInputElement>(null);
+    // The card the sheet was left on, for the one leaving that keeps it: "Ask about this".
+    const leftOn = useRef<DeskSelection | null>(null);
     // The dismissal is the sheet's alone: once the thread has docked instead, a narrower window opens it again.
     useEffect(() => { if (wide) setSheetDismissed(false); }, [wide]);
 
@@ -482,8 +485,8 @@ export default function HandyDesk() {
                     words={selection ? threadWords[selection.caseFileId] ?? '' : ''}
                     onWords={(w) => selection && setThreadWords((kept) => ({ ...kept, [selection.caseFileId]: w }))}
                     fallbackName={selection?.name}
-                    onClose={() => setSheetDismissed(true)}
-                    onAskAbout={() => askInput.current?.focus()}
+                    onClose={() => { leftOn.current = selection; setSelection(null); }}
+                    onAskAbout={() => { setSelection(leftOn.current); setSheetDismissed(true); askInput.current?.focus(); }}
                     onChanged={refreshQueue}
                     canAct={canAct}
                     viewerApprover={viewerApprover}
