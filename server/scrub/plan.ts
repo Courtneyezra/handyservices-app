@@ -308,6 +308,37 @@ const OVERRIDES: Record<string, Treatment> = {
     'comms_v2_inbound_emails.provider_message_id': 'external_id', // the email's Message-ID, which names the sender's mail host
     'comms_v2_inbound_emails.message_id': 'external_id',
 
+    // --- the Handy Desk ask agent's sessions and messages (server/comms-v2/ask/). A title can be
+    //     typed, like ops_sessions.title; `day` is a London date and `via` an enumeration. The
+    //     message row's json (the ask's context, the run's lean transcript and its OpsAnswer) holds
+    //     what the agent read off case files: names, addresses, turn bodies, held drafts, hold
+    //     reasons. Its leaves are classified by key through the entries below, scoped to this table.
+    'comms_v2_ask_sessions.title': 'note',
+    'comms_v2_ask_sessions.day': 'keep',
+    'comms_v2_ask_messages.via': 'keep',
+    'comms_v2_ask_messages.ask_context': 'json_deep',
+    'comms_v2_ask_messages.transcript': 'json_deep',
+    'comms_v2_ask_messages.answer': 'json_deep',
+    'comms_v2_ask_messages.usage': 'keep',
+    'comms_v2_ask_messages.final_text': 'message_body',  // the answer's reply line, which names customers
+    'comms_v2_ask_messages.text': 'message_body',        // an outgoing tile, or the model's own text
+    'comms_v2_ask_messages.draft': 'message_body',       // a held reply read back or written
+    'comms_v2_ask_messages.last_customer_message': 'message_body',
+    'comms_v2_ask_messages.phone': 'contact',            // the thread's address: E.164 or an e-mail
+    'comms_v2_ask_messages.to': 'contact',               // where an outgoing tile would go
+    'comms_v2_ask_messages.customer_address': 'contact', // the canonical `phone:` / `email:` key
+    'comms_v2_ask_messages.address': 'contact',
+    'comms_v2_ask_messages.name': 'person_name',
+    'comms_v2_ask_messages.location': 'postcode',
+    'comms_v2_ask_messages.hold_reason': 'note',
+    'comms_v2_ask_messages.reason': 'note',
+    'comms_v2_ask_messages.value': 'note',               // a fact's value read off the file
+    'comms_v2_ask_messages.words': 'note',
+    'comms_v2_ask_messages.brief': 'note',               // what the agent asked the writer to say
+    'comms_v2_ask_messages.query': 'note',
+    'comms_v2_ask_messages.call_summary': 'narrative',
+    'comms_v2_ask_messages.approver': 'actor',
+
     // --- names the rules would miss
     'tenants.name': 'person_name',
     'contractor_teams.name': 'business_name',

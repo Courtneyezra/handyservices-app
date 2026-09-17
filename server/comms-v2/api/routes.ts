@@ -31,6 +31,9 @@
  *                                    never quote_accepted_ack_v1, enquiry_followup_optin_v1 or a
  *                                    marketing row
  *
+ * /ask/* mounts the Handy Desk ask agent (server/comms-v2/ask/routes.ts) over the same store this
+ * router reads; its one write is a draft on a hold, which goes out only through send-held-draft here.
+ *
  * /sandbox/* mounts the Goal 1 sandbox door unmodified (server/comms-v2/desk/sandbox-door.ts),
  * so the board has sandbox threads to show without duplicating that door's logic here.
  *
@@ -52,8 +55,9 @@ import { humanReply, sendHeldDraft, sendWindowTemplate } from '../desk/human-rep
 import type { SandboxDoor } from '../desk/sandbox-door';
 import { oldCommsRetired } from '../old-comms';
 import { commsV2DatabaseCheck } from '../live-database';
+import { createAskRouter, type AskRouterDeps } from '../ask/routes';
 
-export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames, sandboxAvailable: () => boolean = () => commsV2DatabaseCheck(process.env).ok): Router {
+export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames, sandboxAvailable: () => boolean = () => commsV2DatabaseCheck(process.env).ok, ask: Omit<AskRouterDeps, 'source' | 'approvers'> = {}): Router {
     const router = Router();
     /** The store this request reads (api/store.ts): the live desk's while it is live, else the sandbox door's. Null once a 503 has been sent. */
     const source = async (res: Response): Promise<BoardSource | null> => {
@@ -66,6 +70,7 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
     };
 
     router.use('/sandbox', door.router);
+    router.use('/ask', createAskRouter({ ...ask, source: () => sourceFor(door), approvers }));
 
     router.get('/old-comms', async (_req, res) => {
         res.json({ retired: await retired() });

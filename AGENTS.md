@@ -48,7 +48,7 @@ when asked whether some data is safe to publish.
 - `/api/quotes`, `/api/calls`, `/api/leads` — quote, call, lead CRUD; `/api/twilio/*` webhooks
 - `/api/spine/*` — comms desk config, tiers, go-live check, vision health (admin)
 - `/api/comms-sandbox/*` — dry-run harness (admin; see the `comms-sandbox` skill)
-- `/api/comms-v2/*` — the new desk's board, release and its own sandbox door (admin; `server/comms-v2/README.md`)
+- `/api/comms-v2/*` — the new desk's board, release, its own sandbox door, and the Handy Desk ask agent under `/ask`, whose only write is a draft on a case file's hold that a person sends with send-held-draft (admin; `server/comms-v2/README.md`)
 - `/api/health/comms-worker` — worker heartbeat, `status: 'ok' | 'stale'` as 200 / 503
 
 ## Invariants and gotchas
