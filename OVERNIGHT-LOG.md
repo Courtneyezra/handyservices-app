@@ -213,3 +213,39 @@ round (below).
   `media_image`, and answered in two bubbles: "both came through fine. I can see the door catching
   on the frame in the video, and the water pooling on the worktop in the photo." — one light detail
   each, every guard passing and no hold.
+- Round 9 (17 Sep 2026) — phone calls, answered and missed, driven on the app's own comms-v2 sandbox
+  door against the branch database (the door's call front door and `POST /call`, on the drama
+  number). The baseline holds on every rung: a missed first contact drew one text back
+  (`missed_call_ack` on WhatsApp, the same words as one SMS on a number not on WhatsApp), a second
+  missed call on the same thread drew nothing ("one text back, never a second (checklist 3.5)"), a
+  missed call on a thread we had written on minutes earlier drew nothing either and stayed on the
+  board, an answered inbound call was read for facts with no acknowledgement, and Ben's own outbound
+  call (`ben_rang`) sent `post_call_followup_v1` and left the file unheld. Ben's bubble carries what
+  it should: `callViewOf` (`server/comms-v2/api/board.ts:169`) gave the headline, the telephony
+  side's one-line summary and the whole transcript on each answered call, and headline-only on a
+  missed one. The finding is live and came out of the first realistic long call: an eight-minute
+  call in which the customer listed six jobs round the house was **not read at all**. The desk
+  logged `call reader: Failed to parse structured output: ... benAskedFor.0.detail: Too big:
+  expected string to have <=80 characters` and the file was left with nothing but `call_outcome` and
+  the summary — no job type, no job phrase, no `location` (NG9 3TR was said out loud), no
+  `ben_asked_for`, stage stuck on `scoping` instead of `ready`, and none of the three things Ben
+  asked for on the phone (photos, the alcove measurements, who would be in) on the ask ledger, which
+  is the one thing this reader exists to carry. The cause is round 4's fault in another file:
+  `callReadSchema` (`server/comms-v2/channels/call-reader.ts`) capped the model's own free text at
+  80/120/60 characters with the ask array at 6, the provider does not enforce a string or array
+  ceiling as it writes, and one field 10 characters over makes the SDK's parse throw, so the whole
+  answer is lost — there is no retry, and `readCall` reads a throw as a call it could not read. Fix:
+  the schema's ceilings are loose enough that only runaway prose trips them, and the intended length
+  is applied after the parse by `clipCallRead` (`CALL_READ_LIMITS`, `ASKED_MAX`), so a long answer is
+  shorter rather than a call nobody read; two regression tests in `channels/call-reader.test.ts` (the
+  measured live answer now parses, clips and reaches the ledger; every field clips and a short answer
+  is untouched), both failing without the fix. Not an ESCALATE: no figure, invoice or reissue moved
+  and nothing wrong went to the customer; the cost is a call the desk never heard, a quote brief
+  built without it, and the customer asked again for the photos and the postcode they had just given
+  Ben on the phone. Re-driven live on a restarted server: the same transcript now lands `job_type`,
+  `job_phrase`, `location` NG9 3TR and `ben_asked_for` (all three asks) at hang-up, the file moves to
+  `ready`, the bubble still carries the headline, the summary and all 3,525 characters of transcript,
+  and the customer's next message ("When do you reckon you could get to it?") is answered in three
+  bubbles (38/73/99 characters) that ask for none of it again: "No worries Rhian, good to chat
+  earlier. / I'm usually booking in about 4 days at the moment, so not too long a wait. / With it
+  being a fair list, is there one bit you'd want doing first, say the grab rails for your mum?"

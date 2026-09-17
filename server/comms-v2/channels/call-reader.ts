@@ -18,22 +18,55 @@ import { transcriptOf } from './call-adapter';
 export const ASKED_SUBJECTS = ['media', 'postcode', 'access', 'measurements', 'other'] as const;
 export type AskedSubject = (typeof ASKED_SUBJECTS)[number];
 
+/**
+ * What each field is meant to be, and what `clipCallRead` cuts it to once the model has written it.
+ *
+ * These are NOT the schema's ceilings. The provider does not enforce a string ceiling or an array
+ * ceiling as it writes, so a field one character over makes the SDK's own parse throw and the whole
+ * call read is lost: not the job, not the location, not what Ben asked for on the phone, which is
+ * the one thing this reader exists to carry (the old ledger "did not hear calls"). Measured live on
+ * a 3,500-character call where the customer listed six jobs: `benAskedFor[0].detail` came back at
+ * 90 characters against a ceiling of 80 and the desk read the whole call as unreadable. So the
+ * schema's ceilings are loose enough that only runaway prose trips them, and the intended length is
+ * applied here, where a value that is too long is simply shorter rather than a call nobody read.
+ */
+export const CALL_READ_LIMITS = { jobPhrase: 80, jobType: 120, location: 60, detail: 80, customerName: 60 } as const;
+/** How many of our side's asks the file keeps. A call listing a houseful of jobs can carry more; the rest are on the transcript. */
+export const ASKED_MAX = 6;
+
 export const callReadSchema = z.object({
     /** A short noun phrase for the job, as a person would say it: "the kitchen door". Null when the call never said. */
-    jobPhrase: z.string().min(1).max(80).nullable(),
+    jobPhrase: z.string().min(1).max(240).nullable(),
     /** What the job is, in a few words, for the file. */
-    jobType: z.string().min(1).max(120).nullable(),
+    jobType: z.string().min(1).max(360).nullable(),
     /** A postcode, an outward code or a named area, exactly as said. */
-    location: z.string().min(1).max(60).nullable(),
+    location: z.string().min(1).max(180).nullable(),
     /** What our side asked the customer to send or tell us, one entry each. */
-    benAskedFor: z.array(z.object({ subject: z.enum(ASKED_SUBJECTS), detail: z.string().min(1).max(80) })).max(6),
+    benAskedFor: z.array(z.object({ subject: z.enum(ASKED_SUBJECTS), detail: z.string().min(1).max(240) })).max(20),
     /** Our side said we would ring them again. */
     callbackAgreed: z.boolean(),
-    customerName: z.string().min(1).max(60).nullable(),
+    customerName: z.string().min(1).max(180).nullable(),
     /** They said text only, or that they cannot take calls. */
     prefersText: z.boolean(),
 });
 export type CallRead = z.infer<typeof callReadSchema>;
+
+function clip(v: string | null, max: number): string | null {
+    const t = (v ?? '').trim();
+    return t ? t.slice(0, max) : null;
+}
+
+/** The reader's answer at the length the file wants it, so no more than a label rides into a fact. */
+export function clipCallRead(out: CallRead): CallRead {
+    return {
+        ...out,
+        jobPhrase: clip(out.jobPhrase, CALL_READ_LIMITS.jobPhrase),
+        jobType: clip(out.jobType, CALL_READ_LIMITS.jobType),
+        location: clip(out.location, CALL_READ_LIMITS.location),
+        customerName: clip(out.customerName, CALL_READ_LIMITS.customerName),
+        benAskedFor: out.benAskedFor.slice(0, ASKED_MAX).map((a) => ({ subject: a.subject, detail: a.detail.trim().slice(0, CALL_READ_LIMITS.detail) })),
+    };
+}
 
 const SYSTEM = [
     'You read the transcript of a phone call between a small handyman business (Ben, or whoever answered for him) and a customer. You never write to the customer. Return facts only, as the JSON object, no prose.',
@@ -53,7 +86,7 @@ export async function readCall(file: CaseFile, turn: Turn, client: ModelClient):
         transcript || '(no transcript)',
     ].join('\n');
     const res = await client.structured({ role: 'specialist', model: SPECIALIST_MODEL, effort: 'medium', system: SYSTEM, user, schema: callReadSchema, maxTokens: 800 });
-    return { output: res.output, record: res.record, error: res.error };
+    return { output: res.output ? clipCallRead(res.output) : null, record: res.record, error: res.error };
 }
 
 export const CALL_READER = 'call_reader';
