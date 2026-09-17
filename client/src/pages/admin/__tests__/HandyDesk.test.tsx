@@ -8,7 +8,7 @@
  * tapping it opens Price and Send for that quote instead.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch, type RecordedCall } from '@test-utils';
 import HandyDesk from '@/pages/admin/HandyDesk';
@@ -16,10 +16,26 @@ import type { QueueItem } from '@/lib/handy-desk-queue';
 import type { PriceQueueItem } from '@/hooks/usePriceQueue';
 import type { OpsAnswer } from '@shared/ops-types';
 
-/** jsdom has no matchMedia: without a stub the page is narrow and the thread opens as a sheet. */
-function stubWide() {
-    const mq = (query: string) => ({ matches: query.includes('min-width'), media: query, onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false });
+/**
+ * jsdom has no matchMedia: without a stub the page is narrow and the thread opens as a sheet. The
+ * returned setter is a resize - it tells every listening media query the window crossed 1024px.
+ */
+function stubViewport(startWide: boolean) {
+    const listeners = new Set<() => void>();
+    let wide = startWide;
+    const mq = (query: string) => ({
+        get matches() { return wide && query.includes('min-width'); },
+        media: query, onchange: null,
+        addEventListener: (_: string, fn: () => void) => { listeners.add(fn); },
+        removeEventListener: (_: string, fn: () => void) => { listeners.delete(fn); },
+        addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false,
+    });
     Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: vi.fn(mq) });
+    return (next: boolean) => { wide = next; listeners.forEach((fn) => fn()); };
+}
+
+function stubWide() {
+    stubViewport(true);
 }
 
 afterEach(() => {
@@ -299,6 +315,20 @@ describe('HandyDesk', () => {
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
         expect(screen.getByTestId('queue-card-case_gemma')).toBeInTheDocument();
         expect(screen.getByTestId('queue-card-case_gemma')).toHaveAttribute('aria-current', 'true');
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+    });
+
+    it('narrowing the window with a card selected brings its thread into the sheet, not the idle placeholder', async () => {
+        const resize = stubViewport(true);
+        routes();
+        renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        expect(await screen.findByTestId('handy-desk-thread')).toHaveTextContent('Gemma Patel asks a thing');
+
+        act(() => resize(false));
+        const sheet = await screen.findByRole('dialog');
+        expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+        expect(within(sheet).getByLabelText('Your reply to the customer')).toBeInTheDocument();
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
     });
 

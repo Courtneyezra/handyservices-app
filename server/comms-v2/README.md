@@ -645,9 +645,10 @@ same component opens from a Handy Desk queue card. It is a panel beside the boar
 (`useIsWideBoard`, `client/src/hooks/useIsWideBoard.ts`), closed with × or Esc (ignored
 while focus is in any field on the page, such as the ask bar). Below that width it is a bottom
 sheet, closed with ‹ Board (‹ Queue on the desk); Esc and a tap above the sheet are ignored while one
-of the thread's own boxes (the reply, the close-file words) holds words. On the Handy Desk the sheet
-has its own open state, so leaving it keeps the card selected and the ask bar's context with it, and
-"Ask about this" in its header closes it back onto the ask bar. An ask bar answer takes the
+of the thread's own boxes (the reply, the close-file words) holds words. Which of the two shows
+follows the window as it is now, so narrowing it with a card selected brings that card's thread into
+the sheet. On the Handy Desk leaving the sheet dismisses it alone, keeping the card selected and the
+ask bar's context with it, and "Ask about this" in its header closes it back onto the ask bar. An ask bar answer takes the
 right-hand side over the thread while it shows, and the composer's half-written reply is the page's,
 kept per case file, so it is still there when the thread comes back. It shows:
 - a header with the reply channel and its window (`replyChannel`, `replyWindow`);
@@ -666,7 +667,8 @@ carries its turn.
 
 On a shut window, freeform sends are disabled, whether the file says the window is shut or a send is
 refused for it. The template card then shows the template-offer preview: the template's name and
-wording, or its refusal. "Send template" posts send-template. Every refusal is shown in the desk's
+wording, or its refusal, read when the card appears, again on any newer customer turn and again
+after a send or release, never on a clock of its own. "Send template" posts send-template. Every refusal is shown in the desk's
 own words, with the typed words kept. A session whose `viewer.canAct` is false sees the thread with
 every action hidden and one line where the composer would be: "Read only: no approver slot is
 assigned to your login." Below the composer, a file not yet done offers "Close file" (the close route

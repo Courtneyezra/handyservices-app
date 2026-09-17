@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { CloseFileForm } from '@/components/comms-v2/CloseFileForm';
 import { adminAuthHeaders } from '@/lib/admin-auth';
 import { channelLabel, refusalMessage } from '@/lib/handy-desk-queue';
+import { addressLabel } from '@/lib/handy-desk-answer';
 import { HELD_DRAFT_CHANGED } from '@shared/ops-types';
 import {
     hasCustomerTurn, headerLine, heldFor, refusalOf, slotLabel, threadRows,
@@ -191,16 +192,20 @@ function RefusalNote({ refusal, testId }: { refusal: Refusal; testId: string }) 
     );
 }
 
-function TemplateCard({ fileId, busy, onSend, refusal }: { fileId: string; busy: boolean; onSend: () => void; refusal: string | null }) {
+/**
+ * The offer is read when the card appears, again on any newer customer turn (`sinceTurnId`, which is
+ * what can change which template is true), and again after a send or release, which invalidate
+ * `['comms-v2-template-offer', fileId]`. It is not polled on its own clock.
+ */
+function TemplateCard({ fileId, sinceTurnId, busy, onSend, refusal }: { fileId: string; sinceTurnId: string | null; busy: boolean; onSend: () => void; refusal: string | null }) {
     const { data, isLoading, error } = useQuery<TemplateOffer>({
-        queryKey: ['comms-v2-template-offer', fileId],
+        queryKey: ['comms-v2-template-offer', fileId, sinceTurnId],
         queryFn: async () => {
             const res = await fetch(`/api/comms-v2/case-files/${fileId}/template-offer`, { headers: adminAuthHeaders() });
             const body = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(refusalMessage(res.status, body?.error));
             return body;
         },
-        refetchInterval: THREAD_REFETCH_MS,
     });
 
     const refused = (reason: string, testId: string) => (
@@ -365,7 +370,7 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
         );
     }
 
-    const name = data.party?.name || fallbackName || data.party?.address.replace(/^[a-z]+:/, '') || 'Customer';
+    const name = data.party?.name || fallbackName || addressLabel(data.party?.address) || 'Customer';
     const firstName = name.split(/\s+/)[0];
     const rows = threadRows(data, name);
     const hold = data.hold;
@@ -531,7 +536,7 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
                             </p>
                         )}
                         {refusal && <RefusalNote refusal={refusal} testId="thread-refusal" />}
-                        {shut && <TemplateCard fileId={fileId} busy={busy === 'template'} onSend={sendTemplate} refusal={templateRefusal} />}
+                        {shut && <TemplateCard fileId={fileId} sinceTurnId={lastInboundId} busy={busy === 'template'} onSend={sendTemplate} refusal={templateRefusal} />}
 
                         <div className={cn('flex gap-2', layout === 'sheet' ? 'items-end' : 'flex-col gap-1.5')}>
                             <label htmlFor={`thread-words-${fileId}`} className="sr-only">Your reply to the customer</label>

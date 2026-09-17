@@ -214,7 +214,7 @@ export interface QueueCardCopy {
     blocked: string | null;
 }
 
-const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email', call: 'Call', web: 'Web' };
+const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email', call: 'Call', form: 'Web form' };
 
 /** A desk channel as Ben reads it; an unknown one reads as the desk names it. */
 export function channelLabel(channel: string | null | undefined): string {

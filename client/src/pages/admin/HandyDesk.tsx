@@ -51,11 +51,12 @@
  * Selecting a card sets the selected conversation (`DeskSelection`): the answer surface opens that
  * customer's thread (client/src/components/comms-v2/ThreadView.tsx, B4), with the held draft and
  * Ben's own reply, docked on the right at 1024px and up and as a bottom sheet below; the ask bar
- * takes it as context. A ready-to-price card has no conversation, so it selects nothing. The sheet is
- * its own open state, so dismissing it leaves the card selected and the ask bar's context with it;
- * "Ask about this" in its header closes it back onto the ask bar. The thread's half-written reply is
- * the page's, kept per case file, so an answer taking the right-hand side never eats it. The mapping
- * from a held file to the card's copy lives in client/src/lib/handy-desk-queue.ts.
+ * takes it as context. A ready-to-price card has no conversation, so it selects nothing. Which of the two shows follows the window as it is now, so narrowing a window
+ * with a card selected brings its thread with it; dismissing the sheet leaves the card selected and
+ * the ask bar's context with it; "Ask about this" in its header closes it back onto the ask bar. The
+ * thread's half-written reply is the page's, kept per case file, so an answer taking the right-hand
+ * side never eats it. The mapping from a held file to the card's copy lives in
+ * client/src/lib/handy-desk-queue.ts.
  *
  * The ask bar (T2) asks the new desk's ask agent (/api/comms-v2/ask, useAskSession); while it runs
  * the answer surface shows the thinking card, then the answer, until Ben closes it. With no ask on
@@ -397,7 +398,7 @@ const FIRST_LOAD = Symbol('first answer load');
 export default function HandyDesk() {
     const queryClient = useQueryClient();
     const [selection, setSelection] = useState<DeskSelection | null>(null);
-    const [sheetOpen, setSheetOpen] = useState(false);
+    const [sheetDismissed, setSheetDismissed] = useState(false);
     // The thread's half-written reply, kept per case file so an ask answer taking the right-hand side never eats it.
     const [threadWords, setThreadWords] = useState<Record<string, string>>({});
     const [done, setDone] = useState<{ key: number; note: string }[]>([]);
@@ -410,6 +411,8 @@ export default function HandyDesk() {
     const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
     const wide = useIsWideBoard();
     const askInput = useRef<HTMLInputElement>(null);
+    // The dismissal is the sheet's alone: once the thread has docked instead, a narrower window opens it again.
+    useEffect(() => { if (wide) setSheetDismissed(false); }, [wide]);
 
     const { data, isError, dataUpdatedAt } = useQuery<DeskQueue>({
         queryKey: QUEUE_KEY,
@@ -467,7 +470,7 @@ export default function HandyDesk() {
 
     const select = (item: QueueItem) => {
         setSelection(selectionOf(item));
-        setSheetOpen(!wide);
+        setSheetDismissed(false);
         if (latest === undefined) dismiss(FIRST_LOAD);
         else if (latest) dismiss(latest.id);
     };
@@ -585,12 +588,12 @@ export default function HandyDesk() {
             </div>
             {!wide && (
                 <ThreadSheet
-                    fileId={sheetOpen ? selection?.caseFileId ?? null : null}
+                    fileId={sheetDismissed ? null : selection?.caseFileId ?? null}
                     backTo="Queue"
                     words={selection ? threadWords[selection.caseFileId] ?? '' : ''}
                     onWords={(w) => selection && setThreadWords((kept) => ({ ...kept, [selection.caseFileId]: w }))}
                     fallbackName={selection?.name}
-                    onClose={() => setSheetOpen(false)}
+                    onClose={() => setSheetDismissed(true)}
                     onAskAbout={() => askInput.current?.focus()}
                     onChanged={refreshQueue}
                     canAct={canAct}
