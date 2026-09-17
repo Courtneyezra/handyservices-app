@@ -403,16 +403,17 @@ function carriesAny(r: OptOutRecord, keys: OptOutKeys): boolean {
  * widens to what is on file. A row is left alone when an address it shares with the lift also sits
  * on another live row carrying an address neither of them names: that address may be another
  * party's, as a family or agent email can be. Naming every address of the party lifts it. Every
- * row still live on an address the lift touched comes back in `leftAlone`.
+ * row still live on an address the lift touched comes back: in `leftShared` when it carries an
+ * address the lift did not name, otherwise in `stillLive`.
  */
 export async function revokeOptOut(
     who: OptOutAddress,
     revokedBy: string,
     note?: string,
     store: OptOutStore = dbOptOutStore,
-): Promise<{ revoked: number; leftAlone: OptOutRecord[] }> {
+): Promise<{ revoked: number; leftShared: OptOutRecord[]; stillLive: OptOutRecord[] }> {
     const given = optOutKeysOf(who);
-    if (!hasKeys(given)) return { revoked: 0, leftAlone: [] };
+    if (!hasKeys(given)) return { revoked: 0, leftShared: [], stillLive: [] };
     const matched = await store.liveRows(given);
     const lift = matched.filter((r) => {
         const shared = { phoneKeys: given.phoneKeys.filter((k) => k === r.phoneKey), emailKeys: given.emailKeys.filter((k) => k === r.emailKey) };
@@ -422,11 +423,20 @@ export async function revokeOptOut(
     });
     const revoked = await store.revoke(lift.map((r) => r.id), revokedBy, note ?? null);
     const touched = lift.reduce((keys, r) => mergeKeys(keys, keysOfRecord(r)), given);
-    const leftAlone = await store.liveRows(touched);
-    if (leftAlone.length) {
-        console.warn(`[OptOut] Lift by ${revokedBy} left ${leftAlone.length} live row(s) on a shared address alone: ${leftAlone.map((r) => r.id).join(', ')}`);
+    const left = await store.liveRows(touched);
+    const unnamed = (r: OptOutRecord) =>
+        (r.phoneKey !== null && !given.phoneKeys.includes(r.phoneKey)) || (r.emailKey !== null && !given.emailKeys.includes(r.emailKey));
+    const leftShared = left.filter(unnamed);
+    const stillLive = left.filter((r) => !unnamed(r));
+    if (leftShared.length) {
+        console.warn(`[OptOut] Lift by ${revokedBy} left ${leftShared.length} live row(s) on a shared address alone: ${leftShared.map((r) => r.id).join(', ')}`);
     }
-    return { revoked, leftAlone };
+    return { revoked, leftShared, stillLive };
+}
+
+/** The addresses an ops lift names: an argument with an `@` is an email, anything else a phone. */
+export function liftAddressOf(values: string[]): OptOutAddress {
+    return { phones: values.filter((v) => !v.includes('@')), emails: values.filter((v) => v.includes('@')) };
 }
 
 // ---------------------------------------------------------------- the inbound hook
