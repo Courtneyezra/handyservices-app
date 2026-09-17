@@ -8,8 +8,7 @@
  * human-send routes, and the server decides who may act:
  *   - "Send this" posts send-held-draft. That route on main takes no `expectedDraft`, so the view
  *     first re-reads the file and, when the held draft is no longer the one on screen, shows the new
- *     one and asks again instead of sending; a 409 "the held draft changed since you saw it" (once
- *     the route checks it) is handled the same way;
+ *     one and asks again instead of sending;
  *   - "Send reply" posts answer with Ben's words, which go as typed with no guards run;
  *   - "Release hold only" posts release with the same words, for the file;
  *   - on a shut WhatsApp window, the template card previews GET template-offer (the template the send
@@ -28,7 +27,7 @@ import { cn } from '@/lib/utils';
 import { CloseFileForm } from '@/components/comms-v2/CloseFileForm';
 import { refusalMessage } from '@/lib/handy-desk-queue';
 import {
-    HELD_DRAFT_CHANGED, channelLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, slotLabel, threadRows,
+    channelLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, slotLabel, threadRows,
     type Refusal, type SentReply, type TemplateOffer, type ThreadRow,
 } from '@/lib/comms-v2-thread';
 import { STAGE_LABELS, type CaseFileDetail, type TurnMedia } from '@/pages/admin/CommsV2BoardPage';
@@ -266,10 +265,16 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
     const [released, setReleased] = useState(false);
     const [factsOpen, setFactsOpen] = useState(false);
 
-    // Esc closes the docked panel; a sheet's own dialog handles Esc.
+    // Esc closes the docked panel, unless it would throw away words being typed; a sheet's own dialog handles Esc.
+    const wordsRef = useRef<HTMLTextAreaElement>(null);
     useEffect(() => {
         if (layout !== 'panel') return;
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return;
+            const box = wordsRef.current;
+            if (box && document.activeElement === box && box.value !== '') return;
+            onClose();
+        };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [layout, onClose]);
@@ -382,11 +387,6 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
         if (!result.ok) {
             setPending(null);
             const r = refusalOf('send_held_draft', result.status, result.error);
-            if (r.kind === 'draft_changed' || result.error === HELD_DRAFT_CHANGED) {
-                refetch();
-                setDraftNotice('The held draft changed since you saw it. This is the draft as it stands now; press Send this again to send it.');
-                return;
-            }
             if (r.kind === 'no_draft') { setDraftGone(true); refetch(); }
             setRefusal(r);
             return;
@@ -528,10 +528,11 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
                             <label htmlFor={`thread-words-${fileId}`} className="sr-only">Your reply to the customer</label>
                             <textarea
                                 id={`thread-words-${fileId}`}
+                                ref={wordsRef}
                                 value={words}
                                 onChange={(e) => setWords(e.target.value)}
-                                disabled={noCustomer || busy === 'answer'}
-                                placeholder={noCustomer ? 'Needs a customer turn to answer' : layout === 'sheet' ? 'Or your own words…' : `Your own words to ${firstName}… (no guards run)`}
+                                disabled={(noCustomer && !hold) || busy === 'answer'}
+                                placeholder={noCustomer ? (hold ? 'Your words for releasing the hold' : 'Needs a customer turn to answer') : layout === 'sheet' ? 'Or your own words…' : `Your own words to ${firstName}… (no guards run)`}
                                 className={cn(
                                     'w-full rounded-md border border-slate-200 px-3 text-[13px] leading-normal text-slate-900 outline-none placeholder:text-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/25 disabled:bg-slate-50',
                                     layout === 'sheet' ? 'max-h-[120px] min-h-11 flex-1 resize-none py-[11px]' : 'min-h-[72px] resize-y py-2.5',
