@@ -13,15 +13,16 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { hasAdminToken, adminAuthHeaders } from "@/hooks/usePriceQueue";
 import { NEW_BOARD_PATH } from "@/hooks/useOldComms";
-import { queueQuery, updatedAgoLabel, type DeskQueue } from "@/lib/handy-desk-queue";
+import { heldCountOf, queueQuery, updatedAgoLabel, type DeskQueue } from "@/lib/handy-desk-queue";
 import { cn } from "@/lib/utils";
 import { HANDY_DESK_PATH } from "@/lib/handy-desk-path";
 
 /**
  * The held-count badge's query. Same query key and interval as Handy Desk's own queue
- * (client/src/lib/handy-desk-queue.ts), so the header and the page share one cached fetch; queue
- * items are exactly the held case files, so items.length is the held count
- * (server/comms-v2/api/queue.ts). The shell passes enabled=false for VAs, who get no quick links.
+ * (client/src/lib/handy-desk-queue.ts), so the header and the page share one cached fetch. The queue
+ * also lists the quotes waiting to be priced, which are not held files, so the badge counts only the
+ * held items (heldCountOf; server/comms-v2/api/queue.ts). The shell passes enabled=false for VAs,
+ * who get no quick links.
  */
 export function useHeldCount(enabled: boolean): { heldCount: number | null; updatedAt: number } {
     const { data, dataUpdatedAt } = useQuery<DeskQueue>({
@@ -34,7 +35,7 @@ export function useHeldCount(enabled: boolean): { heldCount: number | null; upda
         enabled: enabled && hasAdminToken(),
         refetchInterval: 15_000,
     });
-    return { heldCount: data ? data.items.length : null, updatedAt: dataUpdatedAt };
+    return { heldCount: data ? heldCountOf(data) : null, updatedAt: dataUpdatedAt };
 }
 
 function UpdatedAgo({ updatedAt, className, testId }: { updatedAt: number; className: string; testId: string }) {

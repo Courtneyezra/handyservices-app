@@ -48,12 +48,12 @@ describe('SidebarLayout top bar (B1)', () => {
         expect(screen.queryByTestId('topbar-updated-desktop')).not.toBeInTheDocument();
     });
 
-    it('badges the held count from GET /api/comms-v2/queue (items.length) and labels how long ago it loaded', async () => {
+    it('badges the held count from GET /api/comms-v2/queue, leaving out quotes to price, and labels how long ago it loaded', async () => {
         localStorage.setItem('adminToken', 'test-token');
         vi.useFakeTimers({ shouldAdvanceTime: true });
         mockFetch([
             { url: '/api/contractor/inbox', reply: () => ({ json: [] }) },
-            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], handledToday: 0 } }) },
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ id: 'a' }, { id: 'price:q1', kind: 'ready_to_price' }, { id: 'b', kind: 'held' }, { id: 'c' }], handledToday: 0 } }) },
         ], { fallback: 'notFound' });
         renderWithQuery(withLayout(<div>content</div>));
 

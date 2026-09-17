@@ -40,6 +40,11 @@ export function isReadyToPrice(item: DeskQueueItem): item is ReadyToPriceItem {
     return item.kind === 'ready_to_price';
 }
 
+/** How many held case files the queue lists: the Comms board badge. Quotes to price are not holds. */
+export function heldCountOf(queue: Pick<DeskQueue, 'items'>): number {
+    return queue.items.filter((i) => !isReadyToPrice(i)).length;
+}
+
 export interface DeskQueue {
     /** Held files and quotes to price in one list, longest working-hours wait first (the server's order). */
     items: DeskQueueItem[];
