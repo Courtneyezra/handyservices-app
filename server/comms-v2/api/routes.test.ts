@@ -558,3 +558,54 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         }
     });
 });
+
+describe('Ben closes a file by hand from the board', () => {
+    it('refuses without a session, without a slot, and on an unknown file; nothing changes', async () => {
+        const start = await call('POST', '/sandbox/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam' });
+        const id = start.json.state.conversation.id as string;
+        assignments = {};
+        expect((await call('POST', `/case-files/${id}/close`, {})).status).toBe(401);
+        const noSlot = await call('POST', `/case-files/${id}/close`, {}, 'ben@handyservices.app');
+        expect(noSlot.status).toBe(403);
+        expect(noSlot.json.error).toMatch(/no approver slot/);
+        assignments = { ben: ['user_Ben.Real@handyservices.app'] };
+        expect((await call('POST', '/case-files/case_nope/close', {}, 'Ben.Real@handyservices.app')).status).toBe(404);
+        expect((await call('GET', `/case-files/${id}`)).json.stage).toBe('scoping');
+    });
+
+    it('the listed session closes it as done under its own name and words, and a second close is refused', async () => {
+        assignments = { ben: ['user_Ben.Real@handyservices.app'] };
+        const start = await call('POST', '/sandbox/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam' });
+        const id = start.json.state.conversation.id as string;
+        const ok = await call('POST', `/case-files/${id}/close`, { words: 'Sorted on the phone.' }, 'Ben.Real@handyservices.app');
+        expect(ok.status).toBe(200);
+        expect(ok.json.card.stage).toBe('done');
+        expect(ok.json.change).toMatchObject({ from: 'scoping', to: 'done', approver: 'human:Ben.Real@handyservices.app', words: 'Sorted on the phone.', why: 'closed by hand from the board' });
+        expect(ok.json.release).toBeNull();
+        const board = await call('GET', '/board');
+        expect(board.json.columns.done.map((c: any) => c.id)).toEqual([id]);
+        const again = await call('POST', `/case-files/${id}/close`, {}, 'Ben.Real@handyservices.app');
+        expect(again.status).toBe(409);
+        expect(again.json.error).toMatch(/already done/);
+    });
+
+    it('a held file is released by the same rule as a release, then closed; the customer\'s next message opens a new file', async () => {
+        assignments = { ben: ['user_Ben.Real@handyservices.app'] };
+        await call('POST', '/sandbox/start', { door: 'whatsapp', text: 'Hi, a leaking tap', name: 'Sam' });
+        const money = await call('POST', '/sandbox/message', { text: 'How much roughly?', channel: 'whatsapp' });
+        const id = money.json.state.conversation.id as string;
+        expect((await call('GET', `/case-files/${id}`)).json.hold).not.toBeNull();
+
+        const ok = await call('POST', `/case-files/${id}/close`, {}, 'Ben.Real@handyservices.app');
+        expect(ok.status).toBe(200);
+        expect(ok.json.release).toMatchObject({ approver: { kind: 'human', id: 'ben' }, words: 'closed the file by hand' });
+        expect(ok.json.card).toMatchObject({ stage: 'done', held: false });
+        expect((await call('GET', '/queue')).json.items.map((i: any) => i.id)).not.toContain(id);
+
+        const next = await call('POST', '/sandbox/message', { text: 'Hi, can you also look at a door?', channel: 'whatsapp' });
+        expect(next.status).toBe(200);
+        expect(next.json.state.conversation.id).not.toBe(id);
+        const closed = await call('GET', `/case-files/${id}`);
+        expect(closed.json.turns.map((t: any) => t.body)).not.toContain('Hi, can you also look at a door?');
+    });
+});

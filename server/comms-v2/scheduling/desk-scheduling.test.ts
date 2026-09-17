@@ -4,6 +4,10 @@
  * one exists and "dates come with your quote" when it does not, never a guess), 5.4 (availability
  * after the quote points at the picker), 5.5 (changing a booked date goes to Ben and the reply
  * still answers the rest), and the date guard refusing a day the composer invented.
+ *
+ * A booked file is closed (desk/store.ts), so once the fixture books the first file the customer's
+ * next message opens a new one, naming no quote and no booking: Scheduling finds the booking there by
+ * the customer's own phone, for a date change and for a booked-date question alike.
  */
 import { describe, expect, it } from 'vitest';
 import { Desk, type DeskDeps } from '../desk/desk';
@@ -36,11 +40,13 @@ const scheduling = (over: Record<string, unknown> = {}) => ({ subjects: ['schedu
  * whatever the turn asks about dates.
  */
 function specialists(schedulingAsks: string[], requestedChange: string | null = null) {
-    return ({ system }: { system: string }) => {
+    return ({ system, user }: { system: string; user: string }) => {
         if (system.includes('Scheduling specialist')) return { asks: schedulingAsks, requestedChange };
         if (/Service specialist/.test(system)) return { answers: [], changeOfDetails: null, holdReason: null };
         if (/lines of a quote/.test(system)) return { lines: [{ title: 'Repair leaking kitchen tap', category: 'plumbing', qty: 1, detail: 'leaking at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] };
         if (/what it concerns/.test(system)) return { concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false };
+        // A booked file is closed, so the customer's next message opens a new file whose thread gives no job yet.
+        if (!user.includes('NG9 2AB')) return { facts: [], jobUnknowns: [], answeredSubjects: [] };
         return { facts: [{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] };
     };
 }
@@ -201,11 +207,16 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(r.bubbles.map((b) => b.text).join(' ')).toContain('25 September 2026');
         expect(second.file.facts.find((f) => f.key === 'booked_date')?.source).toEqual({ kind: 'diary', rowId: `booking:${seeded.bookingRef}` });
         expect(second.file.facts.find((f) => f.key === 'date_change_requested')?.value).toBe('the week after');
-        expect(second.file.stage).toBe('booked');
-        expect(second.file.stageHistory.map((s) => s.to)).toEqual(['first_contact', 'scoping', 'ready', 'quoted', 'accepted', 'booked']);
-        // The next turn still gets the desk, not a bare acknowledgement: a date change is not a fixed-line hold.
+        // The booked file is closed, so the move landed on a new file: the booking is found by phone and written onto it.
+        expect(first.file.stage).toBe('booked');
+        expect(first.file.stageHistory.map((s) => s.to)).toEqual(['first_contact', 'scoping', 'ready', 'quoted', 'accepted', 'booked']);
+        expect(second.file.id).not.toBe(first.file.id);
+        expect(second.file.job).toMatchObject({ type: null, location: null, quoteRef: null, bookingRef: seeded.bookingRef });
+        expect(first.file.turns).toHaveLength(2);
+        // The next turn still gets the desk, on the same new file, not a bare acknowledgement: a date change is not a fixed-line hold.
         const third = await gateway.inbound(turn('Thanks', '2026-09-11T10:10:00.000Z'));
         if (third.kind !== 'handled') throw new Error(third.kind);
+        expect(third.file.id).toBe(second.file.id);
         expect(third.result.decision).toBe('send');
     });
 

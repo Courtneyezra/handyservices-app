@@ -3,26 +3,30 @@
  * live intake's store is the durable one over the database (database-store.ts), behind the same
  * interface (Ben's kanban reads the in-process one through its own sandbox door for now,
  * server/comms-v2/api/store.ts). The one cross-file rule lives here: a person with an open file
- * for a job that is not done has their turn appended there, never a second file opened.
+ * has their turn appended there, never a second file opened. A file is open until its job is booked
+ * or done (case-file.ts CLOSED_STAGES); after that the person's next turn opens a new file, with no
+ * job type, location or quote of its own yet, because it is a new job. A file at `quoted` or
+ * `accepted` stays open: that quote is still being decided or waiting on a date, so a message then
+ * belongs to it.
  *
  * A file is changed in place, so whoever changes one puts it again afterwards: the gateway does
  * after every turn, clock pass and age. The memory store needs nothing from that; a durable store
  * writes what it is handed.
  */
-import type { CaseFile } from './case-file';
+import { isClosed, type CaseFile } from './case-file';
 
 export interface CaseFileStore {
     get(id: string): CaseFile | null;
-    /** The open file (stage not done) a person is a party on, newest first. */
+    /** The open file (not booked or done) a person is a party on, newest first. */
     findOpenFor(personId: string): CaseFile | null;
     put(file: CaseFile): void;
     all(): CaseFile[];
     clear(): void;
 }
 
-/** The one reading of `findOpenFor`, shared by every store: stage not done, the person a party, newest opened first. */
+/** The one reading of `findOpenFor`, shared by every store: not closed, the person a party, newest opened first. */
 export function newestOpenFor(files: Iterable<CaseFile>, personId: string): CaseFile | null {
-    const open = Array.from(files).filter((f) => f.stage !== 'done' && f.parties.some((p) => p.personId === personId));
+    const open = Array.from(files).filter((f) => !isClosed(f.stage) && f.parties.some((p) => p.personId === personId));
     open.sort((a, b) => Date.parse(b.openedAt) - Date.parse(a.openedAt));
     return open[0] ?? null;
 }

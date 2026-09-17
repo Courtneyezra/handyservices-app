@@ -32,6 +32,17 @@ export function stageMoveAllowed(from: Stage, to: Stage): boolean {
     return false;
 }
 
+/**
+ * The stages that close a file: the job is booked or done. A closed file is never where a person's
+ * next turn lands (store.ts `newestOpenFor`), so a later enquiry opens a new file for a new job.
+ * A booked file's clocks still run (channels/live-clock.ts), because a hold on it is still Ben's.
+ */
+export const CLOSED_STAGES: readonly Stage[] = ['booked', 'done'];
+
+export function isClosed(stage: Stage): boolean {
+    return CLOSED_STAGES.includes(stage);
+}
+
 export type ReplyChannel = 'whatsapp' | 'sms' | 'email';
 /** Which WhatsApp sender carries the thread: the Twilio number, or the coexistence number Meta serves directly. */
 export type WhatsAppTransport = 'twilio' | 'meta';
@@ -327,7 +338,17 @@ export interface SendRecord {
     turnId: string | null;
 }
 
-export interface StageChange { from: Stage | null; to: Stage; at: string; why: string }
+export interface StageChange {
+    from: Stage | null;
+    to: Stage;
+    at: string;
+    /** The desk's own words about the move. Never a person's typed words, which go in `words`. */
+    why: string;
+    /** Who closed the file by hand, `human:<email or user id>`; absent on every move the desk or an event made. */
+    approver?: string;
+    /** What that person said closing it, as typed. */
+    words?: string;
+}
 
 export interface CaseFile {
     id: string;
@@ -494,6 +515,41 @@ export function setStage(file: CaseFile, to: Stage, why: string, deps: CaseFileD
     file.stage = to;
     file.stageHistory.push(change);
     return accept(change);
+}
+
+export interface CloseInput {
+    /** The desk's own words about what closed it: the event, or "closed by hand". */
+    why: string;
+    /** A person closing it by hand, `human:<email or user id>`. */
+    approver?: string;
+    /** What that person said, as typed. */
+    words?: string;
+    /** The booking that landed, written onto the job. */
+    bookingRef?: string | null;
+}
+
+/**
+ * Closes the file (CLOSED_STAGES). `booked` walks forward from wherever the file stands, one step
+ * at a time as `setStage` allows, because the booking is real whether or not the file saw every step
+ * before it; `done` is a move from anywhere. Refuses a file already at or past the stage asked for,
+ * so an event delivered twice changes nothing, and a hand close without a person.
+ */
+export function closeFile(file: CaseFile, to: 'booked' | 'done', input: CloseInput, deps: CaseFileDeps = {}): Outcome<StageChange> {
+    if (STAGES.indexOf(file.stage) >= STAGES.indexOf(to)) return refuse(`the file is already ${file.stage}`);
+    if (input.approver !== undefined && !/^human:\S/.test(input.approver)) return refuse('a hand close names the person, human:<email or user id>');
+    if (to === 'booked') {
+        for (const next of ['scoping', 'ready', 'quoted', 'accepted'] as const) {
+            if (STAGES.indexOf(file.stage) >= STAGES.indexOf(next)) continue;
+            const r = setStage(file, next, input.why, deps);
+            if (!r.ok) return r;
+        }
+    }
+    const r = setStage(file, to, input.why, deps);
+    if (!r.ok) return r;
+    if (input.approver) r.value.approver = input.approver;
+    if (input.words?.trim()) r.value.words = input.words.trim();
+    if (input.bookingRef) file.job.bookingRef = input.bookingRef;
+    return r;
 }
 
 // ---------------------------------------------------------------- facts

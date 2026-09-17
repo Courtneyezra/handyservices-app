@@ -1313,6 +1313,11 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
 
                         console.log(`[Stripe Webhook] Invoice ${paidInvoice.invoiceNumber} balance paid via Stripe`);
 
+                        // The invoice is paid: the new desk's live case file for its quote closes as done
+                        // (server/comms-v2/file-close.ts). Never throws.
+                        await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(paidInvoice.quoteId, 'invoice_paid'))
+                            .catch((e) => console.error('[Stripe Webhook] comms-v2 file close failed:', e));
+
                         // Phone push alert (Pushover) — final payment received.
                         // Best-effort: pull the schedule from the linked quote (not on the invoice).
                         (async () => {
@@ -1377,6 +1382,8 @@ stripeRouter.post('/api/stripe/webhook', async (req, res) => {
                             .where(eq(invoices.id, invoiceResults[0].id));
 
                         console.log('[Stripe Webhook] Invoice marked as paid:', invoiceResults[0].invoiceNumber);
+                        await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(invoiceResults[0].quoteId, 'invoice_paid'))
+                            .catch((e) => console.error('[Stripe Webhook] comms-v2 file close failed:', e));
                     }
                 }
                 break;

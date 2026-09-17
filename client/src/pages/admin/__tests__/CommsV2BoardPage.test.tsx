@@ -168,6 +168,86 @@ describe('<CommsV2BoardPage>', () => {
         expect(screen.getByLabelText('Your words, for the file')).toBeTruthy();
     });
 
+    it('closes a file by hand after a second tap, posting only the words, and shows the file as done', async () => {
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        let closed = false;
+        const detail = (): CaseFileDetail => ({
+            id: 'case_held', stage: closed ? 'done' : 'first_contact', mode: 'sandbox',
+            party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
+            job: { type: null, location: null, quoteRef: null, bookingRef: null },
+            turns: [{ id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Never mind, sorted it', media: [] }],
+            facts: [],
+            hold: null,
+            holdApproverAssigned: true,
+        });
+        const { calls } = mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail() }) },
+            { method: 'POST', url: '/api/comms-v2/case-files/case_held/close', reply: () => { closed = true; return { json: { ok: true } }; } },
+        ]);
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await user.click(screen.getByTestId('board-card-case_held'));
+        await waitFor(() => expect(screen.getByText('Never mind, sorted it')).toBeTruthy());
+
+        await user.click(screen.getByTestId('close-file'));
+        expect(calls.some((c) => c.url.endsWith('/close'))).toBe(false);
+        await user.type(screen.getByLabelText('Your words, for the file (optional)'), 'Customer sorted it themselves');
+        await user.click(screen.getByTestId('close-file-yes'));
+        // The file is read again and is done, so neither the confirm nor the button comes back.
+        await waitFor(() => expect(screen.queryByTestId('close-file')).toBeNull());
+        expect(screen.queryByTestId('close-file-confirm')).toBeNull();
+        expect(screen.getAllByText(/^Done · sandbox$/)).toHaveLength(1);
+        const close = calls.find((c) => c.method === 'POST' && c.url.endsWith('/close'));
+        expect(close?.body).toEqual({ words: 'Customer sorted it themselves' });
+    });
+
+    it('a refused close shows the reason and keeps the confirm open; cancel puts the button back', async () => {
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        const detail: CaseFileDetail = {
+            id: 'case_held', stage: 'scoping', mode: 'sandbox', party: null,
+            job: { type: null, location: null, quoteRef: null, bookingRef: null },
+            turns: [], facts: [],
+            hold: { approver: { kind: 'human', id: 'landlord' }, reason: 'landlord approval', since: new Date().toISOString(), draft: null },
+            holdApproverAssigned: true,
+        };
+        mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+            { method: 'POST', url: '/api/comms-v2/case-files/case_held/close', reply: () => ({ status: 409, json: { error: 'only landlord may release this hold' } }) },
+        ]);
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await user.click(screen.getByTestId('board-card-case_held'));
+        await waitFor(() => expect(screen.getByTestId('close-file')).toBeTruthy());
+        await user.click(screen.getByTestId('close-file'));
+        await user.click(screen.getByTestId('close-file-yes'));
+        await waitFor(() => expect(screen.getByTestId('close-file-error').textContent).toBe('only landlord may release this hold'));
+        expect(screen.getByTestId('close-file-confirm')).toBeTruthy();
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+        expect(screen.getByTestId('close-file')).toBeTruthy();
+    });
+
+    it('a done file offers no close', async () => {
+        const board = boardWithOneCardPerStage();
+        const detail: CaseFileDetail = {
+            id: 'case_held', stage: 'done', mode: 'sandbox', party: { name: 'Held Customer', role: 'homeowner', address: 'phone:07700900942' },
+            job: { type: null, location: null, quoteRef: null, bookingRef: null },
+            turns: [{ id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'All done, thanks', media: [] }], facts: [], hold: null, holdApproverAssigned: false,
+        };
+        mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+        ]);
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await userEvent.setup().click(screen.getByTestId('board-card-case_held'));
+        await waitFor(() => expect(screen.getByText('All done, thanks')).toBeTruthy());
+        expect(screen.queryByTestId('close-file')).toBeNull();
+    });
+
     it('starts a sandbox thread and sends the next customer message through the board door, refreshing the board', async () => {
         const user = userEvent.setup();
         const empty: Board = { stages: STAGES, columns: Object.fromEntries(STAGES.map((s) => [s, []])) as Board['columns'], sandboxAvailable: true };

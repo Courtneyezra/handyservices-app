@@ -367,6 +367,42 @@ describe('the Scheduling specialist', () => {
         expect(r.scheduling.bookedDate).toBeNull();
     });
 
+    it('a booked-date question on a file naming no booking or quote (a booked customer\'s next message opens one) finds their lone booking by phone and confirms it', async () => {
+        const file = fixture('What day are you coming?');
+        const diary = diaryWith(6);
+        diary.bookings.push({ id: 'bk9', quoteRef: null, scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null });
+        diary.contacts.push({ ref: 'bk9', phone: '+447700900942', email: null });
+        const r = await schedule(file, file.turns[0], party(file), client(['booked_date']), { diary, now });
+        assertNoProse(r, file);
+        expect(file.job.bookingRef).toBe('bk9');
+        expect(r.scheduling.bookedDate).toMatchObject({ ok: true, state: 'standing', bookingRef: 'bk9' });
+        expect(file.facts.find((f) => f.key === 'booked_date')).toMatchObject({ value: '25 September 2026', source: { kind: 'diary', rowId: 'booking:bk9' } });
+        expect(r.scheduling.fixedLines).not.toContain('dates_with_quote');
+        expect(r.proposal.hold).toBeNull();
+    });
+
+    it('a booked-date question never looks up by contact on a file that carries a quote, nor links one of two standing bookings', async () => {
+        const quoted = fixture('What day are you coming?');
+        quoted.job.quoteRef = 'abcdefgh';
+        const diary = diaryWith(6);
+        for (const id of ['bk8', 'bk9']) {
+            diary.bookings.push({ id, quoteRef: null, scheduledDate: '2026-09-25', scheduledDays: ['2026-09-25'], durationDays: 1, status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', createdAt: NOW.toISOString(), completedAt: null });
+            diary.contacts.push({ ref: id, phone: '+447700900942', email: null });
+        }
+        let lookedUp = 0;
+        const real = diary.bookingsForContact.bind(diary);
+        diary.bookingsForContact = async (keys, today) => { lookedUp++; return real(keys, today); };
+        await schedule(quoted, quoted.turns[0], party(quoted), client(['booked_date']), { diary, now });
+        expect(lookedUp).toBe(0);
+        expect(quoted.job.bookingRef).toBeNull();
+        const bare = fixture('What day are you coming?');
+        const r = await schedule(bare, bare.turns[0], party(bare), client(['booked_date']), { diary, now });
+        expect(lookedUp).toBe(1);
+        expect(bare.job.bookingRef).toBeNull();
+        expect(bare.facts.find((f) => f.key === 'booked_date')).toBeUndefined();
+        expect(r.scheduling.bookedDate).toBeNull();
+    });
+
     it('a booking resolved by contact with no quote on the file confirms beside the lead time, never "dates come with your quote"', async () => {
         const file = fixture('How soon could you fit us in?');
         file.job.bookingRef = 'bk1';

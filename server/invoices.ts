@@ -532,6 +532,11 @@ invoiceRouter.post('/api/invoices/:id/mark-paid', requireAdmin, async (req, res)
             return res.status(404).json({ error: 'Invoice not found' });
         }
 
+        // The invoice is paid: the new desk's live case file for its quote closes as done
+        // (server/comms-v2/file-close.ts). Never throws.
+        await import('./comms-v2/file-close').then(({ fileDone }) => fileDone(updated.quoteId, 'invoice_paid'))
+            .catch((e) => console.error('[Invoices] comms-v2 file close failed:', e));
+
         // Phone push alert (Pushover) — final payment received.
         // Best-effort: pull the schedule from the linked quote (not on the invoice).
         (async () => {
