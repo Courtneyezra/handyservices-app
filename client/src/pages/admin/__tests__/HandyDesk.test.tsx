@@ -3,8 +3,9 @@
  * server's order with their badge, sends a held draft with one tap through send-held-draft, sends
  * Ben's own words through answer, shows a refusal as the desk said it (with the template offer on a
  * shut window), and selecting a card puts that conversation on the right and in the ask context. On a
- * phone the conversation is a sheet, and leaving it keeps the card as the ask bar's context. A
- * ready-to-price card (answer Q12) is merged in from /api/spine/price-queue and has no conversation:
+ * phone the conversation is a sheet: leaving it puts the card down with it, and only "Ask about this"
+ * keeps the card as the ask bar's context.
+ * A ready-to-price card (answer Q12) is merged in from /api/spine/price-queue and has no conversation:
  * tapping it opens Price and Send for that quote instead.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -302,7 +303,7 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
     });
 
-    it('on a phone a card tap opens the thread as a sheet, and ‹ Queue returns to the queue', async () => {
+    it('on a phone a card tap opens the thread as a sheet, and ‹ Queue puts the card down with it', async () => {
         routes();
         renderWithQuery(<HandyDesk />);
         await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
@@ -313,9 +314,23 @@ describe('HandyDesk', () => {
 
         await userEvent.click(within(sheet).getByRole('button', { name: 'Queue' }));
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-        expect(screen.getByTestId('queue-card-case_gemma')).toBeInTheDocument();
-        expect(screen.getByTestId('queue-card-case_gemma')).toHaveAttribute('aria-current', 'true');
-        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+        expect(screen.getByTestId('queue-card-case_gemma')).not.toHaveAttribute('aria-current');
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
+        expect(screen.getByTestId('handy-desk-idle')).toBeInTheDocument();
+    });
+
+    it('on a phone dismissing the sheet with Esc puts the card down too', async () => {
+        routes();
+        renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const sheet = await screen.findByRole('dialog');
+        expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+
+        await userEvent.keyboard('{Escape}');
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.getByTestId('queue-card-case_gemma')).not.toHaveAttribute('aria-current');
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
+        expect(screen.getByTestId('handy-desk-idle')).toBeInTheDocument();
     });
 
     it('narrowing the window with a card selected brings its thread into the sheet, not the idle placeholder', async () => {
@@ -344,6 +359,7 @@ describe('HandyDesk', () => {
         const ask = screen.getByTestId('handy-desk-ask-input');
         await waitFor(() => expect(ask).toHaveFocus());
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+        expect(screen.getByTestId('queue-card-case_gemma')).toHaveAttribute('aria-current', 'true');
 
         await userEvent.type(ask, 'What did she say about the leak?');
         expect(ask).toHaveValue('What did she say about the leak?');
