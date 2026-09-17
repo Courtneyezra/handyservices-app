@@ -120,11 +120,10 @@ describe('selectionOf and queueQuery', () => {
     it('reads the new desk\'s queue, never the old /api/desk', () => {
         expect(queueQuery()).toBe('/api/comms-v2/queue');
         expect(queueQuery('live')).toBe('/api/comms-v2/queue?mode=live');
+        expect(queueQuery('sandbox')).toBe('/api/comms-v2/queue?mode=sandbox');
     });
     it('asks for the quotes to price only when a caller opts in, and caches the two shapes apart', () => {
-        expect(queueQuery('all', true)).toBe('/api/comms-v2/queue?readyToPrice=1');
-        expect(queueQuery('live', true)).toBe('/api/comms-v2/queue?mode=live&readyToPrice=1');
-        expect(queueQuery('all', false)).toBe('/api/comms-v2/queue');
+        expect(queueQuery({ readyToPrice: true })).toBe('/api/comms-v2/queue?readyToPrice=1');
         expect(queueQueryKey()).not.toEqual(queueQueryKey(true));
         // Both sit under the one prefix, so invalidating ['comms-v2-queue'] still moves both.
         expect(queueQueryKey(true).slice(0, 1)).toEqual(queueQueryKey());

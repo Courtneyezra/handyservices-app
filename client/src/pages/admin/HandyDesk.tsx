@@ -390,7 +390,7 @@ export default function HandyDesk() {
         // This page is the one caller that wants the quotes to price, so it is the one that asks.
         queryKey: queueQueryKey(true),
         queryFn: async () => {
-            const res = await fetch(queueQuery('all', true), { headers: getAuthHeaders() });
+            const res = await fetch(queueQuery({ readyToPrice: true }), { headers: getAuthHeaders() });
             if (!res.ok) throw new Error(`Failed to load the queue (${res.status})`);
             return res.json();
         },

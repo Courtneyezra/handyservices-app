@@ -200,16 +200,20 @@ export function selectionOf(item: QueueItem): DeskSelection {
 }
 
 /**
- * The queue's URL. `readyToPrice` is the opt-in for the quotes waiting to be priced, which cost the
- * server a database read: only the Handy Desk's own queue asks for them, never the held-count badge
- * that every admin page polls every 15s (QuickLinks.tsx `useHeldCount`).
+ * The queue's URL, in the two shapes the route answers: a plain or mode-filtered read of the held
+ * files, or the opt-in that also asks for the quotes waiting to be priced. The quotes cost the
+ * server a database read, so only the Handy Desk's own queue asks for them, never the held-count
+ * badge every admin page polls every 15s (QuickLinks.tsx `useHeldCount`).
+ *
+ * The two are exclusive by signature: a mode names a case file's mode, which a quote draft has not
+ * got, so the route reads no quotes for a filtered queue. Asking for both would quietly return a
+ * short list, so it is not a call this can build.
  */
-export function queueQuery(mode: 'all' | 'sandbox' | 'live' = 'all', readyToPrice = false): string {
-    const params = new URLSearchParams();
-    if (mode !== 'all') params.set('mode', mode);
-    if (readyToPrice) params.set('readyToPrice', '1');
-    const query = params.toString();
-    return query ? `/api/comms-v2/queue?${query}` : '/api/comms-v2/queue';
+export function queueQuery(mode?: 'sandbox' | 'live'): string;
+export function queueQuery(opts: { readyToPrice: true }): string;
+export function queueQuery(arg?: 'sandbox' | 'live' | { readyToPrice: true }): string {
+    if (typeof arg === 'object') return '/api/comms-v2/queue?readyToPrice=1';
+    return arg ? `/api/comms-v2/queue?mode=${arg}` : '/api/comms-v2/queue';
 }
 
 /**
