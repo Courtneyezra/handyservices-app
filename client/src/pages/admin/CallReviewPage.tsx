@@ -11,7 +11,7 @@
  * - Still has functional action buttons for follow-up
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRoute, useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -268,6 +268,19 @@ export default function CallReviewPage() {
   // Audio playback state
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
+  const recordingRequest = useRef<{ cancelled: boolean } | null>(null);
+
+  useEffect(() => () => {
+    if (recordingRequest.current) recordingRequest.current.cancelled = true;
+  }, []);
+
+  useEffect(() => {
+    if (!audioRef) return;
+    return () => {
+      audioRef.pause();
+      URL.revokeObjectURL(audioRef.src);
+    };
+  }, [audioRef]);
 
   // Fetch call data
   useEffect(() => {
@@ -512,7 +525,11 @@ export default function CallReviewPage() {
         setIsPlayingAudio(true);
       }
     } else {
+      if (recordingRequest.current) return;
+      const request = { cancelled: false };
+      recordingRequest.current = request;
       const playbackFailed = () => {
+        if (request.cancelled) return;
         toast({
           title: 'Playback failed',
           description: 'Could not load recording',
@@ -523,13 +540,20 @@ export default function CallReviewPage() {
       setIsPlayingAudio(true);
       fetchAdminRecordingUrl(callId)
         .then((url) => {
+          if (request.cancelled) {
+            URL.revokeObjectURL(url);
+            return;
+          }
           const audio = new Audio(url);
           audio.onended = () => setIsPlayingAudio(false);
           audio.onerror = playbackFailed;
           audio.play();
           setAudioRef(audio);
         })
-        .catch(playbackFailed);
+        .catch(playbackFailed)
+        .finally(() => {
+          if (recordingRequest.current === request) recordingRequest.current = null;
+        });
     }
   }, [call?.recordingUrl, callId, audioRef, isPlayingAudio, toast]);
 
