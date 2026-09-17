@@ -202,6 +202,10 @@ describe('the comms desk case file', () => {
         // A hold or release reason can carry a customer's own new address or e-mail off a change
         // of details, so it is free text, not kept.
         ['reason', 'note'],
+        // A person's instruction on the Handy Desk, a fact's source: their words and who said them.
+        ['quote', 'note'],
+        ['person', 'actor'],
+        ['ask_message_id', 'keep'],
         ['kind', 'keep'],
         ['party_id', 'keep'],
         ['run_id', 'keep'],

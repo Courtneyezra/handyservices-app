@@ -16,6 +16,7 @@ import type { ApproverSlot, CaseFile } from '../desk/case-file';
 import type { HumanApprover } from '../../approver';
 import type { BoardSource } from '../api/store';
 import { draftRelease } from './kinds/draft-release';
+import { messageSend } from './kinds/message-send';
 
 /** What a kind reads while proposing or confirming. */
 export interface ActionContext {
@@ -72,4 +73,5 @@ export type ActionKinds = Partial<Record<ConfirmKind, ActionKindDef>>;
 
 export const ACTION_KINDS: ActionKinds = {
     'draft.release': draftRelease,
+    'message.send': messageSend,
 };

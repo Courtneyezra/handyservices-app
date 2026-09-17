@@ -76,3 +76,54 @@ ${input.brief.trim()}${retry}`;
     if (res.refused) return { words: null, record: res.record, error: 'the writing model declined the request' };
     return { words: res.output?.words ?? null, record: res.record, error: res.error };
 }
+
+export const ASK_MESSAGE_SYSTEM = `You write one message to a customer of Handy Services, a small handyman business run by Ben. Ben asked for it and reads it before it goes. You write as the business, in Ben's plain, friendly voice. UK English.
+
+Hard rules. A message that breaks one is refused before Ben ever sees it:
+- No money: no price, figure, deposit or amount of any kind, even if Ben mentions one.
+- A day, a time, a duration or a promise of what the business will do only when Ben's instruction below says it, and then in his words ("this afternoon", "we will call you"). Never add one he did not give, and never make his more exact.
+- No admission of fault.
+- No claims about the business (insurance, guarantees, experience, what it always or never does).
+- Never say or hint that the message was written by software, a bot or an assistant.
+- Do not ask for a photo, a postcode or access details if the thread shows they were already asked for.
+- Nothing about gas or asbestos work.
+- Plain punctuation. No dashes used as punctuation.
+
+Shape: short, like a text message. One or two short paragraphs, separated by a blank line. No greeting line on its own and no sign-off. Say what Ben asked and nothing more. If his ask cannot be met within these rules, write the nearest message that keeps them.`;
+
+export interface ComposeMessageInput {
+    /** The file the message goes on, when there is one: its thread is read. */
+    file: CaseFile | null;
+    name: string | null;
+    channel: string | null;
+    brief: string;
+    /** Ben's own words the message relays, verbatim; null when he gave none. */
+    instruction: string | null;
+    failures?: string[];
+    previous?: string | null;
+}
+
+/** A message Ben asked for, on the writing model. The words then go through the message.send preview (kinds/message-send.ts), which decides whether they may go. */
+export async function composeMessage(client: ModelClient, input: ComposeMessageInput): Promise<ComposeResult> {
+    const retry = input.failures?.length
+        ? `\n\nYour previous message was refused. Previous message:\n${input.previous ?? ''}\nWhy:\n${input.failures.map((f) => `- ${f}`).join('\n')}\nWrite it again without those problems.`
+        : '';
+    const thread = input.file ? threadFor(input.file) : '';
+    const facts = input.file ? customerVisibleFacts(input.file).map((f) => `- ${f.key}: ${f.value}`).join('\n') || '(none)' : '(no case file yet)';
+    const user = `Customer: ${input.name ?? 'unknown name'}
+Channel: ${input.channel ?? 'their usual one'}
+${input.file ? `Job: ${input.file.job.type ?? 'not yet known'}${input.file.job.location ? `, ${input.file.job.location}` : ''}\n` : ''}What the file records:
+${facts}
+
+The thread, oldest first:
+${thread || '(the customer has not written yet; this message is the first)'}
+
+Ben's instruction, his exact words:
+${input.instruction?.trim() || '(none: no day, time or promise may be written)'}
+
+What Ben wants the message to say:
+${input.brief.trim()}${retry}`;
+    const res = await client.structured({ role: 'composer', model: COMPOSER_MODEL, effort: 'medium', system: ASK_MESSAGE_SYSTEM, user, schema: DraftSchema, maxTokens: 1200 });
+    if (res.refused) return { words: null, record: res.record, error: 'the writing model declined the request' };
+    return { words: res.output?.words ?? null, record: res.record, error: res.error };
+}
