@@ -156,6 +156,8 @@ together, on the next read, with nothing written to any row:
   holding a burst of customer messages (`waits`), once a minute; a pass never messages a customer
   except to recover a burst another gateway left behind at a restart (`clockDue`, `Gateway.clock`
   above), and leaves a burst this process is still timing or answering alone. Ticks never overlap.
+  The same tick closes a quoted file that has gone 30 days quiet ("A stale quote closes itself after
+  30 days" below).
 - Ben's chase goes to `COMMS_V2_CHASE_BEN_E164` and the owner's escalation to
   `COMMS_V2_CHASE_OWNER_E164` (`chaseStateFromEnv`); a number not set is a refusal on the record.
 
@@ -458,9 +460,9 @@ message opens a new file with no job type, location, quote or facts, so Scoping 
 from nothing and Quoting drafts its own quote rather than refusing beside the old one ("a quote
 already stands"). A booked file's clocks still run (`channels/live-clock.ts` stops only at `done`),
 because a hold on it is still Ben's. A file at `quoted` or `accepted` stays open and takes the
-message, as it did before: that quote is still being decided or is paid and waiting for its date,
-so a message then is about it, and the 17 Sep report behind that answer showed harm only from files that
-never closed.
+message, as it did before, a quoted one until it goes 30 days quiet (above): that quote is still
+being decided or is paid and waiting for its date, so a message then is about it, and the 17 Sep
+report behind that answer showed harm only from files that never closed.
 
 By hand, `closeByHand` moves the file to `done` with `approver: human:<email or user id>` and the
 person's `words` on the stage change (the scrub classifies both keys; `why` stays the
