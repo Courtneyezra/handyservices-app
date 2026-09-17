@@ -576,9 +576,10 @@ const CTA_LINK = cn(CTA, 'border-slate-200 text-slate-900 hover:border-amber-400
  * The thread header's buttons: the customer's record, the quote on file (hidden when there is none),
  * a call, and the keep-with-a-person switch's place, disabled until that switch lands.
  */
-function ThreadActions({ links }: { links: ThreadLinks }) {
+function ThreadActions({ links, layout }: { links: ThreadLinks; layout: 'panel' | 'sheet' }) {
     return (
-        <div data-testid="thread-actions" className="flex gap-1.5 overflow-x-auto">
+        // The panel is narrow, so its buttons wrap rather than hide the last one off the edge; the sheet's row scrolls.
+        <div data-testid="thread-actions" className={cn('flex gap-1.5', layout === 'panel' ? 'flex-wrap' : 'overflow-x-auto')}>
             {links.customer && (
                 <Link href={links.customer} data-testid="thread-view-customer" className={CTA_LINK}>
                     <UserRound aria-hidden className="h-3.5 w-3.5" />View customer
@@ -686,7 +687,7 @@ function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, links, 
                             {pills.map((p) => <span key={p} className={PILL}>{p}</span>)}
                         </div>
                         {line && <p data-testid="thread-line" className="mt-0.5 text-[11px] text-slate-500">{line}</p>}
-                        {links && <div className="mt-2"><ThreadActions links={links} /></div>}
+                        {links && <div className="mt-2"><ThreadActions links={links} layout="panel" /></div>}
                     </div>
                     <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100">
                         <X aria-hidden className="h-[18px] w-[18px]" />
@@ -703,7 +704,7 @@ function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, links, 
                             {(pills.length > 1 || line) && <p data-testid="thread-line" className="truncate text-[11px] text-slate-500">{[...pills.slice(1), line].filter(Boolean).join(' · ')}</p>}
                         </div>
                     </div>
-                    {links && <ThreadActions links={links} />}
+                    {links && <ThreadActions links={links} layout="sheet" />}
                 </div>
             )}
             {children}
