@@ -10,6 +10,7 @@ import type { TaskItem, Segment, AnalyzedJobData } from '@/types/quote-builder';
 import { poundsToPence } from '@/lib/quote-price-calculator';
 import { buildQuoteWhatsAppMessage } from '@/lib/whatsapp-quote-message';
 import { useAvailability } from '@/hooks/useAvailability';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 // Interface for detected jobs passed from CallReviewPage
 interface DetectedJob {
@@ -180,13 +181,9 @@ export default function GenerateQuoteLinkSimple() {
     setIsGenerating(true);
 
     try {
-      const adminToken = localStorage.getItem('adminToken');
       const response = await fetch('/api/personalized-quotes/value', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(adminToken ? { 'Authorization': `Bearer ${adminToken}` } : {}),
-        },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customerName: data.customerName,
           phone: data.phone,

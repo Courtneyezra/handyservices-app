@@ -17,6 +17,7 @@ import {
   calculateBasePriceFromAnalysis,
   createEmptyTask
 } from '@/lib/quote-price-calculator';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 import { calculateEVEPrice, getSegmentRateDisplay, EVE_SEGMENT_RATES } from '@/lib/eve-pricing';
 
 export interface QuoteBuilderProps {
@@ -130,7 +131,7 @@ export function QuoteBuilder({
     try {
       const response = await fetch('/api/analyze-job', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ jobDescription }),
       });
 

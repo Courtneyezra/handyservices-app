@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 /**
  * Visit Link generator — the daily driver for sending a customer an upfront-paid
@@ -77,13 +78,9 @@ export default function SendPage() {
         };
 
         try {
-            const adminToken = localStorage.getItem("adminToken");
             const res = await fetch("/api/personalized-quotes/value", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
-                },
+                headers: { ...adminAuthHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify(body),
             });
 

@@ -30,6 +30,7 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 const SITE_VISIT_REASONS = [
     { value: 'complex', label: 'Complex job - need to assess', icon: Wrench },
@@ -93,7 +94,7 @@ export function SiteVisitModal({
         }) => {
             const res = await fetch('/api/site-visits/request', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
             });
             if (!res.ok) {

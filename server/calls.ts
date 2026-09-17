@@ -9,8 +9,13 @@ import crypto from "crypto";
 import { storageService } from "./storage";
 import { twilioClient } from "./twilio-client";
 import { successResponse, errorResponse, sendSuccess, sendError, sendNotFound, sendBadRequest, sendServerError } from "./lib/api-response";
+import { requireAdmin } from "./auth";
 
 const router = express.Router();
+
+// Every route here is an admin screen's (call log, review, recording, SKUs). Mounted at /api/calls,
+// so this guard only sees /api/calls requests; Twilio's webhooks live under /api/twilio.
+router.use(requireAdmin);
 
 // Helper function to calculate total price from callSkus
 async function calculateTotalPrice(callId: string): Promise<number> {

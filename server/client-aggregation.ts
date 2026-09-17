@@ -10,6 +10,7 @@ import {
     serviceClients,
 } from '../shared/schema';
 import { inArray, eq } from 'drizzle-orm';
+import { requireAdmin } from './auth';
 import { clientDedupeKey } from './clients';
 
 // ==========================================
@@ -99,7 +100,7 @@ function maxTs(a: number, current: Date | null | undefined): number {
 // GET /api/clients
 // List of distinct clients with summary counts + latest activity.
 // Optional ?search= filters on name/phone/email (case-insensitive substring).
-clientAggregationRouter.get('/api/clients', async (req, res) => {
+clientAggregationRouter.get('/api/clients', requireAdmin, async (req, res) => {
     try {
         const search = typeof req.query.search === 'string'
             ? req.query.search.trim().toLowerCase()
@@ -259,7 +260,7 @@ clientAggregationRouter.get('/api/clients', async (req, res) => {
 //   - jobs/invoices/payouts are ALSO pulled by following FKs from the matched
 //     quotes (quote_id / quoteId) so the chain is visible even if a downstream
 //     row's denormalized contact details drifted.
-clientAggregationRouter.get('/api/clients/:clientKey', async (req, res) => {
+clientAggregationRouter.get('/api/clients/:clientKey', requireAdmin, async (req, res) => {
     try {
         const targetKey = req.params.clientKey;
         if (!targetKey || (!targetKey.startsWith('phone:') && !targetKey.startsWith('email:'))) {

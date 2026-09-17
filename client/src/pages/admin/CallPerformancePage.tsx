@@ -28,6 +28,7 @@ import {
     formatFlag,
     formatNextStep,
 } from "@/components/calls/CallScorecard";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 // ─── Types (contract of GET /api/calls/va-overview) ─────────────────────
 
@@ -262,7 +263,7 @@ export function CallInsights() {
     const { data, isLoading, isError } = useQuery<VaOverview>({
         queryKey: ["va-overview", period],
         queryFn: async () => {
-            const res = await fetch(`/api/calls/va-overview?period=${period}`);
+            const res = await fetch(`/api/calls/va-overview?period=${period}`, { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch call performance overview");
             return res.json();
         },

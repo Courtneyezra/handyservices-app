@@ -5,6 +5,7 @@ import { FaWhatsapp } from "react-icons/fa";
 import { Badge } from "@/components/ui/badge";
 import { subDays, format, isToday, isYesterday } from "date-fns";
 import { CallDetailsModal } from "@/components/calls/CallDetailsModal";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 interface CallSummary {
     id: string;
@@ -97,7 +98,7 @@ export default function CallsPage() {
                 endDate: new Date().toISOString(),
                 vaOnly: "true",
             });
-            const res = await fetch(`/api/calls?${params}`);
+            const res = await fetch(`/api/calls?${params}`, { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch calls");
             return res.json() as Promise<{ calls: CallSummary[], pagination: any }>;
         },

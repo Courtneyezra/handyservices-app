@@ -5,6 +5,7 @@ import ActionCenter from "@/components/ActionCenter";
 import { CallListTable, CallSummary } from "@/components/calls/CallListTable";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 export default function MainDashboard() {
     const [, setLocation] = useLocation();
@@ -24,7 +25,7 @@ export default function MainDashboard() {
     const { data: recentCallsData, isLoading: recentCallsLoading } = useQuery({
         queryKey: ['recent-calls-dashboard'],
         queryFn: async () => {
-            const res = await fetch('/api/calls?limit=5');
+            const res = await fetch('/api/calls?limit=5', { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error('Failed to fetch recent calls');
             return res.json() as Promise<{ calls: CallSummary[], pagination: any }>;
         },

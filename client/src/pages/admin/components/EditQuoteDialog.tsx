@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 interface Extra {
   label: string;
@@ -141,7 +142,7 @@ export function EditQuoteDialog({ quote, open, onClose, onSaved }: EditQuoteDial
 
       const response = await fetch(`/api/admin/personalized-quotes/${quote.id}/edit`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
 

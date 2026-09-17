@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Edit2, Check, User, Sparkles, AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 interface NameCandidate {
     name: string;
@@ -38,7 +39,7 @@ export function NameCorrection({ callId, currentName, metadataJson, onUpdate }: 
             setIsLoading(true);
             const res = await fetch(`/api/calls/${callId}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ customerName: newName })
             });
 

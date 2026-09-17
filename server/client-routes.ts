@@ -9,6 +9,7 @@ import {
     invoices,
 } from '../shared/schema';
 import { eq, sql } from 'drizzle-orm';
+import { requireAdmin } from './auth';
 
 // ============================================================================
 // CLIENT EDIT ROUTES (Jobber's Client — WHO pays / is billed).
@@ -40,7 +41,7 @@ function pushUnique(arr: unknown, value?: string | null): string[] {
 
 // GET /api/clients/by-id/:id — one client + its linked-work counts.
 // (Distinct path from the aggregation router's GET /api/clients/:clientKey.)
-clientRouter.get('/api/clients/by-id/:id', async (req, res) => {
+clientRouter.get('/api/clients/by-id/:id', requireAdmin, async (req, res) => {
     try {
         const [client] = await db.select().from(serviceClients)
             .where(eq(serviceClients.id, req.params.id)).limit(1);
@@ -65,7 +66,7 @@ clientRouter.get('/api/clients/by-id/:id', async (req, res) => {
 });
 
 // PATCH /api/clients/:id — edit safe display/contact/notes fields only.
-clientRouter.patch('/api/clients/:id', async (req, res) => {
+clientRouter.patch('/api/clients/:id', requireAdmin, async (req, res) => {
     try {
         const { displayName, primaryPhone, primaryEmail, billingAddress, notes } = req.body ?? {};
 
@@ -110,7 +111,7 @@ clientRouter.patch('/api/clients/:id', async (req, res) => {
 });
 
 // POST /api/clients/:id/archive { archived?: boolean } — soft archive/unarchive.
-clientRouter.post('/api/clients/:id/archive', async (req, res) => {
+clientRouter.post('/api/clients/:id/archive', requireAdmin, async (req, res) => {
     try {
         const archived = req.body?.archived !== false; // default true
         const [updated] = await db.update(serviceClients)
@@ -129,7 +130,7 @@ clientRouter.post('/api/clients/:id/archive', async (req, res) => {
 // Repoints all linked leads/quotes/jobs/invoices/properties to the canonical
 // client, copies any contact the canonical row is missing, then deletes the
 // now-empty duplicate.
-clientRouter.post('/api/clients/:id/merge', async (req, res) => {
+clientRouter.post('/api/clients/:id/merge', requireAdmin, async (req, res) => {
     try {
         const loserId = req.params.id;
         const intoId = (req.body?.intoId ?? '').toString();

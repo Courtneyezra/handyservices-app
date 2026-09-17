@@ -11,7 +11,7 @@
  * - Still has functional action buttons for follow-up
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRoute, useLocation } from 'wouter';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
@@ -52,6 +52,8 @@ import { BookVisitPopup } from '@/components/live-call/BookVisitPopup';
 import { AvailabilityPanel } from '@/components/live-call/AvailabilityPanel';
 import type { DetectedJob } from '@/components/live-call/JobsDetectedPanel';
 import type { CallScriptSegment } from '@shared/schema';
+import { adminAuthHeaders } from '@/lib/admin-auth';
+import { fetchAdminRecordingUrl } from '@/hooks/useAdminRecording';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -266,6 +268,19 @@ export default function CallReviewPage() {
   // Audio playback state
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [audioRef, setAudioRef] = useState<HTMLAudioElement | null>(null);
+  const recordingRequest = useRef<{ cancelled: boolean } | null>(null);
+
+  useEffect(() => () => {
+    if (recordingRequest.current) recordingRequest.current.cancelled = true;
+  }, []);
+
+  useEffect(() => {
+    if (!audioRef) return;
+    return () => {
+      audioRef.pause();
+      URL.revokeObjectURL(audioRef.src);
+    };
+  }, [audioRef]);
 
   // Fetch call data
   useEffect(() => {
@@ -276,7 +291,7 @@ export default function CallReviewPage() {
       setError(null);
 
       try {
-        const response = await fetch(`/api/calls/${callId}`);
+        const response = await fetch(`/api/calls/${callId}`, { headers: adminAuthHeaders() });
         if (!response.ok) {
           if (response.status === 404) {
             throw new Error('Call not found');
@@ -499,7 +514,7 @@ export default function CallReviewPage() {
 
   // Audio playback
   const handlePlayAudio = useCallback(() => {
-    if (!call?.recordingUrl) return;
+    if (!call?.recordingUrl || !callId) return;
 
     if (audioRef) {
       if (isPlayingAudio) {
@@ -510,9 +525,11 @@ export default function CallReviewPage() {
         setIsPlayingAudio(true);
       }
     } else {
-      const audio = new Audio(`/api/calls/${callId}/recording`);
-      audio.onended = () => setIsPlayingAudio(false);
-      audio.onerror = () => {
+      if (recordingRequest.current) return;
+      const request = { cancelled: false };
+      recordingRequest.current = request;
+      const playbackFailed = () => {
+        if (request.cancelled) return;
         toast({
           title: 'Playback failed',
           description: 'Could not load recording',
@@ -520,9 +537,23 @@ export default function CallReviewPage() {
         });
         setIsPlayingAudio(false);
       };
-      audio.play();
       setIsPlayingAudio(true);
-      setAudioRef(audio);
+      fetchAdminRecordingUrl(callId)
+        .then((url) => {
+          if (request.cancelled) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          const audio = new Audio(url);
+          audio.onended = () => setIsPlayingAudio(false);
+          audio.onerror = playbackFailed;
+          audio.play();
+          setAudioRef(audio);
+        })
+        .catch(playbackFailed)
+        .finally(() => {
+          if (recordingRequest.current === request) recordingRequest.current = null;
+        });
     }
   }, [call?.recordingUrl, callId, audioRef, isPlayingAudio, toast]);
 

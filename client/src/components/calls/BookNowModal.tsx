@@ -27,6 +27,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { format, addDays } from "date-fns";
 import { cn } from "@/lib/utils";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 interface DetectedSku {
     id?: string;
@@ -106,7 +107,7 @@ export function BookNowModal({
         }) => {
             const res = await fetch('/api/quotes/instant', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify(data),
             });
             if (!res.ok) {

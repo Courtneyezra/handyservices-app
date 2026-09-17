@@ -18,7 +18,7 @@ import { normalizePhoneNumber } from "./phone-utils";
 import { updateLeadStage } from "./lead-stage-engine";
 import { markConversationWonByPhone } from "./conversation-stage";
 import { captureServerEvent } from "./posthog";
-import { optionalAuth, requireAdmin } from "./auth";
+import { optionalAuth, requireAdmin, requireAdminOrContractor } from "./auth";
 import { sendCustomerMessage } from "./outbound";
 import { newRunId } from "./approver";
 import { getShortQuoteUrl, getBookVisitUrl } from "./url-utils";
@@ -220,7 +220,7 @@ export const quotesRouter = Router();
 
 // Polish Assessment Reason with AI
 // --- NEW: AI Quote Strategy Director ---
-quotesRouter.post('/api/quote-strategy', async (req, res) => {
+quotesRouter.post('/api/quote-strategy', requireAdmin, async (req, res) => {
     try {
         const { jobDescription } = req.body;
         if (!jobDescription) return sendBadRequest(res, "Job description required");
@@ -234,7 +234,7 @@ quotesRouter.post('/api/quote-strategy', async (req, res) => {
 });
 
 // Polish Assessment Reason with AI (Legacy/Simple)
-quotesRouter.post('/api/polish-assessment-reason', async (req, res) => {
+quotesRouter.post('/api/polish-assessment-reason', requireAdmin, async (req, res) => {
     try {
         const { reason } = req.body;
         if (!reason) return sendBadRequest(res, "Reason is required");
@@ -249,7 +249,7 @@ quotesRouter.post('/api/polish-assessment-reason', async (req, res) => {
 });
 
 // Generate Personalized Expert Note (New)
-quotesRouter.post('/api/generate-personalized-note', async (req, res) => {
+quotesRouter.post('/api/generate-personalized-note', requireAdmin, async (req, res) => {
     try {
         const { reason, customerName, postcode, address } = req.body;
         if (!reason || !customerName || !postcode) return res.status(400).json({ error: "Missing required fields" });
@@ -263,7 +263,7 @@ quotesRouter.post('/api/generate-personalized-note', async (req, res) => {
 });
 
 // Generate contextual WhatsApp message from conversation context
-quotesRouter.post('/api/generate-quote-message', async (req, res) => {
+quotesRouter.post('/api/generate-quote-message', requireAdmin, async (req, res) => {
     try {
         const { conversationContext, customerName, jobDescription, segment, priceRange, quoteUrl } = req.body;
 
@@ -366,7 +366,7 @@ Write the WhatsApp reply:`
 });
 
 // Create Quote Endpoint
-quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, res) => {
+quotesRouter.post('/api/personalized-quotes/value', requireAdminOrContractor, async (req, res) => {
     try {
         console.log('[DEBUG-QUOTE] Received quote creation request. Body:', JSON.stringify(req.body, null, 2));
         const input = valuePricingInputSchema.parse(req.body);
@@ -599,7 +599,7 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
             leadId: linkedLeadId, // Link to lead (fixes orphaned quotes)
             propertyId: resolvedPropertyId ?? undefined, // Spine property (WHERE)
             clientId: resolvedClientId ?? undefined,     // Spine client (WHO)
-            contractorId: input.contractorId || null, // Capture contractor ID
+            contractorId: (req as any).contractorId ?? input.contractorId ?? null,
             customerName: input.customerName,
             phone: input.phone,
             email: input.email || null,
@@ -721,7 +721,7 @@ quotesRouter.post('/api/personalized-quotes/value', optionalAuth, async (req, re
 });
 
 // Analyze Job Endpoint
-quotesRouter.post('/api/analyze-job', async (req, res) => {
+quotesRouter.post('/api/analyze-job', requireAdminOrContractor, async (req, res) => {
     try {
         const { jobDescription, optionalExtrasRaw, hourlyRate = 50, rateCard = {} } = req.body;
         if (!jobDescription) return res.status(400).json({ error: "Job description is required" });
@@ -843,7 +843,7 @@ quotesRouter.post('/api/analyze-job', async (req, res) => {
 });
 
 // Parse Optional Extra
-quotesRouter.post('/api/parse-optional-extra', async (req, res) => {
+quotesRouter.post('/api/parse-optional-extra', requireAdmin, async (req, res) => {
     try {
         const { extraDescription } = req.body;
         if (!extraDescription) return res.status(400).json({ error: "Description required" });
@@ -883,7 +883,7 @@ quotesRouter.post('/api/parse-optional-extra', async (req, res) => {
 });
 
 // Recalculate Optional Extra Price
-quotesRouter.post('/api/recalculate-optional-extra', async (req, res) => {
+quotesRouter.post('/api/recalculate-optional-extra', requireAdmin, async (req, res) => {
     try {
         const { serviceType, complexity, estimatedHours, materialsCost } = req.body;
 
@@ -1494,7 +1494,7 @@ quotesRouter.get('/api/personalized-quotes/:slug', optionalAuth, async (req, res
 });
 
 // List all personalized quotes (for admin Generated Quotes tab)
-quotesRouter.get('/api/personalized-quotes', async (req, res) => {
+quotesRouter.get('/api/personalized-quotes', requireAdmin, async (req, res) => {
     try {
         const allQuotes = await db.select().from(personalizedQuotes)
             .orderBy(desc(personalizedQuotes.createdAt));
@@ -2011,7 +2011,7 @@ quotesRouter.post('/api/personalized-quotes/:id/decline', async (req, res) => {
 });
 
 // Get invoice data for a booked quote
-quotesRouter.get('/api/personalized-quotes/:id/invoice-data', async (req, res) => {
+quotesRouter.get('/api/personalized-quotes/:id/invoice-data', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const [quote] = await db.select().from(personalizedQuotes)
@@ -2040,7 +2040,7 @@ quotesRouter.get('/api/personalized-quotes/:id/invoice-data', async (req, res) =
 // ADMIN: QUICK BOOK (Manual booking for WhatsApp confirmations)
 // ===========================================
 
-quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', async (req, res) => {
+quotesRouter.post('/api/admin/personalized-quotes/:id/quick-book', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const {
@@ -2256,7 +2256,7 @@ const editQuoteSchema = z.object({
 type EditQuoteInput = z.infer<typeof editQuoteSchema>;
 
 // Admin: Edit an existing quote
-quotesRouter.patch('/api/admin/personalized-quotes/:id/edit', async (req, res) => {
+quotesRouter.patch('/api/admin/personalized-quotes/:id/edit', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const updates = editQuoteSchema.parse(req.body);
@@ -2462,7 +2462,7 @@ quotesRouter.patch('/api/admin/personalized-quotes/:id/edit', async (req, res) =
 });
 
 // Admin: Get quote edit history
-quotesRouter.get('/api/admin/personalized-quotes/:id/edit-history', async (req, res) => {
+quotesRouter.get('/api/admin/personalized-quotes/:id/edit-history', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -2492,7 +2492,7 @@ quotesRouter.get('/api/admin/personalized-quotes/:id/edit-history', async (req, 
 
 // Admin: Manually expire a quote (DEPRECATED - quotes no longer expire)
 // Kept for backwards compatibility but effectively a no-op now
-quotesRouter.post('/api/admin/personalized-quotes/:id/expire', async (req, res) => {
+quotesRouter.post('/api/admin/personalized-quotes/:id/expire', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         // Quotes no longer expire, so this is now a no-op
@@ -2507,7 +2507,7 @@ quotesRouter.post('/api/admin/personalized-quotes/:id/expire', async (req, res) 
 // Admin: Renew an expired quote — resets the price-lock so the link is live
 // again. Price is UNCHANGED (customer sees the exact same quote they saw
 // before). Bumps regenerationCount for auditing. Window is price-banded.
-quotesRouter.post('/api/admin/personalized-quotes/:id/renew', async (req, res) => {
+quotesRouter.post('/api/admin/personalized-quotes/:id/renew', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -2613,7 +2613,7 @@ quotesRouter.post('/api/personalized-quotes/:slug/reissue', async (req, res) => 
 });
 
 // Delete a quote
-quotesRouter.delete('/api/personalized-quotes/:id', async (req, res) => {
+quotesRouter.delete('/api/personalized-quotes/:id', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         console.log(`[DELETE] Attempting to delete quote: ${id}`);
@@ -2680,7 +2680,7 @@ import { and, gte, isNotNull, count, sum } from "drizzle-orm";
 
 // GET /api/admin/payments/summary
 // Aggregate payment stats (today, week, month)
-quotesRouter.get('/api/admin/payments/summary', async (req, res) => {
+quotesRouter.get('/api/admin/payments/summary', requireAdmin, async (req, res) => {
     try {
         const now = new Date();
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -2736,7 +2736,7 @@ quotesRouter.get('/api/admin/payments/summary', async (req, res) => {
 
 // GET /api/admin/payments/recent
 // Recent payments list
-quotesRouter.get('/api/admin/payments/recent', async (req, res) => {
+quotesRouter.get('/api/admin/payments/recent', requireAdmin, async (req, res) => {
     try {
         const limit = parseInt(req.query.limit as string) || 20;
 
@@ -2942,7 +2942,7 @@ const instantQuoteSchema = z.object({
 
 // POST /api/quotes/instant
 // Creates a simple quote from live call and sends booking link
-quotesRouter.post('/api/quotes/instant', optionalAuth, async (req, res) => {
+quotesRouter.post('/api/quotes/instant', requireAdmin, async (req, res) => {
     try {
         const input = instantQuoteSchema.parse(req.body);
         const normalizedPhone = normalizePhoneNumber(input.phone);
@@ -3109,7 +3109,7 @@ const siteVisitRequestSchema = z.object({
 
 // POST /api/site-visits/request
 // Creates a site visit request and sends booking link
-quotesRouter.post('/api/site-visits/request', async (req, res) => {
+quotesRouter.post('/api/site-visits/request', requireAdmin, async (req, res) => {
     try {
         const input = siteVisitRequestSchema.parse(req.body);
         const normalizedPhone = normalizePhoneNumber(input.phone);

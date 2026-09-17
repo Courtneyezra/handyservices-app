@@ -82,7 +82,7 @@ export default function DispatchPage() {
     const { data: jobs, isLoading: jobsLoading } = useQuery<Job[]>({
         queryKey: ["admin-jobs"],
         queryFn: async () => {
-            const res = await fetch("/api/admin/jobs");
+            const res = await fetch("/api/admin/jobs", { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch jobs");
             return res.json();
         },
@@ -110,7 +110,7 @@ export default function DispatchPage() {
 
             const res = await fetch(`/api/jobs/${selectedJob.id}/assign`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { ...adminAuthHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
             });
 
