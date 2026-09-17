@@ -334,7 +334,7 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
     });
 
-    it('on a phone Ask about this leaves the sheet for the ask bar, with the card still the context', async () => {
+    it('on a phone Ask about this leaves the sheet for the ask bar, with the card still the context and named on the answer side', async () => {
         routes();
         renderWithQuery(<HandyDesk />);
         await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
@@ -351,6 +351,8 @@ describe('HandyDesk', () => {
         await waitFor(() => expect(ask).toHaveFocus());
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
         expect(screen.getByTestId('queue-card-case_gemma')).toHaveAttribute('aria-current', 'true');
+        expect(screen.getByTestId('handy-desk-asking')).toHaveTextContent('Asking about Gemma Patel. Tap their card above to read the conversation.');
+        expect(screen.queryByTestId('handy-desk-idle')).toBeNull();
 
         await userEvent.type(ask, 'What did she say about the leak?');
         expect(ask).toHaveValue('What did she say about the leak?');
