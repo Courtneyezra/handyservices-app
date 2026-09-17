@@ -28,7 +28,8 @@ Quoting specialist and its tool server under `server/comms-v2/quoting/`, Goal 5'
 Scheduling specialist with its diary read under `server/comms-v2/scheduling/`, and Goal 6's
 Service specialist and tool server under `server/comms-v2/service/` are there
 already, with the board's answer action beside its release (Ben's own words out through the one
-sender, no guards over them, recorded as his); `server/comms-v2/README.md` covers them, the desk contract
+sender, no guards over them, recorded as his), and the Handy Desk ask agent under `server/comms-v2/ask/`
+(the server half; its pages follow); `server/comms-v2/README.md` covers them, the desk contract
 by contract with its sandbox door and that door's quoting, scheduling and service fixtures, the door host and the
-environment they read, the channels channel by channel, and the board piece by piece. The old desk
+environment they read, the channels channel by channel, the board piece by piece and the ask agent. The old desk
 stays live as rollback until the new one is proven and cut over.
