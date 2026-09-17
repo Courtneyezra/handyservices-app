@@ -29,8 +29,8 @@
  * the board to show Ben, never a silent hold.
  */
 import { randomUUID } from 'node:crypto';
-import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
-import { approverFor } from './guards';
+import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
+import { approverFor, type GuardOutcome } from './guards';
 import { clauseAsks, offersCall } from './lexicon';
 import { isHeldAckText } from './fixed-lines';
 import { chooseChannel, DESK_APPROVER, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
@@ -55,6 +55,12 @@ export interface HumanReplyInput {
     deskDraft?: boolean;
     /** The run id the send goes out under; a fresh one when absent. The ask agent's confirm passes its own, so the action and the send carry one id and one run id sends once. */
     runId?: string;
+    /**
+     * Words a person licensed but did not type (the Handy Desk's composed message, ask/kinds/message-send.ts):
+     * the guard verdicts they passed and the facts they were written from, recorded on the send.
+     * Absent for a person's own words, which the guards never gate.
+     */
+    checked?: { guards: GuardOutcome; factIds: string[]; calls: ModelCallRecord[] };
 }
 
 /** What went, for the board to show back: not a desk turn, so it carries no guards and no route. */
@@ -107,6 +113,26 @@ export function shutWindowRefusal(channel: ReplyChannel, window: WindowState): s
 }
 
 /**
+ * A person's send rendered for its channel: typed words as typed; the desk's own words (`deskDraft`)
+ * as the desk renders its replies, and only as typed when that is all that fits. Refuses with the
+ * words the board shows.
+ */
+export function renderPersonWords(channel: ReplyChannel, words: string, opts: { name: string | null; deskDraft: boolean }): { ok: true; bubbles: RenderedBubble[] } | { ok: false; reason: string } {
+    let rendered = render(channel, words, opts.deskDraft ? { name: opts.name } : { asTyped: true });
+    if (opts.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(channel, words, { name: opts.name, softWidth: true });
+    if (opts.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(channel, words, { asTyped: true });
+    if (rendered.ok) return { ok: true, bubbles: rendered.bubbles };
+    if (rendered.reason === 'empty') return { ok: false, reason: 'the reply rendered to nothing' };
+    const over = shortenBriefFor(channel, words, rendered.bubbles);
+    return {
+        ok: false,
+        reason: over.channel === 'sms'
+            ? `the reply comes to ${over.measured} segments, over the ${over.ceiling} one text message may use; about ${over.charBudget} characters fit, and one curly quote or dash halves that, so plain punctuation buys room`
+            : `the reply renders to ${over.measured} bubbles, over the ceiling of ${over.ceiling}; shorten it or use fewer blank lines`,
+    };
+}
+
+/**
  * Ben's reply to the customer, through the one sender. Refuses: no words; a rule-based approver;
  * a slot that is not the one this file answers to, its hold's approver when one stands and
  * `approverFor`'s slot otherwise; no customer turn to answer; a render the sender refuses (over the
@@ -131,35 +157,32 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     const { party, channel, window } = route;
     const approverName = humanApprover(input.person);
 
-    let rendered = render(channel, words, input.deskDraft ? { name: party.name } : { asTyped: true });
-    if (input.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(channel, words, { name: party.name, softWidth: true });
-    if (input.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(channel, words, { asTyped: true });
-    if (!rendered.ok) {
-        if (rendered.reason === 'empty') return refuse('the reply rendered to nothing');
-        const over = shortenBriefFor(channel, words, rendered.bubbles);
-        return refuse(over.channel === 'sms'
-            ? `the reply comes to ${over.measured} segments, over the ${over.ceiling} one text message may use; about ${over.charBudget} characters fit, and one curly quote or dash halves that, so plain punctuation buys room`
-            : `the reply renders to ${over.measured} bubbles, over the ceiling of ${over.ceiling}; shorten it or use fewer blank lines`);
-    }
+    const rendered = renderPersonWords(channel, words, { name: party.name, deskDraft: !!input.deskDraft });
+    if (!rendered.ok) return refuse(rendered.reason);
     const shut = shutWindowRefusal(channel, window);
     if (shut) return refuse(shut);
 
     // The one sender, with Ben as approver and the run id above. No guards: a person's own words are his (answer 43).
-    const sent = await send({ file, partyId: party.personId, channel: channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
+    const checked = input.checked ?? null;
+    const sent = await send({ file, partyId: party.personId, channel: channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: checked?.guards ?? null, factIds: checked?.factIds ?? [], kbIds: [], fixedLines: [], calls: checked?.calls ?? [], mode: input.mode ?? 'dry_run' }, fileDeps);
     if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
 
-    // What the business has now said: the ledger and callOffered, read tightly because these are his words, not a composed reply.
-    for (const subject of ['media', 'postcode', 'access'] as const) if (clauseAsks(words, subject)) ledgerAsk(file, subject, fileDeps);
-    if (offersCall(words)) party.callOffered = true;
-
-    // The hold clears with Ben's words as the release; with no hold there is nothing to clear. Either way the thread is automation's again.
-    let release: HoldRelease | null = null;
-    if (file.hold) {
-        const rel = releaseHold(file, approver, words, fileDeps);
-        if (rel.ok) release = rel.value;
-    }
-
+    const release = afterPersonSend(file, party, approver, words, fileDeps);
     return { ok: true, result: { runId, approver: approverName, channel: channel, bubbles: rendered.bubbles, turnId: sent.record.turnId }, release };
+}
+
+/**
+ * What a person's send leaves on the file, whoever wrote the words it carried: the ledger and
+ * `callOffered`, read tightly (`clauseAsks`) because a person licensed them, and the hold cleared
+ * with the words as the release; with no hold there is nothing to clear. Either way the thread is
+ * automation's again. Shared with the Handy Desk's person-started send (person-send.ts).
+ */
+export function afterPersonSend(file: CaseFile, party: Party, approver: ApproverSlot, words: string, deps: CaseFileDeps = {}): HoldRelease | null {
+    for (const subject of ['media', 'postcode', 'access'] as const) if (clauseAsks(words, subject)) ledgerAsk(file, subject, deps);
+    if (offersCall(words)) party.callOffered = true;
+    if (!file.hold) return null;
+    const rel = releaseHold(file, approver, words, deps);
+    return rel.ok ? rel.value : null;
 }
 
 /**
@@ -186,6 +209,8 @@ export interface SendWindowTemplateInput {
     approver: ApproverSlot;
     person: string;
     mode?: 'dry_run' | 'live';
+    /** The run id the send goes out under; a fresh one when absent (the ask confirm passes its own). */
+    runId?: string;
 }
 
 /**
@@ -316,7 +341,7 @@ function heldOnQuestion(file: CaseFile): boolean {
  */
 export async function sendWindowTemplate(input: SendWindowTemplateInput, deps: CaseFileDeps = {}, templates: TemplateStatusSource = liveTemplateStatus): Promise<HumanReplyOutcome> {
     const now = deps.now ?? (() => new Date());
-    const runId = `run_${randomUUID()}`;
+    const runId = input.runId?.trim() || `run_${randomUUID()}`;
     const { file, approver } = input;
     const fileDeps: CaseFileDeps = { now, newId: deps.newId };
 

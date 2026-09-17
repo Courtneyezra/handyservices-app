@@ -215,7 +215,14 @@ export type FactSource =
     | { kind: 'customer_record'; customerId: string; field: string }
     | { kind: 'diary'; rowId: string }
     | { kind: 'media_description'; turnId: string; mediaId: string }
-    | { kind: 'seed'; note: string };
+    | { kind: 'seed'; note: string }
+    /**
+     * What a person told the Handy Desk to say (answer A2, "His instruction counts as a source"):
+     * who said it (their email or user id), the ask message it was said in, and the words, verbatim.
+     * Like a diary read it counts only on the run that cited it (`isReadThisRunOnly`), and only the
+     * date/time and commitment guards accept it; a figure still needs a quote line (answer 23).
+     */
+    | { kind: 'instruction'; person: string; askMessageId: string; quote: string };
 
 export interface Fact {
     id: string;
@@ -424,6 +431,41 @@ export function open(input: OpenInput, deps: CaseFileDeps = {}): Outcome<CaseFil
     return accept(file);
 }
 
+export interface OpenForPersonInput {
+    /** The person identity resolved the address to; candidates are refused. */
+    identity: ResolveResult;
+    /** Where the person can be reached. None has been written on, so each has no inbound time. */
+    channels: Array<Pick<PartyChannel, 'kind' | 'address'> & Partial<Pick<PartyChannel, 'transport'>>>;
+    /** Who opened it, `human:<email or user id>`, recorded as the stage's why. */
+    by: string;
+}
+
+/**
+ * A file a person opens to write first (the Handy Desk's person-started message, ask-agent
+ * specification N6): the party and their channels, stage first contact, and no turn, because
+ * nobody has written yet. The send that follows is its first turn. A channel carries no inbound
+ * time, so a WhatsApp window on it is shut until the customer writes. Refuses candidates, as `open`
+ * does, and a person with no channel.
+ */
+export function openForPerson(input: OpenForPersonInput, deps: CaseFileDeps = {}): Outcome<CaseFile> {
+    const now = deps.now ?? (() => new Date());
+    const newId = deps.newId ?? defaultNewId;
+    if (!input.identity.ok) return refuse(input.identity.reason === 'candidates' ? 'identity returned candidates; no file until a person picks one' : input.identity.detail);
+    if (!input.channels.length) return refuse('the person has no channel to write on');
+    const id = input.identity;
+    const at = now().toISOString();
+    const party: Party = {
+        personId: id.personId, role: id.role, name: id.name, canonical: id.canonical,
+        channels: input.channels.map((c) => ({ kind: c.kind, address: c.address, lastInboundAt: null, ...(c.transport ? { transport: c.transport } : {}) })),
+        prefersText: false, alreadyRung: false, callOffered: false,
+    };
+    return accept({
+        id: newId('case'), openedAt: at, parties: [party], turns: [], stage: 'first_contact',
+        stageHistory: [{ from: null, to: 'first_contact', at, why: `opened by ${input.by} to write first` }],
+        facts: [], ledger: [], hold: null, releases: [], scopingFrom: null, job: { type: null, location: null, quoteRef: null, bookingRef: null }, sends: [], sentRunIds: [],
+    });
+}
+
 // ---------------------------------------------------------------- parties
 
 export function partyOf(file: CaseFile, personId: string): Party | null {
@@ -547,7 +589,7 @@ export function recordFact(file: CaseFile, input: { key: string; value: string; 
  * (`customerVisibleFacts`). Any new fact written for Ben's eyes belongs in this list on the day it
  * is written.
  */
-export const INTERNAL_FACT_KEYS: readonly string[] = ['ben_notified', 'ben_chased', 'ben_to_request', 'quote_accepted', 'quote_drafting', 'quote_reissued'];
+export const INTERNAL_FACT_KEYS: readonly string[] = ['ben_instruction', 'ben_notified', 'ben_chased', 'ben_to_request', 'quote_accepted', 'quote_drafting', 'quote_reissued'];
 
 /** True when the fact was written for Ben, not for the customer. Matches the key and any `key:label` form. */
 export function isInternalFact(fact: Pick<Fact, 'key'>): boolean {
@@ -571,13 +613,14 @@ export function isSupersededFigure(file: CaseFile, fact: Fact): boolean {
 export const RECORD_READ_FIELD_PREFIX = 'crm:';
 
 /**
- * A fact that is true only as of the read that wrote it: a diary date, or anything read from the
- * customer's CRM record (an invoice's status and balance, a visit day). The composer is shown one,
+ * A fact that is true only as of the read that wrote it: a diary date, anything read from the
+ * customer's CRM record (an invoice's status and balance, a visit day), or a person's instruction on
+ * the Handy Desk, which licenses the one message it was given for. The composer is shown one,
  * and the figure and date guards accept one, only when this run looked it up; one from an earlier
  * turn may have moved since (an invoice paid, a visit moved).
  */
 export function isReadThisRunOnly(fact: Pick<Fact, 'source'>): boolean {
-    return fact.source.kind === 'diary' || (fact.source.kind === 'customer_record' && fact.source.field.startsWith(RECORD_READ_FIELD_PREFIX));
+    return fact.source.kind === 'diary' || fact.source.kind === 'instruction' || (fact.source.kind === 'customer_record' && fact.source.field.startsWith(RECORD_READ_FIELD_PREFIX));
 }
 
 /** The facts a customer reply may be written from: everything on the file except Ben's own. */

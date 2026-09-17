@@ -396,3 +396,48 @@ describe('confirming a proposal from the answer', () => {
         ]);
     });
 });
+
+describe('a message Ben asked for (message.send), over HTTP', () => {
+    const ASK = 'Message Sam and tell him we will call him this afternoon';
+
+    async function ask(text: string, via: string, sessionId?: string) {
+        const id = sessionId ?? (await call('POST', '/ask/sessions', {})).json.id;
+        const posted = await call('POST', `/ask/sessions/${id}/messages`, { text, via });
+        await finished(posted.json.runId);
+        return { sessionId: id, detail: (await call('GET', `/ask/sessions/${id}`)).json };
+    }
+
+    it('cites the ask it was said in, and sends once on the confirm as the signed-in person', async () => {
+        const file = whatsappFile({ at: openAt() });
+        store.put(file);
+        composed = "Hi Sam, we'll give you a call this afternoon.";
+        script = [
+            { tool: 'propose_message', input: { caseFileId: file.id, brief: 'Tell Sam we will call this afternoon', instruction: 'we will call him this afternoon' } },
+            { tool: 'give_answer', input: { finalText: 'Here is the message for Sam.', surface: 'thread', caseFileId: file.id } },
+        ];
+        const { detail } = await ask(ASK, 'typed');
+        const answer = detail.messages[1].answer;
+        expect(answer.confirm).toMatchObject({ label: 'Send this', kind: 'message.send' });
+        expect(answer.outgoing).toEqual([expect.objectContaining({ text: composed, channel: 'wa', guardNote: "'this afternoon' is from your instruction", window: expect.objectContaining({ state: 'open' }) })]);
+        expect(actions.rows.get(answer.confirm.actionId)!.args).toMatchObject({ instruction: { person: BEN_EMAIL, askMessageId: detail.messages[0].id, quote: 'we will call him this afternoon' } });
+        expect(store.get(file.id)!.sends).toEqual([]);
+
+        const out = await call('POST', `/ask/actions/${answer.confirm.actionId}/confirm`);
+        expect(out).toMatchObject({ status: 200, json: { ok: true, action: { status: 'executed', confirmedBy: `human:${BEN_EMAIL}` } } });
+        expect(store.get(file.id)!.sends).toEqual([expect.objectContaining({ approver: `human:${BEN_EMAIL}`, channel: 'whatsapp' })]);
+    });
+
+    it('never takes a chain\'s tap as Ben\'s instruction', async () => {
+        const file = whatsappFile({ at: openAt() });
+        store.put(file);
+        composed = "Hi Sam, we'll give you a call this afternoon.";
+        script = [
+            { tool: 'propose_message', input: { caseFileId: file.id, brief: 'Tell Sam we will call this afternoon', instruction: 'we will call him this afternoon' } },
+            { tool: 'give_answer', input: { finalText: 'Could not.', surface: 'words' } },
+        ];
+        const { detail } = await ask(`Carry on with the plan: ${ASK}`, 'tap');
+        const run = detail.messages[1].transcript.find((s: any) => s.type === 'tool_result' && JSON.stringify(s).includes('propose_message'));
+        expect(JSON.stringify(run)).toMatch(/must be Ben's own words/);
+        expect(detail.messages[1].answer.confirm).toBeUndefined();
+    });
+});

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { ask, hold, open, recordFact, thanked, appendTurn, type CaseFile, type Party, type Turn } from './case-file';
-import { approverFor, release, runGuards, type GuardInput } from './guards';
+import { approverFor, instructedClaims, release, runGuards, type GuardInput } from './guards';
 import { fixedLine, noFixedLineSource } from './fixed-lines';
 
 function fixture(text = 'Hi, leaking tap in NG9 2AB'): { file: CaseFile; party: Party; turn: Turn } {
@@ -232,5 +232,47 @@ describe('the approver slot', () => {
         const slot = approverFor(f.file, 'money');
         expect(slot.kind).toBe('rules');
         if (slot.kind === 'rules') expect(slot.then).toEqual({ kind: 'human', id: 'l1' });
+    });
+});
+
+describe('a person\'s instruction as a source (answer A2)', () => {
+    /** Ben's words on the Handy Desk, recorded as an instruction fact, and the guard input citing it on this run or not. */
+    function instructed(reply: string, quote: string, opts: { cite?: boolean; lookedUp?: boolean } = {}): GuardInput {
+        const f = fixture();
+        const fact = recordFact(f.file, { key: 'ben_instruction', value: quote, source: { kind: 'instruction', person: 'ben@handyservices.app', askMessageId: 'msg_1', quote }, by: 'human:ben@handyservices.app' });
+        if (!fact.ok) throw new Error(fact.reason);
+        const id = fact.value.id;
+        return { ...input(reply), file: f.file, party: f.party, turn: f.turn, prompted: 'human_action', factIds: opts.cite === false ? [] : [id], lookedUp: opts.lookedUp === false ? [] : [id] };
+    }
+
+    it('passes a time and a commitment the cited instruction gives word for word, contractions and all, and names them', () => {
+        const g = instructed("We'll give you a call this afternoon, and we'll be there on Friday.", 'tell her we will call her this afternoon and we will be there on Friday');
+        expect(g.reply).toBeTruthy();
+        const out = runGuards(g);
+        expect(out.failures).toEqual([]);
+        expect(instructedClaims(g)).toEqual(['this afternoon', 'Friday', "we'll be there"]);
+    });
+
+    it('refuses a time or a commitment the instruction does not say', () => {
+        expect(runGuards(instructed("We'll call you tomorrow.", 'we will call her this afternoon')).failures).toEqual([expect.stringMatching(/^date_time_duration: .*"tomorrow"/)]);
+        expect(runGuards(instructed("We'll call this afternoon and we'll fix it.", 'we will call her this afternoon')).failures).toEqual([expect.stringMatching(/^commitment_fault: .*"we'll fix"/)]);
+        expect(runGuards(instructed('We will call you this afternoon.', 'we will call her this aft')).failures).toEqual([expect.stringMatching(/^date_time_duration/)]);
+    });
+
+    it('counts only on the run that cites and looks it up: an instruction left on the file licenses nothing later', () => {
+        expect(runGuards(instructed('A call this afternoon.', 'call her this afternoon', { cite: false })).guards.date_time_duration.result).toBe('fail');
+        expect(runGuards(instructed('A call this afternoon.', 'call her this afternoon', { lookedUp: false })).guards.date_time_duration.result).toBe('fail');
+        expect(instructedClaims(instructed('A call this afternoon.', 'call her this afternoon', { lookedUp: false }))).toEqual([]);
+    });
+
+    it('never licenses a figure, and runs every other guard as before', () => {
+        const f = fixture();
+        const refused = recordFact(f.file, { key: 'ben_instruction', value: "it's £140", source: { kind: 'instruction', person: 'ben', askMessageId: 'm', quote: "it's £140" }, by: 'human:ben' });
+        expect(refused).toEqual({ ok: false, reason: 'a figure may only come from a live quote line or a customer record' });
+        const g = instructed("It's £140, and we'll call this afternoon. I'm an automated assistant.", "it is 140 and we will call this afternoon");
+        const out = runGuards(g);
+        expect(out.guards.figure.result).toBe('fail');
+        expect(out.guards.disclosure.result).toBe('fail');
+        expect(out.guards.date_time_duration.result).toBe('pass');
     });
 });
