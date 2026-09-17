@@ -8,8 +8,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('./db', () => ({ db: {} }));
 
-import { blockedByOptOut, getOptOut, liftAddressOf, optOutEmailKey, optOutKeysOf, recordOptOut, revokeOptOut, strongestOptOut } from './opt-out';
-import { memoryOptOutStore } from './__tests__/opt-out-memory-store';
+import { blockedByOptOut, getOptOut, liftAddressOf, optOutEmailKey, optOutKeysOf, optOutRefusalMessage, recordOptOut, revokeOptOut, strongestOptOut } from './opt-out';
+import { memoryOptOutStore, type MemoryOptOutStore } from './__tests__/opt-out-memory-store';
 
 const SAM = { id: 'lead_sam', phone: '07700 900942', email: 'Sam.Tester@Example.com' };
 const ALEX = { id: 'lead_alex', phone: '+447700900943', email: 'alex@example.com' };
@@ -94,7 +94,7 @@ describe('a STOP by phone', () => {
 
     it('still records the phone when the addresses on file cannot be read', async () => {
         const store = memoryOptOutStore([SAM]);
-        store.onFile = async () => { throw new Error('connection reset'); };
+        store.leadsOn = async () => { throw new Error('connection reset'); };
         const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
         const r = await recordOptOut({ phone: '07700900942', scope: 'marketing', source: 'manual' }, store);
         expect(r.created).toBe(true);
@@ -129,6 +129,58 @@ describe('an opt-out recorded against an email', () => {
         expect(await recordOptOut({ email: 'not an address', phone: null, scope: 'all', source: 'manual' }, store)).toMatchObject({ created: false, id: null, key: null });
         expect(store.rows).toEqual([]);
         warn.mockRestore();
+    });
+});
+
+describe('an address two parties are reachable on', () => {
+    const X = { id: 'lead_x', phone: '07700 900950', email: 'lettings@example.com' };
+    const Y = { id: 'lead_y', phone: '07700 900951', email: 'lettings@example.com' };
+
+    it('never carries one party\'s opt-out: the other stays reachable on their own number and on the shared address', async () => {
+        const store = memoryOptOutStore([X, Y]);
+        await recordOptOut({ phone: X.phone, scope: 'all', source: 'inbound_keyword', channel: 'whatsapp', messageId: 'x1', matchedKeyword: 'do not contact me' }, store);
+        expect(store.rows.map((r) => [r.phoneKey, r.emailKey])).toEqual([['7700900950', null]]);
+
+        expect(await blockedByOptOut(X.phone, 'service_reply', store)).toMatchObject({ scope: 'all' });
+        expect(await blockedByOptOut({ phones: [Y.phone], emails: ['lettings@example.com'] }, 'service_reply', store)).toBeNull();
+        expect(await blockedByOptOut({ emails: ['lettings@example.com'] }, 'marketing', store)).toBeNull();
+    });
+
+    it('is still the key of an opt-out that arrived on it, and pulls in no other party\'s number', async () => {
+        const store = memoryOptOutStore([X, Y]);
+        await recordOptOut({ email: 'Lettings@example.com', scope: 'all', source: 'manual', channel: 'email' }, store);
+        expect(store.rows.map((r) => [r.phoneKey, r.emailKey])).toEqual([[null, 'lettings@example.com']]);
+
+        expect(await blockedByOptOut({ emails: ['lettings@example.com'] }, 'service_reply', store)).toMatchObject({ scope: 'all' });
+        expect(await blockedByOptOut(X.phone, 'marketing', store)).toBeNull();
+        expect(await blockedByOptOut(Y.phone, 'marketing', store)).toBeNull();
+    });
+
+    it('does not stop the party\'s own second address from being covered', async () => {
+        const store = memoryOptOutStore([
+            { id: 'lead_x', phone: X.phone, email: 'lettings@example.com' },
+            { id: 'lead_x_2', phone: X.phone, email: 'x.home@example.com' },
+            Y,
+        ]);
+        await recordOptOut({ phone: X.phone, scope: 'all', source: 'manual' }, store);
+        expect(store.rows.map((r) => [r.phoneKey, r.emailKey])).toEqual([['7700900950', 'x.home@example.com']]);
+        expect(await blockedByOptOut({ emails: ['x.home@example.com'] }, 'service_reply', store)).toMatchObject({ scope: 'all' });
+        expect(await blockedByOptOut({ phones: [Y.phone], emails: ['lettings@example.com'] }, 'service_reply', store)).toBeNull();
+    });
+});
+
+describe('the refusal a blocked send gives back', () => {
+    it('names the row the block comes from and the addresses it is keyed on, masked', async () => {
+        const store = memoryOptOutStore([SAM]);
+        const recorded = await recordOptOut({ phone: SAM.phone, scope: 'all', source: 'manual' }, store);
+        const blocked = (await blockedByOptOut({ phones: [SAM.phone] }, 'service_reply', store))!;
+        const message = optOutRefusalMessage(blocked);
+        expect(message).toContain('asked us not to contact them at all');
+        expect(message).toContain(recorded.id!);
+        expect(message).toContain('•••942');
+        expect(message).toContain('s•••@example.com');
+        expect(message).not.toContain('7700900942');
+        expect(message).not.toContain('sam.tester@example.com');
     });
 });
 
@@ -203,27 +255,36 @@ describe('revokeOptOut', () => {
         expect(await blockedByOptOut(ALEX.phone, 'marketing', store)).toMatchObject({ scope: 'all' });
     });
 
+    // Rows recorded before the ledger stopped spreading onto a shared address still carry one, and
+    // so do rows an opt-out arrived on from the shared address itself. The lift rule holds on those.
+    const seedShared = async (store: MemoryOptOutStore, rows: Array<[string | null, string | null]>) => {
+        const ids: string[] = [];
+        for (const [phoneKey, emailKey] of rows) {
+            const id = `optout_seed_${ids.length + 1}`;
+            await store.insert({ id, phoneKey, emailKey, scope: 'all', source: 'backfill' });
+            ids.push(id);
+        }
+        return ids;
+    };
+
     it('never widens to what is on file: lifting one party leaves another party on a shared email opted out', async () => {
         const store = memoryOptOutStore([X, Y]);
-        await recordOptOut({ phone: X.phone, scope: 'all', source: 'inbound_keyword', messageId: 'x1', matchedKeyword: 'do not contact me' }, store);
-        await recordOptOut({ phone: Y.phone, scope: 'marketing', source: 'inbound_keyword', messageId: 'y1', matchedKeyword: 'stop' }, store);
-        const yRow = store.rows.find((r) => r.phoneKey === '7700900951')!;
-        expect(yRow.emailKey).toBe('lettings@example.com');
+        const [xRow, yRow] = await seedShared(store, [['7700900950', 'lettings@example.com'], ['7700900951', 'lettings@example.com']]);
 
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const lifted = await revokeOptOut(liftAddressOf([X.phone, X.email]), 'human:ben@example.com', 'opted back in', store);
         expect(lifted.revoked).toBe(1);
-        expect(lifted.notLifted.map((n) => [n.record.id, n.alsoCarries])).toEqual([[yRow.id, ['•••951']]]);
+        expect(lifted.notLifted.map((n) => [n.record.id, n.alsoCarries])).toEqual([[yRow, ['•••951']]]);
         warn.mockRestore();
+        expect(store.rows.find((r) => r.id === xRow)!.revokedAt).not.toBeNull();
         expect(await blockedByOptOut(X.phone, 'marketing', store)).toBeNull();
-        expect(await blockedByOptOut(Y.phone, 'marketing', store)).toMatchObject({ id: yRow.id });
-        expect(await blockedByOptOut({ emails: ['lettings@example.com'] }, 'marketing', store)).toMatchObject({ id: yRow.id });
+        expect(await blockedByOptOut(Y.phone, 'marketing', store)).toMatchObject({ id: yRow });
+        expect(await blockedByOptOut({ emails: ['lettings@example.com'] }, 'marketing', store)).toMatchObject({ id: yRow });
     });
 
     it('lifts nothing by the address two parties share, and reports both rows', async () => {
         const store = memoryOptOutStore([X, Y]);
-        await recordOptOut({ phone: X.phone, scope: 'all', source: 'manual' }, store);
-        await recordOptOut({ phone: Y.phone, scope: 'all', source: 'manual' }, store);
+        await seedShared(store, [['7700900950', 'lettings@example.com'], ['7700900951', 'lettings@example.com']]);
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
         const lifted = await revokeOptOut({ emails: ['lettings@example.com'] }, 'human:ben@example.com', undefined, store);
@@ -236,14 +297,8 @@ describe('revokeOptOut', () => {
     });
 
     it('keeps another party opted out when the shared email sits on a further-address row', async () => {
-        const store = memoryOptOutStore([
-            { id: 'lead_x', phone: '07700 900950', email: 'x.home@example.com' },
-            { id: 'lead_x_2', phone: '07700 900950', email: 'lettings@example.com' },
-            Y,
-        ]);
-        await recordOptOut({ phone: X.phone, scope: 'all', source: 'inbound_keyword', messageId: 'x1' }, store);
-        await recordOptOut({ phone: Y.phone, scope: 'all', source: 'inbound_keyword', messageId: 'y1' }, store);
-        expect(store.rows.map((x) => [x.phoneKey, x.emailKey])).toEqual([
+        const store = memoryOptOutStore([X, Y]);
+        const [, , yRow] = await seedShared(store, [
             ['7700900950', 'x.home@example.com'],
             [null, 'lettings@example.com'],
             ['7700900951', 'lettings@example.com'],
@@ -253,7 +308,7 @@ describe('revokeOptOut', () => {
         const lifted = await revokeOptOut({ emails: ['lettings@example.com'] }, 'human:ben@example.com', undefined, store);
         expect(lifted.revoked).toBe(1);
         expect(lifted.notLifted.map((n) => [n.record.phoneKey, n.alsoCarries])).toEqual([['7700900951', ['•••951']]]);
-        expect(await blockedByOptOut(Y.phone, 'service_reply', store)).toMatchObject({ scope: 'all' });
+        expect(await blockedByOptOut(Y.phone, 'service_reply', store)).toMatchObject({ id: yRow, scope: 'all' });
         expect(await blockedByOptOut({ emails: ['lettings@example.com'] }, 'service_reply', store)).toMatchObject({ scope: 'all' });
         warn.mockRestore();
     });

@@ -3,7 +3,7 @@
  * addresses on file are read from, with the same matching the database store's SQL does. Every
  * address in it must be synthetic: numbers from the Ofcom drama range, example.com mail.
  */
-import type { OptOutKeys, OptOutRecord, OptOutStore } from '../opt-out';
+import type { LeadAddresses, OptOutKeys, OptOutRecord, OptOutStore } from '../opt-out';
 import { optOutEmailKey } from '../opt-out';
 import { commsPhoneKey } from '../phone-utils';
 
@@ -29,17 +29,14 @@ export function memoryOptOutStore(leads: MemoryLead[] = [], conversationLeads: R
         async liveRows(keys) {
             return store.rows.filter((r) => !r.revokedAt && carries(r, keys));
         },
-        async onFile(keys, conversationId) {
+        async leadsOn(keys, conversationId) {
             const linked = conversationId ? store.conversationLeads.get(conversationId) : undefined;
-            const out: OptOutKeys = { phoneKeys: [], emailKeys: [] };
+            const found: LeadAddresses[] = [];
             for (const l of store.leads) {
-                const phoneKey = commsPhoneKey(l.phone);
-                const emailKey = optOutEmailKey(l.email);
-                if (l.id !== linked && !carries({ phoneKey, emailKey }, keys)) continue;
-                if (phoneKey && !out.phoneKeys.includes(phoneKey)) out.phoneKeys.push(phoneKey);
-                if (emailKey && !out.emailKeys.includes(emailKey)) out.emailKeys.push(emailKey);
+                const matches = carries({ phoneKey: commsPhoneKey(l.phone), emailKey: optOutEmailKey(l.email) }, keys);
+                if (l.id === linked || matches) found.push({ phone: l.phone, email: l.email });
             }
-            return out;
+            return found;
         },
         async insert(row) {
             if (row.messageId && store.rows.some((r) => r.messageId === row.messageId)) return false;

@@ -165,15 +165,18 @@ export interface OptOutStore {
     /** Rows not yet revoked that carry any of the keys. */
     liveRows(keys: OptOutKeys): Promise<OptOutRecord[]>;
     /**
-     * Every phone and email on file for the party these keys name: a lead carrying one of the keys,
-     * and the lead the conversation is linked to. One hop, never transitive.
+     * The addresses of every lead carrying one of the keys, and of the lead the conversation is
+     * linked to. One hop, never transitive.
      */
-    onFile(keys: OptOutKeys, conversationId: string | null): Promise<OptOutKeys>;
+    leadsOn(keys: OptOutKeys, conversationId: string | null): Promise<LeadAddresses[]>;
     /** Insert one row. With a message id a second row for the same message is skipped and returns false. */
     insert(row: NewOptOutRow): Promise<boolean>;
     /** Stamp as revoked the live rows with these ids. */
     revoke(ids: string[], revokedBy: string, note: string | null): Promise<number>;
 }
+
+/** A lead's two addresses, as the ledger reads them. */
+export interface LeadAddresses { phone: string | null; email: string | null }
 
 /** The digit strings a stored phone column can hold for a key (commsPhoneKey folds them all to it). */
 function phoneDigitForms(key: string): string[] {
@@ -197,7 +200,7 @@ export const dbOptOutStore: OptOutStore = {
             .orderBy(desc(commsOptOuts.createdAt));
         return rows.map(toRecord);
     },
-    async onFile(keys, conversationId) {
+    async leadsOn(keys, conversationId) {
         const phoneForms = keys.phoneKeys.flatMap(phoneDigitForms);
         // Array parameters are bound with sql.param: a bare JS array would expand into a record.
         const rows: any = await db.execute(sql`
@@ -206,15 +209,7 @@ export const dbOptOutStore: OptOutStore = {
                OR lower(trim(l.email)) = ANY(${sql.param(keys.emailKeys)}::text[])
                OR l.id = (SELECT c.lead_id FROM conversations c WHERE c.id = ${conversationId ?? ''})
         `);
-        const found = (rows.rows ?? rows) as Array<{ phone: string | null; email: string | null }>;
-        const out: OptOutKeys = { phoneKeys: [], emailKeys: [] };
-        for (const r of found) {
-            const phoneKey = commsPhoneKey(r.phone);
-            const emailKey = optOutEmailKey(r.email);
-            if (phoneKey) out.phoneKeys.push(phoneKey);
-            if (emailKey) out.emailKeys.push(emailKey);
-        }
-        return { phoneKeys: uniq(out.phoneKeys), emailKeys: uniq(out.emailKeys) };
+        return (rows.rows ?? rows) as LeadAddresses[];
     },
     async insert(row) {
         if (row.messageId) {
@@ -236,10 +231,43 @@ export const dbOptOutStore: OptOutStore = {
     },
 };
 
+/**
+ * The addresses on file for the party the given keys name, so an opt-out covers them all. An email
+ * more than one party is reachable on — a lettings agent's, a family mailbox — is never one of
+ * them: it belongs to no single party, so blocking it would silence a customer who never asked.
+ * Such an address neither joins the party's addresses nor leads to the other leads that carry it.
+ * The address the opt-out arrived on is the caller's and is kept whatever it is shared with.
+ */
+async function addressesOnFile(given: OptOutKeys, conversationId: string | null, store: OptOutStore): Promise<OptOutKeys> {
+    const anchored = await store.leadsOn({ phoneKeys: given.phoneKeys, emailKeys: [] }, conversationId);
+    const candidates = uniq([...anchored.map((l) => optOutEmailKey(l.email)), ...given.emailKeys]);
+    const carrying = candidates.length ? await store.leadsOn({ phoneKeys: [], emailKeys: candidates }, null) : [];
+
+    const phonesPerEmail = new Map<string, Set<string>>();
+    for (const lead of carrying) {
+        const emailKey = optOutEmailKey(lead.email);
+        if (!emailKey) continue;
+        const phones = phonesPerEmail.get(emailKey) ?? new Set<string>();
+        const phoneKey = commsPhoneKey(lead.phone);
+        if (phoneKey) phones.add(phoneKey);
+        phonesPerEmail.set(emailKey, phones);
+    }
+    const sharedWithAnotherParty = (emailKey: string) => (phonesPerEmail.get(emailKey)?.size ?? 0) > 1;
+
+    const party = [...anchored, ...carrying.filter((lead) => {
+        const emailKey = optOutEmailKey(lead.email);
+        return emailKey !== null && given.emailKeys.includes(emailKey) && !sharedWithAnotherParty(emailKey);
+    })];
+    return {
+        phoneKeys: uniq(party.map((l) => commsPhoneKey(l.phone))),
+        emailKeys: uniq(party.map((l) => optOutEmailKey(l.email))).filter((k) => !sharedWithAnotherParty(k)),
+    };
+}
+
 /** The same keys plus what is on file for them. A failed lookup keeps the keys the caller gave and says so loudly. */
 async function withOnFile(keys: OptOutKeys, conversationId: string | null, store: OptOutStore, why: string): Promise<OptOutKeys> {
     try {
-        return mergeKeys(keys, await store.onFile(keys, conversationId));
+        return mergeKeys(keys, await addressesOnFile(keys, conversationId, store));
     } catch (error: any) {
         console.error(`[OptOut] Could not read the addresses on file while ${why}; only the address given is covered:`, error?.message);
         return keys;
@@ -271,12 +299,18 @@ export async function blockedByOptOut(
     return purpose === 'service_reply' ? null : record;    // a plain STOP blocks marketing only
 }
 
-/** Human-readable, and the same words wherever a refusal surfaces. */
+/**
+ * Human-readable, and the same words wherever a refusal surfaces. It names the row the block comes
+ * from and the addresses that row is keyed on, masked, so a refusal on a send to someone else can
+ * be told apart from the recipient's own opt-out.
+ */
 export function optOutRefusalMessage(record: OptOutRecord): string {
     const when = record.at.toISOString().slice(0, 10);
-    return record.scope === 'all'
+    const on = [record.phoneKey, record.emailKey].filter((k): k is string => k !== null).map(maskOptOutKey).join(' and ');
+    const source = ` The block is recorded against ${on || 'an address no longer on the row'} (${record.id}).`;
+    return (record.scope === 'all'
         ? `This person asked us not to contact them at all (${when}). Nothing may be sent to them from this system.`
-        : `This person opted out of marketing on ${when}. Campaigns and bulk outreach are blocked. A service reply to their own enquiry is still allowed.`;
+        : `This person opted out of marketing on ${when}. Campaigns and bulk outreach are blocked. A service reply to their own enquiry is still allowed.`) + source;
 }
 
 /**
