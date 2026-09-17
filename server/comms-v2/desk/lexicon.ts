@@ -38,7 +38,7 @@ const HAGGLE = [
     '(?:match|beat) (?:(?:that|their|his|her|this|the other|another) )?(?:quote|figure|£ ?\\d+|\\d+)',
     "mates?'?s? rates?", '(?:pensioner|oap|student|nhs|forces|cash) (?:rate|price|discount|deal)',
     '(?:any|special|better|cash) deal', 'chance of a deal', 'do (?:me|us) a deal',
-    '(?:do (?:it )?for|take|accept) (?:£ ?\\d+(?:\\.\\d+)?|\\d{2,}(?:\\.\\d+)?(?= ?(?:cash|quid|pounds?)?\\s*(?:[?.!,;]|$)))',
+    '(?:do (?:it )?for|(?:you|u) (?:take|accept)) (?:£ ?\\d+(?:\\.\\d+)?|\\d{2,}(?:\\.\\d+)?(?= ?(?:cash|quid|pounds?)?\\s*(?:[?.!,;]|$)))',
     '\\d+ (?:quid|cash)', 'for (?:a (?:bit|little|touch) )?less',
     'knock (?:a |an )?(?:bit|some|anything|tenner|fiver|few quid|little|£ ?\\d+|\\d+) off',
     'instal(?:l)?ments?', 'payment plan', 'pay (?:it )?(?:monthly|in (?:parts|stages|bits))',
