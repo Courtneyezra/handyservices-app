@@ -116,8 +116,6 @@ export interface Turn {
      * turn rather than adding one (channels/channel-gateway.ts `attachCall`).
      */
     callId?: string;
-    /** Inbound form turns only: the form carried a phone number, so the old inbound path also saw it (server/leads.ts). */
-    formPhone?: true;
 }
 
 /** The ids of the messages a turn the desk is answering carries: each message of a burst, or the turn itself. */

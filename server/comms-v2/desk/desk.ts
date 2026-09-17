@@ -74,22 +74,27 @@ export interface DeskDeps extends CaseFileDeps {
 
 /**
  * The channels whose opt-out the old inbound path records (server/agents/comms-lanes.ts gate 0,
- * server/opt-out.ts): SMS, WhatsApp, and a web form that carried a phone (server/leads.ts). Every
- * other turn, a call, an email, an email-only form or a channel added later, is not recorded.
+ * server/opt-out.ts): SMS and WhatsApp. Every other turn, a call, an email, a web form or a channel
+ * added later, is not known to be recorded.
  */
-const OPT_OUT_RECORDED_ON: ReadonlySet<Turn['channel']> = new Set(['sms', 'whatsapp']);
+const OPT_OUT_RECORDED_ON: ReadonlySet<Turn['channel']> = new Set<Turn['channel']>(['sms', 'whatsapp']);
 
-function optOutRecordedElsewhere(turn: Turn): boolean {
-    return OPT_OUT_RECORDED_ON.has(turn.channel) || (turn.channel === 'form' && turn.formPhone === true);
-}
-
-function optOutPlace(turn: Turn): string {
-    switch (turn.channel) {
+function optOutPlace(channel: Turn['channel']): string {
+    switch (channel) {
         case 'call': return 'on a call';
         case 'email': return 'by email';
-        case 'form': return 'on a web form with no phone number';
-        default: return `on ${turn.channel}`;
+        case 'form': return 'on a web form';
+        default: return `on ${channel}`;
     }
+}
+
+/** An opt-out in any one message the turn carries, each read on its own as the old inbound path reads it. */
+function optOutIn(file: CaseFile, turn: Turn): ReturnType<typeof detectOptOut> {
+    for (const id of messagesOf(turn)) {
+        const match = detectOptOut(file.turns.find((t) => t.id === id)?.body ?? (id === turn.id ? turn.body : null));
+        if (match) return match;
+    }
+    return null;
 }
 
 /** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
@@ -219,14 +224,14 @@ export class Desk implements DeskLike {
         const party = partyOf(file, turn.partyId);
         if (!party) return this.nothing(file, file.parties[0].personId, runId, calls, 'the turn\'s party is not on the file');
         if (turn.direction !== 'inbound') return this.nothing(file, party.personId, runId, calls, 'not a customer turn');
-        // A customer who has just asked us to stop hears nothing back, not even an acknowledgement. Only where
-        // the old inbound path writes the ledger (`optOutRecordedElsewhere`) is that all; anywhere else the
-        // thread holds for Ben to check and record it.
-        const optOut = detectOptOut(turn.body);
+        // A customer who has just asked us to stop, in any message of the turn, hears nothing back, not even an
+        // acknowledgement. On SMS and WhatsApp (`OPT_OUT_RECORDED_ON`) the old inbound path writes the ledger, so
+        // that is all; anywhere else the thread holds for Ben to check and record it.
+        const optOut = optOutIn(file, turn);
         if (optOut) {
             const asked = `the customer asked us to stop ("${optOut.keyword}", ${optOut.scope})`;
-            if (optOutRecordedElsewhere(turn)) return this.nothing(file, party.personId, runId, calls, `${asked}: no reply, no model call`);
-            const where = optOutPlace(turn);
+            if (OPT_OUT_RECORDED_ON.has(turn.channel)) return this.nothing(file, party.personId, runId, calls, `${asked}: no reply, no model call`);
+            const where = optOutPlace(turn.channel);
             this.holdFor(file, null, `customer may have asked to stop ${where}; check and record the opt-out: ${asked}`);
             return this.nothing(file, party.personId, runId, calls, `${asked} ${where}: no reply, no model call, held for Ben to record the opt-out`, 'hold');
         }

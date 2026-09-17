@@ -11,7 +11,8 @@ import type { DeskResult } from './desk-types';
 import { ChannelGateway } from '../channels/channel-gateway';
 import { transcriptBody } from '../channels/call-adapter';
 import { fromWebForm } from '../channels/form-adapter';
-import { open, type CaseFile } from './case-file';
+import { appendTurn, open, type CaseFile } from './case-file';
+import { customerTurnOf } from './turn-window';
 import { noFixedLineSource, DEFAULT_FIXED_LINES, type FixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
 import { FakeModelClient } from './models';
@@ -269,19 +270,32 @@ describe('the desk', () => {
         }
     });
 
-    it('a web form opt-out holds for Ben only when the form carried no phone, and sends nothing either way', async () => {
-        for (const [phone, held] of [['07700 900945', false], [null, true]] as const) {
+    it('a web form opt-out, with or without a phone, sends nothing, calls no model and holds for Ben', async () => {
+        for (const phone of ['07700 900945', null]) {
             const { client, desk: d } = noModel();
             const g = new ChannelGateway({ desk: d, now: () => new Date('2026-09-11T10:00:00.000Z') });
             const env = await fromWebForm({ customerName: 'Priya K', phone, email: 'priya@example.com', jobDescription: 'unsubscribe me', postcode: 'NG9 2AB', source: 'web_quote' }, { now: () => new Date('2026-09-11T09:59:00.000Z') });
             const out = await g.inbound(env, { whatsapp: false });
             if (out.kind !== 'handled') throw new Error(out.kind);
             const label = phone ? 'form with a phone' : 'email-only form';
-            expect(out.result.decision, label).toBe(held ? 'hold' : 'none');
+            expect(out.result.decision, label).toBe('hold');
             expectSilent(out.result, out.file, client.calls, label);
-            if (held) expect(out.file.hold?.reason, label).toMatch(/^customer may have asked to stop on a web form with no phone number; check and record the opt-out: /);
-            else expect(out.file.hold, label).toBeNull();
+            expect(out.file.hold?.reason, label).toMatch(/^customer may have asked to stop on a web form; check and record the opt-out: /);
         }
+    });
+
+    it('a STOP inside a burst is an opt-out: "No thanks" then "STOP" in one quiet window gets no reply and no model call', async () => {
+        const { client, desk: d } = noModel();
+        const file = fileOn('sms', 'No thanks');
+        const stop = appendTurn(file, { at: '2026-09-11T10:00:03.000Z', channel: 'sms', kind: 'text', body: 'STOP', media: [], partyId: 'p1', direction: 'inbound', runId: null, approver: null });
+        if (!stop.ok) throw new Error(stop.reason);
+        const burst = customerTurnOf([file.turns[0], stop.value]);
+        expect(detectOptOut(burst.body)).toBeNull();
+        const r = await d.handleTurn(file, burst);
+        expect(r.decision).toBe('none');
+        expectSilent(r, file, client.calls, 'burst');
+        expect(file.hold).toBeNull();
+        expect(r.note).toMatch(/asked us to stop \("stop", marketing\)/);
     });
 
     it('a call with no opt-out in it is scoped as before: routed, gathered and composed, with no opt-out hold', async () => {
