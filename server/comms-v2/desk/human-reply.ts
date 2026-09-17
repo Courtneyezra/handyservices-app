@@ -218,13 +218,22 @@ function sentQuoteLink(file: CaseFile): string | null {
  * The desk's held acknowledgement ("Thanks, leave it with me and I'll come back to you.", or its
  * variant naming a photo or video) is not an answer: it only says one is coming (captain's answer
  * of 17 Sep 2026, "Yes, offer it"). The file records no fixed-line kind, so it is known by its
- * sender (the desk) and its exact wording (`isHeldAckText`). Any other outbound turn, a composed
- * reply, a person's own words, a template or a quote link, still answers the question.
+ * sender (the desk) and its exact wording (`isHeldAckText`).
+ *
+ * The desk's other holding line says the same thing through the composer: on a `no_source` hold the
+ * reply carries the fixed `no_source` line ("Let me check on that one and come straight back to
+ * you.") woven into a composed turn, so its wording is not fixed and cannot be matched. That hold is
+ * itself the desk's record that nothing on file answered what they asked, so while it stands the
+ * desk's own sends are holding lines rather than answers -- read from the recorded exception, never
+ * the words, the same way `heldOnQuestion` reads it. A person's own words, a template or a quote
+ * link still answer the question, as does any desk send once the hold has gone.
  */
 function unansweredQuestion(file: CaseFile, turn: Turn): boolean {
     const idx = file.turns.findIndex((t) => t.id === turn.id);
     if (idx === -1) return false;
-    if (file.turns.slice(idx + 1).some((t) => t.direction === 'outbound' && !(t.approver === DESK_APPROVER && isHeldAckText(t.body)))) return false;
+    const heldWithNoSource = file.hold?.exception === 'no_source';
+    const holdingLine = (t: Turn) => t.approver === DESK_APPROVER && (heldWithNoSource || isHeldAckText(t.body));
+    if (file.turns.slice(idx + 1).some((t) => t.direction === 'outbound' && !holdingLine(t))) return false;
     return turn.body.includes('?');
 }
 

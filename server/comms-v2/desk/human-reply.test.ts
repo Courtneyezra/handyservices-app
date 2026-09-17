@@ -13,7 +13,7 @@ import { truncateWords } from '../channels/envelope';
 import { BEN } from './guards';
 import { humanReply, previewWindowTemplate, replyRouteOf, sendHeldDraft, sendWindowTemplate } from './human-reply';
 import { DESK_APPROVER, send, type TemplateStatusSource } from './sender';
-import { heldAckLine } from './fixed-lines';
+import { DEFAULT_FIXED_LINES, heldAckLine } from './fixed-lines';
 import type { HoldException } from './router';
 
 /** answer_ready_reopen_v1 approved, nothing else. */
@@ -522,6 +522,48 @@ describe('a template send on a shut window: only when the wording is true for th
         if (!out.ok) return;
         expect(out.result.bubbles[0].text).toBe('Hi Sam, you asked us about new kitchen tap and we have an answer for you. Reply to this message and we will send it straight over.');
         expect(file.hold).toBeNull();
+    });
+
+    /**
+     * The desk's other holding line: on a `no_source` hold the fixed line goes out woven into a
+     * composed reply, so its wording is not fixed. The hold itself records that nothing on file
+     * answered the question, which is what this reads.
+     */
+    function deskComposedNoSourceHold(file: CaseFile, at = '2026-09-11T10:00:02.000Z'): string {
+        setHold(file, { approver: BEN, reason: 'no_source: How much would a new tap be?', exception: 'no_source' }, { now: now('2026-09-11T10:00:01.000Z') });
+        const body = `Hi Sam, thanks for asking.\n${DEFAULT_FIXED_LINES.no_source}`;
+        const t = appendTurn(file, { at, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body, media: [], runId: 'run_no_source', approver: DESK_APPROVER }, { now: now(at) });
+        if (!t.ok) throw new Error(t.reason);
+        return body;
+    }
+
+    it('a no_source hold answered only by the composed holding line: the holding line is no answer, so answer_ready_reopen_v1 is offered', async () => {
+        const { file, party } = fixture(); // "How much would a new tap be?"
+        const body = deskComposedNoSourceHold(file);
+        expect(body).toContain('Let me check on that one and come straight back to you.');
+        party.channels.find((c) => c.kind === 'whatsapp')!.lastInboundAt = '2026-09-09T10:00:00.000Z';
+
+        const out = await sendWindowTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, reopenApproved);
+
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.result.bubbles[0].text).toContain('we have an answer');
+        expect(file.hold).toBeNull();
+        expect(file.sends[file.sends.length - 1]).toMatchObject({ approver: BEN_APPROVER, templateId: 'answer_ready_reopen_v1' });
+    });
+
+    it('the same composed reply with no no_source hold standing: it answered the question, so no template is offered', async () => {
+        const { file, party } = fixture();
+        deskComposedNoSourceHold(file);
+        file.hold = null; // Ben released it; the desk's send is the answer it looks like
+        party.channels.find((c) => c.kind === 'whatsapp')!.lastInboundAt = '2026-09-09T10:00:00.000Z';
+
+        const out = await sendWindowTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, reopenApproved);
+
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/no template is true for this thread/);
+        expect(file.sends.filter((x) => x.templateId)).toHaveLength(0);
     });
 
     it('a complaint hold answered only by the holding line: no template is offered and the hold stands', async () => {
