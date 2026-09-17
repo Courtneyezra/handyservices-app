@@ -6,9 +6,9 @@
  *
  * Reads GET /api/comms-v2/case-files/:id every fifteen seconds. Every write is one of the board's own
  * human-send routes, and the server decides who may act:
- *   - "Send this" posts send-held-draft. That route on main takes no `expectedDraft`, so the view
- *     first re-reads the file and, when the held draft is no longer the one on screen, shows the new
- *     one and asks again instead of sending;
+ *   - "Send this" posts send-held-draft with the draft on screen as `expectedDraft`; when the desk
+ *     has replaced it since (409 HELD_DRAFT_CHANGED), the view re-reads the file, shows the new one
+ *     and asks again instead of sending;
  *   - "Send reply" posts answer with Ben's words, which go as typed with no guards run;
  *   - "Release hold only" posts release with the same words, for the file;
  *   - on a shut WhatsApp window, the template card previews GET template-offer (the template the send
@@ -26,6 +26,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/
 import { cn } from '@/lib/utils';
 import { CloseFileForm } from '@/components/comms-v2/CloseFileForm';
 import { refusalMessage } from '@/lib/handy-desk-queue';
+import { HELD_DRAFT_CHANGED } from '@shared/ops-types';
 import {
     channelLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, slotLabel, threadRows,
     type Refusal, type SentReply, type TemplateOffer, type ThreadRow,
@@ -372,34 +373,23 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
         setBusy('draft');
         setRefusal(null);
         setDraftNotice(null);
-        // The route on main does not check `expectedDraft`: read the file again, and send only the draft on screen.
-        let fresh: CaseFileDetail;
-        try {
-            fresh = await readFile(fileId);
-        } catch (e: any) {
-            setBusy(null);
-            setRefusal({ kind: 'other', lead: 'Not sent.', message: e?.message || 'Could not read the thread again' });
-            return;
-        }
-        queryClient.setQueryData(['comms-v2-case-file', fileId], fresh);
-        if (fresh.hold?.draft !== shown) {
-            setBusy(null);
-            if (!fresh.hold?.draft) { setDraftGone(true); setRefusal({ kind: 'no_draft', lead: 'Nothing to send.', message: 'there is no held draft to send' }); return; }
-            setDraftNotice('The held draft changed since you saw it. This is the draft as it stands now; press Send this again to send it.');
-            return;
-        }
-        setPending({ status: 'sending', bubbles: [shown], channel: fresh.replyChannel ?? replyChannel, turnId: null });
-        const result = await postTo(fileId, 'send-held-draft');
+        setPending({ status: 'sending', bubbles: [shown], channel: replyChannel, turnId: null });
+        const result = await postTo(fileId, 'send-held-draft', { expectedDraft: shown });
         setBusy(null);
         if (!result.ok) {
             setPending(null);
+            if (result.status === 409 && result.error === HELD_DRAFT_CHANGED) {
+                setDraftNotice('The held draft changed since you saw it. This is the draft as it stands now; press Send this again to send it.');
+                refetch();
+                return;
+            }
             const r = refusalOf('send_held_draft', result.status, result.error);
             if (r.kind === 'no_draft') { setDraftGone(true); refetch(); }
             setRefusal(r);
             return;
         }
         const sent: SentReply | undefined = result.data?.sent;
-        setPending({ status: 'sent', bubbles: sent?.bubbles?.length ? sent.bubbles : [shown], channel: fresh.replyChannel ?? replyChannel, turnId: sent?.turnId ?? null });
+        setPending({ status: 'sent', bubbles: sent?.bubbles?.length ? sent.bubbles : [shown], channel: replyChannel, turnId: sent?.turnId ?? null });
         refresh();
     };
 

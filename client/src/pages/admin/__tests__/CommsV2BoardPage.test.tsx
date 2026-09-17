@@ -134,7 +134,7 @@ describe('<CommsV2BoardPage>', () => {
 
         await user.click(within(sheet).getByRole('button', { name: 'Board' }));
         await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-        expect(screen.getByTestId('board-column-first_contact')).toBeTruthy();
+        expect(screen.getByTestId('board-card-case_held')).toBeTruthy();
     });
 
     it('a reply sent from the thread refreshes the board', async () => {
@@ -327,12 +327,12 @@ describe('<CommsV2BoardPage>', () => {
         expect(screen.getByTestId('board-column-first_contact')).toBeTruthy();
 
         await user.click(within(screen.getByTestId('docked-case-file-panel')).getByRole('button', { name: 'Close' }));
-        expect(screen.getByText(/Select a conversation/)).toBeTruthy();
+        expect(screen.getByText(/Select a card to open its thread/)).toBeTruthy();
 
         await user.click(screen.getByTestId('board-card-case_held'));
         await screen.findByText('Can you do it for less?');
         await user.keyboard('{Escape}');
-        await waitFor(() => expect(screen.getByText(/Select a conversation/)).toBeTruthy());
+        await waitFor(() => expect(screen.getByText(/Select a card to open its thread/)).toBeTruthy());
     });
 
     it('in production (the server reports the sandbox door cannot write here) hides every sandbox-only control and mode badge, and no visible text says "case file" or "sandbox"', async () => {
