@@ -3,19 +3,22 @@
  *
  * The ask agent chooses what to show (a thread, the floor, or words) and names the file; every
  * datum on the surface is read here, off the case file and the comms-v2 board, never taken from the
- * model. So a surface can show only what the desk holds, and the outgoing tiles and the confirm
- * footer appear only while a held draft actually stands on the file.
+ * model. So a surface can show only what the desk holds. The confirm footer appears only for a
+ * proposal the run saved (actions.ts), carrying its id, and the outgoing tiles are that proposal's
+ * preview, or a held draft this run wrote when nothing could be proposed for it.
  *
  * Sources: thread -> the case file's turns (desk/case-file.ts), with a call turn's summary from
  * api/board.ts `callViewOf`; floor -> api/board.ts `boardOf`, the same columns Ben's kanban shows.
  * The other four surface types in shared/ops-types.ts are not produced here yet.
  */
 import type {
-    AnswerSurface, CaseStage, ConfirmAction, OpsAnswer, OpsOutgoing, SurfaceBoardCard, SurfaceTurn,
+    AnswerSurface, CaseStage, OpsAnswer, OpsOutgoing, PlanStep, SurfaceBoardCard, SurfaceTurn,
 } from '@shared/ops-types';
 import { boardOf, callViewOf, replyChannelOf } from '../api/board';
 import type { ApproverAssignments } from '../api/approvers';
-import type { CaseFile, Party, Turn } from '../desk/case-file';
+import type { CaseFile, Party, SystemTurn, Turn } from '../desk/case-file';
+import { replyRouteOf } from '../desk/human-reply';
+import type { RunProposal } from './tools';
 
 /** Most recent turns a thread surface carries. */
 export const THREAD_TURN_CAP = 40;
@@ -67,14 +70,24 @@ export function surfaceTurnOf(file: CaseFile, turn: Turn): SurfaceTurn {
     };
 }
 
+/** A confirmed change that sent nothing (desk/case-file.ts `SystemTurn`), as a thread line. */
+export function surfaceSystemTurnOf(turn: SystemTurn): SurfaceTurn {
+    return { id: turn.id, at: turn.at, who: 'system', channel: 'system', kind: 'system', body: turn.body, approver: turn.approver };
+}
+
+/** The thread's turns and its system lines, in time order (a turn first on a tie), the newest `cap`. */
 export function threadSurface(file: CaseFile, cap = THREAD_TURN_CAP): Extract<AnswerSurface, { type: 'thread' }> {
+    const lines = [
+        ...file.turns.map((t, i) => ({ at: Date.parse(t.at), order: 0, i, turn: surfaceTurnOf(file, t) })),
+        ...(file.systemTurns ?? []).map((t, i) => ({ at: Date.parse(t.at), order: 1, i, turn: surfaceSystemTurnOf(t) })),
+    ].sort((a, b) => a.at - b.at || a.order - b.order || a.i - b.i);
     return {
         type: 'thread',
         caseFileId: file.id,
         phone: replyAddressOf(file),
         customerName: customerOf(file)?.name ?? null,
         stage: file.stage,
-        turns: file.turns.slice(-cap).map((t) => surfaceTurnOf(file, t)),
+        turns: lines.slice(-cap).map((l) => l.turn),
     };
 }
 
@@ -104,18 +117,24 @@ export function floorSurface(files: CaseFile[], assignments: ApproverAssignments
 
 const WIRE_CHANNEL = { whatsapp: 'wa', sms: 'sms', email: 'email' } as const;
 
-/** The held draft as the tile "what goes out when you confirm" shows it; empty when nothing is held with a draft. */
-export function outgoingOf(file: CaseFile): OpsOutgoing[] {
+/**
+ * The held draft as the tile "what goes out when you confirm" shows it, on the route the send takes
+ * (desk/human-reply.ts `replyRouteOf`); empty when nothing is held with a draft or no reply can be routed.
+ */
+export function outgoingOf(file: CaseFile, now: Date): OpsOutgoing[] {
     const draft = file.hold?.draft;
-    const channel = replyChannelOf(file);
-    if (!draft || !channel) return [];
-    return [{ to: replyAddressOf(file), channel: WIRE_CHANNEL[channel], text: draft }];
+    if (!draft) return [];
+    const route = replyRouteOf(file, now);
+    if (!route.ok) return [];
+    const to = route.party.channels.find((c) => c.kind === route.channel)?.address ?? route.party.canonical;
+    return [{ to, channel: WIRE_CHANNEL[route.channel], text: draft }];
 }
 
-/** The one confirm the ask agent proposes: send the held draft as it stands, through the board's human send path. */
-export function releaseConfirm(file: CaseFile): { label: string; action: ConfirmAction } | null {
-    if (!file.hold?.draft) return null;
-    return { label: 'Send as is', action: { kind: 'draft.release', args: { caseFileId: file.id } } };
+/** The confirm footer for a proposal: its id and kind; a held-draft send also names the file, for the surface built before proposals. */
+export function confirmOf(p: RunProposal): NonNullable<OpsAnswer['confirm']> {
+    return p.kind === 'draft.release' && p.caseFileId
+        ? { label: p.label, actionId: p.id, kind: p.kind, action: { kind: 'draft.release', args: { caseFileId: p.caseFileId } } }
+        : { label: p.label, actionId: p.id, kind: p.kind };
 }
 
 /** What the agent chose to show, before the data is read. */
@@ -129,16 +148,20 @@ export interface BuildAnswerInput {
     choice: SurfaceChoice;
     files: CaseFile[];
     assignments?: ApproverAssignments;
-    /** The files a draft was held on during this run, oldest first. Their drafts are the outgoing tiles. */
+    /** The files a draft was held on during this run, oldest first. */
     drafted?: string[];
+    /** The change this run proposed: its preview is the outgoing tiles and its id the confirm. */
+    proposal?: RunProposal | null;
+    plan?: PlanStep[];
     note?: string | null;
+    now?: Date;
 }
 
 /**
  * The OpsAnswer for a run. A thread naming a file the store does not hold falls back to words with
- * the reason on the note. Outgoing tiles are the held drafts on the files this run drafted on, read
- * back off the files; the confirm is offered only when exactly one such draft stands, so one press
- * sends one known message.
+ * the reason on the note. The confirm is the run's one proposal, so one press runs one known change;
+ * its preview is the outgoing tiles. With no proposal, a draft this run held still shows as a tile
+ * (with no confirm), read back off the file.
  */
 export function buildAnswer(input: BuildAnswerInput): OpsAnswer {
     const byId = new Map(input.files.map((f) => [f.id, f]));
@@ -159,12 +182,17 @@ export function buildAnswer(input: BuildAnswerInput): OpsAnswer {
     }
 
     const drafted = Array.from(new Set(input.drafted ?? [])).map((id) => byId.get(id)).filter((f): f is CaseFile => !!f && !!f.hold?.draft);
-    const outgoing = drafted.flatMap(outgoingOf);
-    const confirm = drafted.length === 1 ? releaseConfirm(drafted[0]) : null;
+    const proposal = input.proposal ?? null;
+    const now = input.now ?? new Date();
+    const tilesOf = (f: CaseFile) => outgoingOf(f, now);
+    const outgoing = proposal
+        ? [...proposal.outgoing, ...drafted.filter((f) => f.id !== proposal.caseFileId).flatMap(tilesOf)]
+        : drafted.flatMap(tilesOf);
 
     const answer: OpsAnswer = { finalText: input.finalText.trim() || 'Done.', surface };
     if (outgoing.length) answer.outgoing = outgoing;
-    if (confirm) answer.confirm = confirm;
+    if (proposal) answer.confirm = confirmOf(proposal);
+    if (input.plan?.length) answer.plan = input.plan;
     if (notes.length) answer.note = notes.join(' ');
     return answer;
 }

@@ -4951,3 +4951,29 @@ export const commsV2AskMessages = pgTable("comms_v2_ask_messages", {
     index("idx_comms_v2_ask_messages_session").on(table.sessionId, table.createdAt),
 ]);
 export type CommsV2AskMessageRow = typeof commsV2AskMessages.$inferSelect;
+
+// The ask agent's proposals (server/comms-v2/ask/actions.ts, migrations/20260918_comms_v2_ask_actions.sql).
+export const commsV2AskActions = pgTable("comms_v2_ask_actions", {
+    id: text("id").primaryKey().notNull(),
+    sessionId: text("session_id").notNull().references(() => commsV2AskSessions.id),
+    messageId: text("message_id"),
+    askRunId: text("ask_run_id"),
+    kind: text("kind").notNull(),
+    caseFileId: text("case_file_id"),
+    args: jsonb("args").notNull(),
+    previewText: text("preview_text").notNull(),
+    previewHash: text("preview_hash").notNull(),
+    proposedBy: text("proposed_by").notNull(),
+    proposedAt: timestamp("proposed_at", { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    confirmedBy: text("confirmed_by"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    runId: text("run_id"),
+    result: jsonb("result"),
+    status: text("status").notNull().default('proposed'),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+    index("idx_comms_v2_ask_actions_session").on(table.sessionId, table.proposedAt),
+    index("idx_comms_v2_ask_actions_ask_run").on(table.askRunId),
+]);
+export type CommsV2AskActionRow = typeof commsV2AskActions.$inferSelect;

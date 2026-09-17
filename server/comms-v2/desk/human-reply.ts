@@ -1,7 +1,7 @@
 /**
  * A person's reply from Ben's board, through the desk's one sender (Contract 5, behaviour.md
  * answers 29 and 43): Ben writes to the customer in his own words, the desk never rewrites them,
- * and they go out as a human-authored send with Ben as approver and a fresh run id. The approver is
+ * and they go out as a human-authored send with Ben as approver and a fresh run id (or the ask confirm's own). The approver is
  * the signed-in person, `human:<their email or user id>` as server/approver.ts defines it, so a
  * slot two people share still records which of them wrote the words. The send lands on the file as
  * Ben's turn (an outbound turn carrying that approver), any hold clears with Ben's words as the
@@ -53,6 +53,8 @@ export interface HumanReplyInput {
      * SMS punctuation), and only as typed words are when that is all that fits.
      */
     deskDraft?: boolean;
+    /** The run id the send goes out under; a fresh one when absent. The ask agent's confirm passes its own, so the action and the send carry one id and one run id sends once. */
+    runId?: string;
 }
 
 /** What went, for the board to show back: not a desk turn, so it carries no guards and no route. */
@@ -98,6 +100,12 @@ export function replyRouteOf(file: CaseFile, now: Date): ReplyRoute {
     return { ok: true, party, turn, channel: choice.channel, window: windowOf(party, choice.channel, now) };
 }
 
+/** The refusal a freeform reply meets on this channel's window, or null while it is open. */
+export function shutWindowRefusal(channel: ReplyChannel, window: WindowState): string | null {
+    if (window.state !== 'shut') return null;
+    return `the ${channel} window is shut (${window.reason}); a shut window never carries freeform words, so this reply cannot go until the customer writes again`;
+}
+
 /**
  * Ben's reply to the customer, through the one sender. Refuses: no words; a rule-based approver;
  * a slot that is not the one this file answers to, its hold's approver when one stands and
@@ -107,7 +115,7 @@ export function replyRouteOf(file: CaseFile, now: Date): ReplyRoute {
  */
 export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}): Promise<HumanReplyOutcome> {
     const now = deps.now ?? (() => new Date());
-    const runId = `run_${randomUUID()}`;
+    const runId = input.runId?.trim() || `run_${randomUUID()}`;
     const { file, approver } = input;
     const words = input.words.replace(/\r\n/g, '\n').trim();
     const fileDeps: CaseFileDeps = { now, newId: deps.newId };
@@ -133,9 +141,10 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
             ? `the reply comes to ${over.measured} segments, over the ${over.ceiling} one text message may use; about ${over.charBudget} characters fit, and one curly quote or dash halves that, so plain punctuation buys room`
             : `the reply renders to ${over.measured} bubbles, over the ceiling of ${over.ceiling}; shorten it or use fewer blank lines`);
     }
-    if (window.state === 'shut') return refuse(`the ${channel} window is shut (${window.reason}); a shut window never carries freeform words, so this reply cannot go until the customer writes again`);
+    const shut = shutWindowRefusal(channel, window);
+    if (shut) return refuse(shut);
 
-    // The one sender, with Ben as approver and a fresh run id. No guards: a person's own words are his (answer 43).
+    // The one sender, with Ben as approver and the run id above. No guards: a person's own words are his (answer 43).
     const sent = await send({ file, partyId: party.personId, channel: channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
     if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
 

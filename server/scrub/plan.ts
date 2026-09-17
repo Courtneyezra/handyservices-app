@@ -340,6 +340,33 @@ const OVERRIDES: Record<string, Treatment> = {
     'comms_v2_ask_messages.query': 'note',
     'comms_v2_ask_messages.call_summary': 'narrative',
     'comms_v2_ask_messages.approver': 'actor',
+    'comms_v2_ask_messages.label': 'note',               // a plan step or confirm label, which can name a customer
+    'comms_v2_ask_messages.guard_note': 'note',
+
+    // --- the ask agent's proposals (server/comms-v2/ask/actions.ts). `kind` and `status` are
+    //     enumerations and `preview_hash` a sha256; the ids are kept by the id rule. The preview is
+    //     the exact message or change Ben reads, so it is a body. `proposed_by` and `confirmed_by`
+    //     are the signed-in person (`human:<email or user id>` once confirmed). `args` and `result`
+    //     hold what the change names and did: a case file id, a message's words, where it went,
+    //     a refusal's reason. Their leaves are classified by key through the entries below.
+    'comms_v2_ask_actions.kind': 'keep',
+    'comms_v2_ask_actions.status': 'keep',
+    'comms_v2_ask_actions.preview_hash': 'keep',
+    'comms_v2_ask_actions.preview_text': 'message_body',
+    'comms_v2_ask_actions.proposed_by': 'actor',
+    'comms_v2_ask_actions.confirmed_by': 'actor',
+    'comms_v2_ask_actions.args': 'json_deep',
+    'comms_v2_ask_actions.result': 'json_deep',
+    'comms_v2_ask_actions.text': 'message_body',         // a message's words, or a bubble that went (bubbles are `{ text }`)
+    'comms_v2_ask_actions.words': 'note',
+    'comms_v2_ask_actions.reason': 'note',               // a refusal, which can quote the file
+    'comms_v2_ask_actions.audit': 'note',                // the system turn written on the case file
+    'comms_v2_ask_actions.to': 'contact',
+    'comms_v2_ask_actions.address': 'contact',
+    'comms_v2_ask_actions.name': 'person_name',
+    'comms_v2_ask_actions.approver': 'actor',
+    // A case file's system turn for a confirmed change (desk/case-file.ts `SystemTurn`): `body` is
+    // a body by the rule, and `action_id` and `run_id` are kept by the id rule.
 
     // --- names the rules would miss
     'tenants.name': 'person_name',

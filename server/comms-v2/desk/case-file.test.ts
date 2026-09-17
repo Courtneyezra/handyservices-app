@@ -4,6 +4,7 @@
  * has a named approver; two parties never share a channel address; turns are append only.
  */
 import { describe, expect, it } from 'vitest';
+import { customerTurnUnanswered, lastTurn, recordSystemTurn } from './case-file';
 import {
     addParty, answered, appendTurn, ask, hold, invariantViolations, isReady, open, recordFact, recordSend, release, setStage, stageMoveAllowed, thanked, thanked as thank, type CaseFile, type ResolveOk,
 } from './case-file-test-helpers';
@@ -40,6 +41,25 @@ describe('turns', () => {
         expect(appendTurn(f, { at: '2026-09-11T10:01:00.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: null, approver: null }).ok).toBe(false);
         expect(appendTurn(f, { at: '2026-09-11T10:01:00.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: 'run_1', approver: 'agent.comms_v2' }).ok).toBe(true);
         expect(f.turns).toHaveLength(2);
+    });
+});
+
+describe('system turns', () => {
+    it('records a confirmed change that sent nothing, once per action, apart from the thread\'s turns', () => {
+        const f = opened();
+        const at = () => new Date('2026-09-11T11:00:00.000Z');
+        const r = recordSystemTurn(f, { body: ' Booking moved ', approver: 'human:ben@x.test', actionId: 'act_1', runId: 'run_1' }, { now: at, newId: () => 'sys_1' });
+        expect(r).toEqual({ ok: true, value: { id: 'sys_1', at: '2026-09-11T11:00:00.000Z', kind: 'system', body: 'Booking moved', approver: 'human:ben@x.test', actionId: 'act_1', runId: 'run_1' } });
+        expect(recordSystemTurn(f, { body: 'again', approver: 'human:ben@x.test', actionId: 'act_1', runId: 'run_2' })).toEqual({ ok: false, reason: 'action act_1 is already recorded' });
+        expect(recordSystemTurn(f, { body: ' ', approver: 'human:ben@x.test', actionId: 'act_2', runId: 'run_2' }).ok).toBe(false);
+        expect(recordSystemTurn(f, { body: 'x', approver: '', actionId: 'act_2', runId: 'run_2' }).ok).toBe(false);
+        expect(recordSystemTurn(f, { body: 'x', approver: 'human:ben@x.test', actionId: '', runId: 'run_2' }).ok).toBe(false);
+        expect(f.systemTurns).toHaveLength(1);
+        // The customer's message is still the newest turn, still unanswered.
+        expect(f.turns).toHaveLength(1);
+        expect(lastTurn(f)?.direction).toBe('inbound');
+        expect(customerTurnUnanswered(f, 'p1')).toBe(true);
+        expect(invariantViolations(f)).toEqual([]);
     });
 });
 

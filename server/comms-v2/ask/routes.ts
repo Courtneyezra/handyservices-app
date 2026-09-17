@@ -8,6 +8,12 @@
  * GET  /sessions/:id              - { session, messages } (messages oldest first, AskMessageDTO)
  * POST /sessions/:id/archive
  * POST /sessions/:id/messages {text, via?, context?} -> 202 { runId }
+ * GET  /actions/:id                - one of the person's proposals (AskActionDTO)
+ * POST /actions/:id/confirm        - run it (actions.ts `confirmAction`): 200 { action, repeat, continuedRunId },
+ *                                    or 403 (no slot, or not the slot the file answers to), 404 (not one
+ *                                    of this person's), 409 (refused, cancelled, already running),
+ *                                    410 (expired), each with { error, action }
+ * POST /actions/:id/cancel         - it will never run: 200 { action, repeat }
  *
  * A message starts a run and returns at once; the run streams over the comms event bus
  * (server/comms-events.ts, GET /api/comms/events) with the ops_* events of shared/ops-types.ts:
@@ -15,9 +21,13 @@
  * `answer: OpsAnswer`) -> ops_run_finished, which always fires. The bus reaches every admin
  * listener; clients filter by sessionId. One run per session at a time.
  *
- * A session belongs to the person who opened it: another person's session is a 404. There is no
- * send route here. The agent's one write is a draft on a case file's hold, sent by a person
- * through POST /api/comms-v2/case-files/:id/send-held-draft.
+ * A session belongs to the person who opened it: another person's session, and its proposals, are
+ * a 404. The agent writes nothing a customer sees: a draft on a case file's hold, and proposals.
+ * A proposal runs only on its confirm here, as the signed-in person (`human:<email or user id>`)
+ * with the approver slot their session occupies, both read from the session, never the body; the
+ * body is ignored. A confirm or cancel moves the plan strip on the answer that offered it and
+ * re-emits that message; a confirmed step with steps after it starts the next run of the chain
+ * (via `tap`), so the next step is proposed on a fresh read.
  */
 import { Router, type Request } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -26,20 +36,30 @@ import { readApproverAssignments, slotOf, type ReadApproverAssignments } from '.
 import type { BoardSource } from '../api/store';
 import { runAskTurn, type AskTurnDeps, type RunAskTurnOptions, type RunAskTurnResult } from './agent';
 import { databaseAskSessionStore, dayTitle, londonDay, type AskSessionStore } from './sessions';
+import { actionDTO, cancelAction, confirmAction, databaseAskActionStore, type AskAction, type AskActionStore, type SettleCode, type SettleOutcome } from './actions';
+import type { ActionKinds } from './action-kinds';
+import { planAfter, remainingAfter } from './plan';
 
 export interface AskRouterDeps {
     source: () => Promise<BoardSource>;
     approvers?: ReadApproverAssignments;
     sessions?: AskSessionStore;
+    actions?: AskActionStore;
+    kinds?: ActionKinds;
     /** The turn itself; tests pass a scripted one. */
     runTurn?: (opts: RunAskTurnOptions, deps: AskTurnDeps) => Promise<RunAskTurnResult>;
     turnDeps?: Partial<AskTurnDeps>;
     emit?: (evt: import('../../comms-events').CommsEvent) => void;
+    /** The clock for session days and titles. */
     now?: () => Date;
+    /** The clock proposals are made, expired and confirmed on; the wall clock by default. */
+    actionClock?: () => Date;
 }
 
 const VIAS: readonly AskVia[] = ['typed', 'voice', 'tap'];
 const MAX_ASK_CHARS = 2000;
+
+const SETTLE_STATUS: Record<SettleCode, number> = { not_found: 404, no_slot: 403, wrong_slot: 403, expired: 410, closed: 409, in_progress: 409, refused: 409 };
 
 function personOf(req: Request): string | null {
     const user = (req as any).user;
@@ -64,6 +84,8 @@ const defaultEmit: NonNullable<AskRouterDeps['emit']> = (evt) => {
 export function createAskRouter(deps: AskRouterDeps): Router {
     const router = Router();
     const sessions = deps.sessions ?? databaseAskSessionStore;
+    const actions = deps.actions ?? databaseAskActionStore;
+    const actionClock = deps.actionClock ?? (() => new Date());
     const approvers = deps.approvers ?? readApproverAssignments;
     const runTurn = deps.runTurn ?? runAskTurn;
     const now = deps.now ?? (() => new Date());
@@ -156,11 +178,21 @@ export function createAskRouter(deps: AskRouterDeps): Router {
         }
         if (!found) { res.status(404).json({ error: 'not_found' }); return; }
         if (found.session.status === 'archived') { res.status(409).json({ error: 'session_archived' }); return; }
-        // Set before any await below, so a second request on this tick is refused.
-        if (activeRuns.has(sessionId)) { res.status(409).json({ error: 'run_active', runId: activeRuns.get(sessionId) }); return; }
+        const started = startRun({ req, sessionId, person, content, via, context, prior: found.messages });
+        if ('busy' in started) { res.status(409).json({ error: 'run_active', runId: started.busy }); return; }
+        res.status(202).json({ runId: started.runId });
+    });
+
+    /**
+     * Starts a run on the session and returns at once, or names the run already going. The lock is
+     * taken before any await, so a second request on this tick is refused.
+     */
+    function startRun(input: { req: Request; sessionId: string; person: string; content: string; via: AskVia; context: AskContext | null; prior: AskMessageDTO[] }): { runId: string } | { busy: string } {
+        const { req, sessionId, person, content, via, context } = input;
+        const busy = activeRuns.get(sessionId);
+        if (busy) return { busy };
         const runId = `ask_${randomUUID()}`;
         activeRuns.set(sessionId, runId);
-        res.status(202).json({ runId });
 
         const stamp = () => now().toISOString();
         void (async () => {
@@ -168,15 +200,15 @@ export function createAskRouter(deps: AskRouterDeps): Router {
             try {
                 const ask = await sessions.append({ sessionId, role: 'user', content, via, context });
                 emit({ type: 'ops_message', sessionId, message: ask, at: stamp() });
-                const history = [...found.messages, ask].map((m) => ({ role: m.role, content: m.content }));
+                const history = [...input.prior, ask].map((m) => ({ role: m.role, content: m.content }));
                 emit({ type: 'ops_run_started', sessionId, runId, at: stamp() });
 
                 const assignments = await approvers();
                 const result = await runTurn({
-                    sessionId, userMessage: content, via, context, history, person,
+                    sessionId, userMessage: content, via, context, history, person, askRunId: runId,
                     approver: slotOf((req as any).user, assignments),
                     onEvent: (step: LeanRunStep) => emit({ type: 'ops_run_event', sessionId, runId, step, at: stamp() }),
-                }, { source: deps.source, assignments: async () => assignments, ...deps.turnDeps });
+                }, { source: deps.source, assignments: async () => assignments, actions, kinds: deps.kinds, now: actionClock, ...deps.turnDeps });
 
                 const reply: AskMessageDTO = await sessions.append({
                     sessionId, role: 'assistant', content: result.answer.finalText, runId,
@@ -184,6 +216,10 @@ export function createAskRouter(deps: AskRouterDeps): Router {
                 });
                 emit({ type: 'ops_message', sessionId, message: reply, at: stamp() });
                 ok = true;
+                if (result.answer.confirm) {
+                    // Without the message named, a confirm still runs; only the plan strip would not move.
+                    await actions.attachMessage(runId, reply.id).catch((error) => console.error(`[AskAgent] could not name message ${reply.id} on run ${runId}'s proposals:`, error));
+                }
                 await sessions.touch(sessionId).catch((error) => console.error(`[AskAgent] touch session ${sessionId} failed after run ${runId}:`, error));
             } catch (error: any) {
                 console.error(`[AskAgent] run ${runId} failed for session ${sessionId}:`, error);
@@ -199,7 +235,72 @@ export function createAskRouter(deps: AskRouterDeps): Router {
                 emit({ type: 'ops_run_finished', sessionId, runId, ok, at: stamp() });
             }
         })();
+        return { runId };
+    }
+
+    /** Moves the plan strip on the answer that offered the proposal, and re-emits that message. Returns the plan as it now stands. */
+    async function movePlan(action: AskAction) {
+        if (!action.messageId) return null;
+        const message = await sessions.message(action.messageId);
+        const plan = message?.answer?.plan;
+        if (!message?.answer || !plan) return null;
+        const next = planAfter(plan, action);
+        if (JSON.stringify(next) === JSON.stringify(plan)) return next;
+        const updated = await sessions.setAnswer(message.id, { ...message.answer, plan: next });
+        if (updated) emit({ type: 'ops_message', sessionId: action.sessionId, message: updated, at: now().toISOString() });
+        return next;
+    }
+
+    const settle = (run: typeof confirmAction, what: string) => async (req: Request, res: import('express').Response) => {
+        const person = personOf(req)!;
+        try {
+            const assignments = await approvers();
+            const out: SettleOutcome = await run({
+                id: req.params.id,
+                person,
+                approver: slotOf((req as any).user, assignments),
+                ownsSession: async (sessionId) => (await sessions.get(sessionId))?.session.createdBy === person,
+            }, { store: actions, source: deps.source, kinds: deps.kinds, now: actionClock });
+            let continuedRunId: string | null = null;
+            if (out.action && !(out.ok && out.repeat)) {
+                const plan = await movePlan(out.action).catch((error) => {
+                    console.error(`[AskAgent] could not move the plan for ${out.action?.id}:`, error);
+                    return null;
+                });
+                const remaining = plan && out.ok && out.action.status === 'executed' ? remainingAfter(plan, out.action.id) : [];
+                if (remaining.length) continuedRunId = await continueChain(req, out.action, remaining.map((s) => s.label));
+            }
+            if (out.ok) { res.json({ ok: true, repeat: out.repeat, action: actionDTO(out.action), continuedRunId }); return; }
+            res.status(SETTLE_STATUS[out.code]).json({ error: out.reason, action: out.action ? actionDTO(out.action) : null });
+        } catch (error: any) {
+            console.error(`[AskAgent] ${what} ${req.params.id} failed:`, error);
+            res.status(500).json({ error: error?.message ?? `${what}_failed` });
+        }
+    };
+
+    /** The next run of a chain, after a confirmed step: the plan's remaining steps, asked as a tap. */
+    async function continueChain(req: Request, action: AskAction, remaining: string[]): Promise<string | null> {
+        const found = await sessions.get(action.sessionId);
+        if (!found || found.session.status === 'archived') return null;
+        const content = `Carry on with the plan: ${remaining.join(' · ')}`.slice(0, MAX_ASK_CHARS);
+        const context: AskContext | null = action.caseFileId ? { caseFileId: action.caseFileId, phone: null } : null;
+        const started = startRun({ req, sessionId: action.sessionId, person: personOf(req)!, content, via: 'tap', context, prior: found.messages });
+        return 'runId' in started ? started.runId : null;
+    }
+
+    router.get('/actions/:id', async (req, res) => {
+        try {
+            const person = personOf(req)!;
+            const action = await actions.get(req.params.id);
+            if (!action || (await sessions.get(action.sessionId))?.session.createdBy !== person) { res.status(404).json({ error: 'no such proposal' }); return; }
+            res.json(actionDTO(action));
+        } catch (error: any) {
+            console.error('[AskAgent] read proposal failed:', error);
+            res.status(500).json({ error: error?.message ?? 'read_failed' });
+        }
     });
+    router.post('/actions/:id/confirm', settle(confirmAction, 'confirm'));
+    router.post('/actions/:id/cancel', settle(cancelAction, 'cancel'));
 
     return router;
 }

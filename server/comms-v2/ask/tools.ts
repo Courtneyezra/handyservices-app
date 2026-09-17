@@ -10,8 +10,17 @@
  * (hold-draft.ts), then puts the file back to that store. It never sends, and it is refused to a
  * session that holds no approver slot, as every write on the board is.
  *
- * `give_answer` records what the answer surface shows; surface.ts reads the data for it.
+ * Every change beyond that is a proposal (actions.ts), made through `proposeInRun`: the tool saves
+ * it and Ben confirms it on the answer. One new proposal per run, so each change is confirmed on its
+ * own and the next step is proposed after it, reading what it changed; the first refusal stops the
+ * run's chain. There is no cap on how many steps a chain takes across runs (answer A5).
+ * `propose_send_held_draft` is this group's one proposal.
+ *
+ * `give_answer` records what the answer surface shows and the plan strip's steps; surface.ts and
+ * plan.ts read the data for them. The tools are offered by group (tool-groups.ts); these are the
+ * `messages` group and the answer.
  */
+import type { ConfirmKind } from '@shared/ops-types';
 import type { AgentTool } from '../../agents/runner';
 import type { ApproverSlot, CaseFile, ModelCallRecord } from '../desk/case-file';
 import type { ModelClient } from '../desk/models';
@@ -21,6 +30,9 @@ import type { BoardSource } from '../api/store';
 import { composeDraft } from './composer';
 import { holdDraft } from './hold-draft';
 import { fileAnswersTo, type SurfaceChoice } from './surface';
+import { proposeAction, type AskActionStore } from './actions';
+import type { ActionKinds } from './action-kinds';
+import { cleanSteps, type PlannedStep } from './plan';
 
 export const BOARD_CARD_CAP = 60;
 export const FIND_CAP = 10;
@@ -31,7 +43,9 @@ const COMPOSE_ATTEMPTS = 2;
 
 export const ASK_READ_TOOLS = ['get_board', 'find_case_files', 'get_case_file'] as const;
 export const ASK_WRITE_TOOLS = ['draft_reply'] as const;
-export const ASK_TOOL_NAMES = [...ASK_READ_TOOLS, ...ASK_WRITE_TOOLS, 'give_answer'] as const;
+export const ASK_PROPOSAL_TOOLS = ['propose_send_held_draft'] as const;
+/** The `messages` group, then the answer. */
+export const ASK_TOOL_NAMES = [...ASK_READ_TOOLS, ...ASK_WRITE_TOOLS, ...ASK_PROPOSAL_TOOLS, 'give_answer'] as const;
 
 export interface AskToolDeps {
     /** The store this run reads and drafts on. */
@@ -43,12 +57,29 @@ export interface AskToolDeps {
     person: string;
     client: ModelClient;
     now?: () => Date;
+    /** Where proposals are saved; without one, the run proposes nothing. */
+    actions?: AskActionStore;
+    kinds?: ActionKinds;
+    sessionId?: string;
+    /** The ask run the proposals belong to. */
+    askRunId?: string | null;
 }
 
 export interface GiveAnswerInput {
     finalText: string;
     surface: SurfaceChoice;
     note: string | null;
+    /** The plan strip's steps as the reasoner sees them; empty when it named none. */
+    plan: PlannedStep[];
+}
+
+/** A proposal this run made, as its answer offers it. */
+export interface RunProposal {
+    id: string;
+    kind: ConfirmKind;
+    caseFileId: string | null;
+    label: string;
+    outgoing: import('@shared/ops-types').OpsOutgoing[];
 }
 
 /** What the tools learned during one run, for the answer. */
@@ -56,10 +87,39 @@ export interface AskRunState {
     drafted: string[];
     answer: GiveAnswerInput | null;
     calls: ModelCallRecord[];
+    /** The one change this run proposed (at most one: the next is proposed after Ben confirms it). */
+    proposal: RunProposal | null;
+    /** The refusal that stopped this run's chain, verbatim. */
+    refusal: string | null;
 }
 
 export function newRunState(): AskRunState {
-    return { drafted: [], answer: null, calls: [] };
+    return { drafted: [], answer: null, calls: [], proposal: null, refusal: null };
+}
+
+export type ProposeInRunResult =
+    | { status: 'proposed'; actionId: string; kind: ConfirmKind; preview: string; expiresAt: string; note: string }
+    | { status: 'refused'; reason: string };
+
+/**
+ * The one way an ask tool proposes a change. Refused once this run has proposed one (the next step
+ * is proposed after Ben confirms it) or once a proposal has been refused (the chain stops there).
+ * A refusal from the proposal store stops the chain too.
+ */
+export async function proposeInRun(deps: AskToolDeps, state: AskRunState, kind: ConfirmKind, args: unknown): Promise<ProposeInRunResult> {
+    if (state.refusal) return { status: 'refused', reason: `the plan stopped at a refusal (${state.refusal}); tell Ben and propose nothing more` };
+    if (state.proposal) return { status: 'refused', reason: `one change at a time: ${state.proposal.kind} is waiting for Ben's confirm, and the next step is proposed after it` };
+    if (!deps.actions || !deps.sessionId) return { status: 'refused', reason: 'this run cannot propose changes' };
+    const out = await proposeAction(
+        { kind, args, sessionId: deps.sessionId, askRunId: deps.askRunId ?? null, person: deps.person, approver: deps.approver },
+        { store: deps.actions, source: deps.source, kinds: deps.kinds, now: deps.now },
+    );
+    if (!out.ok) {
+        state.refusal = out.reason;
+        return { status: 'refused', reason: out.reason };
+    }
+    state.proposal = { id: out.action.id, kind, caseFileId: out.action.caseFileId, label: out.label, outgoing: out.outgoing };
+    return { status: 'proposed', actionId: out.action.id, kind, preview: out.action.previewText, expiresAt: out.action.expiresAt, note: 'Nothing has run. Ben confirms it on your answer; stop here and answer.' };
 }
 
 const clip = (s: string | null | undefined, n = TEXT_CAP): string | null => (s == null ? null : s.length > n ? `${s.slice(0, n)}...` : s);
@@ -104,13 +164,18 @@ function str(v: unknown): string {
     return typeof v === 'string' ? v : '';
 }
 
+/** Every tool this file holds: the `messages` group and the answer. */
 export function askTools(deps: AskToolDeps, state: AskRunState): AgentTool[] {
-    const now = deps.now ?? (() => new Date());
-    const fileOr = async (id: string): Promise<{ src: BoardSource; file: CaseFile | null }> => {
-        const src = await deps.source();
-        return { src, file: id ? src.store.get(id) : null };
-    };
+    return [...messageTools(deps, state), answerTool(state)];
+}
 
+async function fileOf(deps: AskToolDeps, id: string): Promise<{ src: BoardSource; file: CaseFile | null }> {
+    const src = await deps.source();
+    return { src, file: id ? src.store.get(id) : null };
+}
+
+/** The board and case-file reads, offered in every run whatever the route names: they only read. */
+export function caseFileReads(deps: AskToolDeps): AgentTool[] {
     return [
         {
             name: 'get_board',
@@ -164,7 +229,7 @@ export function askTools(deps: AskToolDeps, state: AskRunState): AgentTool[] {
                 required: ['caseFileId'],
             },
             run: async (input: { caseFileId?: string }) => {
-                const { file } = await fileOr(str(input?.caseFileId));
+                const { file } = await fileOf(deps, str(input?.caseFileId));
                 if (!file) return { error: 'no such case file' };
                 const d = detailOf(file, deps.assignments);
                 return {
@@ -189,6 +254,16 @@ export function askTools(deps: AskToolDeps, state: AskRunState): AgentTool[] {
                 };
             },
         },
+    ];
+}
+
+/** The `messages` group: the board and case-file reads, the held draft, and its send as a proposal. */
+export function messageTools(deps: AskToolDeps, state: AskRunState): AgentTool[] {
+    const now = deps.now ?? (() => new Date());
+    const fileOr = (id: string) => fileOf(deps, id);
+
+    return [
+        ...caseFileReads(deps),
         {
             name: 'draft_reply',
             description: 'Draft a reply to the customer on one case file and hold it for Ben to send. It never sends: Ben reads the draft on the file and sends it himself. Give a brief of what the reply should say; the words are written for you and checked. A draft may not carry a price, a date or time, a commitment, a claim about the business, or a repeated ask; a refusal says which, and a second attempt with a different brief is fine. Refused when the file already holds a draft.',
@@ -231,31 +306,50 @@ export function askTools(deps: AskToolDeps, state: AskRunState): AgentTool[] {
             },
         },
         {
-            name: 'give_answer',
-            description: 'Your answer to Ben, and what his answer surface shows. Call it exactly once, last, before your closing line. surface "thread" shows one case file\'s conversation (give caseFileId); "floor" shows the whole board; "words" shows only your reply. A draft you held this turn is shown with a send button automatically.',
+            name: 'propose_send_held_draft',
+            description: 'Propose sending the reply held on one case file exactly as it stands. It does not send: Ben reads the preview on your answer and confirms or cancels it. Use it when Ben asks to send a held draft; a draft you held this turn is proposed for you. Refused when the file holds no draft, when another send of it is waiting, or after this turn already proposed a change.',
             input_schema: {
                 type: 'object',
-                properties: {
-                    finalText: { type: 'string', description: 'The reply line: one to three short sentences, what you found or did.' },
-                    surface: { type: 'string', enum: ['thread', 'floor', 'words'] },
-                    caseFileId: { type: 'string', description: 'Required for surface "thread".' },
-                    note: { type: 'string', description: 'Optional footer: anything Ben must know before he confirms, such as a shut window.' },
-                },
-                required: ['finalText', 'surface'],
+                properties: { caseFileId: { type: 'string' } },
+                required: ['caseFileId'],
             },
-            run: async (input: { finalText?: string; surface?: string; caseFileId?: string; note?: string }) => {
-                const finalText = str(input?.finalText).trim();
-                if (!finalText) return { ok: false, error: 'finalText is required' };
-                let surface: SurfaceChoice;
-                if (input?.surface === 'thread') {
-                    const id = str(input.caseFileId).trim();
-                    if (!id) return { ok: false, error: 'a thread surface needs caseFileId' };
-                    surface = { type: 'thread', caseFileId: id };
-                } else if (input?.surface === 'floor') surface = { type: 'floor' };
-                else surface = { type: 'words' };
-                state.answer = { finalText, surface, note: str(input?.note).trim() || null };
-                return { ok: true };
-            },
+            run: async (input: { caseFileId?: string }) => proposeInRun(deps, state, 'draft.release', { caseFileId: str(input?.caseFileId) }),
         },
     ];
+}
+
+/** `give_answer`: offered in every run, whichever groups are. */
+export function answerTool(state: AskRunState): AgentTool {
+    return {
+        name: 'give_answer',
+        description: 'Your answer to Ben, and what his answer surface shows. Call it exactly once, last, before your closing line. surface "thread" shows one case file\'s conversation (give caseFileId); "floor" shows the whole board; "words" shows only your reply. A change you proposed this turn is shown with its preview and a confirm button automatically. For an ask with more than one step, give plan: every step of what Ben asked, in order, with done true for the ones finished. A multi-step ask that proposes a change must give plan, or no plan strip is shown.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                finalText: { type: 'string', description: 'The reply line: one to three short sentences, what you found or did.' },
+                surface: { type: 'string', enum: ['thread', 'floor', 'words'] },
+                caseFileId: { type: 'string', description: 'Required for surface "thread".' },
+                note: { type: 'string', description: 'Optional footer: anything Ben must know before he confirms, such as a shut window.' },
+                plan: {
+                    type: 'array',
+                    description: 'The steps of a multi-step ask, in order, each a few words ("Find Marcus", "Move to Tue 23", "Tell Marcus"). Leave out for a one-step ask.',
+                    items: { type: 'object', properties: { label: { type: 'string' }, done: { type: 'boolean' } }, required: ['label', 'done'] },
+                },
+            },
+            required: ['finalText', 'surface'],
+        },
+        run: async (input: { finalText?: string; surface?: string; caseFileId?: string; note?: string; plan?: unknown }) => {
+            const finalText = str(input?.finalText).trim();
+            if (!finalText) return { ok: false, error: 'finalText is required' };
+            let surface: SurfaceChoice;
+            if (input?.surface === 'thread') {
+                const id = str(input.caseFileId).trim();
+                if (!id) return { ok: false, error: 'a thread surface needs caseFileId' };
+                surface = { type: 'thread', caseFileId: id };
+            } else if (input?.surface === 'floor') surface = { type: 'floor' };
+            else surface = { type: 'words' };
+            state.answer = { finalText, surface, note: str(input?.note).trim() || null, plan: cleanSteps(input?.plan) };
+            return { ok: true };
+        },
+    };
 }
