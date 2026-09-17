@@ -26,7 +26,7 @@ import { emptyKb } from '../desk/scoping-tools';
 import { noTemplateApproved } from '../desk/sender';
 import type { InboundTurn } from '../desk/whatsapp-adapter';
 import { asksAboutInvoice, databaseCustomerRecords, invoiceLinesOf, invoiceMoneyQuestion, MemoryCustomerRecords, recordItems, type CustomerRecord, type RecordInvoice } from './customer-record';
-import { serve } from './service-specialist';
+import { ASKED_LABEL_MAX, askedLabel, serve } from './service-specialist';
 
 const PHONE = 'phone:07700900942' as const;
 const invoice = (over: Partial<RecordInvoice> = {}): RecordInvoice => ({
@@ -266,6 +266,21 @@ describe('the Service specialist reads the record', () => {
         expect(out.brief.join('\n')).toMatch(/balance due "£80\.00" \(fact fact_/);
         expect(out.brief.join('\n')).toMatch(/never add them up/);
         expect(out.note).toContain('record invoice:INV-2026-014');
+    });
+    it('a label the model wrote longer than a label still answers the invoice question, clipped in the brief and the note', async () => {
+        // 17 Sep 2026, driven live on the sandbox door: the model echoed the whole question back as
+        // `asked`, the answer did not fit the schema, and a known customer asking what was left to
+        // pay was held for Ben every time with a holding line instead of the row's own figure.
+        const question = 'Hi, quick one about the invoice you sent me for the two doors - have I paid it all off or is there still something outstanding?';
+        const file = knownFile(question);
+        const client = new FakeModelClient({ specialist: () => serviceOut({ answers: [{ asked: question, source: 'history', id: 'invoice:INV-2026-014' }] }) });
+        const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb, records: records(), now }, { routed: true, scopingRan: false, invoiceMoney: true });
+        expect(out.proposal.hold).toBeNull();
+        expect(file.facts.find((f) => f.key === 'record:invoice:INV-2026-014:balance_due')?.value).toBe('£80.00');
+        const label = askedLabel(question);
+        expect(label).toHaveLength(ASKED_LABEL_MAX);
+        expect(out.brief.join('\n')).toContain(`They asked "${label}"`);
+        expect(out.note).toContain(`record invoice:INV-2026-014 for "${label}"`);
     });
     it('a ref the record did not return is no source; a money question no invoice answered holds as money', async () => {
         const file = knownFile('How much do I owe you?');

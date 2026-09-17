@@ -17,7 +17,8 @@
  * only those (answer 23: nothing added up). A money question the router handed here
  * (`invoiceMoney`) that no invoice answers holds for Ben as money. The CRM record never carries an
  * email, address or postcode, and its free text passes the same mask as the thread.
- * Returns facts with their source and a proposal; never a sentence for the customer.
+ * Returns facts with their source and a proposal; never a sentence for the customer: the model's
+ * `asked` label is used only as far as `askedLabel` clips it, in the brief and on Ben's card.
  *
  * Two halves, the Scoping pattern. The tool server first: convergence (deterministic, every turn),
  * then, when the router sent the turn here, kb_lookup by the customer's question and the customer
@@ -40,8 +41,15 @@ import { isoDayOf } from '../scheduling/diary';
 /** What the model may return: selections and labels only. No field can carry a reply. */
 export const serviceOutputSchema = z.object({
     answers: z.array(z.object({
-        /** What they asked, as a short label (e.g. "insured?", "areas covered", "receipt for last job"). */
-        asked: z.string().min(1).max(60),
+        /**
+         * What they asked, as a short label (e.g. "insured?", "areas covered", "receipt for last
+         * job"). Only `ASKED_LABEL_MAX` characters of it are ever used, so no more prose can ride
+         * in on it than the label it is meant to be; the schema's own ceiling is loose because a
+         * string ceiling is not enforced as the answer is written, and a label a few words over it
+         * threw the whole answer away (17 Sep 2026: a known customer's invoice question held for
+         * Ben every time, the model having echoed the question here).
+         */
+        asked: z.string().min(1).max(200),
         /** kb: a candidate row answers it, by id. record: their own record answers it, by field. history: an item on their history answers it, by ref. job: it is about the customer's own job, Scoping's. none: no source. */
         source: z.enum(['kb', 'record', 'history', 'job', 'none']),
         /** The knowledge-base row id, or the record field, or the history ref, or null. */
@@ -53,6 +61,15 @@ export const serviceOutputSchema = z.object({
     holdReason: z.enum(['complaint', 'refund', 'trust_doubt']).nullable(),
 }).strict();
 export type ServiceOutput = z.infer<typeof serviceOutputSchema>;
+
+/** How much of the model's `asked` label is used, in the brief and in the note on Ben's card. */
+export const ASKED_LABEL_MAX = 60;
+
+/** The label as it is used: the model's own words, clipped to a label's length. */
+export function askedLabel(asked: string): string {
+    const trimmed = asked.trim();
+    return trimmed.length <= ASKED_LABEL_MAX ? trimmed : `${trimmed.slice(0, ASKED_LABEL_MAX - 1).trimEnd()}\u2026`;
+}
 
 const SYSTEM = [
     'You are the Service specialist for a small handyman business\'s desk. You never write to the customer. You read the thread and the candidate knowledge-base rows and return selections only, no prose.',
@@ -195,10 +212,11 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
     let invoiceRead = false;
     if (!opts.scopingRan) brief.push('This turn: answer what they asked from the lines below. Ask nothing about the job.');
     for (const a of res.output.answers) {
+        const asked = askedLabel(a.asked);
         // A question about their own job is Scoping's: when Scoping ran on this turn it is left to it,
         // never held as no source. When Scoping did not run, nobody else answers it, so it falls through to Ben.
         if (a.source === 'job' && opts.scopingRan) {
-            notes.push(`"${a.asked}" left to scoping`);
+            notes.push(`"${asked}" left to scoping`);
             continue;
         }
         if (a.source === 'kb') {
@@ -208,8 +226,8 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
                 const fact = recordFact(file, { key: `kb:${row.id}`, value: row.body, source: { kind: 'knowledge_base', entryId: row.id }, by: BY }, fileDeps);
                 if (fact.ok) {
                     factIds.push(fact.value.id);
-                    brief.push(`They asked "${a.asked}": answer with these exact words, verbatim and unparaphrased, and cite knowledge-base id ${row.id} in kbIds (fact ${fact.value.id}): "${row.body}"`);
-                    notes.push(`kb ${row.id} for "${a.asked}"`);
+                    brief.push(`They asked "${asked}": answer with these exact words, verbatim and unparaphrased, and cite knowledge-base id ${row.id} in kbIds (fact ${fact.value.id}): "${row.body}"`);
+                    notes.push(`kb ${row.id} for "${asked}"`);
                     continue;
                 }
             }
@@ -227,8 +245,8 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
                 }
                 if (ids.length) {
                     factIds.push(...ids);
-                    brief.push(`They asked "${a.asked}": from their ${withheldFromModel(item.summary ?? item.kind)} on our records: ${lines.join('; ')}. Read back only what answers them, each exactly as written and citing its fact id; never add them up or work anything out.`);
-                    notes.push(`record ${item.ref} for "${a.asked}"`);
+                    brief.push(`They asked "${asked}": from their ${withheldFromModel(item.summary ?? item.kind)} on our records: ${lines.join('; ')}. Read back only what answers them, each exactly as written and citing its fact id; never add them up or work anything out.`);
+                    notes.push(`record ${item.ref} for "${asked}"`);
                     if (item.kind === 'invoice') invoiceRead = true;
                     continue;
                 }
@@ -237,8 +255,8 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
             const entry = record.find((e) => e.field === a.id);
             if (entry && MASKED_FIELDS.has(entry.field)) {
                 // A masked field is never read back by the desk: the customer hears we hold one, and Ben confirms it.
-                brief.push(`They asked "${a.asked}": we hold their ${entry.field} on file, but it is not read back here. Say we have it on file and you will confirm it; do not state or guess it.`);
-                notes.push(`record ${entry.field} masked for "${a.asked}"`);
+                brief.push(`They asked "${asked}": we hold their ${entry.field} on file, but it is not read back here. Say we have it on file and you will confirm it; do not state or guess it.`);
+                notes.push(`record ${entry.field} masked for "${asked}"`);
                 if (!hold) hold = { reason: 'no_source', match: `their ${entry.field} on file is masked from the desk; Ben to read it back` };
                 continue;
             }
@@ -246,16 +264,16 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
                 const fact = recordFact(file, { key: entry.field, value: entry.value, source: entry.source, by: BY }, fileDeps);
                 if (fact.ok) {
                     factIds.push(fact.value.id);
-                    brief.push(`They asked "${a.asked}": their ${entry.field} on our record is exactly "${entry.value}" (fact ${fact.value.id}); read it back as it is.`);
-                    notes.push(`record ${entry.field} for "${a.asked}"`);
+                    brief.push(`They asked "${asked}": their ${entry.field} on our record is exactly "${entry.value}" (fact ${fact.value.id}); read it back as it is.`);
+                    notes.push(`record ${entry.field} for "${asked}"`);
                     continue;
                 }
             }
         }
         // No source (or a selection that did not check out): Ben, and the customer hears that.
-        brief.push(`They asked "${a.asked}": we have no source for it. Say you will check on it and come back to them; do not answer it yourself.`);
-        notes.push(`no source for "${a.asked}"`);
-        if (!hold) hold = { reason: 'no_source', match: a.asked };
+        brief.push(`They asked "${asked}": we have no source for it. Say you will check on it and come back to them; do not answer it yourself.`);
+        notes.push(`no source for "${asked}"`);
+        if (!hold) hold = { reason: 'no_source', match: asked };
     }
     if (res.output.changeOfDetails) {
         const field = res.output.changeOfDetails.field;

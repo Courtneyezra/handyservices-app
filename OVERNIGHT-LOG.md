@@ -52,3 +52,33 @@ round it was found.
   captain, written to OVERNIGHT-QUESTIONS.md rather than guessed: the plan strip bound the pending
   confirm to "Promise call tomorrow to rebook", a step the same answer said it could not do, and
   the confirm then marked that step done and chased the next one.
+- Round 4 (17 Sep 2026) — the read-only CRM record on a known customer, WhatsApp and the web form,
+  driven on the app's own comms-v2 sandbox door as Ben with the door's own record fixture (the drama
+  number made a known customer on the branch: one enquiry and invoice SANDBOX-INV-0001, £120 total,
+  £40 deposit, £80 outstanding). The finding is live and reproduced twice before the fix: Sam's
+  WhatsApp question "have I paid it all off or is there still something outstanding?" was held for
+  Ben with the holding line every single time, and no record fact was written, although the record
+  read had the answer. The cause was the Service specialist's own schema: `asked`, the short label
+  the model writes for each thing the customer asked, was capped at 60 characters, the provider does
+  not enforce a string ceiling as it writes, and the model echoed the question back — so the SDK
+  threw on the whole answer, every selection in it lost, and the specialist read a failed model call
+  as no source. Fix: the ceiling on `asked` is loose (200) and the label is used only as far as
+  `askedLabel` clips it (`ASKED_LABEL_MAX`, 60), so no more prose rides into the brief than the
+  label it is meant to be (`server/comms-v2/service/service-specialist.ts`), with a regression test
+  in `service/customer-record.test.ts` driving the live question through and the prose test in
+  `service/service-specialist.test.ts` moved to the new ceiling and the clip. The same drive showed
+  a second live fault: because the throw came from the SDK's own parse, `AnthropicModelClient`
+  labelled it `failure: 'provider'`, so a Service specialist's schema fight counted as a turn the
+  desk could not answer — a `worker_health` page reading "comms desk cannot answer: model call
+  failed" with the provider's name on it, and `/api/health/comms-worker` reading `cannot_answer`,
+  while the provider was fine. Fix: `failureKindOf` (`desk/models.ts`) classifies structurally — an
+  `APIError` is the provider, any other throw is an answer that came back unusable — with a
+  regression test in `desk/model-health.test.ts` built on the genuine SDK throw. Not an ESCALATE: no
+  wrong figure, invoice state or reissue ever reached a customer; the desk failed closed both times.
+  Re-driven live after the fix: the same question is answered from the row in three bubbles —
+  "sent, not yet paid", deposit £40.00, balance £80.00, due 28 September 2026 — every figure and
+  date the row's own as a `crm:` fact, all eight guards passing, no hold. The negative controls hold
+  too: the same question through the web form door with the same phone and postcode bound no
+  customer id, read no record and held for Ben with no figure (answer 126), and a haggle on the same
+  invoice ("any chance of knocking something off that invoice?") held for Ben on `refund` with the
+  fixed line, no figure, no quote and no reissue.

@@ -157,6 +157,31 @@ describe('the desk model alarm', () => {
         expect(r.pages[0].message).toContain('503 upstream connect error');
     });
 
+    it('an answer that does not fit our own schema is unusable, not an outage: the client says so and a specialist\'s turn stays ok', async () => {
+        // The genuine throw: the SDK parses the model's JSON against the schema we sent and throws
+        // on a string longer than its ceiling (17 Sep 2026, the Service specialist's `asked` label).
+        const { zodOutputFormat } = await import('@anthropic-ai/sdk/helpers/zod');
+        const tight = z.object({ asked: z.string().max(60) });
+        const format = zodOutputFormat(tight as any) as { parse: (content: string) => unknown };
+        let thrown: Error | null = null;
+        try { format.parse(JSON.stringify({ asked: 'x'.repeat(61) })); } catch (e: any) { thrown = e; }
+        expect(thrown).toBeInstanceOf(Error);
+        expect(thrown).not.toBeInstanceOf(APIError);
+
+        const call = { role: 'specialist' as const, model: 'm', effort: 'medium' as const, system: '', user: '', schema: tight };
+        const res = await throwingClient(() => thrown!).structured(call);
+        expect(res.output).toBeNull();
+        expect(res.failure).toBe('output');
+
+        // So the turn is not a provider outage: it proves nothing about the provider, nothing
+        // pages, and the verdict is left where it was.
+        const watch = new TurnModelWatch(throwingClient(() => thrown!));
+        await watch.structured(call);
+        expect(watch.outcome()).toEqual({ verdict: 'no_model_call', failure: null });
+        // A request that never came back is still the provider, whatever the role.
+        expect(await throwingClient(failures.timeout).structured(call)).toMatchObject({ failure: 'provider' });
+    });
+
     it('a model that declines, or a specialist whose answer is unusable, is not an outage', async () => {
         const watch = new TurnModelWatch(new FakeModelClient({ router: () => ({ refused: true }), specialist: () => ({ not: 'the schema' }) }));
         const schema = z.object({ ok: z.boolean() });
