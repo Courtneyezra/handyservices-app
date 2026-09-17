@@ -111,14 +111,14 @@ function allOf(re: RegExp, text: string): string[] {
 export function checkDate(input: GuardInput): GuardVerdict {
     const looked = new Set(input.lookedUp ?? []);
     // The diary, or the customer's CRM record (an invoice's dates, a visit day), as this run read it.
-    // A person's cited instruction on the Handy Desk counts the same way (answer A2): it is this run's.
-    const diary = citedFacts(input).filter((f) => isReadThisRunOnly(f) && looked.has(f.id)).map((f) => f.value.toLowerCase());
+    // A person's cited instruction on the Handy Desk counts the same way (answer A2), on its own key.
+    const diary = citedFacts(input).filter((f) => isReadThisRunOnly(f) && f.source.kind !== 'instruction' && looked.has(f.id)).map((f) => f.value.toLowerCase());
     // A bare ordinal is read as a day on its own words (lexicon.ts ordinalDays), not on whether the
     // reply gives a date elsewhere: "the 1st floor" beside a looked-up date is a floor, and "the 2nd"
     // with no date looked up is still a day the diary did not give. A day has to be a looked-up value.
     const matches = [...allOf(RE_DATE_TIME_DURATION, input.reply), ...ordinalDays(input.reply)];
     if (!matches.length) return pass();
-    const bad = matches.filter((m) => !diary.some((v) => saysWhole(v, m.toLowerCase())));
+    const bad = matches.filter((m) => !diary.some((v) => saysWhole(v, m.toLowerCase())) && !instructedClaim(input, m));
     return bad.length ? fail(`a date, time or duration appears that this turn did not look up in the diary or the customer's record, and no instruction of Ben's gives: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
 }
 

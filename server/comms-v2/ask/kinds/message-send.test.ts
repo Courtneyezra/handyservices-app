@@ -406,4 +406,13 @@ describe('the ask agent proposes it (propose_message)', () => {
         expect(second.seen.results[1]).toEqual({ status: 'refused', reason: expect.stringMatching(/already waiting for a confirm/) });
         expect(first.store.rows.size).toBe(1);
     });
+
+    it("takes Ben's curly apostrophes: the time he typed passes the date guard", async () => {
+        const file = sarahFile('2026-09-17T09:30:00.000Z');
+        const typed = 'tell sarah from tena properties we\u2019ll call her at 3 o\u2019clock';
+        const words = "Hi Sarah, we'll give you a call at 3 o'clock.";
+        const { seen, store } = await ask(file, { caseFileId: file.id, brief: 'Tell Sarah we will call her at 3 o\u2019clock', instruction: 'call her at 3 o\u2019clock' }, [words], [{ id: ASK_ID, text: typed }]);
+        expect(seen.results[1]).toMatchObject({ status: 'proposed', words });
+        expect(Array.from(store.rows.values())[0].args).toMatchObject({ instruction: { person: BEN_PERSON, askMessageId: ASK_ID, quote: 'call her at 3 o\u2019clock' } });
+    });
 });
