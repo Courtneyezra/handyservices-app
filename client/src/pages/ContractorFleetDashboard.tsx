@@ -70,6 +70,11 @@ export default function ContractorFleetDashboard() {
 
     const { data: handymen = [], isLoading, refetch } = useQuery<Handyman[]>({
         queryKey: ["/api/handymen"],
+        queryFn: async () => {
+            const res = await fetch("/api/handymen", { headers: adminAuthHeaders() });
+            if (!res.ok) throw new Error("Failed to fetch handymen");
+            return res.json();
+        },
     });
 
     const handleVerify = async (id: string) => {

@@ -91,7 +91,7 @@ export default function DispatchPage() {
     const { data: contractors, isLoading: contractorsLoading } = useQuery<Contractor[]>({
         queryKey: ["handymen"],
         queryFn: async () => {
-            const res = await fetch("/api/handymen");
+            const res = await fetch("/api/handymen", { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch contractors");
             return res.json();
         },

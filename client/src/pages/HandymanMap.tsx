@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Wrench, MapPin, Search, Filter, Clock, Star, List as ListIcon, Map as MapIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 // Fix Leaflet marker icon issue
 import markerIcon from "leaflet/dist/images/marker-icon.png";
@@ -55,6 +56,11 @@ export default function HandymanMap() {
 
     const { data: handymen, isLoading } = useQuery<Handyman[]>({
         queryKey: ["/api/handymen"],
+        queryFn: async () => {
+            const res = await fetch("/api/handymen", { headers: adminAuthHeaders() });
+            if (!res.ok) throw new Error("Failed to fetch handymen");
+            return res.json();
+        },
     });
 
     const filteredHandymen = handymen?.filter(h => {

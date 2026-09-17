@@ -21,7 +21,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 // Get all handymen (with optional radius filter)
-router.get('/', async (req, res) => {
+router.get('/', requireAdmin, async (req, res) => {
     try {
         const { lat, lng, radius } = req.query;
 
@@ -66,7 +66,7 @@ router.get('/', async (req, res) => {
 
 // GET /api/handymen/availability
 // Returns aggregate availability (days of week and typical slots) for pros in an area
-router.get('/availability', async (req, res) => {
+router.get('/availability', requireAdmin, async (req, res) => {
     try {
         const { lat, lng, radius = '10' } = req.query;
 
@@ -120,7 +120,7 @@ router.get('/availability', async (req, res) => {
 });
 
 // Get profile for a specific handyman
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const profile = await db.query.handymanProfiles.findFirst({
@@ -172,7 +172,7 @@ router.post('/profile', requireAdmin, async (req, res) => {
 });
 
 // Manage Skills
-router.post('/:id/skills', async (req, res) => {
+router.post('/:id/skills', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { serviceIds } = req.body; // Array of SKU IDs
@@ -197,7 +197,7 @@ router.post('/:id/skills', async (req, res) => {
 });
 
 // Manage Availability
-router.post('/:id/availability', async (req, res) => {
+router.post('/:id/availability', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { availability } = req.body; // Array of { dayOfWeek, startTime, endTime }

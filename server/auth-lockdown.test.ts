@@ -178,6 +178,11 @@ const GUARDED: [method: string, path: string][] = [
     // Self-verification: the open verify and profile writes on /api/handymen
     ['POST', '/api/handymen/p-1/verify'],
     ['POST', '/api/handymen/profile'],
+    ['GET', '/api/handymen'],
+    ['GET', '/api/handymen/availability'],
+    ['GET', '/api/handymen/p-1'],
+    ['POST', '/api/handymen/p-1/skills'],
+    ['POST', '/api/handymen/p-1/availability'],
 ];
 
 describe('newly guarded routes refuse a request with no session', () => {
