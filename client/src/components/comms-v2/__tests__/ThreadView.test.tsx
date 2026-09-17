@@ -117,7 +117,7 @@ describe('<ThreadView>', () => {
         expect(box.value).toBe('customer sorted it themselves');
     });
 
-    it('a tap above the sheet leaves it open while the reply box holds words, and dismisses it once the box is empty', async () => {
+    it('a tap above the sheet leaves it open while the reply box holds words, by mouse and by touch, and dismisses it once the box is empty', async () => {
         const onClose = vi.fn();
         mockFetch([fileRoute(detail())]);
         renderWithQuery(<ThreadSheet fileId="case_p" onClose={onClose} onChanged={vi.fn()} viewerApprover="ben" />);
@@ -127,9 +127,17 @@ describe('<ThreadView>', () => {
         expect(onClose).not.toHaveBeenCalled();
         expect(words().value).toBe('half a reply');
 
+        // A tap takes the focus off the box, and Radix decides on the click that follows it.
+        box.blur();
+        fireEvent.pointerDown(document.body, { pointerType: 'touch' });
+        fireEvent.click(document.body);
+        expect(onClose).not.toHaveBeenCalled();
+        expect(words().value).toBe('half a reply');
+
         await userEvent.clear(box);
-        box.focus();
-        fireEvent.pointerDown(document.body);
+        box.blur();
+        fireEvent.pointerDown(document.body, { pointerType: 'touch' });
+        fireEvent.click(document.body);
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
@@ -188,14 +196,14 @@ describe('<ThreadView>', () => {
         expect(screen.getByTestId('call-turn-c3')).toHaveTextContent('missed');
     });
 
-    it('shows the held block in amber with its age, reason, failures, exception, noted-on and draft', async () => {
+    it('shows the held block in amber with its age, reason and draft, and none of the desk\'s own hold vocabulary', async () => {
         mount([fileRoute(detail({ hold: { ...detail().hold!, exception: 'date_change', notedOn: true } }))]);
         const block = await screen.findByTestId('held-block');
         expect(block.className).toContain('amber');
         expect(block).toHaveTextContent('Held 1h 20m · for Ben');
         expect(screen.getByTestId('held-reason')).toHaveTextContent('composer stated a duration');
-        expect(screen.getByTestId('held-detail')).toHaveTextContent('Failures: stated a duration, no source · Exception: date change · Noted on: yes');
         expect(screen.getByTestId('hold-draft')).toHaveTextContent('Usually around 2 hours for that, Priya.');
+        expect(block).not.toHaveTextContent(/Failures:|Exception:|Noted on:/);
     });
 
     it('Send this posts send-held-draft with the draft on screen as expectedDraft, and shows the sent reply', async () => {
@@ -433,6 +441,7 @@ describe('<ThreadView>', () => {
         expect(screen.queryByRole('button', { name: 'Send reply' })).toBeNull();
         expect(screen.queryByRole('button', { name: 'Release hold only' })).toBeNull();
         expect(screen.queryByLabelText('Your reply to the customer')).toBeNull();
+        expect(screen.getByTestId('thread-read-only')).toHaveTextContent('Read only: no approver slot is assigned to your login.');
     });
 
     it('while loading the composer is disabled; a failed read offers Retry and a way back', async () => {

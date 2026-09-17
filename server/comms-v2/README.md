@@ -644,14 +644,15 @@ sheet, closed with ‹ Board (‹ Queue on the desk); Esc and a tap above the sh
 of the thread's own boxes (the reply, the close-file words) holds words. On the Handy Desk the sheet
 has its own open state, so leaving it keeps the card selected and the ask bar's context with it, and
 "Ask about this" in its header closes it back onto the ask bar. An ask bar answer takes the
-right-hand side over the thread while it shows. It shows:
+right-hand side over the thread while it shows, and the composer's half-written reply is the page's,
+kept per case file, so it is still there when the thread comes back. It shows:
 - a header with the reply channel and its window (`replyChannel`, `replyWindow`);
 - customer and desk bubbles, a staff member's by name;
 - media with its description and confidence;
 - call rows with a "Transcribing…" state until the summary or transcript lands, and a transcript
   toggle;
 - system turns as rules, and the facts behind a toggle;
-- the held draft block, with the hold's age, reason, `failures`, `exception` and `notedOn`.
+- the held draft block, with the hold's age and reason in plain words, and the draft.
 
 "Send this" posts send-held-draft with the draft on screen as `expectedDraft`. When the desk has
 replaced it since (409 "the held draft changed since you saw it"), the view re-reads the file, shows
@@ -663,7 +664,8 @@ On a shut window, freeform sends are disabled, whether the file says the window 
 refused for it. The template card then shows the template-offer preview: the template's name and
 wording, or its refusal. "Send template" posts send-template. Every refusal is shown in the desk's
 own words, with the typed words kept. A session whose `viewer.canAct` is false sees the thread with
-every action hidden. Below the composer, a file not yet done offers "Close file" (the close route
+every action hidden and one line where the composer would be: "Read only: no approver slot is
+assigned to your login." Below the composer, a file not yet done offers "Close file" (the close route
 below). A thread that fails to load offers Retry and a way back.
 
 Opening another file, even one already cached, remounts the thread. It starts with an empty reply

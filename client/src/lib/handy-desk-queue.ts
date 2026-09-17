@@ -47,7 +47,13 @@ export interface QueueCardCopy {
     blocked: string | null;
 }
 
-const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email' };
+const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email', call: 'Call', web: 'Web' };
+
+/** A desk channel as Ben reads it; an unknown one reads as the desk names it. */
+export function channelLabel(channel: string | null | undefined): string {
+    if (!channel) return '';
+    return CHANNEL_LABEL[channel] ?? channel;
+}
 
 /** Where each action posts. `rewrite` is Ben's own words, so it is the answer route. */
 export const ACTION_ROUTE: Record<QueueAction, 'send-held-draft' | 'answer' | 'release'> = {
@@ -83,7 +89,7 @@ export function displayName(item: Pick<BoardCard, 'customerName' | 'customerAddr
 
 export function queueCardCopy(item: QueueItem): QueueCardCopy {
     const name = displayName(item);
-    const sub = [item.jobType, item.location, item.replyChannel ? CHANNEL_LABEL[item.replyChannel] : null]
+    const sub = [item.jobType, item.location, channelLabel(item.replyChannel) || null]
         .filter(Boolean)
         .join(' · ');
     const hasDraft = !!item.draft;

@@ -6,19 +6,8 @@
  * (client/src/components/comms-v2/ThreadView.tsx).
  */
 import type { CaseFileDetail, Turn } from '@/pages/admin/CommsV2BoardPage';
-import { refusalMessage } from '@/lib/handy-desk-queue';
-
-export const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email', call: 'Call', web: 'Web' };
-
-export function channelLabel(channel: string | null | undefined): string {
-    if (!channel) return '';
-    return CHANNEL_LABEL[channel] ?? channel;
-}
-
-/** A canonical party key (`phone:07700…`, `email:…`) without its kind prefix. */
-export function addressLabel(address: string | null | undefined): string {
-    return (address ?? '').replace(/^[a-z]+:/, '');
-}
+import { channelLabel, refusalMessage } from '@/lib/handy-desk-queue';
+import { addressLabel } from '@/lib/handy-desk-answer';
 
 /** An approver slot id as a name: `ben` reads as `Ben`. */
 export function slotLabel(id: string | null | undefined): string {
@@ -120,13 +109,6 @@ export function replyLine(detail: Pick<CaseFileDetail, 'replyChannel' | 'replyWi
         return `${via} · window open until ${until}`;
     }
     return via;
-}
-
-/** The held draft block's second line: the guard failures, the router exception and whether the card was noted on since. */
-export function holdDetailLine(hold: NonNullable<CaseFileDetail['hold']>): string {
-    const failures = hold.failures?.length ? hold.failures.join(', ') : 'none';
-    const exception = hold.exception ? hold.exception.replace(/_/g, ' ') : 'none';
-    return `Failures: ${failures} · Exception: ${exception} · Noted on: ${hold.notedOn ? 'yes' : 'no'}`;
 }
 
 /** Whether a customer has written on the file at all; with none there is nothing to answer. */

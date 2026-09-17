@@ -15,7 +15,9 @@
  * Ben's own reply, docked on the right at 1024px and up and as a bottom sheet below; the ask bar
  * takes it as context. The sheet is its own open state, so dismissing it leaves the card selected and
  * the ask bar's context with it; "Ask about this" in its header closes it back onto the ask bar. The
- * mapping from a held file to the card's copy lives in client/src/lib/handy-desk-queue.ts.
+ * thread's half-written reply is the page's, kept per case file, so an answer taking the right-hand
+ * side never eats it. The mapping from a held file to the card's copy lives in
+ * client/src/lib/handy-desk-queue.ts.
  *
  * The ask bar (T2) asks the new desk's ask agent (/api/comms-v2/ask, useAskSession); while it runs
  * the answer surface shows the thinking card, then the answer, until Ben closes it. With no ask on
@@ -319,6 +321,8 @@ export default function HandyDesk() {
     const queryClient = useQueryClient();
     const [selection, setSelection] = useState<DeskSelection | null>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
+    // The thread's half-written reply, kept per case file so an ask answer taking the right-hand side never eats it.
+    const [threadWords, setThreadWords] = useState<Record<string, string>>({});
     const [done, setDone] = useState<{ key: number; note: string }[]>([]);
     const [askText, setAskText] = useState('');
     const [showAnswer, setShowAnswer] = useState(false);
@@ -441,6 +445,8 @@ export default function HandyDesk() {
                                     fileId={selection.caseFileId}
                                     layout="panel"
                                     backTo="Queue"
+                                    words={threadWords[selection.caseFileId] ?? ''}
+                                    onWords={(w) => setThreadWords((kept) => ({ ...kept, [selection.caseFileId]: w }))}
                                     fallbackName={selection.name}
                                     onClose={() => setSelection(null)}
                                     onChanged={refreshQueue}
@@ -470,6 +476,8 @@ export default function HandyDesk() {
                 <ThreadSheet
                     fileId={sheetOpen ? selection?.caseFileId ?? null : null}
                     backTo="Queue"
+                    words={selection ? threadWords[selection.caseFileId] ?? '' : ''}
+                    onWords={(w) => selection && setThreadWords((kept) => ({ ...kept, [selection.caseFileId]: w }))}
                     fallbackName={selection?.name}
                     onClose={() => setSheetOpen(false)}
                     onAskAbout={() => askInput.current?.focus()}

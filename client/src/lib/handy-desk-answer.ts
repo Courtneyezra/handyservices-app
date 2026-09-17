@@ -63,8 +63,8 @@ export function isLate(daysLate: number): boolean {
 }
 
 /** The address a tile names: the channel address without its kind prefix. */
-export function addressLabel(address: string): string {
-    return address.replace(/^[a-z]+:/, '');
+export function addressLabel(address: string | null | undefined): string {
+    return (address ?? '').replace(/^[a-z]+:/, '');
 }
 
 /** Two-letter token for a floor card, from the name or the address. */

@@ -8,11 +8,7 @@
 import { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-function getAuthHeaders(): Record<string, string> {
-    const token = localStorage.getItem('adminToken');
-    return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 const BTN = 'inline-flex items-center justify-center gap-1.5 rounded-md font-semibold transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50';
 const BTN_DARK = cn(BTN, 'bg-slate-900 text-white hover:bg-slate-800');
@@ -32,7 +28,7 @@ export function CloseFileForm({ fileId, held, onClosed, layout = 'panel' }: { fi
         try {
             const res = await fetch(`/api/comms-v2/case-files/${fileId}/close`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+                headers: { 'Content-Type': 'application/json', ...adminAuthHeaders() },
                 body: JSON.stringify({ words }),
             });
             const data = await res.json().catch(() => ({}));

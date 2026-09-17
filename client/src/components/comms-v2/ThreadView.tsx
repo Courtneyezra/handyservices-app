@@ -17,7 +17,9 @@
  *     second tap, with words required on a held file; the file is then read again and the board or
  *     queue refreshed.
  * Every refusal is shown as the desk worded it, with the words kept in the box. A reply shows as a
- * sending bubble at once and as sent from the response, until the next read carries the turn.
+ * sending bubble at once and as sent from the response, until the next read carries the turn. A
+ * session that may not act sees the thread with every action hidden and one line saying why; the
+ * page may hold the composer's words (`words`, `onWords`) so they outlive the thread being replaced.
  */
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -25,10 +27,11 @@ import { ChevronDown, ChevronLeft, Loader2, Phone, Send, X } from 'lucide-react'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { CloseFileForm } from '@/components/comms-v2/CloseFileForm';
-import { refusalMessage } from '@/lib/handy-desk-queue';
+import { adminAuthHeaders } from '@/lib/admin-auth';
+import { channelLabel, refusalMessage } from '@/lib/handy-desk-queue';
 import { HELD_DRAFT_CHANGED } from '@shared/ops-types';
 import {
-    channelLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, slotLabel, threadRows,
+    hasCustomerTurn, headerLine, heldFor, refusalOf, slotLabel, threadRows,
     type Refusal, type SentReply, type TemplateOffer, type ThreadRow,
 } from '@/lib/comms-v2-thread';
 import { STAGE_LABELS } from '@/lib/comms-board';
@@ -37,18 +40,13 @@ import type { CaseFileDetail, TurnMedia } from '@/pages/admin/CommsV2BoardPage';
 /** How often an open thread re-reads its case file; matches the board and the queue. */
 export const THREAD_REFETCH_MS = 15_000;
 
-function getAuthHeaders(): Record<string, string> {
-    const token = localStorage.getItem('adminToken');
-    return token ? { Authorization: `Bearer ${token}` } : {};
-}
-
 type PostResult = { ok: true; data: any } | { ok: false; status: number; error: string | undefined };
 
 async function postTo(fileId: string, route: string, body?: unknown): Promise<PostResult> {
     try {
         const res = await fetch(`/api/comms-v2/case-files/${fileId}/${route}`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            headers: { 'Content-Type': 'application/json', ...adminAuthHeaders() },
             body: body === undefined ? undefined : JSON.stringify(body),
         });
         const data = await res.json().catch(() => ({}));
@@ -60,17 +58,20 @@ async function postTo(fileId: string, route: string, body?: unknown): Promise<Po
 }
 
 async function readFile(fileId: string): Promise<CaseFileDetail> {
-    const res = await fetch(`/api/comms-v2/case-files/${fileId}`, { headers: getAuthHeaders() });
+    const res = await fetch(`/api/comms-v2/case-files/${fileId}`, { headers: adminAuthHeaders() });
     if (!res.ok) throw new Error(`Failed to load conversation (${res.status})`);
     return res.json();
 }
 
-/** Whether the focus is in a box of the thread's own - the reply, or the close-file words - that holds words a dismissal must not throw away. */
-function typingInThread(): boolean {
-    const el = document.activeElement;
-    return el instanceof HTMLTextAreaElement
-        && (el.id.startsWith('thread-words-') || el.id.startsWith('close-words-'))
-        && el.value !== '';
+/**
+ * Whether a box of the thread's own - the reply, or the close-file words - holds words a dismissal
+ * must not throw away. Read from the boxes rather than the focus: a tap outside moves the focus off
+ * them, and on touch Radix decides on the click that follows.
+ */
+function threadHoldsWords(): boolean {
+    return Array.from(document.querySelectorAll('textarea')).some(
+        (box) => (box.id.startsWith('thread-words-') || box.id.startsWith('close-words-')) && box.value !== '',
+    );
 }
 
 /** Whether the focus is in any editable field on the page, where Esc belongs to that field, not the docked panel. */
@@ -194,7 +195,7 @@ function TemplateCard({ fileId, busy, onSend, refusal }: { fileId: string; busy:
     const { data, isLoading, error } = useQuery<TemplateOffer>({
         queryKey: ['comms-v2-template-offer', fileId],
         queryFn: async () => {
-            const res = await fetch(`/api/comms-v2/case-files/${fileId}/template-offer`, { headers: getAuthHeaders() });
+            const res = await fetch(`/api/comms-v2/case-files/${fileId}/template-offer`, { headers: adminAuthHeaders() });
             const body = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(refusalMessage(res.status, body?.error));
             return body;
@@ -252,6 +253,9 @@ export interface ThreadViewProps {
     canAct?: boolean;
     /** The session's approver slot, for "replies as". */
     viewerApprover?: string | null;
+    /** The composer's words and their setter, held by the page so they outlive the thread being replaced; uncontrolled without them. */
+    words?: string;
+    onWords?: (words: string) => void;
     /** Name shown while the file loads. */
     fallbackName?: string;
     showMode?: boolean;
@@ -266,7 +270,7 @@ interface Pending {
     turnId: string | null;
 }
 
-export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChanged, canAct = true, viewerApprover = null, fallbackName, showMode = false, onAskAbout }: ThreadViewProps) {
+export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChanged, canAct = true, viewerApprover = null, fallbackName, showMode = false, onAskAbout, words: keptWords, onWords }: ThreadViewProps) {
     const queryClient = useQueryClient();
     const { data, isLoading, error, refetch, isFetching } = useQuery<CaseFileDetail>({
         queryKey: ['comms-v2-case-file', fileId],
@@ -274,7 +278,9 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
         refetchInterval: THREAD_REFETCH_MS,
     });
 
-    const [words, setWords] = useState('');
+    const [ownWords, setOwnWords] = useState('');
+    const words = keptWords ?? ownWords;
+    const setWords = onWords ?? setOwnWords;
     const [busy, setBusy] = useState<'answer' | 'draft' | 'release' | 'template' | null>(null);
     const [refusal, setRefusal] = useState<Refusal | null>(null);
     const [draftNotice, setDraftNotice] = useState<string | null>(null);
@@ -487,7 +493,6 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
                             <p className="text-[11px] font-bold text-amber-800">Held {heldFor(hold.since)} · for {slotLabel(hold.approver.id)}</p>
                             <p data-testid="held-reason" className="text-[11px] text-amber-900">· {hold.reason}</p>
                         </div>
-                        <p data-testid="held-detail" className="text-[11px] leading-normal text-amber-900/80">{holdDetailLine(hold)}</p>
                         {holdBlocked && (
                             <p data-testid="held-unassigned" className="text-[11px] text-amber-900">No one is assigned to the {slotLabel(hold.approver.id)} slot, so nobody can act on this yet. Set the comms_v2_approvers row.</p>
                         )}
@@ -570,6 +575,10 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
                         {data.stage !== 'done' && <CloseFileForm key={fileId} fileId={fileId} held={!!hold} layout={layout} onClosed={refresh} />}
                     </>
                 )}
+
+                {!canAct && (
+                    <p data-testid="thread-read-only" className="text-xs text-slate-500">Read only: no approver slot is assigned to your login.</p>
+                )}
             </div>
         </ThreadFrame>
     );
@@ -636,8 +645,8 @@ export function ThreadSheet({ fileId, onClose, onAskAbout, ...rest }: Omit<Threa
         <Sheet open={!!fileId} onOpenChange={(open) => !open && onClose()}>
             <SheetContent
                 side="bottom"
-                onEscapeKeyDown={(e) => { if (typingInThread()) e.preventDefault(); }}
-                onPointerDownOutside={(e) => { if (typingInThread()) e.preventDefault(); }}
+                onEscapeKeyDown={(e) => { if (threadHoldsWords()) e.preventDefault(); }}
+                onPointerDownOutside={(e) => { if (threadHoldsWords()) e.preventDefault(); }}
                 onCloseAutoFocus={(e) => { if (!asking.current) return; asking.current = false; e.preventDefault(); onAskAbout?.(); }}
                 className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-xl border-0 p-0 [&>button:last-child]:hidden"
             >
