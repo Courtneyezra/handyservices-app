@@ -6,8 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-    ACTION_ROUTE, displayName, formatWait, initialsOf, isShutWindow, needsWords, queueCardCopy,
-    queueQuery, refusalMessage, selectionOf, updatedAgoLabel, type QueueItem,
+    ACTION_ROUTE, displayName, formatWait, initialsOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy,
+    queueQuery, readyToPriceCardCopy, refusalMessage, selectionOf, updatedAgoLabel, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
 
 function item(over: Partial<QueueItem> = {}): QueueItem {
@@ -131,5 +131,42 @@ describe('updatedAgoLabel (B1 top bar)', () => {
         expect(updatedAgoLabel(59)).toBe('Updated 59s ago');
         expect(updatedAgoLabel(65)).toBe('Updated 1m ago');
         expect(updatedAgoLabel(Number.NaN)).toBe('Updated just now');
+    });
+});
+
+function priceItem(over: Partial<ReadyToPriceItem> = {}): ReadyToPriceItem {
+    return {
+        kind: 'ready_to_price', id: 'price:sam123', slug: 'sam123', quoteId: 'q1', customerName: 'Sam Reid',
+        job: 'isolation valves and a new tap', postcode: 'NG3 3EG', createdAt: '2026-09-11T10:00:00.000Z',
+        waitingWorkingHours: 0.2, waitingMs: 12 * 60_000, pricePath: '/admin/price/sam123',
+        signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
+        ...over,
+    };
+}
+
+describe('readyToPriceCardCopy (Q12)', () => {
+    it('badges the wait, names the job and what the price screen will ask, and links to the price screen', () => {
+        expect(readyToPriceCardCopy(priceItem())).toEqual({
+            initials: 'SR',
+            name: 'Sam Reid',
+            sub: 'NG3 3EG',
+            badge: 'Ready to price · 12 min',
+            body: 'Isolation valves and a new tap. 2 lines to check. Nothing sent.',
+            primary: { label: 'Open & price', href: '/admin/price/sam123' },
+        });
+    });
+
+    it('says which lines need a price and which clash, and nothing more when the screen has nothing to ask', () => {
+        const busy = readyToPriceCardCopy(priceItem({ signals: { checkThis: 0, unpriced: 1, contradictions: 2, lowConfidence: 0, estimateStatus: null } }));
+        expect(busy.body).toBe('Isolation valves and a new tap. 1 line needs a price, 2 clashes to resolve. Nothing sent.');
+        const clean = readyToPriceCardCopy(priceItem({ postcode: null, signals: { checkThis: 0, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: null } }));
+        expect(clean.body).toBe('Isolation valves and a new tap. Nothing sent.');
+        expect(clean.sub).toBe('');
+    });
+
+    it('tells the two kinds apart, reading an item with no kind as held', () => {
+        expect(isReadyToPrice(priceItem())).toBe(true);
+        expect(isReadyToPrice(item())).toBe(false);
+        expect(isReadyToPrice(item({ kind: 'held' }))).toBe(false);
     });
 });

@@ -9,7 +9,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch, type RecordedCall } from '@test-utils';
 import HandyDesk from '@/pages/admin/HandyDesk';
-import type { QueueItem } from '@/lib/handy-desk-queue';
+import type { QueueItem, ReadyToPriceItem } from '@/lib/handy-desk-queue';
 import type { OpsAnswer } from '@shared/ops-types';
 
 function item(over: Partial<QueueItem>): QueueItem {
@@ -291,5 +291,44 @@ describe('HandyDesk', () => {
         await screen.findByTestId('queue-card-case_rob');
         expect(await screen.findByTestId('handy-desk-idle')).toBeInTheDocument();
         expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+    });
+
+    it('shows a quote waiting to be priced as a Needs you card in the server\'s order, whose one action opens the price screen', async () => {
+        const SAM: ReadyToPriceItem = {
+            kind: 'ready_to_price', id: 'price:sam123', slug: 'sam123', quoteId: 'q1', customerName: 'Sam Reid',
+            job: 'valves and a tap', postcode: 'NG3 3EG', createdAt: new Date().toISOString(), waitingWorkingHours: 3, waitingMs: 3 * 3600_000,
+            pricePath: '/admin/price/sam123', signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
+        };
+        const { calls } = routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ ...ROB, kind: 'held' }, SAM, GEMMA], sandboxAvailable: true } }) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+
+        const card = await screen.findByTestId('queue-card-price:sam123');
+        expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('3 things');
+        expect(screen.getAllByTestId(/^queue-card-(case_[a-z]+|price:[a-z0-9]+)$/).map((el) => el.dataset.testid))
+            .toEqual(['queue-card-case_rob', 'queue-card-price:sam123', 'queue-card-case_gemma']);
+        expect(screen.getByTestId('queue-card-badge-price:sam123')).toHaveTextContent('Ready to price · 3 h');
+        expect(screen.getByTestId('queue-card-body-price:sam123')).toHaveTextContent('Valves and a tap. 2 lines to check. Nothing sent.');
+        expect(within(card).queryByRole('button', { name: /Send|Answer|Release/ })).toBeNull();
+        const open = within(card).getByRole('link', { name: 'Open & price' });
+        expect(open).toHaveAttribute('href', '/admin/price/sam123');
+
+        // Opening it is navigation, not a send: no case-file write and no conversation selected.
+        await userEvent.click(card);
+        expect(screen.queryByTestId('handy-desk-thread')).toBeNull();
+        await userEvent.click(open);
+        await waitFor(() => expect(window.location.pathname).toBe('/admin/price/sam123'));
+        expect(casePosts(calls)).toEqual([]);
+        window.history.replaceState(null, '', '/');
+    });
+
+    it('still lists the holds when the quotes to price could not be read, and says so', async () => {
+        routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB], priceQueueError: 'Could not load the quotes waiting to be priced', sandboxAvailable: true } }) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+        expect(await screen.findByTestId('queue-card-case_rob')).toBeInTheDocument();
+        expect(screen.getByTestId('handy-desk-price-error')).toHaveTextContent('Could not load the quotes waiting to be priced. Held replies are still listed.');
     });
 });

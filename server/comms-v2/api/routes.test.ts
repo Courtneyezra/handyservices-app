@@ -24,6 +24,9 @@ import { noTemplateApproved } from '../desk/sender';
 import { MemoryCaseFileStore } from '../desk/store';
 import { sessionApprover, type ApproverAssignments } from './approvers';
 import { createCommsV2ApiRouter } from './routes';
+import type { PriceQueueItem, PriceQueuePayload } from '../../spine/price-queue';
+
+const noPriceQueue = async (): Promise<PriceQueuePayload> => ({ count: 0, items: [], oldestWaitingMs: null, at: new Date().toISOString() });
 
 let server: import('node:http').Server;
 let base: string;
@@ -46,7 +49,7 @@ beforeAll(async () => {
     const staffNames = async (emails: string[]) => Object.fromEntries(
         emails.filter((e) => e.toLowerCase() === 'ben.real@handyservices.app').map((e) => [e.toLowerCase(), 'Ben Real']),
     );
-    app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => assignments, undefined, undefined, staffNames));
+    app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => assignments, undefined, undefined, staffNames, undefined, undefined, undefined, noPriceQueue));
     server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/comms-v2`;
 });
@@ -362,7 +365,7 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         return file;
     }
 
-    async function harness(sandboxAvailable: () => boolean = () => false, templates?: TemplateStatusSource) {
+    async function harness(sandboxAvailable: () => boolean = () => false, templates?: TemplateStatusSource, priceQueue: () => Promise<PriceQueuePayload> = noPriceQueue) {
         const store = new MemoryCaseFileStore();
         const listed: ApproverAssignments = { ben: ['user_Ben.Real@handyservices.app'] };
         const app = express();
@@ -372,7 +375,7 @@ describe('one tap: send the held draft, and a template send on a shut window', (
             client: new FakeModelClient({ router: () => ({ subjects: [], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry' }), specialist: () => ({ facts: [], jobUnknowns: [], answeredSubjects: [] }), composer: () => ({ reply: 'ignored', factIds: [], kbIds: [] }) }),
             fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb,
         });
-        app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => listed, async () => ({ store, live: true, mode: 'dry_run' as const }), undefined, undefined, sandboxAvailable, undefined, templates));
+        app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => listed, async () => ({ store, live: true, mode: 'dry_run' as const }), undefined, undefined, sandboxAvailable, undefined, templates, priceQueue));
         const srv = await new Promise<import('node:http').Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
         const root = `http://127.0.0.1:${(srv.address() as { port: number }).port}/api/comms-v2`;
         const call = async (method: string, route: string, as?: string, body?: unknown) => {
@@ -553,6 +556,64 @@ describe('one tap: send the held draft, and a template send on a shut window', (
             const queue = await call('GET', '/queue', 'Ben.Real@handyservices.app');
             expect(queue.json.items[0]).toMatchObject({ hasDraft: true, holdException: 'money', draft: 'Hi Priya, that is usually around £80 fitted.' });
         } finally {
+            await close();
+        }
+    });
+
+    function priceItem(slug: string, name: string, createdAt: string): PriceQueueItem {
+        return {
+            slug, quoteId: `q_${slug}`, firstName: name.split(' ')[0], name, postcode: null, customerType: 'homeowner',
+            job: 'a new tap', lineCount: 1, createdAt, waitingMs: Date.now() - Date.parse(createdAt), sourceChannel: 'whatsapp',
+            signals: { checkThis: 0, unpriced: 1, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
+        };
+    }
+
+    it('/queue merges the quotes waiting to be priced as ready_to_price items, on the same longest-wait-first clock', async () => {
+        const payload: PriceQueuePayload = {
+            count: 2,
+            items: [priceItem('oldquote', 'Sam Old', '2019-06-03T09:00:00.000Z'), priceItem('newquote', 'Nia New', new Date().toISOString())],
+            oldestWaitingMs: 1, at: new Date().toISOString(),
+        };
+        const { store, call, close } = await harness(undefined, undefined, async () => payload);
+        try {
+            const recent = fileWithDraftHold();
+            const stale = fileWithShutWindow();
+            store.put(recent);
+            store.put(stale);
+            const queue = await call('GET', '/queue', 'Ben.Real@handyservices.app');
+            expect(queue.status).toBe(200);
+            // The 2019 quote and the 2020 hold both sit at the office clock's ceiling, so the older start leads; the two fresh ones follow by start time.
+            expect(queue.json.items.map((i: any) => i.id)).toEqual(['price:oldquote', stale.id, recent.id, 'price:newquote']);
+            expect(queue.json.items.map((i: any) => i.kind)).toEqual(['ready_to_price', 'held', 'held', 'ready_to_price']);
+            expect(queue.json.items[0]).toMatchObject({
+                kind: 'ready_to_price', slug: 'oldquote', customerName: 'Sam Old', job: 'a new tap', pricePath: '/admin/price/oldquote',
+                createdAt: '2019-06-03T09:00:00.000Z',
+            });
+            expect(queue.json).not.toHaveProperty('priceQueueError');
+
+            // A mode filter names a case file's mode, which a quote draft has not got.
+            const filtered = await call('GET', '/queue?mode=sandbox', 'Ben.Real@handyservices.app');
+            expect(filtered.json.items.map((i: any) => i.kind)).toEqual(['held', 'held']);
+        } finally {
+            await close();
+        }
+    });
+
+    it('/queue still returns the holds, and says so, when the price queue read fails', async () => {
+        const { store, call, close } = await harness(undefined, undefined, async () => { throw new Error('connection refused'); });
+        const errors: unknown[][] = [];
+        const original = console.error;
+        console.error = (...args: unknown[]) => { errors.push(args); };
+        try {
+            const held = fileWithDraftHold();
+            store.put(held);
+            const queue = await call('GET', '/queue', 'Ben.Real@handyservices.app');
+            expect(queue.status).toBe(200);
+            expect(queue.json.items.map((i: any) => i.id)).toEqual([held.id]);
+            expect(queue.json.priceQueueError).toBe('Could not load the quotes waiting to be priced');
+            expect(errors.some((a) => String(a[1]).includes('connection refused'))).toBe(true);
+        } finally {
+            console.error = original;
             await close();
         }
     });

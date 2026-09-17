@@ -14,7 +14,10 @@
  *                                    hostname check, failing towards hidden on any refusal reason
  * GET  /queue                     - Handy Desk's "Needs you" list (queue.ts): every held file, with
  *                                    its held draft and its office working-hours wait, longest first,
- *                                    with the same `viewer` as /board
+ *                                    with the same `viewer` as /board, and the quotes waiting to be
+ *                                    priced (spine/price-queue.ts) merged in as `ready_to_price`
+ *                                    items on the same clock; if that read fails the held items
+ *                                    still come back, with `priceQueueError`
  * GET  /case-files/:id            - one file's turns and facts, read-only, with the channel and
  *                                    window a reply from the thread would use
  * GET  /case-files/:id/template-offer - a dry run of send-template (desk/human-reply.ts
@@ -66,7 +69,8 @@
 import { Router, type Request, type Response } from 'express';
 import { readApproverAssignments, readStaffNames, slotOf, type ApproverAssignments, type ReadApproverAssignments, type ReadStaffNames } from './approvers';
 import { boardOf, cardOf, detailOf, type BoardMode } from './board';
-import { queueOf } from './queue';
+import { queueOf, withReadyToPrice } from './queue';
+import { loadPriceQueue, type PriceQueuePayload } from '../../spine/price-queue';
 import { boardSourceFor, commsV2BoardDoor, type BoardSource, type BoardSourceFor } from './store';
 import { release } from '../desk/case-file';
 import { humanReply, previewWindowTemplate, sendHeldDraft, sendWindowTemplate } from '../desk/human-reply';
@@ -93,7 +97,7 @@ export function viewerOf(req: Request, assignments: ApproverAssignments): BoardV
     return { approver: slot?.id ?? null, canAct: !!slot };
 }
 
-export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames, sandboxAvailable: () => boolean = () => commsV2DatabaseCheck(process.env).ok, ask: Omit<AskRouterDeps, 'source' | 'approvers'> = {}, templates?: TemplateStatusSource): Router {
+export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames, sandboxAvailable: () => boolean = () => commsV2DatabaseCheck(process.env).ok, ask: Omit<AskRouterDeps, 'source' | 'approvers'> = {}, templates?: TemplateStatusSource, priceQueue: () => Promise<PriceQueuePayload> = () => loadPriceQueue()): Router {
     const router = Router();
     /** The store this request reads (api/store.ts): the live desk's while it is live, else the sandbox door's. Null once a 503 has been sent. */
     const source = async (res: Response): Promise<BoardSource | null> => {
@@ -126,7 +130,19 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const src = await source(res);
         if (!src) return;
         const assignments = await approvers();
-        res.json({ ...queueOf(src.store.all(), { mode }, assignments), sandboxAvailable: sandboxAvailable(), viewer: viewerOf(req, assignments) });
+        const now = new Date();
+        let queue = queueOf(src.store.all(), { mode }, assignments, now);
+        let priceQueueError: string | undefined;
+        if (!mode) {
+            // A failed quote read must not hide the holds; it is logged at error level and named in the payload.
+            try {
+                queue = withReadyToPrice(queue, await priceQueue(), {}, now);
+            } catch (error: any) {
+                console.error('[comms-v2] queue: the price queue read failed:', error?.message ?? error);
+                priceQueueError = 'Could not load the quotes waiting to be priced';
+            }
+        }
+        res.json({ ...queue, ...(priceQueueError ? { priceQueueError } : {}), sandboxAvailable: sandboxAvailable(), viewer: viewerOf(req, assignments) });
     });
 
     router.get('/case-files/:id', async (req, res) => {

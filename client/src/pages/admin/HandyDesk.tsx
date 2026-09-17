@@ -10,6 +10,10 @@
  * refuses is shown on the card as it said it, and a shut WhatsApp window offers the template reply
  * the board offers.
  *
+ * A quote waiting to be priced (answer Q12) is a card in the same list, in the server's order. It is
+ * not a hold: its one action, "Open & price", goes to the price screen (/admin/price/:slug), and
+ * selecting it puts no conversation on the right.
+ *
  * Selecting a card sets the selected conversation (`DeskSelection`): the answer surface shows its
  * thread while idle, and the ask bar takes it as context. The mapping from a held file to the
  * card's copy lives in client/src/lib/handy-desk-queue.ts.
@@ -35,10 +39,10 @@ import { SurfaceBody } from '@/components/handy-desk/AnswerSurface';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import { exchangeOfAnswered, latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
-    ACTION_ROUTE, isShutWindow, needsWords, queueCardCopy, queueQuery, refusalMessage, selectionOf,
-    type DeskQueue, type DeskSelection, type QueueAction, type QueueItem,
+    ACTION_ROUTE, isReadyToPrice, isShutWindow, needsWords, queueCardCopy, queueQuery, readyToPriceCardCopy, refusalMessage, selectionOf,
+    type DeskQueue, type DeskSelection, type QueueAction, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
-import { useLocation } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import { QuickLinks, useHeldCount } from '@/components/layout/QuickLinks';
 import handyLogo from '@/assets/handy-logo.webp';
 
@@ -284,6 +288,32 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
     );
 }
 
+// ---------------------------------------------------------------- ready-to-price card
+
+export function ReadyToPriceCard({ item }: { item: ReadyToPriceItem }) {
+    const copy = readyToPriceCardCopy(item);
+    return (
+        <article
+            data-testid={`queue-card-${item.id}`}
+            data-kind="ready_to_price"
+            className="rounded-3xl border border-slate-800 bg-[#111c33] p-4 transition-colors duration-200 ease-[var(--ease-out)] hover:border-amber-400 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-[240ms]"
+        >
+            <div className="flex items-center gap-3">
+                <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-700 text-sm font-bold text-white">{copy.initials}</span>
+                <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-bold text-white">{copy.name}</span>
+                    {copy.sub && <span className="block truncate text-xs text-slate-400">{copy.sub}</span>}
+                </span>
+            </div>
+            <p data-testid={`queue-card-badge-${item.id}`} className={cn(EYEBROW, 'mt-3 text-slate-300')}>{copy.badge}</p>
+            <p data-testid={`queue-card-body-${item.id}`} className="mt-2 text-[13px] text-slate-300">{copy.body}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+                <Link href={copy.primary.href} className={PILL_PRIMARY}>{copy.primary.label}</Link>
+            </div>
+        </article>
+    );
+}
+
 // ---------------------------------------------------------------- answer surface (idle: the selected thread)
 
 function SelectedThread({ selection }: { selection: DeskSelection }) {
@@ -406,7 +436,10 @@ export default function HandyDesk() {
                     <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
                         {isLoading ? '…' : `${items.length} ${items.length === 1 ? 'thing' : 'things'}`}
                     </p>
-                    <p className="mt-1 text-[13px] text-slate-400">Held by the desk, longest wait in working hours first.</p>
+                    <p className="mt-1 text-[13px] text-slate-400">Held replies and quotes to price, longest wait in working hours first.</p>
+                    {data?.priceQueueError && (
+                        <p role="alert" data-testid="handy-desk-price-error" className="mt-2 text-xs text-red-300">{data.priceQueueError}. Held replies are still listed.</p>
+                    )}
 
                     <div className="mt-5 space-y-3">
                         {error ? (
@@ -416,7 +449,9 @@ export default function HandyDesk() {
                         ) : items.length === 0 ? (
                             <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">Nothing needs you.</p>
                         ) : (
-                            items.map((item) => (
+                            items.map((item) => isReadyToPrice(item) ? (
+                                <ReadyToPriceCard key={item.id} item={item} />
+                            ) : (
                                 <QueueCard
                                     key={item.id}
                                     item={item}
