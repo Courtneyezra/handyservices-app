@@ -8,8 +8,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CONFIRM_KINDS } from '@shared/ops-types';
 import { hold as setHold, type ApproverSlot } from '../desk/case-file';
 import { BEN } from '../desk/guards';
+import { PRODUCTION_DB_HOST_MARKER } from '../../worker-gate';
 import {
-    MemoryAskActionStore, PREVIEW_CHANGED, PROPOSAL_TTL_MS, cancelAction, confirmAction, expiryFor, nextLondonMidnight, previewHash, proposeAction,
+    MemoryAskActionStore, PREVIEW_CHANGED, PROPOSAL_TTL_MS, cancelAction, confirmAction, expiryFor, nextLondonMidnight, proposalTtlMs, previewHash, proposeAction,
     type ActionDeps, type ProposeInput,
 } from './actions';
 import { ACTION_KINDS, type ActionKindDef, type ActionKinds } from './action-kinds';
@@ -110,6 +111,19 @@ describe('proposing', () => {
         expect(nextLondonMidnight(new Date('2026-10-25T12:00:00Z')).toISOString()).toBe('2026-10-26T00:00:00.000Z');
         // And forward on 29 Mar 2026.
         expect(nextLondonMidnight(new Date('2026-03-29T12:00:00Z')).toISOString()).toBe('2026-03-29T23:00:00.000Z');
+    });
+});
+
+describe('the proposal window', () => {
+    const prod = `postgres://u:p@${PRODUCTION_DB_HOST_MARKER}-pooler.example.neon.tech/db`;
+    it('is 15 minutes unless a non-production process shortens it', () => {
+        expect(proposalTtlMs({})).toBe(15 * 60_000);
+        expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: '60', DATABASE_URL: 'postgres://u:p@branch-host/db' })).toBe(60_000);
+        expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: '60' })).toBe(60_000);
+        // Never longer, never nonsense.
+        for (const v of ['3600', '900', '0', '-5', '1.5', 'soon', ' ']) expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: v })).toBe(15 * 60_000);
+        expect(expiryFor(new Date('2026-09-17T12:00:00Z'), 60_000).toISOString()).toBe('2026-09-17T12:01:00.000Z');
+        expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: '60', DATABASE_URL: prod })).toBe(15 * 60_000);
     });
 });
 

@@ -31,10 +31,27 @@ import type { AskActionDTO, AskActionStatus, ConfirmKind, OpsOutgoing } from '@s
 import { approverLabel, recordSystemTurn, sameApprover, type ApproverSlot, type CaseFile } from '../desk/case-file';
 import { approverFor } from '../desk/guards';
 import { humanApprover } from '../../approver';
+import { isProductionDatabaseUrl } from '../../worker-gate';
 import type { BoardSource } from '../api/store';
 import { ACTION_KINDS, type ActionKinds } from './action-kinds';
 
 export const PROPOSAL_TTL_MS = 15 * 60_000;
+
+/**
+ * A shorter proposal window for a sandbox or branch run, in whole seconds, so a live check of the
+ * expiry does not wait out 15 minutes. It can only shorten the window, and it is ignored on a
+ * process whose DATABASE_URL is production.
+ */
+export const PROPOSAL_TTL_ENV = 'COMMS_V2_ASK_PROPOSAL_TTL_SECONDS';
+
+/** The proposal window this process uses: 15 minutes, or the shorter non-production override. */
+export function proposalTtlMs(env: NodeJS.ProcessEnv = process.env): number {
+    const raw = env[PROPOSAL_TTL_ENV]?.trim();
+    if (!raw || isProductionDatabaseUrl(env.DATABASE_URL)) return PROPOSAL_TTL_MS;
+    if (!/^\d+$/.test(raw)) return PROPOSAL_TTL_MS;
+    const ms = Number(raw) * 1000;
+    return ms >= 1000 && ms < PROPOSAL_TTL_MS ? ms : PROPOSAL_TTL_MS;
+}
 
 /** The refusal when what a proposal would do is no longer what Ben was shown. */
 export const PREVIEW_CHANGED = 'what this would do has changed since you saw it, so nothing was done; ask again for a fresh preview';
@@ -115,9 +132,9 @@ export function nextLondonMidnight(at: Date): Date {
     return next;
 }
 
-/** When a proposal made now stops being confirmable: 15 minutes on, or London midnight if sooner. */
-export function expiryFor(at: Date): Date {
-    const ttl = new Date(at.getTime() + PROPOSAL_TTL_MS);
+/** When a proposal made now stops being confirmable: the window on (15 minutes, `proposalTtlMs`), or London midnight if sooner. */
+export function expiryFor(at: Date, ttlMs: number = proposalTtlMs()): Date {
+    const ttl = new Date(at.getTime() + ttlMs);
     const midnight = nextLondonMidnight(at);
     return ttl < midnight ? ttl : midnight;
 }
