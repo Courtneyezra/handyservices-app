@@ -428,6 +428,21 @@ quote, and closes when that quote's own events arrive. Only files not yet done, 
 intake's store and only while the new desk is the live desk (`commsV2Live`). Each call is awaited
 after the event's own write and never throws into it; no log line carries a value from a file.
 
+### A stale quote closes itself after 30 days
+
+17 Sep, answer 125, "Close after 30 days": a quoted customer who was never booked kept an open file
+forever, so a return months later with a different job landed on the old file and was refused with "a
+quote already stands". A file at `quoted`, not held for Ben, whose quote has stood unanswered for
+`STALE_QUOTE_CLOSE_DAYS` (30, `file-close.ts`) closes as `done`, recorded on the stage change with why.
+Measured from the file's own record of when its current quote went out - the newest stage move to
+`quoted` in `stageHistory` (`quotedAt`) - not from the quote row, which carries no send timestamp of its
+own. `accepted` and `booked` files have moved past `quoted`, so they, and a file held for Ben, are never
+touched (`staleQuoteDue`); a held file stays in front of him. Run by the live clock tick
+(`closeStaleQuotes`, called from `channels/live-clock.ts`'s `liveClockTick`) over every live file each
+minute, not a scheduler of its own - the same tick that runs the chase. As with the events above: only
+the live intake's store, only while the new desk is the live desk, never throws into the tick, and the
+customer's next message then opens a fresh file.
+
 A closed file is never where the person's next message lands (`desk/store.ts` `newestOpenFor`): that
 message opens a new file with no job type, location, quote or facts, so Scoping starts the new job
 from nothing and Quoting drafts its own quote rather than refusing beside the old one ("a quote

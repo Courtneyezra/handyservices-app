@@ -15,7 +15,7 @@ import { recordingNotifier } from './quoting/ben-notifier';
 import { FakeDrafter, type DraftIntake } from './quoting/draft-quote';
 import { MemoryQuoteStore } from './quoting/quote-store';
 import { draftQuote, type QuotingDeps } from './quoting/quoting-tools';
-import { closeByHand, closeLiveFileForQuote, fileBooked, fileDone, type FileCloseDeps } from './file-close';
+import { closeByHand, closeLiveFileForQuote, closeStaleQuotes, fileBooked, fileDone, STALE_QUOTE_CLOSE_DAYS, staleQuoteDue, type FileCloseDeps, type StaleQuoteDeps } from './file-close';
 import { MemoryDiary } from './scheduling/diary';
 import { pickerLink } from './scheduling/scheduling-tools';
 
@@ -332,6 +332,85 @@ describe('the automatic close on live events', () => {
         const broken = live([file], { throws: true, slug: 'Q1' });
         await expect(closeLiveFileForQuote({ quoteId: 'q1', to: 'booked', why: 'x' }, broken.deps)).resolves.toEqual({ closed: [], skipped: 'failed' });
         expect(broken.lines.join('\n')).toMatch(/failed: gateway down/);
+    });
+});
+
+// ---------------------------------------------------------------- stale quote close (answer 125)
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const daysAgo = (n: number) => new Date(Date.parse(AT) - n * DAY_MS).toISOString();
+
+/** A file walked to quoted, its quote sent at the given time (not the walk's own AT). */
+function quotedFile(personId: string, sentAt: string, opened = AT): CaseFile {
+    const file = fileFor(personId, 'ready', opened);
+    const moved = setStage(file, 'quoted', 'quote sent', { now: () => new Date(sentAt) });
+    if (!moved.ok) throw new Error(moved.reason);
+    return file;
+}
+
+function staleDeps(files: CaseFile[]): { deps: StaleQuoteDeps; store: MemoryCaseFileStore } {
+    const store = new MemoryCaseFileStore();
+    for (const f of files) store.put(f);
+    return { deps: { liveState: async () => ({ live: true }), store: async () => store, now }, store };
+}
+
+describe('closeStaleQuotes (17 Sep, answer 125, "Close after 30 days")', () => {
+    it('STALE_QUOTE_CLOSE_DAYS is 30', () => {
+        expect(STALE_QUOTE_CLOSE_DAYS).toBe(30);
+    });
+
+    it('a quote sent 29 days ago stays open; one sent 31 days ago closes as done', async () => {
+        const fresh = quotedFile('p1', daysAgo(29));
+        const stale = quotedFile('p2', daysAgo(31));
+        expect(staleQuoteDue(fresh, new Date(AT))).toBe(false);
+        expect(staleQuoteDue(stale, new Date(AT))).toBe(true);
+        const { deps } = staleDeps([fresh, stale]);
+        const out = await closeStaleQuotes(deps);
+        expect(out.closed).toEqual([{ caseId: stale.id, to: 'done' }]);
+        expect(stale.stage).toBe('done');
+        expect(stale.stageHistory[stale.stageHistory.length - 1]).toMatchObject({ from: 'quoted', to: 'done' });
+        expect(fresh.stage).toBe('quoted');
+    });
+
+    it('an accepted quote is never auto-closed', async () => {
+        const file = quotedFile('p1', daysAgo(40));
+        setStage(file, 'accepted', 'the customer accepted');
+        const { deps } = staleDeps([file]);
+        expect((await closeStaleQuotes(deps)).closed).toEqual([]);
+        expect(file.stage).toBe('accepted');
+    });
+
+    it('a file with a booking is never auto-closed', async () => {
+        const file = quotedFile('p1', daysAgo(40));
+        expect(closeFile(file, 'booked', { why: 'test', bookingRef: 'bk1' }).ok).toBe(true);
+        const { deps } = staleDeps([file]);
+        expect((await closeStaleQuotes(deps)).closed).toEqual([]);
+        expect(file.stage).toBe('booked');
+    });
+
+    it('a file held for Ben is never auto-closed, and stays in front of him', async () => {
+        const file = quotedFile('p1', daysAgo(40));
+        hold(file, { approver: BEN, reason: 'money: how much' });
+        const { deps } = staleDeps([file]);
+        expect((await closeStaleQuotes(deps)).closed).toEqual([]);
+        expect(file.stage).toBe('quoted');
+        expect(file.hold).not.toBeNull();
+    });
+
+    it('a later enquiry from the same customer after the stale close opens a fresh file', async () => {
+        const g = new Gateway({ desk: fakeDesk });
+        const quoting = quotingDeps();
+        const old = await quotedThread(g, quoting);
+        old.stageHistory[old.stageHistory.length - 1].at = daysAgo(31);
+        const deps: StaleQuoteDeps = { liveState: async () => ({ live: true }), store: async () => g.store, now, log: () => {} };
+        expect((await closeStaleQuotes(deps)).closed).toEqual([{ caseId: old.id, to: 'done' }]);
+        expect(old.stage).toBe('done');
+
+        const next = await g.inbound(turn('Hi again, can you fix a fence? NG9 2AB', '2026-10-20T09:00:00.000Z'));
+        if (next.kind !== 'handled') throw new Error(next.kind);
+        expect(next.file.id).not.toBe(old.id);
+        expect(next.file.stage).toBe('first_contact');
+        expect(next.file.job).toEqual({ type: null, location: null, quoteRef: null, bookingRef: null });
     });
 });
 

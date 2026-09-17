@@ -7,6 +7,9 @@
  * template sends under their own purpose, service/chase.ts). Without this caller no chase would
  * ever fire on a live thread: the sandbox door's `/run` is the only other one.
  *
+ * The same tick also closes a stale quote (answer 125, `../file-close.ts` `closeStaleQuotes`): a
+ * quoted file nobody has answered for 30 days, held files excepted. No scheduler of its own.
+ *
  * Registered by server/cron.ts behind `gateCustomerLoop`, so only a `COMMS_WORKER=1` process runs
  * it, and every tick asks `commsV2Live()` first (which also requires the worker), so with any switch
  * off a tick does nothing at all. Ticks never overlap: one still running when the next is due is
@@ -14,23 +17,25 @@
  */
 import type { CaseFile } from '../desk/case-file';
 import type { DeskResult } from '../desk/desk-types';
+import { closeStaleQuotes } from '../file-close';
 import { draftToRecover } from '../quoting/background-draft';
 
 export const LIVE_CLOCK_CRON = '* * * * *';
 
 /** What the tick needs from the intake's gateway. */
 export interface ClockableGateway {
-    store: { all(): CaseFile[] };
+    store: { all(): CaseFile[]; put(file: CaseFile): void };
     clock(fileId: string): Promise<DeskResult | null>;
 }
 
 export interface LiveClockDeps {
     liveState?: () => Promise<{ live: boolean; off: string[] }>;
     gateway?: () => Promise<ClockableGateway>;
+    now?: () => Date;
     log?: (line: string) => void;
 }
 
-export interface LiveClockTick { ran: boolean; off: string[]; files: number; chased: number; refused: number; errors: number }
+export interface LiveClockTick { ran: boolean; off: string[]; files: number; chased: number; refused: number; errors: number; staleClosed: number }
 
 /**
  * A file a clock pass can do something for: held (Ben's chase), carrying a quote (the unpriced
@@ -48,8 +53,9 @@ export async function liveClockTick(deps: LiveClockDeps = {}): Promise<LiveClock
     const log = deps.log ?? ((line: string) => console.log(`[comms-v2 clock] ${line}`));
     const readState = deps.liveState ?? (async () => (await import('../switch')).commsV2LiveState());
     const state = await readState();
-    if (!state.live) return { ran: false, off: state.off, files: 0, chased: 0, refused: 0, errors: 0 };
+    if (!state.live) return { ran: false, off: state.off, files: 0, chased: 0, refused: 0, errors: 0, staleClosed: 0 };
     const gateway = await (deps.gateway ?? (async () => (await import('./intake')).liveChannelGateway()))();
+    const stale = await closeStaleQuotes({ liveState: async () => ({ live: true }), store: async () => gateway.store, now: deps.now, log });
     const due = gateway.store.all().filter(clockDue);
     let chased = 0;
     let refused = 0;
@@ -65,7 +71,7 @@ export async function liveClockTick(deps: LiveClockDeps = {}): Promise<LiveClock
         }
     }
     if (chased || refused || errors) log(`${due.length} file(s) passed: ${chased} chase(s) sent, ${refused} refused, ${errors} failed`);
-    return { ran: true, off: [], files: due.length, chased, refused, errors };
+    return { ran: true, off: [], files: due.length, chased, refused, errors, staleClosed: stale.closed.length };
 }
 
 let ticking = false;
