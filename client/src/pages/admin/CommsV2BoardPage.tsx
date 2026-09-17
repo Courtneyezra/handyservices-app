@@ -1,7 +1,8 @@
 /**
- * Ben's desk, kanban style (Goal 2 of the clean-sheet comms desk rebuild). One column per
- * Contract 2 stage, read from GET /api/comms-v2/board. Held cards float to the top of their
- * column with the hold reason and approver visible; a tap opens the file as a live conversation
+ * Ben's comms board (Goal 2 of the clean-sheet comms desk rebuild), recreated from the Handy Desk
+ * mock-up with a Kanban / Floor toggle (the views are `@/components/comms-board/BoardViews`). One
+ * column per Contract 2 stage, read from GET /api/comms-v2/board. Held cards float to the top of
+ * their column with the hold reason and approver visible; a tap opens the file as a live conversation
  * (Firstmate decision hsa-comms-v2-board-conversation-view): thread first, customer turns on one
  * side and the desk's or a staff member's (by name, not by raw approver) on the other, each
  * turn's own media shown inline, with the release/answer actions docked beneath the newest turn,
@@ -23,10 +24,9 @@
  * send (POST /case-files/:id/send-template) only when one's wording is true for the thread; when
  * none is, it says so rather than offering a retry.
  *
- * Not polished, just visible and operable: it doubles as the window onto the sandbox while the
- * rest of the desk is built, so the header carries a control that starts a sandbox thread and
- * sends the next customer message through the board's own sandbox door. The board itself polls
- * every fifteen seconds; no websockets.
+ * It doubles as the window onto the sandbox while the rest of the desk is built, so the header
+ * carries a control that starts a sandbox thread and sends the next customer message through the
+ * board's own sandbox door. The board itself polls every fifteen seconds; no websockets.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
