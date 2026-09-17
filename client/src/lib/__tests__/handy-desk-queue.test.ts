@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     ACTION_ROUTE, displayName, formatWait, initialsOf, isShutWindow, needsWords, queueCardCopy,
-    queueQuery, refusalMessage, selectionOf, type QueueItem,
+    queueQuery, refusalMessage, selectionOf, updatedAgoLabel, type QueueItem,
 } from '@/lib/handy-desk-queue';
 
 function item(over: Partial<QueueItem> = {}): QueueItem {
@@ -120,5 +120,16 @@ describe('selectionOf and queueQuery', () => {
     it('reads the new desk\'s queue, never the old /api/desk', () => {
         expect(queueQuery()).toBe('/api/comms-v2/queue');
         expect(queueQuery('live')).toBe('/api/comms-v2/queue?mode=live');
+    });
+});
+
+describe('updatedAgoLabel (B1 top bar)', () => {
+    it('reads "just now" under a second, seconds under a minute, then minutes', () => {
+        expect(updatedAgoLabel(0)).toBe('Updated just now');
+        expect(updatedAgoLabel(0.4)).toBe('Updated just now');
+        expect(updatedAgoLabel(8)).toBe('Updated 8s ago');
+        expect(updatedAgoLabel(59)).toBe('Updated 59s ago');
+        expect(updatedAgoLabel(65)).toBe('Updated 1m ago');
+        expect(updatedAgoLabel(Number.NaN)).toBe('Updated just now');
     });
 });

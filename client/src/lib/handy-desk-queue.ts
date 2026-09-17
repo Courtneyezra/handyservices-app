@@ -130,3 +130,10 @@ export function selectionOf(item: QueueItem): DeskSelection {
 export function queueQuery(mode: 'all' | 'sandbox' | 'live' = 'all'): string {
     return mode === 'all' ? '/api/comms-v2/queue' : `/api/comms-v2/queue?mode=${mode}`;
 }
+
+/** "Updated 8s ago" for the top bar (B1), from the queue query's own `dataUpdatedAt`. */
+export function updatedAgoLabel(secondsAgo: number): string {
+    if (!Number.isFinite(secondsAgo) || secondsAgo < 1) return 'Updated just now';
+    if (secondsAgo < 60) return `Updated ${Math.floor(secondsAgo)}s ago`;
+    return `Updated ${Math.floor(secondsAgo / 60)}m ago`;
+}

@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, ChevronDown, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList, HardHat, Bot, Activity, ListTodo, FlaskConical } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { usePriceQueue, hasAdminToken } from "@/hooks/usePriceQueue";
+import { usePriceQueue, hasAdminToken, adminAuthHeaders } from "@/hooks/usePriceQueue";
 import { useVisionHealth, visionBadge } from "@/hooks/useVisionHealth";
 import { useKnowledgeBase } from "@/hooks/useKnowledgeBase";
 import { useOldComms, NEW_BOARD_PATH, CONTRACTOR_LANE_PATH } from "@/hooks/useOldComms";
+import { queueQuery, updatedAgoLabel, type DeskQueue } from "@/lib/handy-desk-queue";
 
 import InstallPrompt from "@/components/InstallPrompt";
 import OpsDock from "@/components/ops/OpsDock";
@@ -15,6 +16,88 @@ import handyLogo from "@/assets/handy-logo.webp";
 
 interface SidebarLayoutProps {
     children: React.ReactNode;
+}
+
+/**
+ * B1 — the shell header's quick access to the three Handy Desk destinations (Design export
+ * "Comms Board.dc.html" §1). Diary has no admin page yet (task B6), so it ships disabled as
+ * "Coming soon". Held colour is amber (captain's answer 95). Rendered once for the desktop header
+ * and once, vertically, for the sub-1024px slide-out — same links, same test ids plus a variant
+ * suffix so a test can tell them apart.
+ */
+function UpdatedAgo({ updatedAt, className, testId }: { updatedAt: number; className: string; testId: string }) {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(id);
+    }, []);
+    return (
+        <span data-testid={testId} className={className}>
+            {updatedAgoLabel((now - updatedAt) / 1000)}
+        </span>
+    );
+}
+
+function TopBarQuickLinks({ variant, location, heldCount, updatedAt, onNavigate }: {
+    variant: 'desktop' | 'mobile';
+    location: string;
+    heldCount: number | null;
+    updatedAt: number;
+    onNavigate?: () => void;
+}) {
+    const vertical = variant === 'mobile';
+    const linkClass = (active: boolean) => cn(
+        "flex items-center gap-1.5 rounded-md text-sm font-medium transition-colors",
+        vertical ? "px-3 py-2.5" : "px-3 py-2",
+        active ? "bg-slate-900 text-amber-400" : "text-muted-foreground hover:text-foreground hover:bg-muted",
+    );
+    return (
+        <nav
+            data-testid={`topbar-quick-links-${variant}`}
+            className={cn("flex items-center gap-1", vertical ? "flex-col items-stretch gap-1" : "")}
+        >
+            <Link
+                href="/admin/handy-desk"
+                data-testid={`topbar-link-handy-desk-${variant}`}
+                onClick={onNavigate}
+                className={linkClass(location === "/admin/handy-desk")}
+            >
+                <Sparkles className="w-4 h-4" /> Handy Desk
+            </Link>
+            <span
+                title="Coming soon"
+                aria-disabled="true"
+                data-testid={`topbar-link-diary-${variant}`}
+                className={cn(
+                    "flex cursor-not-allowed items-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground/50",
+                    vertical ? "px-3 py-2.5" : "px-3 py-2",
+                )}
+            >
+                <Calendar className="w-4 h-4" /> Diary
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Coming soon</span>
+            </span>
+            <Link
+                href={NEW_BOARD_PATH}
+                data-testid={`topbar-link-comms-board-${variant}`}
+                onClick={onNavigate}
+                className={linkClass(location === NEW_BOARD_PATH)}
+            >
+                <Kanban className="w-4 h-4" /> Comms board
+                {heldCount !== null && heldCount > 0 && (
+                    <span data-testid={`topbar-held-badge-${variant}`} className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        {heldCount}
+                    </span>
+                )}
+            </Link>
+            {updatedAt > 0 && (
+                <UpdatedAgo
+                    updatedAt={updatedAt}
+                    testId={`topbar-updated-${variant}`}
+                    className={cn("text-xs text-muted-foreground", vertical ? "px-3 pt-1" : "ml-1 hidden xl:inline")}
+                />
+            )}
+        </nav>
+    );
 }
 
 export default function SidebarLayout({ children }: SidebarLayoutProps) {
@@ -94,6 +177,22 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const { data: oldComms } = useOldComms({ enabled: hasAdminToken() });
     const commsRetired = oldComms?.retired === true;
 
+    // B1: the shell header's quick-access held-count badge on "Comms board" and its "Updated Ns
+    // ago". Same query key and interval as Handy Desk's own queue (client/src/lib/handy-desk-queue.ts),
+    // so the two pages share one cached fetch; queue items are exactly the held case files, so
+    // items.length is the held count (server/comms-v2/api/queue.ts).
+    const { data: topbarQueue, dataUpdatedAt: topbarQueueUpdatedAt } = useQuery<DeskQueue>({
+        queryKey: ['comms-v2-queue'],
+        queryFn: async () => {
+            const res = await fetch(queueQuery(), { headers: adminAuthHeaders() });
+            if (!res.ok) throw new Error(`Failed to load the queue (${res.status})`);
+            return res.json();
+        },
+        enabled: hasAdminToken() && !isVA,
+        refetchInterval: 15_000,
+    });
+    const heldCount = topbarQueue ? topbarQueue.items.length : null;
+
     // Persist collapse state
     useEffect(() => {
         localStorage.setItem('sidebar-collapsed', String(isCollapsed));
@@ -130,6 +229,20 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         </div>
                     )}
                 </div>
+
+                {/* B1: same three quick-access links as the desktop header, shown only in this
+                    aside's sub-1024px slide-out form (the desktop header already carries them). */}
+                {!isVA && !isCollapsed && (
+                    <div className="border-b border-border/50 px-4 pb-3 lg:hidden">
+                        <TopBarQuickLinks
+                            variant="mobile"
+                            location={location}
+                            heldCount={heldCount}
+                            updatedAt={topbarQueueUpdatedAt}
+                            onNavigate={() => setIsSidebarOpen(false)}
+                        />
+                    </div>
+                )}
 
                 {/* Collapse Toggle Button - Desktop only */}
                 <button
@@ -398,6 +511,16 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                 <span className="font-normal text-[10px] text-muted-foreground">Services</span>
                             </div>
                         </div>
+                        {!isVA && (
+                            <div className="hidden lg:block">
+                                <TopBarQuickLinks
+                                    variant="desktop"
+                                    location={location}
+                                    heldCount={heldCount}
+                                    updatedAt={topbarQueueUpdatedAt}
+                                />
+                            </div>
+                        )}
                     </div>
                     <div className="flex items-center gap-2 lg:gap-4">
                         {isVA ? (
