@@ -1,11 +1,12 @@
 /**
  * The door host's refusal rules: no branch string, no door; a production string, no door;
  * DATABASE_URL is never read and is overwritten with the branch string; no message carries a
- * value.
+ * value. Plus the deps it builds the sandbox router with: the desk's log reaches the door's stdout,
+ * which is the only place a held turn's reason is said.
  */
 import { describe, expect, it } from 'vitest';
 import { PRODUCTION_DB_HOST_MARKER } from '../../worker-gate';
-import { COMMS_V2_DATABASE_ENV, DOOR_MOUNT, DoorHostError, prepareDoorEnv, resolveCommsV2Database } from './door-host';
+import { COMMS_V2_DATABASE_ENV, DOOR_MOUNT, DoorHostError, doorRouterDeps, prepareDoorEnv, resolveCommsV2Database } from './door-host';
 
 const BRANCH = 'postgres://user:secret@ep-branch-example.eu-west-2.aws.neon.tech/neondb';
 const PROD = `postgres://user:secret@${PRODUCTION_DB_HOST_MARKER}-a1b2.eu-west-2.aws.neon.tech/neondb`;
@@ -53,5 +54,21 @@ describe('prepareDoorEnv', () => {
     });
     it('mounts where the desk\'s door test mounts', () => {
         expect(DOOR_MOUNT).toBe('/api/comms-v2-sandbox');
+    });
+});
+
+describe('doorRouterDeps', () => {
+    it('gives the desk a log, so a held turn says why on the door\'s stdout', () => {
+        const written: string[] = [];
+        const deps = doorRouterDeps(() => null, (line) => written.push(line));
+        expect(deps.log).toBeTypeOf('function');
+        deps.log!('router: 400 the provider refused the call (held for Ben)');
+        expect(written).toEqual(['[desk] router: 400 the provider refused the call (held for Ben)']);
+    });
+
+    it('keeps the approver it is given', async () => {
+        const slot = { kind: 'human' as const, id: 'ben' };
+        const deps = doorRouterDeps(() => slot);
+        expect(await deps.approver!({} as never)).toBe(slot);
     });
 });

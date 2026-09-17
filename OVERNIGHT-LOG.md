@@ -4,6 +4,16 @@ One line per round: the scenario, what happened, and the fix (or "no issue").
 An `ESCALATE:` line at the top of this file is a live compliance or money finding, added on the
 round it was found.
 
+NOTE: (round 13, 17 Sep 2026, 23:26 UTC) — **the Anthropic API for this environment is out of
+credit**, so no further live model turns can be driven tonight: every customer turn now comes back
+`router_failed` and holds for Ben with the fixed acknowledgement ("Thanks, leave it with me and I'll
+come back to you."). The provider's own words, captured on the door's log this round: `router: 400
+{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to
+access the Anthropic API..."}} (held for Ben)`. That is the desk behaving exactly as designed (a
+reading that failed cannot rule out a complaint or a refund, `server/comms-v2/desk/desk.ts:393`, and
+model-health pages on a `provider` failure), not a fault — but a later round must not read a
+`router_failed` hold as a product bug until credit is back.
+
 ESCALATE: (round 10, 17 Sep 2026) — **a customer who had just paid was answered as a brand new
 enquiry.** `POST /api/leads` is the web form's route, but it is not only the web form's: the
 personalized quote page posts a lead the moment Stripe has taken the money
@@ -384,3 +394,27 @@ round (below).
   since, so after the customer wrote again and the desk's fresh reply confirmed the deposit, the
   older draft on the same hold still said it too. Sending it is Ben's own call and his words are
   never checked (answer 43), so this is left as recorded behaviour.
+- Round 13 (17 Sep 2026) — a plain thanks after the quote is promised (answer 90), WhatsApp, driven
+  on the app's own comms-v2 sandbox door (Aoife, a radiator come loose off the wall and a towel rail
+  pulled out of the plaster, first floor bathroom, Sherwood NG5). **No issue on the behaviour.** The
+  thread ran enquiry → one scoping question (wall type, with a photo offered once) → one access
+  question → the wrap-up *"Brilliant, thanks Aoife, driveway parking and someone in during the day
+  makes life easy." / "That's everything I need for now. I'll put the quote together and send it over
+  to you here."*; the customer's bare "Thanks 🙏" then drew exactly one short bubble, *"No worries
+  Aoife 👍"*, routed `turnKind: acknowledgement`, all eight guards passing, with no repeat of the
+  quote promise and no second wrap-up. Bubble counts held throughout (3, 2, 2, 1).
+  What the round did find is on the door itself, not the desk: the desk says why it held a turn
+  **only** through `DeskDeps.log` (`server/comms-v2/desk/desk.ts:372`, `:394`), and the door host
+  passed none (`server/comms-v2/desk/door-host.ts:89`), so that log was a no-op and a `router_failed`
+  hold arrived on a drive with no reason attached at all — the response carries the fixed hold
+  wording and nothing else. The next turn of this very round held that way, and the only way to tell
+  whether the desk had misread a polite "Brilliant, thanks again. Looking forward to seeing the
+  quote." or the provider had simply gone down was to wire the log up. Fix: `doorRouterDeps`
+  (`server/comms-v2/desk/door-host.ts`) gives the sandbox router the desk's log on the door's stdout,
+  one line prefixed `[desk]`, with two tests in `desk/door-host.test.ts` pinning the log and the
+  approver it is built with. Re-driven live on a fresh door: the same turn now prints its reason, and
+  it was the provider — this environment's Anthropic credit had run out mid-round (the NOTE at the
+  top of this file). The app-mounted copy of the same door (`commsV2BoardDoor()` in
+  `server/comms-v2/api/store.ts:26`, built with `{}` from `server/index.ts:522`) is still silent the
+  same way; left alone this round because that singleton is built by whichever caller reaches it
+  first.
