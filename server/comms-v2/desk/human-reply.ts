@@ -32,7 +32,7 @@ import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
 import { approverFor } from './guards';
 import { clauseAsks, offersCall } from './lexicon';
-import { chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateStatusSource } from './sender';
+import { chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { humanApprover, type Approver } from '../../approver';
 import { truncateWords } from '../channels/envelope';
 
@@ -79,6 +79,25 @@ function lastCustomerTurn(file: CaseFile, partyId: string): Turn | null {
 }
 
 /**
+ * Where a person's reply on this file would go: the customer, the turn it answers, the channel the
+ * sender would choose and that channel's window. The one routing read behind `humanReply`,
+ * `sendWindowTemplate` and the board's detail (api/board.ts `detailOf`), so the thread's header can
+ * never name a channel or a window the send would not use. Refuses with the send's own words.
+ */
+export type ReplyRoute =
+    | { ok: true; party: Party; turn: Turn; channel: ReplyChannel; window: WindowState }
+    | { ok: false; reason: string };
+
+export function replyRouteOf(file: CaseFile, now: Date): ReplyRoute {
+    const party: Party = file.parties.find((p) => p.role !== 'internal') ?? file.parties[0];
+    const turn = party ? lastCustomerTurn(file, party.personId) : null;
+    if (!turn) return { ok: false, reason: 'no customer turn to answer' };
+    const choice = chooseChannel(party, turn.channel, now);
+    if (!choice.ok) return { ok: false, reason: choice.reason };
+    return { ok: true, party, turn, channel: choice.channel, window: windowOf(party, choice.channel, now) };
+}
+
+/**
  * Ben's reply to the customer, through the one sender. Refuses: no words; a rule-based approver;
  * a slot that is not the one this file answers to, its hold's approver when one stands and
  * `approverFor`'s slot otherwise; no customer turn to answer; a render the sender refuses (over the
@@ -90,7 +109,6 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     const runId = `run_${randomUUID()}`;
     const { file, approver } = input;
     const words = input.words.replace(/\r\n/g, '\n').trim();
-    const party: Party = file.parties.find((p) => p.role !== 'internal') ?? file.parties[0];
     const fileDeps: CaseFileDeps = { now, newId: deps.newId };
     const refuse = (reason: string): HumanReplyOutcome => ({ ok: false, reason });
 
@@ -98,28 +116,26 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
     if (!words) return refuse('a reply needs words');
     const owner = file.hold?.approver ?? approverFor(file, null);
     if (!sameApprover(owner, approver)) return refuse(`only ${approverLabel(owner)} may answer this file`);
-    const turn = lastCustomerTurn(file, party.personId);
-    if (!turn) return refuse('no customer turn to answer');
+    // Channel, render, window: as the sender renders a composed reply, with nothing reflowed or rewritten.
+    const route = replyRouteOf(file, now());
+    if (!route.ok) return refuse(route.reason);
+    const { party, channel, window } = route;
     const approverName = humanApprover(input.person);
 
-    // Channel, render, window: as the sender renders a composed reply, with nothing reflowed or rewritten.
-    const choice = chooseChannel(party, turn.channel, now());
-    if (!choice.ok) return refuse(choice.reason);
-    let rendered = render(choice.channel, words, input.deskDraft ? { name: party.name } : { asTyped: true });
-    if (input.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(choice.channel, words, { name: party.name, softWidth: true });
-    if (input.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(choice.channel, words, { asTyped: true });
+    let rendered = render(channel, words, input.deskDraft ? { name: party.name } : { asTyped: true });
+    if (input.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(channel, words, { name: party.name, softWidth: true });
+    if (input.deskDraft && !rendered.ok && rendered.reason === 'ceiling') rendered = render(channel, words, { asTyped: true });
     if (!rendered.ok) {
         if (rendered.reason === 'empty') return refuse('the reply rendered to nothing');
-        const over = shortenBriefFor(choice.channel, words, rendered.bubbles);
+        const over = shortenBriefFor(channel, words, rendered.bubbles);
         return refuse(over.channel === 'sms'
             ? `the reply comes to ${over.measured} segments, over the ${over.ceiling} one text message may use; about ${over.charBudget} characters fit, and one curly quote or dash halves that, so plain punctuation buys room`
             : `the reply renders to ${over.measured} bubbles, over the ceiling of ${over.ceiling}; shorten it or use fewer blank lines`);
     }
-    const window = windowOf(party, choice.channel, now());
-    if (window.state === 'shut') return refuse(`the ${choice.channel} window is shut (${window.reason}); a shut window never carries freeform words, so this reply cannot go until the customer writes again`);
+    if (window.state === 'shut') return refuse(`the ${channel} window is shut (${window.reason}); a shut window never carries freeform words, so this reply cannot go until the customer writes again`);
 
     // The one sender, with Ben as approver and a fresh run id. No guards: a person's own words are his (answer 43).
-    const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
+    const sent = await send({ file, partyId: party.personId, channel: channel, window, bubbles: rendered.bubbles, template: null, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
     if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
 
     // What the business has now said: the ledger and callOffered, read tightly because these are his words, not a composed reply.
@@ -133,7 +149,7 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
         if (rel.ok) release = rel.value;
     }
 
-    return { ok: true, result: { runId, approver: approverName, channel: choice.channel, bubbles: rendered.bubbles, turnId: sent.record.turnId }, release };
+    return { ok: true, result: { runId, approver: approverName, channel: channel, bubbles: rendered.bubbles, turnId: sent.record.turnId }, release };
 }
 
 /**
@@ -193,6 +209,60 @@ function unansweredQuestion(file: CaseFile, turn: Turn): boolean {
     return turn.body.includes('?');
 }
 
+/** The shut-window template a board send would carry, with its filled wording; or the send's exact refusal. */
+export type WindowTemplatePlan =
+    | { ok: true; party: Party; channel: ReplyChannel; window: WindowState; approver: Approver; template: TemplateSend; body: string }
+    | { ok: false; reason: string };
+
+/**
+ * Every eligibility check and the template pick of `sendWindowTemplate`, with nothing sent and
+ * nothing recorded. The send runs this and then delivers; the board's preview
+ * (`previewWindowTemplate`, GET /case-files/:id/template-offer) runs it and stops, so the wording a
+ * person is shown before pressing send is the wording that send would carry, and a refusal is the
+ * same words.
+ */
+export async function planWindowTemplate(input: SendWindowTemplateInput, now: Date, templates: TemplateStatusSource = liveTemplateStatus): Promise<WindowTemplatePlan> {
+    const { file, approver } = input;
+    const refuse = (reason: string): WindowTemplatePlan => ({ ok: false, reason });
+
+    if (approver.kind !== 'human') return refuse('only a person answers from the board; a rule-based approver has no words');
+    const owner = file.hold?.approver ?? approverFor(file, null);
+    if (!sameApprover(owner, approver)) return refuse(`only ${approverLabel(owner)} may answer this file`);
+    const route = replyRouteOf(file, now);
+    if (!route.ok) return refuse(route.reason);
+    const { party, turn, channel, window } = route;
+    if (window.state !== 'shut') return refuse(`the ${channel} window is open; send a freeform reply instead of a template`);
+
+    const link = sentQuoteLink(file);
+    let pick: Awaited<ReturnType<typeof pickTemplate>>;
+    if (link) {
+        pick = await pickTemplate('quote_ready', { name: party.name, topic: link, link, at: now }, templates);
+    } else if (unansweredQuestion(file, turn)) {
+        pick = await pickTemplate('service_reply', { name: party.name, topic: file.job.type ?? truncateWords(turn.body, 60), at: now }, templates);
+    } else {
+        return refuse('no template is true for this thread: the customer needs to write again before a reply can go');
+    }
+    if (!pick.ok) return refuse(`window shut and ${pick.reason}`);
+    return { ok: true, party, channel, window, approver: humanApprover(input.person), template: pick.template, body: pick.body };
+}
+
+/** What the board's template card shows before a send: the template's name and its filled wording, or why none can go. */
+export type WindowTemplateOffer =
+    | { ok: true; template: string; language: string; channel: ReplyChannel; body: string }
+    | { ok: false; reason: string };
+
+/**
+ * A dry run of `sendWindowTemplate`: the same plan, and nothing sent, recorded or released. It does
+ * not run the sender's own gate (`send` in sender.ts: the opt-out ledger, the sender switch, the
+ * party on the file), whose refusal the send still returns as `send refused: <reason>`.
+ */
+export async function previewWindowTemplate(input: SendWindowTemplateInput, deps: CaseFileDeps = {}, templates: TemplateStatusSource = liveTemplateStatus): Promise<WindowTemplateOffer> {
+    const now = deps.now ?? (() => new Date());
+    const plan = await planWindowTemplate(input, now(), templates);
+    if (!plan.ok) return plan;
+    return { ok: true, template: plan.template.name, language: plan.template.language, channel: plan.channel, body: plan.body };
+}
+
 /**
  * A template send on a shut window, from the board. Captain's ruling (Firstmate decision
  * hsa-comms-v2-board-conversation-view, superseding the earlier "always answer_ready_reopen_v1"
@@ -218,42 +288,21 @@ export async function sendWindowTemplate(input: SendWindowTemplateInput, deps: C
     const now = deps.now ?? (() => new Date());
     const runId = `run_${randomUUID()}`;
     const { file, approver } = input;
-    const party: Party = file.parties.find((p) => p.role !== 'internal') ?? file.parties[0];
     const fileDeps: CaseFileDeps = { now, newId: deps.newId };
-    const refuse = (reason: string): HumanReplyOutcome => ({ ok: false, reason });
 
-    if (approver.kind !== 'human') return refuse('only a person answers from the board; a rule-based approver has no words');
-    const owner = file.hold?.approver ?? approverFor(file, null);
-    if (!sameApprover(owner, approver)) return refuse(`only ${approverLabel(owner)} may answer this file`);
-    const turn = lastCustomerTurn(file, party.personId);
-    if (!turn) return refuse('no customer turn to answer');
-    const approverName = humanApprover(input.person);
+    const plan = await planWindowTemplate(input, now(), templates);
+    if (!plan.ok) return plan;
+    const { party, channel, window, template } = plan;
+    const bubbles: RenderedBubble[] = [{ text: plan.body, gapMs: 0 }];
 
-    const choice = chooseChannel(party, turn.channel, now());
-    if (!choice.ok) return refuse(choice.reason);
-    const window = windowOf(party, choice.channel, now());
-    if (window.state !== 'shut') return refuse(`the ${choice.channel} window is open; send a freeform reply instead of a template`);
-
-    const link = sentQuoteLink(file);
-    let pick: Awaited<ReturnType<typeof pickTemplate>>;
-    if (link) {
-        pick = await pickTemplate('quote_ready', { name: party.name, topic: link, link, at: now() }, templates);
-    } else if (unansweredQuestion(file, turn)) {
-        pick = await pickTemplate('service_reply', { name: party.name, topic: file.job.type ?? truncateWords(turn.body, 60), at: now() }, templates);
-    } else {
-        return refuse('no template is true for this thread: the customer needs to write again before a reply can go');
-    }
-    if (!pick.ok) return refuse(`window shut and ${pick.reason}`);
-    const bubbles: RenderedBubble[] = [{ text: pick.body, gapMs: 0 }];
-
-    const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles, template: pick.template, runId, approver: approverName, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
-    if (!sent.ok) return refuse(`send refused: ${sent.reason}`);
+    const sent = await send({ file, partyId: party.personId, channel, window, bubbles, template, runId, approver: plan.approver, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: input.mode ?? 'dry_run' }, fileDeps);
+    if (!sent.ok) return { ok: false, reason: `send refused: ${sent.reason}` };
 
     let release: HoldRelease | null = null;
     if (file.hold) {
-        const rel = releaseHold(file, approver, `sent the ${pick.template.name} template`, fileDeps);
+        const rel = releaseHold(file, approver, `sent the ${template.name} template`, fileDeps);
         if (rel.ok) release = rel.value;
     }
 
-    return { ok: true, result: { runId, approver: approverName, channel: choice.channel, bubbles, turnId: sent.record.turnId }, release };
+    return { ok: true, result: { runId, approver: plan.approver, channel, bubbles, turnId: sent.record.turnId }, release };
 }

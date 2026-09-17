@@ -81,7 +81,6 @@ export function threadSurface(file: CaseFile, cap = THREAD_TURN_CAP): Extract<An
 /** The seven bays, every card with its hold ring, from the board's own columns and order. */
 export function floorSurface(files: CaseFile[], assignments: ApproverAssignments = {}): Extract<AnswerSurface, { type: 'floor' }> {
     const board = boardOf(files, {}, assignments);
-    const drafts = new Set(files.filter((f) => !!f.hold?.draft).map((f) => f.id));
     return {
         type: 'floor',
         bays: board.stages.map((stage) => ({
@@ -92,7 +91,7 @@ export function floorSurface(files: CaseFile[], assignments: ApproverAssignments
                 held: c.held,
                 holdReason: c.holdReason,
                 holdSince: c.holdSince,
-                hasDraft: drafts.has(c.id),
+                hasDraft: c.hasDraft,
                 customerName: c.customerName,
                 customerAddress: c.customerAddress,
                 jobType: c.jobType,

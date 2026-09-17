@@ -5,14 +5,21 @@
  *                                    is live (server/comms-v2/old-comms.ts)? The sidebar and
  *                                    /admin/comms read it
  * GET  /board                     - every case file, grouped into the seven Contract 2 columns, plus
- *                                    `sandboxAvailable`: whether the sandbox door could write on
+ *                                    `viewer` (viewerOf: the approver slot this session occupies and
+ *                                    whether it can act at all, from the same lookup the write
+ *                                    routes use), and `sandboxAvailable`: whether the sandbox door could write on
  *                                    this process's database (live-database.ts's
  *                                    commsV2DatabaseCheck) - false on production, so the board page
  *                                    hides its sandbox-only controls and mode badges there without a
  *                                    hostname check, failing towards hidden on any refusal reason
  * GET  /queue                     - Handy Desk's "Needs you" list (queue.ts): every held file, with
- *                                    its held draft and its office working-hours wait, longest first
- * GET  /case-files/:id            - one file's turns and facts, read-only
+ *                                    its held draft and its office working-hours wait, longest first,
+ *                                    with the same `viewer` as /board
+ * GET  /case-files/:id            - one file's turns and facts, read-only, with the channel and
+ *                                    window a reply from the thread would use
+ * GET  /case-files/:id/template-offer - a dry run of send-template (desk/human-reply.ts
+ *                                    previewWindowTemplate): the template it would send and its
+ *                                    filled wording, or its exact refusal; sends nothing
  * POST /case-files/:id/release    - releases a hold as the signed-in user; the case file's own
  *                                    `release` enforces the approver-and-words invariant, this
  *                                    route only carries the words and names who is asking
@@ -48,19 +55,36 @@
  * `comms_v2_approvers` row assigns that session (approvers.ts), never the request body. A session
  * no slot lists cannot release.
  */
-import { Router, type Response } from 'express';
-import { readApproverAssignments, readStaffNames, slotOf, type ReadApproverAssignments, type ReadStaffNames } from './approvers';
+import { Router, type Request, type Response } from 'express';
+import { readApproverAssignments, readStaffNames, slotOf, type ApproverAssignments, type ReadApproverAssignments, type ReadStaffNames } from './approvers';
 import { boardOf, cardOf, detailOf, type BoardMode } from './board';
 import { queueOf } from './queue';
 import { boardSourceFor, commsV2BoardDoor, type BoardSource, type BoardSourceFor } from './store';
 import { release } from '../desk/case-file';
-import { humanReply, sendHeldDraft, sendWindowTemplate } from '../desk/human-reply';
+import { humanReply, previewWindowTemplate, sendHeldDraft, sendWindowTemplate } from '../desk/human-reply';
+import type { TemplateStatusSource } from '../desk/sender';
 import type { SandboxDoor } from '../desk/sandbox-door';
 import { oldCommsRetired } from '../old-comms';
 import { commsV2DatabaseCheck } from '../live-database';
 import { createAskRouter, type AskRouterDeps } from '../ask/routes';
 
-export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames, sandboxAvailable: () => boolean = () => commsV2DatabaseCheck(process.env).ok, ask: Omit<AskRouterDeps, 'source' | 'approvers'> = {}): Router {
+/**
+ * Who is looking at the board, so it can show a read-only state before a write fails: the slot the
+ * signed-in session occupies, through the same `slotOf` lookup every write route refuses on (403),
+ * and whether it holds one. Holding a slot is necessary, not sufficient: a file answers only to its
+ * own slot, which each write still checks.
+ */
+export interface BoardViewer {
+    approver: string | null;
+    canAct: boolean;
+}
+
+export function viewerOf(req: Request, assignments: ApproverAssignments): BoardViewer {
+    const slot = slotOf((req as any).user, assignments);
+    return { approver: slot?.id ?? null, canAct: !!slot };
+}
+
+export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames, sandboxAvailable: () => boolean = () => commsV2DatabaseCheck(process.env).ok, ask: Omit<AskRouterDeps, 'source' | 'approvers'> = {}, templates?: TemplateStatusSource): Router {
     const router = Router();
     /** The store this request reads (api/store.ts): the live desk's while it is live, else the sandbox door's. Null once a 503 has been sent. */
     const source = async (res: Response): Promise<BoardSource | null> => {
@@ -84,14 +108,16 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const mode = req.query.mode === 'sandbox' || req.query.mode === 'live' ? (req.query.mode as BoardMode) : undefined;
         const src = await source(res);
         if (!src) return;
-        res.json({ ...boardOf(src.store.all(), { held, mode }, await approvers()), sandboxAvailable: sandboxAvailable() });
+        const assignments = await approvers();
+        res.json({ ...boardOf(src.store.all(), { held, mode }, assignments), sandboxAvailable: sandboxAvailable(), viewer: viewerOf(req, assignments) });
     });
 
     router.get('/queue', async (req, res) => {
         const mode = req.query.mode === 'sandbox' || req.query.mode === 'live' ? (req.query.mode as BoardMode) : undefined;
         const src = await source(res);
         if (!src) return;
-        res.json({ ...queueOf(src.store.all(), { mode }, await approvers()), sandboxAvailable: sandboxAvailable() });
+        const assignments = await approvers();
+        res.json({ ...queueOf(src.store.all(), { mode }, assignments), sandboxAvailable: sandboxAvailable(), viewer: viewerOf(req, assignments) });
     });
 
     router.get('/case-files/:id', async (req, res) => {
@@ -106,6 +132,24 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
             .map((a) => a.slice('human:'.length));
         const speakerNames = await names(humanEmails);
         res.json({ ...detail, speakerNames });
+    });
+
+    /**
+     * What send-template would do on this file, without doing it: the template and its filled
+     * wording, or the refusal the send would return. The same slot check as the send (401/403/404);
+     * the plan itself is the send's own (desk/human-reply.ts planWindowTemplate), so the preview
+     * cannot disagree with it. A refusal is a 200 with `ok: false`, because nothing was attempted.
+     */
+    router.get('/case-files/:id/template-offer', async (req, res) => {
+        const user = (req as any).user;
+        if (!user) { res.status(401).json({ error: 'a signed-in user is required to send' }); return; }
+        const approver = slotOf(user, await approvers());
+        if (!approver) { res.status(403).json({ error: 'no approver slot is assigned to this user' }); return; }
+        const src = await source(res);
+        if (!src) return;
+        const file = src.store.get(req.params.id);
+        if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
+        res.json(await previewWindowTemplate({ file, approver, person: user.email ?? user.id, mode: src.mode }, {}, templates));
     });
 
     router.post('/case-files/:id/release', async (req, res) => {
@@ -185,7 +229,7 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         if (!src) return;
         const file = src.store.get(req.params.id);
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
-        const outcome = await sendWindowTemplate({ file, approver, person: user.email ?? user.id, mode: src.mode });
+        const outcome = await sendWindowTemplate({ file, approver, person: user.email ?? user.id, mode: src.mode }, {}, templates);
         if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
         src.store.put(file);
         res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.turnId }, release: outcome.release });

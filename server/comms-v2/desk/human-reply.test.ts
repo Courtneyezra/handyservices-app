@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { appendTurn, everAsked, open, hold as setHold, type ApproverSlot, type CaseFile, type Party } from './case-file';
 import { truncateWords } from '../channels/envelope';
 import { BEN } from './guards';
-import { humanReply, sendHeldDraft, sendWindowTemplate } from './human-reply';
+import { humanReply, previewWindowTemplate, replyRouteOf, sendHeldDraft, sendWindowTemplate } from './human-reply';
 import { DESK_APPROVER, send, type TemplateStatusSource } from './sender';
 
 /** answer_ready_reopen_v1 approved, nothing else. */
@@ -559,6 +559,84 @@ describe('a template send on a shut window: only when the wording is true for th
         expect(out.ok).toBe(false);
         if (out.ok) return;
         expect(out.reason).toMatch(/only ben may answer/);
+    });
+});
+
+describe('the template offer: a dry run of the shut-window send that can never disagree with it', () => {
+    const shut = (file: CaseFile) => { file.parties[0].channels.find((c) => c.kind === 'whatsapp')!.lastInboundAt = '2026-09-09T10:00:00.000Z'; };
+
+    /** Each case builds a fresh file, so the preview and the send each see the same state. */
+    const cases: Array<{ name: string; build: () => Promise<CaseFile> | CaseFile; approver?: ApproverSlot; templates: TemplateStatusSource; offered: boolean }> = [
+        { name: 'an unanswered question', offered: true, templates: reopenApproved, build: () => { const { file } = fixture(); setHold(file, { approver: BEN, reason: 'a complaint', exception: null }, { now: now(AT) }); shut(file); return file; } },
+        { name: 'a quote link already sent', offered: true, templates: quoteApproved, build: async () => {
+            const { file, party } = fixture();
+            file.job.quoteRef = 'q123';
+            const sent = await send({ file, partyId: party.personId, channel: 'whatsapp', window: { state: 'open', reason: 'just written', opensUntil: null }, bubbles: [{ text: 'Your quote: https://handyservices.app/quote/q123', gapMs: 0 }], template: null, runId: 'run_q', approver: BEN_APPROVER, guards: null, factIds: [], kbIds: [], fixedLines: [], calls: [], mode: 'dry_run' }, { now: now('2026-09-11T09:00:00.000Z') });
+            if (!sent.ok) throw new Error(sent.reason);
+            shut(file);
+            return file;
+        } },
+        { name: 'a question already answered', offered: false, templates: reopenApproved, build: () => { const { file } = fixture(); deskRepliedAndHeld(file); shut(file); return file; } },
+        { name: 'an open window', offered: false, templates: reopenApproved, build: () => { const { file } = fixture(); deskRepliedAndHeld(file); return file; } },
+        { name: 'no rung approved', offered: false, templates: { async approved() { return null; } }, build: () => { const { file } = fixture(); setHold(file, { approver: BEN, reason: 'a complaint', exception: null }, { now: now(AT) }); shut(file); return file; } },
+        { name: 'another slot', offered: false, templates: reopenApproved, approver: { kind: 'human', id: 'landlord' }, build: () => { const { file } = fixture(); setHold(file, { approver: BEN, reason: 'a complaint', exception: null }, { now: now(AT) }); shut(file); return file; } },
+        { name: 'a rule-based approver', offered: false, templates: reopenApproved, approver: { kind: 'rules', id: 'landlord_rules', then: BEN }, build: () => { const { file } = fixture(); shut(file); return file; } },
+    ];
+
+    for (const c of cases) {
+        it(`${c.name}: the preview names what the send then does, and sends and records nothing itself`, async () => {
+            const approver = c.approver ?? BEN;
+            const previewed = await c.build();
+            const before = JSON.stringify(previewed);
+            const offer = await previewWindowTemplate({ file: previewed, approver, person: BEN_PERSON }, { now: now() }, c.templates);
+            expect(JSON.stringify(previewed)).toBe(before);
+
+            const sentFile = await c.build();
+            const out = await sendWindowTemplate({ file: sentFile, approver, person: BEN_PERSON }, { now: now() }, c.templates);
+            expect(offer.ok).toBe(c.offered);
+            expect(out.ok).toBe(c.offered);
+            if (offer.ok && out.ok) {
+                expect(out.result.bubbles.map((b) => b.text)).toEqual([offer.body]);
+                expect(sentFile.sends.at(-1)?.templateId).toBe(offer.template);
+                expect(offer.channel).toBe(out.result.channel);
+            } else if (!offer.ok && !out.ok) {
+                expect(offer.reason).toBe(out.reason);
+            }
+        });
+    }
+
+    it('names the template and its filled wording for an unanswered question', async () => {
+        const { file } = fixture();
+        setHold(file, { approver: BEN, reason: 'a complaint', exception: null }, { now: now(AT) });
+        shut(file);
+        const offer = await previewWindowTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, reopenApproved);
+        expect(offer).toMatchObject({ ok: true, template: 'answer_ready_reopen_v1', channel: 'whatsapp' });
+        if (offer.ok) expect(offer.body).toContain('we have an answer');
+        expect(file.hold).not.toBeNull();
+        expect(file.sends).toHaveLength(0);
+    });
+});
+
+describe('the reply route a thread shows', () => {
+    it('an open WhatsApp window names its closing time, 24 hours after the customer last wrote', () => {
+        const { file } = fixture();
+        const route = replyRouteOf(file, new Date('2026-09-11T10:05:00.000Z'));
+        expect(route).toMatchObject({ ok: true, channel: 'whatsapp', window: { state: 'open', opensUntil: '2026-09-12T10:00:00.000Z' } });
+    });
+
+    it('a shut window has no closing time and gives the reason the send gives', () => {
+        const { file } = fixture();
+        const route = replyRouteOf(file, new Date('2026-09-13T10:00:00.000Z'));
+        expect(route.ok && route.window).toMatchObject({ state: 'shut', opensUntil: null });
+        expect(route.ok && route.window.reason).toMatch(/more than 24 hours ago/);
+    });
+
+    it('a file with no customer turn refuses with the send\'s own words', async () => {
+        const { file } = fixture();
+        file.turns = [];
+        expect(replyRouteOf(file, new Date())).toEqual({ ok: false, reason: 'no customer turn to answer' });
+        const out = await humanReply({ file, approver: BEN, person: BEN_PERSON, words: 'hello' }, { now: now() });
+        expect(out).toEqual({ ok: false, reason: 'no customer turn to answer' });
     });
 });
 

@@ -13,6 +13,8 @@ import { slotAssigned, type ApproverAssignments } from './approvers';
 import { benToRequest } from '../quoting/ben-to-request';
 import { CALL_SUMMARY_KEY, callOutcomeOnFile, type CallOutcome } from '../channels/call-adapter';
 import { reissueNotes, type ReissueNote } from '../quoting/quote-record';
+import type { HoldException } from '../desk/router';
+import { replyRouteOf } from '../desk/human-reply';
 
 export type BoardMode = 'sandbox' | 'live';
 
@@ -25,6 +27,10 @@ export interface BoardCard {
     holdApprover: string | null;
     holdApproverAssigned: boolean;
     holdSince: string | null;
+    /** The router exception that raised the hold, when one did (desk/case-file.ts `Hold.exception`); null otherwise and when nothing is held. */
+    holdException: HoldException | null;
+    /** Whether the hold carries a draft the desk held back, for the "Draft ready" pill. */
+    hasDraft: boolean;
     customerName: string | null;
     customerAddress: string;
     role: string;
@@ -63,6 +69,18 @@ export interface CaseFileDetail {
     facts: Fact[];
     hold: Hold | null;
     holdApproverAssigned: boolean;
+    /** The channel a person's reply from this thread would go out on, as the send chooses it (desk/human-reply.ts `replyRouteOf`); null with `replyRefusal` when no reply can be routed. */
+    replyChannel: ReplyChannel | null;
+    /** That channel's window: WhatsApp's 24-hour window, open until `closesAt` or shut with its reason; any other channel is open with no closing time. Null when no reply can be routed. */
+    replyWindow: ReplyWindow | null;
+    /** Why no reply can be routed, in the send's own words; null when one can. */
+    replyRefusal: string | null;
+}
+
+export interface ReplyWindow {
+    state: 'open' | 'shut';
+    reason: string;
+    closesAt: string | null;
 }
 
 /** live once any send on the file actually delivered; sandbox otherwise, including before the first send. */
@@ -97,6 +115,8 @@ export function cardOf(file: CaseFile, assignments: ApproverAssignments = {}): B
         holdApprover: file.hold ? approverLabel(file.hold.approver) : null,
         holdApproverAssigned: file.hold ? slotAssigned(file.hold.approver, assignments) : false,
         holdSince: file.hold?.since ?? null,
+        holdException: file.hold?.exception ?? null,
+        hasDraft: !!file.hold?.draft,
         customerName: party?.name ?? null,
         customerAddress: party?.canonical ?? '',
         role: party?.role ?? 'homeowner',
@@ -166,8 +186,9 @@ export function callViewOf(file: CaseFile, turn: Turn): CallView | null {
 }
 
 /** The file's turns and facts, read-only, for a card opened in detail. */
-export function detailOf(file: CaseFile, assignments: ApproverAssignments = {}): CaseFileDetail {
+export function detailOf(file: CaseFile, assignments: ApproverAssignments = {}, now: Date = new Date()): CaseFileDetail {
     const party = file.parties[0] ?? null;
+    const route = replyRouteOf(file, now);
     return {
         id: file.id,
         stage: file.stage,
@@ -181,5 +202,8 @@ export function detailOf(file: CaseFile, assignments: ApproverAssignments = {}):
         facts: file.facts,
         hold: file.hold,
         holdApproverAssigned: file.hold ? slotAssigned(file.hold.approver, assignments) : false,
+        replyChannel: route.ok ? route.channel : null,
+        replyWindow: route.ok ? { state: route.window.state, reason: route.window.reason, closesAt: route.window.opensUntil } : null,
+        replyRefusal: route.ok ? null : route.reason,
     };
 }
