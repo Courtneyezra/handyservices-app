@@ -8,7 +8,12 @@
  * email address: A3 covers WhatsApp and SMS, and outbound email stays in dry run, answer 113). For an address,
  * identity is read, never guessed: an address two people share is refused (pick one first), one of
  * ours is refused, and a person with a file open has the message land on it. Anyone else gets a new
- * file, opened by the confirm and not before (desk/case-file.ts `openForPerson`).
+ * file, opened by the confirm and not before (desk/case-file.ts `openForPerson`), and so does a
+ * named file the desk counts as closed, whose own next message would open one anyway. A file opened
+ * here carries the person's per-channel last inbound times from their closed files, whichever way
+ * the message was addressed, because the 24-hour WhatsApp window belongs to the number: the preview
+ * then names the window the send will really meet. A live send that lands part way is kept on that
+ * file, so what reached the customer is recorded.
  *
  * Where and how: desk/person-send.ts `planPersonSend`. A reply on the thread the customer wrote on
  * goes through the board's own reply path (`humanReply`); otherwise the words go on the channel
@@ -37,7 +42,7 @@ import {
 import { approverFor, instructedClaims, noReplyToCheck, runGuards, type GuardInput, type GuardOutcome } from '../../desk/guards';
 import { renderPersonWords } from '../../desk/human-reply';
 import { PERSON_SEND_CHANNELS, planPersonSend, personSend, type PersonSendChannel, type PersonSendPlan } from '../../desk/person-send';
-import { liveTemplateStatus, windowOf, type TemplateStatusSource } from '../../desk/sender';
+import { liveTemplateStatus, windowOf, type Deliverer, type TemplateStatusSource } from '../../desk/sender';
 import { withoutDashPunctuation } from '../../desk/dashes';
 import type { ActionContext, ActionKindDef } from '../action-kinds';
 import { PREVIEW_CHANGED } from '../actions';
@@ -138,13 +143,24 @@ function targetOf(ctx: ActionContext, args: MessageSendArgs): Target {
 }
 
 /**
- * When the last inbound message on this number arrived, as the closed file the conversation follows
- * on from recorded it. The 24-hour WhatsApp window belongs to the number, so a fresh file carries
- * it over: nothing else of the old conversation comes with it.
+ * When the last inbound message on this number arrived, as the person's closed files recorded it.
+ * The 24-hour WhatsApp window belongs to the number, so a fresh file carries it over however the
+ * message was addressed: nothing else of the old conversation comes with it.
  */
-function inboundOn(after: CaseFile | null, address: string, kind: 'whatsapp' | 'sms'): string | null {
-    const party = after?.parties.find((p) => p.role !== 'internal');
-    return party?.channels.find((c) => c.kind === kind && c.address === address)?.lastInboundAt ?? null;
+function inboundOn(files: CaseFile[], address: string, kind: 'whatsapp' | 'sms'): string | null {
+    let latest: string | null = null;
+    for (const file of files) for (const party of file.parties) {
+        if (party.role === 'internal') continue;
+        const at = party.channels.find((c) => c.kind === kind && c.address === address)?.lastInboundAt;
+        if (at && (!latest || Date.parse(at) > Date.parse(latest))) latest = at;
+    }
+    return latest;
+}
+
+/** The closed files whose channel facts a fresh file for this person carries: theirs, and the one the ask named. */
+function priorFiles(ctx: ActionContext, person: Person | null, after: CaseFile | null): CaseFile[] {
+    const mine = person ? ctx.src.store.all().filter((f) => isClosed(f.stage) && f.parties.some((p) => p.personId === person.id)) : [];
+    return after && !mine.some((f) => f.id === after.id) ? [...mine, after] : mine;
 }
 
 /** The person's open file, or the file a confirm would open for them, from their number alone. */
@@ -166,7 +182,8 @@ function openOn(ctx: ActionContext, to: { address: string; name: string | null }
             return { ok: true, file, opened: null };
         }
     }
-    const channels: OpenForPersonInput['channels'] = (['whatsapp', 'sms'] as const).map((kind) => ({ kind, address: e164, lastInboundAt: inboundOn(after, e164, kind) }));
+    const prior = priorFiles(ctx, person, after);
+    const channels: OpenForPersonInput['channels'] = (['whatsapp', 'sms'] as const).map((kind) => ({ kind, address: e164, lastInboundAt: inboundOn(prior, e164, kind) }));
     const name = to.name ?? person?.name ?? null;
     const draft = openForPerson({
         identity: { ok: true, personId: person?.id ?? 'person_new', customerId: person?.customerId ?? null, role: person?.role ?? 'homeowner', isNew: !person, canonical: key, propertyId: null, landlordId: null, name },
@@ -237,7 +254,7 @@ async function prepare(ctx: ActionContext, args: MessageSendArgs, templates: Tem
     return { ok: true, target, plan, check, text: words, outgoing: [tile] };
 }
 
-export function messageSendKind(opts: { templates?: TemplateStatusSource } = {}): ActionKindDef<MessageSendArgs> {
+export function messageSendKind(opts: { templates?: TemplateStatusSource; deliverer?: Deliverer } = {}): ActionKindDef<MessageSendArgs> {
     const templates = opts.templates ?? liveTemplateStatus;
     return {
         kind: 'message.send',
@@ -285,9 +302,11 @@ export function messageSendKind(opts: { templates?: TemplateStatusSource } = {})
                 const fact = recordFact(file, { key: INSTRUCTION_FACT_KEY, value: args.instruction.quote, source: { kind: 'instruction', ...args.instruction }, by: approverName }, { now: () => ctx.now, newId: () => factId! });
                 if (!fact.ok) return { ok: false, reason: `the instruction could not be recorded as a source: ${fact.reason}` };
             }
-            const out = await personSend({ file, plan, words: args.words, approver: ctx.approver, person: ctx.person, runId: ctx.runId, mode: ctx.mode, checked }, { now: () => ctx.now, templates });
+            const out = await personSend({ file, plan, words: args.words, approver: ctx.approver, person: ctx.person, runId: ctx.runId, mode: ctx.mode, checked }, { now: () => ctx.now, templates, deliverer: opts.deliverer });
             if (!out.ok) {
-                if (factId && !file.sends.some((s) => s.runId === ctx.runId)) file.facts = file.facts.filter((f) => f.id !== factId);
+                const landed = file.sends.some((s) => s.runId === ctx.runId);
+                if (factId && !landed) file.facts = file.facts.filter((f) => f.id !== factId);
+                if (landed) ctx.src.store.put(file);
                 return { ok: false, reason: out.reason };
             }
             // actions.ts puts back only a file the arguments name; one this confirm opened is put here.

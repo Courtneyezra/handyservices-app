@@ -12,7 +12,7 @@ import { appendTurn, closeFile, open, recordSend, type ApproverSlot, type CaseFi
 import { BEN } from '../../desk/guards';
 import { Identity } from '../../desk/identity';
 import { FakeModelClient } from '../../desk/models';
-import type { TemplateStatusSource } from '../../desk/sender';
+import type { Deliverer, TemplateStatusSource } from '../../desk/sender';
 import type { BoardSource } from '../../api/store';
 import { MemoryAskActionStore, confirmAction, proposeAction, type ActionDeps } from '../actions';
 import { ACTION_KINDS, type ActionKinds } from '../action-kinds';
@@ -44,10 +44,10 @@ function sarahFile(wroteAt: string, body = 'Hi, it is Sarah from Tena Properties
     return r.value;
 }
 
-function setup(files: CaseFile[], templates: TemplateStatusSource = nothingApproved, identity?: Identity) {
-    const { store: cases, source: bare } = memorySource(files);
+function setup(files: CaseFile[], templates: TemplateStatusSource = nothingApproved, identity?: Identity, live?: { deliverer: Deliverer }) {
+    const { store: cases, source: bare } = memorySource(files, live ? 'live' : 'dry_run');
     const source = async (): Promise<BoardSource> => ({ ...(await bare()), ...(identity ? { identity } : {}) });
-    const kinds: ActionKinds = { ...ACTION_KINDS, 'message.send': messageSendKind({ templates }) };
+    const kinds: ActionKinds = { ...ACTION_KINDS, 'message.send': messageSendKind({ templates, deliverer: live?.deliverer }) };
     const store = new MemoryAskActionStore();
     const deps: ActionDeps = { store, source, kinds, now: clock };
     const propose = (args: unknown, approver: ApproverSlot | null = BEN) => proposeAction({ kind: 'message.send', args, sessionId: SESSION, askRunId: 'ask_1', person: BEN_PERSON, approver }, deps);
@@ -275,6 +275,25 @@ describe('a case file the desk counts as closed', () => {
         expect(fresh.turns.map((t) => t.direction)).toEqual(['outbound']);
     });
 
+    it('keeps that window when the number is the target too, not only the case file id', async () => {
+        const { file, identity } = bookedFile('2026-09-17T09:30:00.000Z');
+        const { propose, confirm, cases } = setup([file], nothingApproved, identity);
+
+        const out = await propose({ to: { address: SARAH_WA, name: 'Sarah Ellis' }, words: WORDS, instruction: INSTRUCTION });
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.outgoing[0]).toMatchObject({ channel: 'wa', to: SARAH_WA, window: { state: 'open' } });
+        expect(out.outgoing[0].guardNote).not.toMatch(/window is shut|goes by SMS/);
+
+        expect((await confirm(out.action.id)).ok).toBe(true);
+        const fresh = cases.findOpenFor('person_sarah')!;
+        expect(fresh.id).not.toBe(file.id);
+        expect(fresh.parties[0].channels).toEqual(expect.arrayContaining([
+            { kind: 'whatsapp', address: SARAH_WA, lastInboundAt: '2026-09-17T09:30:00.000Z' },
+        ]));
+        expect(fresh.sends).toEqual([expect.objectContaining({ channel: 'whatsapp', templateId: null })]);
+    });
+
     it('refuses a closed file with no number on it to start on', async () => {
         const r = open({
             identity: { ok: true, personId: 'person_mail', customerId: null, role: 'homeowner', isNew: true, canonical: 'email:sarah@example.test', propertyId: null, landlordId: null, name: 'Sarah' },
@@ -382,6 +401,39 @@ describe('a message Ben starts to someone with no file open (N6)', () => {
         await confirm(out.action.id);
         expect(cases.all()).toHaveLength(1);
         expect(cases.get(file.id)!.sends).toHaveLength(1);
+    });
+
+    it('keeps the file it opened when a live send lands part way, so the record is not lost', async () => {
+        const identity = new Identity({ newId: () => 'person_new_2' });
+        const words = 'Hi Priya, the paperwork for the flat is all in order now, so there is nothing else for you to do here. Send us a message on this number whenever anything else crops up.';
+        const deliverer: Deliverer = {
+            async deliver(input) { return { ok: false, reason: 'the second bubble did not go', delivered: input.bubbles.slice(0, 1) }; },
+        };
+        const { propose, confirm, cases } = setup([], nothingApproved, identity, { deliverer });
+
+        const out = await propose({ to: { address: '07700 900888', name: 'Priya Shah' }, words });
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        const done = await confirm(out.action.id);
+        expect(done.ok).toBe(false);
+
+        const [file] = cases.all();
+        expect(file).toBeDefined();
+        expect(file.sends).toEqual([expect.objectContaining({ partial: true, approver: BEN_APPROVER })]);
+        expect(file.turns).toHaveLength(1);
+        expect(cases.findOpenFor('person_new_2')?.id).toBe(file.id);
+    });
+
+    it('keeps no file when a live send delivers nothing at all', async () => {
+        const identity = new Identity({ newId: () => 'person_new_3' });
+        const deliverer: Deliverer = { async deliver() { return { ok: false, reason: 'nothing went', delivered: [] }; } };
+        const { propose, confirm, cases } = setup([], nothingApproved, identity, { deliverer });
+
+        const out = await propose({ to: { address: '07700 900999', name: 'Priya Shah' }, words: 'Hi Priya, all in order.' });
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect((await confirm(out.action.id)).ok).toBe(false);
+        expect(cases.all()).toEqual([]);
     });
 
     it('refuses an address two people share, one of ours, and a desk that cannot look people up', async () => {

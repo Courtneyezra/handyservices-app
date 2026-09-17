@@ -79,7 +79,7 @@ export type HumanReplyOutcome =
     | { ok: false; reason: string };
 
 /** The newest inbound turn: what the customer last said, which Ben's reply answers. */
-function lastCustomerTurn(file: CaseFile, partyId: string): Turn | null {
+export function lastCustomerTurn(file: CaseFile, partyId: string): Turn | null {
     for (let i = file.turns.length - 1; i >= 0; i--) {
         const t = file.turns[i];
         if (t.partyId === partyId && t.direction === 'inbound') return t;

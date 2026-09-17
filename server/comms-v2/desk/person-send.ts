@@ -25,7 +25,7 @@ import type { ApproverSlot, CaseFile, CaseFileDeps, Party, ReplyChannel, Turn } 
 import { approverLabel, isClosed, sameApprover } from './case-file';
 import { approverFor, type GuardOutcome } from './guards';
 import { e164Of } from './identity';
-import { afterPersonSend, humanReply, planWindowTemplate, renderPersonWords, replyRouteOf, sendWindowTemplate, type HumanReplyOutcome } from './human-reply';
+import { afterPersonSend, humanReply, lastCustomerTurn, planWindowTemplate, renderPersonWords, replyRouteOf, sendWindowTemplate, type HumanReplyOutcome } from './human-reply';
 import { chooseChannel, liveTemplateStatus, send, windowOf, type SenderDeps, type TemplateStatusSource, type WindowState } from './sender';
 import { humanApprover } from '../../approver';
 
@@ -79,14 +79,6 @@ function customerParty(file: CaseFile): Party | null {
     return file.parties.find((p) => p.role !== 'internal') ?? null;
 }
 
-function lastInbound(file: CaseFile, partyId: string): Turn | null {
-    for (let i = file.turns.length - 1; i >= 0; i--) {
-        const t = file.turns[i];
-        if (t.partyId === partyId && t.direction === 'inbound') return t;
-    }
-    return null;
-}
-
 /** The number a text goes to: the party's SMS channel, else their phone key or WhatsApp number. */
 function textAddress(party: Party): { address: string; add: boolean } | null {
     const sms = party.channels.find((c) => c.kind === 'sms');
@@ -112,7 +104,7 @@ export async function planPersonSend(input: PlanPersonSendInput, templates: Temp
     if (!party) return refuse('the file has no customer to message');
     const wa = party.channels.find((c) => c.kind === 'whatsapp');
     if (!wa && !textAddress(party)) return refuse('a message from the Handy Desk goes by WhatsApp or SMS only, and there is no number on file for this customer');
-    const turn = lastInbound(file, party.personId);
+    const turn = lastCustomerTurn(file, party.personId);
     const reply = turn ? replyRouteOf(file, now) : null;
 
     let wanted = input.channel ?? null;
