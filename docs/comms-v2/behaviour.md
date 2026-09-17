@@ -368,3 +368,7 @@ Also 16 Sep, superseding answer 88: the server was rescaled to 16 GB, and work i
 **92. Referring to customer photos.** "One light detail". A short natural mention of what the photos show, not a full description.
 
 **93. Bubble size.** "About 160, 1-2 sentences". A soft ceiling of about 160 characters per WhatsApp bubble, split at natural breaks, still at most three bubbles (answer 82). Refines answer 27.
+
+## Batch 12, answered 17 Sep
+
+**94. The holding line is not an answer.** "Yes, offer it", 17 Sep 2026, answering the open question from PR #110. When the only outbound turn since the customer's question is the desk's holding line (or its photo or video variant) and the WhatsApp window has shut, the board offers answer_ready_reopen_v1. Refines answer 58. Settled by firstmate on 17 Sep 2026 in the same change, not part of the captain's answer: answer_ready_reopen_v1 is offered only on a hold for a question, never on a complaint or other exception hold, so that template never clears one; its subject is the recorded job type, else "your enquiry", never the customer's own words. quote_ready_link is unchanged by this change. Implemented in `sendWindowTemplate` (`server/comms-v2/desk/human-reply.ts`).
