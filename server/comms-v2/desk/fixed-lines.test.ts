@@ -4,7 +4,7 @@
  * his "Thanks / Ben" sign-off, and `first_contact_ack` may introduce him in the first person.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_FIXED_LINES, KB_BACKED, fixedLine, heldAckLine, lateMediaAckLine, mediaNoun, type FixedLineKind } from './fixed-lines';
+import { DEFAULT_FIXED_LINES, KB_BACKED, fixedLine, heldAckLine, isHeldAckText, lateMediaAckLine, mediaNoun, type FixedLineKind } from './fixed-lines';
 import type { TurnMedia } from './case-file';
 import { RE_DATE_TIME_DURATION, RE_THANKS_MEDIA } from './lexicon';
 import { hasDashPunctuation } from './dashes';
@@ -59,6 +59,17 @@ describe('the held acknowledgement names what arrived', () => {
     it('names nothing once the file\'s media thanks is spent', () => {
         const thanked = { ledger: [{ subject: 'media' as const, askedAt: null, answeredAt: null, thankedAt: '2026-09-16T04:41:08.000Z', askCount: 0 }] };
         expect(heldAckLine({ media: [video('v')] }, thanked)).toEqual({ kind: 'held_ack', text: DEFAULT_FIXED_LINES.held_ack, kbId: null });
+    });
+});
+
+describe('the held acknowledgement is known by its wording', () => {
+    it('recognises every line heldAckLine writes, and nothing else', () => {
+        const mixes = [[], [photo('p')], [video('v')], [photo('p1'), photo('p2')], [video('v1'), video('v2')], [photo('p'), video('v')], [photo('p1'), photo('p2'), video('v1'), video('v2')]];
+        for (const media of mixes) expect(isHeldAckText(heldAckLine({ media }, { ledger: [] }).text)).toBe(true);
+        expect(isHeldAckText(`${DEFAULT_FIXED_LINES.held_ack}\n`)).toBe(true);
+        for (const other of [DEFAULT_FIXED_LINES.no_source, DEFAULT_FIXED_LINES.money_to_ben, "Thanks for the quote, leave it with me and I'll come back to you.", `${DEFAULT_FIXED_LINES.held_ack} A new tap is about £120.`, `A new tap is about £120.\n${DEFAULT_FIXED_LINES.held_ack}`]) {
+            expect(isHeldAckText(other)).toBe(false);
+        }
     });
 });
 

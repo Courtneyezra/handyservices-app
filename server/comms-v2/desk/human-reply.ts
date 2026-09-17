@@ -32,7 +32,8 @@ import { randomUUID } from 'node:crypto';
 import { ask as ledgerAsk, release as releaseHold, sameApprover, approverLabel, type ApproverSlot, type CaseFile, type CaseFileDeps, type HoldRelease, type Party, type RenderedBubble, type ReplyChannel, type Turn } from './case-file';
 import { approverFor } from './guards';
 import { clauseAsks, offersCall } from './lexicon';
-import { chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
+import { isHeldAckText } from './fixed-lines';
+import { chooseChannel, DESK_APPROVER, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { humanApprover, type Approver } from '../../approver';
 import { truncateWords } from '../channels/envelope';
 
@@ -196,16 +197,22 @@ function sentQuoteLink(file: CaseFile): string | null {
 }
 
 /**
- * The customer's own last word, unanswered: it is the newest turn on the file (nothing outbound
- * since) and it actually reads as a question, not merely a sentence that happens to contain an
+ * The customer's own last word, unanswered: nothing outbound since answers it, and it actually
+ * reads as a question, not merely a sentence that happens to contain an
  * asking word (RE_ASKING alone matches plain vocabulary like "how" or "where" in a statement, e.g.
  * "I don't know how you found us"). A literal question mark is the one unambiguous signal that the
  * customer asked something, which is what this template's wording ("you asked us about...") claims.
+ *
+ * The desk's held acknowledgement ("Thanks, leave it with me and I'll come back to you.", or its
+ * variant naming a photo or video) is not an answer: it only says one is coming (captain's answer
+ * of 17 Sep 2026, "Yes, offer it"). The file records no fixed-line kind, so it is known by its
+ * sender (the desk) and its exact wording (`isHeldAckText`). Any other outbound turn, a composed
+ * reply, a person's own words, a template or a quote link, still answers the question.
  */
 function unansweredQuestion(file: CaseFile, turn: Turn): boolean {
     const idx = file.turns.findIndex((t) => t.id === turn.id);
     if (idx === -1) return false;
-    if (file.turns.slice(idx + 1).some((t) => t.direction === 'outbound')) return false;
+    if (file.turns.slice(idx + 1).some((t) => t.direction === 'outbound' && !(t.approver === DESK_APPROVER && isHeldAckText(t.body)))) return false;
     return turn.body.includes('?');
 }
 
@@ -271,7 +278,8 @@ export async function previewWindowTemplate(input: SendWindowTemplateInput, deps
  *   - `quote_ready_link`, with the exact link the file already shows was sent, once a quote has
  *     gone out on the thread (`sentQuoteLink`);
  *   - `answer_ready_reopen_v1` only when the customer's latest message is a question nothing has
- *     answered since (`unansweredQuestion`) — its wording ("you asked us about... and we have an
+ *     answered since (`unansweredQuestion`; the desk's held acknowledgement alone is not an
+ *     answer) — its wording ("you asked us about... and we have an
  *     answer") is false on any other thread;
  *   - otherwise no template applies: refuses rather than sending or offering a word that is not
  *     true, and the board shows this as "the customer needs to write again" rather than a retry.
