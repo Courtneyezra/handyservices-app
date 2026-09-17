@@ -621,14 +621,16 @@ Reused from the old Ops Manager's wire: `OpsSessionDTO`, `OpsMessageDTO` (extend
 `ops_*` event names and shapes, and the one-run-per-session lock. Replaced: its tables
 (`ops_sessions`/`ops_messages`), its tools, its `queue_draft` write and its model choice.
 
-The client half: the queue (T1, above) and the ask bar (T2) on `/admin/handy-desk`. The ask bar
-(`client/src/hooks/useAskSession.ts`, pure state in `client/src/lib/handy-desk-ask.ts`, components in
-`client/src/components/handy-desk/`) opens `POST /sessions/today`, posts each ask with the selected
-card as `context`, and folds this session's `ops_*` events into the thinking card (tool names in
-mono, the newest step amber); it never calls the old `/api/ops` routes. A live run also settles without `ops_run_finished`: the session detail is polled while it runs and its answer row (same `runId`) ends it, and a run silent for three minutes with no answer row settles as failed, so a dropped stream or a restart never locks the bar. The answer's typed surface
-renders through `AnswerSurfaceBody`, the seam the answer surface UI (T3) fills; until then it shows
-the note and any held draft, which is sent from its queue card. The confirm executor (T4) is a
-separate follow-up task. Typed in `AnswerSurface` but not yet produced: `diary`
+The client half: the queue (T1, above), the ask bar (T2) and the answer surface (T3) on
+`/admin/handy-desk`. The ask bar (`client/src/hooks/useAskSession.ts`, pure state in
+`client/src/lib/handy-desk-ask.ts`, components in `client/src/components/handy-desk/`) opens
+`POST /sessions/today`, posts each ask with the selected card as `context`, and folds this session's
+`ops_*` events into the thinking card (tool names in mono, the newest step amber); it never calls the
+old `/api/ops` routes. A live run also settles without `ops_run_finished`: the session detail is polled while it runs and its answer row (same `runId`) ends it, and a run silent for three minutes with no answer row settles as failed, so a dropped stream or a restart never locks the bar. The answer
+card (`AnswerCard.tsx`) renders the typed surface through `AnswerSurface.tsx` (mapping in
+`client/src/lib/handy-desk-answer.ts`): every surface type, the outgoing tiles and the confirm, which
+posts `draft.release` to send-held-draft. The confirm executor (T4) is a separate follow-up task.
+Typed in `AnswerSurface` but not yet produced: `diary`
 (`server/lib/contractor-week.ts`), `map` (`server/dispatch-map-routes.ts`), `quote` and `ledger`
 (both wait on money actions). The agent proposes only `draft.release` today; T4 adds
 `POST /api/ops/confirm`, which executes a person's confirm, and the `booking.move`,
