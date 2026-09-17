@@ -19,8 +19,8 @@
  *
  * A call is forwarded twice: `call_finished` at hang-up, before the batch transcription has run, and
  * `call_transcribed` once the transcript and job summary are on the row (twilio-realtime.ts). The
- * second only fills in the turn the first made (channel-gateway.ts `attachCall`): it never opens a
- * file, adds a turn or runs the desk.
+ * second only fills in the turn the first made, and has its transcript read for facts (channel-gateway.ts `attachCall`): it never opens a
+ * file, adds a turn or replies.
  *
  * `forwardToCommsV2` never throws and never blocks: an old handler's response does not wait on
  * the new desk, and a failure here is one log line. No value from an event is logged, only the

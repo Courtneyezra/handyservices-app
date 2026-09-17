@@ -15,6 +15,7 @@ import { appendTurn, open, type CaseFile } from './case-file';
 import { customerTurnOf } from './turn-window';
 import { noFixedLineSource, DEFAULT_FIXED_LINES, type FixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
+import { asksForCall } from './lexicon';
 import { FakeModelClient } from './models';
 import { emptyKb } from './scoping-tools';
 import { noTemplateApproved } from './sender';
@@ -133,6 +134,27 @@ describe('the desk', () => {
         }
     });
 
+    it('"please don\'t call me, text only" is not a call asked for: a reply offering one on that turn goes back to the composer (1.6, round 26)', async () => {
+        for (const said of ["Please don't call me, text only", "Can you not ring me, I'm at work. Text is fine", 'No need to phone me, messages are easier', "don't give me a call, I can't answer at work"]) {
+            const { client, gateway } = desk({
+                router: () => routeScoping({ turnKind: 'answer' }),
+                specialist: ({ n }) => specialistFacts(n === 1 ? [{ key: 'job_type', value: 'sticking back door' }] : [{ key: 'prefers_text', value: 'true' }]),
+                composer: ({ n }) => ({ reply: n === 1 ? 'A sticking back door, got it.\n\nWhereabouts are you?' : n === 2 ? 'No problem at all. Happy to give you a quick call later if easier.' : "No problem, I'll keep it to messages.", factIds: [], kbIds: [] }),
+            });
+            await gateway.inbound(turn('My back door sticks', '2026-09-11T10:00:00.000Z'));
+            const b = await gateway.inbound(turn(said, '2026-09-11T10:02:00.000Z'));
+            if (b.kind !== 'handled') throw new Error(b.kind);
+            expect(b.result.decision, said).toBe('send');
+            expect(b.result.bubbles.map((x) => x.text), said).toEqual(["No problem, I'll keep it to messages."]);
+            expect(client.calls.filter((c) => c.role === 'composer')[2].user, said).toContain('do not offer or mention a call');
+        }
+    });
+
+    it('reads a call asked for, and a call turned down, in the customer\'s words (round 26)', () => {
+        for (const s of ['Can you call me?', 'call me back please', 'Why not call me?', "I'm not home but call me after 5", 'Give me a ring tomorrow', "I don't mind, just ring me", 'Not sure what it is so call me']) expect(asksForCall(s), s).toBe(true);
+        for (const s of ["Please don't call me", 'Please don’t call me', 'never ring me', "Don't bother to ring me", 'text only please']) expect(asksForCall(s), s).toBe(false);
+    });
+
     it('a composer refusal takes the fixed acknowledgement and a hold, never a silent empty reply', async () => {
         const { gateway } = desk({ router: () => routeScoping(), specialist: () => specialistFacts([]), composer: () => ({ refused: true }) });
         const out = await gateway.inbound(turn('Hi', '2026-09-11T10:00:00.000Z'));
@@ -178,6 +200,17 @@ describe('the desk', () => {
         expect(clock?.delivered).toBe(false);
         expect(clock?.decision).toBe('none');
         expect(out.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
+    });
+
+    it('a combi, a pilot light or a gas flue in everyday words is gas too: the fixed line and a hold, and no composer call', async () => {
+        for (const body of ['My combi keeps losing pressure, can you have a look?', 'Can you look at my combi flue? Water is dripping from it', 'The pilot light keeps going out on the fire']) {
+            const { client, gateway } = desk({ router: () => routeScoping(), specialist: () => specialistFacts([]), composer: () => { throw new Error('the composer must not be called'); } });
+            const out = await gateway.inbound(turn(body, '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(client.calls.filter((c) => c.role === 'composer'), body).toHaveLength(0);
+            expect(out.result.bubbles.map((b) => b.text).join('\n\n'), body).toBe(DEFAULT_FIXED_LINES.gas);
+            expect(out.file.hold?.reason, body).toMatch(/regulated/);
+        }
     });
 
     it('a customer who writes STOP gets no reply at all, mid-thread or as a first message, and no model is asked (server/opt-out.ts)', async () => {
@@ -394,6 +427,58 @@ describe('the desk', () => {
         expect((await gateway.clock(a.file.id))?.delivered).toBe(false);
         expect((await gateway.clock(a.file.id))?.delivered).toBe(false);
         expect(a.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(2);
+    });
+
+    it('a not-ready customer whose reply asks a question anyway: back to the composer once, then held for Ben (6.2, answer 8)', async () => {
+        const handlers = (second: string) => ({
+            router: ({ n }: { n: number }) => n === 2 ? routeScoping({ turnKind: 'not_ready' }) : routeScoping(),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'dripping bathroom tap' }]),
+            composer: ({ user, n }: { user: string; n: number }) => {
+                if (n === 1) return { reply: 'A dripping bathroom tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] };
+                if (n === 2) { expect(user).toContain('this turn: an acknowledgement only, no question'); return { reply: 'No problem at all. Is it the hot or the cold tap that drips?', factIds: [], kbIds: [] }; }
+                expect(user).toContain('an acknowledgement only');
+                return { reply: second, factIds: [], kbIds: [] };
+            },
+        });
+        const first = desk(handlers('No problem, just message whenever you are ready.'));
+        await first.gateway.inbound(turn('My bathroom tap drips', '2026-09-11T10:00:00.000Z'));
+        const b = await first.gateway.inbound(turn("Thanks, I'll get back to you next month", '2026-09-11T10:05:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.composerCalls).toBe(2);
+        expect(b.result.decision).toBe('send');
+        expect(b.result.bubbles.map((x) => x.text).join(' ')).toBe('No problem, just message whenever you are ready.');
+
+        const again = desk(handlers('No worries. Is it a mixer tap or two separate taps?'));
+        await again.gateway.inbound(turn('My bathroom tap drips', '2026-09-11T10:00:00.000Z'));
+        const c = await again.gateway.inbound(turn("Thanks, I'll get back to you next month", '2026-09-11T10:05:00.000Z'));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        expect(c.result.decision).toBe('hold');
+        expect(c.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(c.file.hold?.failures.join(' ')).toMatch(/no question/);
+    });
+
+    it('a short pause whose reply asks a question anyway: back to the composer once; the real answer after it is scoped as usual (2.4)', async () => {
+        const { gateway } = desk({
+            router: ({ n }) => n === 2 ? routeScoping({ turnKind: 'short_pause' }) : routeScoping({ turnKind: n === 1 ? 'enquiry' : 'answer' }),
+            specialist: ({ n }) => specialistFacts(n === 3 ? [{ key: 'job_type', value: 'dripping bathroom tap' }, { key: 'job_detail', value: 'mixer tap' }] : [{ key: 'job_type', value: 'dripping bathroom tap' }]),
+            composer: ({ user, n }) => {
+                if (n === 1) return { reply: 'A dripping bathroom tap, got it.\n\nIs it a mixer tap or two separate taps?', factIds: [], kbIds: [] };
+                if (n === 2) { expect(user).toContain('this turn: an acknowledgement only, no question'); return { reply: 'No rush! While you look, is it the hot or the cold side that drips?', factIds: [], kbIds: [] }; }
+                if (n === 3) { expect(user).toContain('asked for a moment'); return { reply: 'No rush at all.', factIds: [], kbIds: [] }; }
+                return { reply: 'A mixer, thanks.\n\nHow long has it been dripping for?', factIds: [], kbIds: [] };
+            },
+        });
+        await gateway.inbound(turn('My bathroom tap drips', '2026-09-11T10:00:00.000Z'));
+        const b = await gateway.inbound(turn('one sec, let me go and look', '2026-09-11T10:02:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.composerCalls).toBe(2);
+        expect(b.result.decision).toBe('send');
+        expect(b.result.bubbles.map((x) => x.text)).toEqual(['No rush at all.']);
+        expect(b.file.hold).toBeNull();
+        const c = await gateway.inbound(turn("it's a mixer", '2026-09-11T10:04:00.000Z'));
+        if (c.kind !== 'handled') throw new Error(c.kind);
+        expect(c.result.decision).toBe('send');
+        expect(c.result.bubbles.map((x) => x.text).join(' ')).toContain('How long has it been dripping for?');
     });
 
     it('a shut window with no approved template holds the reply as a pending draft; nothing freeform leaves', async () => {
@@ -640,6 +725,17 @@ describe('the desk', () => {
         expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
     });
 
+    it('a haggle the router model misses on an expired quote still goes to Ben as money, with no reissue', async () => {
+        const { gateway, clock, slug, user } = await expiredQuote(DEFAULT_FIXED_LINES.money_to_ben);
+        const out = await gateway.inbound(turn('Is that the best you can do?', new Date(clock.t).toISOString()));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(user()).toContain(DEFAULT_FIXED_LINES.money_to_ben);
+        expect(out.file.hold?.exception).toBe('money');
+        expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+        expect(out.file.job.quoteRef).toBe(slug);
+        expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
+    });
+
     it('a quote read that fails leaves the turn answered instead of taking it down, with no figure readable', async () => {
         const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
         let failing = false;
@@ -706,6 +802,25 @@ describe('the desk', () => {
         expect(composerUser).toMatch(/beyond a line of the quote: give no figure and do not answer it/);
         expect(composerUser).toContain(DEFAULT_FIXED_LINES.money_to_ben);
         expect(second.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
+    });
+
+    it('a video nobody could describe is thanked for without a detail the desk never saw', async () => {
+        const video = [{ id: 'v1', kind: 'video' as const, mime: 'video/mp4', path: '/tmp/v1.mp4', url: 'https://example.test/v1.mp4', bytes: 4096 }];
+        let composerUser = '';
+        const { gateway } = desk({
+            router: () => routeScoping({ turnKind: 'answer' }),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'leaking pipe under the sink' }]),
+            composer: ({ user }) => {
+                composerUser = user;
+                return { reply: 'Thanks for the video.\n\nWhereabouts are you?', factIds: [], kbIds: [] };
+            },
+        });
+        // The vision model is down (the test desk's describe always fails), so the video has no description.
+        const out = await gateway.inbound(turn('', '2026-09-11T10:00:00.000Z', video));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(out.result.decision).toBe('send');
+        expect(composerUser).toContain('>> Sam: [1 video, not seen by you]');
+        expect(composerUser).toMatch(/thank for media: yes, but .*not seen.*do not say what it shows/);
     });
 
     it('the held acknowledgement names the photo the turn brought and spends its one thanks, so the next turn is told not to thank again', async () => {

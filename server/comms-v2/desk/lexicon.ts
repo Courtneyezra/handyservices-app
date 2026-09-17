@@ -4,8 +4,13 @@
  * the old desk is being replaced and these must outlive it.
  */
 
-/** Only gas and asbestos are out of scope (behaviour.md, checklist cross-cutting 5). Plumbing, roofing, structural and electrical are ours. */
-export const RE_REGULATED = /\b(?:gas(?:\s|-)?(?:boiler|hob|cooker|fire|meter|pipe|leak|safe|engineer|supply|work|appliance|heater)|boiler\b(?![^.?!]*\b(?:cupboard|casing|box)\b)|gas\b|asbestos|artex(?:\s+\w+)?\s+(?:ceiling|test)|corgi)\b/i;
+/**
+ * Only gas and asbestos are out of scope (behaviour.md, checklist cross-cutting 5). Plumbing, roofing, structural and electrical are ours.
+ * A combi and a pilot light are gas appliances in everyday words ("my combi keeps losing pressure"), but not a combi oven,
+ * microwave or drill; a boiler's or combi's cupboard, casing or box is joinery. A flue is gas only beside a gas word, which is matched on its
+ * own, so a wood burner's or a chimney's flue is ours.
+ */
+export const RE_REGULATED = /\b(?:gas(?:\s|-)?(?:boiler|hob|cooker|fire|meter|pipe|leak|safe|engineer|supply|work|appliance|heater)|boilers?\b(?![^.?!]*\b(?:cupboard|casing|box)\b)|(?<!\b(?:cupboard|casing|box)\s+(?:\w+\s+){0,3})combis?\b(?!\s+(?:ovens?|microwaves?|drills?))(?![^.?!]*\b(?:cupboard|casing|box)\b)|pilot\s+lights?|gas\b|asbestos|artex(?:\s+\w+)?\s+(?:ceiling|test)|corgi)\b/i;
 
 export function regulatedMatch(text: string): string | null {
     const m = RE_REGULATED.exec(text);
@@ -15,8 +20,32 @@ export function regulatedMatch(text: string): string | null {
 /** A figure of money. */
 export const RE_FIGURE = /(?:£\s*\d[\d,]*(?:\.\d+)?)|(?:\b\d[\d,]*(?:\.\d+)?\s*(?:pounds?|quid|gbp)\b)|(?:\b\d+p\b)/i;
 
-/** A money question beyond a quote line: how much, cost, price, cheaper, discount. "A quote for X" is an enquiry, not a money question. */
-export const RE_MONEY_QUESTION = /\b(?:how much|cost(?:s|ing)?|price[sd]?|pricing|charge[sd]?|ballpark|rough(?:ly)?\s+(?:idea|figure|cost|price|estimate)|estimate\b|cheap(?:er|est)?|expensive|discount|any cheaper|do it for less|knock (?:some|a bit) off|call[- ]?out fee|hourly rate|day rate|deposit)\b|£\s*\d/i;
+/**
+ * Haggling in everyday words: "is that the best you can do?", "any wiggle room?", "that's a bit steep", "would you take 120?",
+ * "someone else quoted me 80", "mates rates". Written narrow, so "lower the shelf", "match the paint" and
+ * "do any better than a patch" stay job talk.
+ */
+const HAGGLE = [
+    'best you can do', 'wiggle room', 'negotiab\\w*', 'haggle', 'sharpen (?:your|the) pencil',
+    '(?:any|some) room (?:to move|for (?:movement|manoeuvre))(?! (?:the|a|it|them|my|our|your)\\b)',
+    '(?:any|do) (?:better|movement) on (?:the |that |this |your )?(?:quote|figure|total|that|this|it)',
+    'meet (?:me|us) (?:in the middle|half ?way)',
+    "(?:that's|thats|that is|it's|its|seems|sounds) (?:a )?(?:bit |little |too |very |quite |rather )?steep", '(?:bit|little|too|very|quite|rather) dear', 'pric(?:e)?y',
+    "(?:that's|thats|that is|seems|sounds) (?:like )?(?:a lot|a bit much|too much)(?! (?:of|like|better|worse|easier|harder|clearer|quicker|nicer|more|less)\\b)",
+    "(?:within|over|under|above|outside|beyond|on|stretch|exceeds?|out of) (?:my |our |your |the |a )?(?:tight |small |limited )?budget",
+    "(?:my|our) budget (?:is|was|isn['’]?t|wasn['’]?t|won['’]?t|doesn['’]?t|can['’]?t|only|max|of|for|would|will)", 'tight budget',
+    'quoted (?:me|us) (?:£ ?\\d|\\d{2,})', '(?:you|u|ben|price|quote) go any lower(?=\\s*(?:[?.!,;]|$))', 'you go (?:any )?lower(?= (?:on |than )?(?:the |that |this |your |my )?(?:price|quote|cost|total|figure|£ ?\\d|\\d))',
+    '(?:match|beat) (?:(?:that|their|his|her|this|the other|another) )?(?:quote|figure|£ ?\\d+|\\d+)',
+    "mates?'?s? rates?", '(?:pensioner|oap|student|nhs|forces|cash) (?:rate|price|discount|deal)',
+    '(?:any|special|better|cash) deal', 'chance of a deal', 'do (?:me|us) a deal',
+    '(?:do (?:it )?for|(?:you|u) (?:take|accept)) (?:£ ?\\d+(?:\\.\\d+)?|\\d{2,}(?:\\.\\d+)?(?= ?(?:cash|quid|pounds?)?\\s*(?:[?.!,;]|$)))',
+    '\\d+ (?:quid|cash)', 'do it for less', 'for (?:a (?:bit|little|touch) )?less(?= (?:money|cash)\\b|\\s*(?:[?.!,;]|$))',
+    'knock (?:a |an )?(?:bit|some|anything|tenner|fiver|few quid|little|£ ?\\d+|\\d+) off',
+    'instal(?:l)?ments?', 'payment plan', 'pay (?:it )?(?:monthly|in (?:parts|stages|bits))',
+].join('|');
+
+/** A money question beyond a quote line: how much, cost, price, cheaper, discount, a haggle. "A quote for X" is an enquiry, not a money question. */
+export const RE_MONEY_QUESTION = new RegExp(`\\b(?:how much|cost(?:s|ing)?|price[sd]?|pricing|charge[sd]?|ballpark|rough(?:ly)?\\s+(?:idea|figure|cost|price|estimate)|estimate\\b|cheap(?:er|est)?|expensive|discount|any cheaper|call[- ]?out fee|hourly rate|day rate|deposit|${HAGGLE})\\b|£\\s*\\d`, 'i');
 
 export function moneyQuestionMatch(text: string): string | null {
     const m = RE_MONEY_QUESTION.exec(text);
@@ -232,15 +261,37 @@ export function clausesOf(sentence: string): string[] {
     return sentence.split(/[,;:]|\s+-\s+/).map((c) => c.trim()).filter(Boolean);
 }
 
-/** Whether a sentence asks for a subject: subject word plus an asking phrase, outside a dismissive clause. */
+/** A clause asking to be sent something more, whatever it names: "could you send one of the whole door". */
+const RE_ASKS_TO_BE_SENT = /\b(?:send|share|pop|drop|attach|forward)\b|\b(?:another|one more)\b/i;
+
+/**
+ * Whether a sentence asks for a subject: subject word plus an asking phrase, outside a dismissive
+ * clause. Thanks for media is no ask of it ("Thanks for sending the video, what size is the gap?"),
+ * unless another clause asks to be sent more ("Thanks for the photo, could you send one of the door?").
+ */
 export function sentenceAsks(sentence: string, subject: string): boolean {
     const words = SUBJECT_WORDS[subject];
     if (!words || !words.test(sentence) || !RE_ASKING.test(sentence)) return false;
-    return clausesOf(sentence).filter((c) => words.test(c)).some((c) => !RE_DISMISSIVE.test(c));
+    const clauses = clausesOf(sentence);
+    const thanks = (c: string) => subject === 'media' && RE_THANKS_MEDIA.test(c);
+    return clauses.filter((c) => words.test(c)).some((c) => !RE_DISMISSIVE.test(c)
+        && (!thanks(c) || clauses.some((o) => o !== c && RE_ASKS_TO_BE_SENT.test(o))));
 }
 
 export function textAsks(text: string, subject: string): boolean {
     return sentencesOf(text).some((s) => sentenceAsks(s, subject));
+}
+
+/**
+ * Whether a composed reply asked the question the brief proposed. A question in words the lexicon
+ * does not know still counts, but only a question about the job: an offer of a call ("is it OK if
+ * I give you a quick call?") or a question that asks for a different subject ("could you send a
+ * photo?") is not the proposed one, so the proposed subject is not spent on it and is asked later.
+ */
+export function asksProposed(text: string, subject: string): boolean {
+    if (textAsks(text, subject)) return true;
+    const others = ['media', 'postcode', 'access'].filter((o) => o !== subject);
+    return sentencesOf(text).some((s) => s.includes('?') && scopingQuestionCount(s) > 0 && !others.some((o) => sentenceAsks(s, o)));
 }
 
 /**
@@ -272,15 +323,58 @@ export const RE_CALL_OFFER = new RegExp([
 
 const RE_CALL_NEGATION = /\b(?:won'?t|will not|wont|(?:cannot|can'?t|can not)(?!\s+(?:wait|hurt))|no need (?:to|for)|not going to|rather than|instead of|never(?!\s+hurts?)|(?:don'?t|do not|won'?t|will not) (?:need|have|want) to|not necessary to|no (?:calls?|phone))(?:\s+\S+){0,2}\s*$/i;
 
+/** The customer asking to be called: "call me", "can you ring me back", "give me a bell". */
+export const RE_CALL_ASKED = /\b(?:call|ring|phone|bell)\s+me\b|\bgive me a (?:quick )?(?:call|ring|bell|buzz)\b/i;
+
+// What turns those words round (round 26): "please don't call me", "can you not ring me", "no need to phone me",
+// "never ring me". "Why not call me?" still asks. Only the words since the clause's last "but", "so" or "and" count.
+const RE_CALL_REFUSED = /\b(?:don['’]?t|do not|(?<!\bwhy )not|never|no need (?:to|for you to)|stop)(?:\s+\S+){0,2}\s*$/i;
+
+/** The customer asks to be called, in a clause that does not turn it round ("please don't call me" is not an ask). */
+export function asksForCall(text: string): boolean {
+    for (const s of sentencesOf(text)) for (const clause of clausesOf(s)) {
+        const m = RE_CALL_ASKED.exec(clause);
+        if (!m) continue;
+        const before = clause.slice(0, m.index).split(/\b(?:but|so|and|then|though)\b/i).pop() ?? '';
+        if (!RE_CALL_REFUSED.test(before)) return true;
+    }
+    return false;
+}
+
+// A call that already happened or was already tried ("as we discussed on the phone", "great speaking to
+// you on the phone earlier", "we tried to call you back") is not an offer of one. A call still to come is always
+// an offer, whatever was said before it: "I spoke to Ben and he will call you tomorrow", "as I said, I can give you
+// a ring tomorrow", "happy chatting on the phone if easier?". Every call in the clause is read. Otherwise a call that happened may be named anywhere before the call words; the rest lead
+// straight into them.
+const RE_CALL_PAST_ANYWHERE = /\b(?:spoke|talked|chatted|earlier)\b/i;
+const RE_CALL_PAST_BEFORE = /\b(?:(?:discussed|mentioned|spoken|speaking|talking|chatting)(?:\s+(?:to|with)\s+(?:you|u|me))?(?:\s+(?:yesterday|before|earlier|already))*|(?:tried|trying)\s+to)\s*$/i;
+const RE_CALL_FUTURE_OFFER = /^(?:give|happy|can|could|shall|should|may|jump|hop|call (?:would|might))\b/i;
+const RE_CALL_FUTURE_BEFORE = /\b(?:will|['’]ll|can|could|shall|may|might|going to|happy to|glad to|want to|like to|able to)(?:\s+\S+){0,2}\s*$/i;
+const RE_CALL_FUTURE_AFTER = /\b(?:if (?:(?:it|that)(?:['’]?s| is| would be) )?(?:easier|quicker|simpler|you(?:['’]d)? (?:prefer|like|want))|(?:might|would|could) (?:help|be (?:easier|quicker|best)))\b/i;
+
+function callIsPast(offer: string, before: string, after: string): boolean {
+    if (RE_CALL_FUTURE_OFFER.test(offer) || RE_CALL_FUTURE_BEFORE.test(before) || RE_CALL_FUTURE_AFTER.test(after)) return false;
+    return RE_CALL_PAST_BEFORE.test(before) || RE_CALL_PAST_ANYWHERE.test(before);
+}
+
+/** The offer of a call a clause makes, if it makes one: the first call in it that is neither turned down nor past. */
+function callOfferIn(clause: string): string | null {
+    for (const m of Array.from(clause.matchAll(new RegExp(RE_CALL_OFFER.source, 'gi')))) {
+        const before = clause.slice(0, m.index);
+        if (!RE_CALL_NEGATION.test(before) && !callIsPast(m[0], before, clause.slice(m.index + m[0].length))) return m[0];
+    }
+    return null;
+}
+
 /** Questions about the job: every question except an offer of a call, which is not a scoping question. */
 export function scopingQuestionCount(text: string): number {
-    return sentencesOf(text).filter((s) => s.includes('?') && clausesOf(s).every((c) => { const m = RE_CALL_OFFER.exec(c); return !m || RE_CALL_NEGATION.test(c.slice(0, m.index)); })).length;
+    return sentencesOf(text).filter((s) => s.includes('?') && clausesOf(s).every((c) => !callOfferIn(c))).length;
 }
 
 export function offersCall(text: string): string | null {
     for (const s of sentencesOf(text)) for (const clause of clausesOf(s)) {
-        const m = RE_CALL_OFFER.exec(clause);
-        if (m && !RE_CALL_NEGATION.test(clause.slice(0, m.index))) return m[0];
+        const offer = callOfferIn(clause);
+        if (offer) return offer;
     }
     return null;
 }

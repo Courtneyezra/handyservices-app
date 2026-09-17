@@ -12,7 +12,10 @@
  *                     there. On WhatsApp with the window open (they wrote within the day) the
  *                     template's words go as a plain message; a shut window needs the approved
  *                     template, and none approved holds the follow-up for Ben with the words as the
- *                     draft.
+ *                     draft. A thread we have written on inside the last 60 days is an ongoing
+ *                     conversation, not a first contact, and gets no text back at all: the call
+ *                     stays on the board, as the old desk's first-contact gate leaves it
+ *                     (server/first-contact-ack.ts `classifyHistory`, NOT_FIRST_CONTACT).
  *   answered_inbound  the transcript is read for facts; no acknowledgement (3.5). They rang us,
  *                     so the call is never offered again (1.5).
  *   ben_rang          the transcript is read for what Ben asked for (3.3); the post-call template
@@ -36,7 +39,7 @@ import { optOutOnTurn } from '../desk/desk';
 import { BEN, approverFor } from '../desk/guards';
 import { AnthropicModelClient, type ModelClient } from '../desk/models';
 import { DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, templateBodyFor, windowOf, type ReplyPurpose, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from '../desk/sender';
-import { callOutcomeOnFile, type CallOutcome } from './call-adapter';
+import { callOutcomeOnFile, hasTranscript, type CallOutcome } from './call-adapter';
 import { MISSED_CALL_ACK_SUBJECT } from './templates';
 import { benAskedSubjects, ledgerAfterCall, readCall, recordCallFacts } from './call-reader';
 
@@ -46,6 +49,19 @@ export interface ChannelDeskDeps extends CaseFileDeps {
     sender?: SenderDeps;
     mode?: 'dry_run' | 'live';
     log?: (line: string) => void;
+}
+
+/**
+ * How recently we must have written for a missed call to land on an ongoing conversation rather
+ * than a first contact: the old desk's `returningAfterDays` default (server/first-contact-ack.ts).
+ */
+export const MISSED_CALL_ONGOING_DAYS = 60;
+
+/** When we last wrote on the file inside the ongoing window, or null: a missed call then gets no text back. */
+function ongoingSince(file: CaseFile, now: Date): string | null {
+    const last = file.turns.filter((t) => t.direction === 'outbound').map((t) => t.at).sort().at(-1) ?? null;
+    if (!last) return null;
+    return now.getTime() - Date.parse(last) < MISSED_CALL_ONGOING_DAYS * 86_400_000 ? last : null;
 }
 
 const TEMPLATE_NOTE = 'template: words approved at registration; the guards run on composed replies';
@@ -76,6 +92,33 @@ export class ChannelDesk implements DeskLike {
         return this.inner.handleTurn(file, turn);
     }
 
+    /**
+     * A transcript that landed on a call turn after hang-up (channel-gateway.ts `attachCall`): read
+     * for facts, and Ben's asks on the ledger, exactly as a call read at hang-up is. Never a send or
+     * a template: the follow-up, if any, was decided at hang-up. A caller who asked us to stop is
+     * held for Ben as at hang-up, and nothing is read.
+     */
+    async readLateTranscript(file: CaseFile, turn: Turn): Promise<string[]> {
+        if (turn.direction !== 'inbound' || turn.kind !== 'call_transcript' || callOutcomeOnFile(file, turn) === 'missed' || !hasTranscript(turn)) return [];
+        if (this.optOutHold(file, turn)) return [];
+        const read = await readCall(file, turn, this.client);
+        if (!read.output) { (this.deps.log ?? (() => undefined))(`call reader (late transcript): ${read.error}`); return []; }
+        const deps = this.fileDeps();
+        const factIds = recordCallFacts(file, turn, read.output, deps);
+        if (isReady(file) && (file.stage === 'scoping' || file.stage === 'first_contact')) setStage(file, 'ready', 'job type and location both on the file, from the call', deps);
+        ledgerAfterCall(file, benAskedSubjects(file, read.output), deps);
+        return factIds;
+    }
+
+    private optOutHold(file: CaseFile, turn: Turn): ReturnType<typeof optOutOnTurn> {
+        const optOut = optOutOnTurn(file, turn);
+        if (optOut?.holdReason) {
+            if (file.hold) noteOnHold(file, { reason: optOut.holdReason });
+            else setHold(file, { approver: approverFor(file, null), reason: optOut.holdReason }, this.fileDeps());
+        }
+        return optOut;
+    }
+
     private fileDeps(): CaseFileDeps { return { now: this.now, newId: this.deps.newId }; }
 
     private result(file: CaseFile, partyId: string, runId: string, calls: ModelCallRecord[], over: Partial<DeskResult> & { decision: DeskResult['decision']; note: string | null }): DeskResult {
@@ -92,12 +135,8 @@ export class ChannelDesk implements DeskLike {
         if (!party) return this.result(file, file.parties[0].personId, runId, calls, { decision: 'none', note: 'the call\'s party is not on the file' });
         const deps = this.fileDeps();
         // A caller who asked us to stop gets no follow-up and no model reads the transcript; the call is Ben's to check and record.
-        const optOut = optOutOnTurn(file, turn);
+        const optOut = this.optOutHold(file, turn);
         if (optOut) {
-            if (optOut.holdReason) {
-                if (file.hold) noteOnHold(file, { reason: optOut.holdReason });
-                else setHold(file, { approver: approverFor(file, null), reason: optOut.holdReason }, deps);
-            }
             return this.result(file, party.personId, runId, calls, { decision: optOut.holdReason ? 'hold' : 'none', note: optOut.note });
         }
         if (file.stage === 'first_contact') setStage(file, 'scoping', 'first customer turn: a call', deps);
@@ -110,7 +149,9 @@ export class ChannelDesk implements DeskLike {
         const factIds: string[] = [];
         let asked: Array<'media' | 'postcode' | 'access'> = [];
         let summary = `call ${outcome}`;
-        if (outcome !== 'missed') {
+        // A live call reaches the desk at hang-up, before transcription: there is nothing to read yet,
+        // and the transcript that lands later is read then (`readLateTranscript`).
+        if (outcome !== 'missed' && hasTranscript(turn)) {
             const read = await readCall(file, turn, this.client);
             calls.push(read.record);
             if (read.output) {
@@ -135,6 +176,13 @@ export class ChannelDesk implements DeskLike {
         // One text back per thread (checklist 3.5). They may ring three times in five minutes; they hear back once.
         if (outcome === 'missed' && everAsked(file, MISSED_CALL_ACK_SUBJECT)) {
             return this.result(file, party.personId, runId, calls, { decision: 'none', factIds, summary, note: 'the missed-call text already went on this thread; one text back, never a second (checklist 3.5)' });
+        }
+
+        // A missed call on a conversation we are already having is not a first contact: "tell us what
+        // needs doing" to someone we wrote to minutes ago reads as a bot that did not notice.
+        const ongoing = outcome === 'missed' ? ongoingSince(file, this.now()) : null;
+        if (ongoing) {
+            return this.result(file, party.personId, runId, calls, { decision: 'none', factIds, summary, note: `a missed call on an ongoing thread (we last wrote ${ongoing}): no text back, as the old desk's first-contact gate; the call is on the board` });
         }
 
         // The follow-up: a template, on WhatsApp if the number is on it, else its words on SMS, else email.

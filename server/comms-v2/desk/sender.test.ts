@@ -140,6 +140,43 @@ describe('renderWhatsApp', () => {
         for (const b of r.bubbles) { expect(b.text.length).toBeLessThanOrEqual(BUBBLE_MAX_CHARS); expect(b.text.endsWith('.')).toBe(true); }
         expect(r.bubbles.map((b) => b.text).join(' ')).toBe(long);
     });
+    it('never ends a bubble on a short form such as "e.g." that the sentence carries on past', () => {
+        const reply = 'Yes we cover SE15 and most of south east London. For the shelves, could you send a photo of the wall and let me know roughly how many there are, e.g. two or three? Thanks.';
+        const r = renderWhatsApp(reply);
+        expect(r.ok).toBe(true);
+        for (const b of r.bubbles) expect(b.text).not.toMatch(/\be\.g\.$/);
+        expect(r.bubbles.map((b) => b.text).join(' ')).toBe(reply);
+        const approx = `${'This sentence is long enough to push the bubble past its ceiling. '.repeat(2).trim()} It takes approx. 2 hrs and Mr. Patel can let me in.`;
+        expect(renderWhatsApp(approx).bubbles.map((b) => b.text)).toContain('It takes approx. 2 hrs and Mr. Patel can let me in.');
+        // A short form that does end its sentence still lets the next one start a bubble.
+        const etc = `${'This sentence is long enough to push the bubble past its ceiling. '.repeat(2).trim()} Shelves, hooks, etc. Whereabouts are you?`;
+        expect(renderWhatsApp(etc).bubbles.map((b) => b.text).at(-1)).toBe('Shelves, hooks, etc. Whereabouts are you?');
+    });
+    it('never leaves a list number, "hrs." or "a.m." on the end of a bubble (round 22)', () => {
+        const list = "Thanks Sam, that's really helpful and the photos are clear. Two quick things before Ben prices it:\n1. Is the tap a mixer or two separate taps?\n2. Is there an isolation valve under the sink you can reach?";
+        const r = renderWhatsApp(list);
+        expect(r.ok).toBe(true);
+        expect(r.bubbles.map((b) => b.text)).toEqual([
+            "Thanks Sam, that's really helpful and the photos are clear. Two quick things before Ben prices it:",
+            '1. Is the tap a mixer or two separate taps?',
+            '2. Is there an isolation valve under the sink you can reach?',
+        ]);
+        // A short list that fits one bubble keeps its items on their own lines.
+        expect(renderWhatsApp('Two quick things:\n1. Is the tap a mixer?\n2. Could you send a photo?').bubbles.map((b) => b.text))
+            .toEqual(['Two quick things:\n1. Is the tap a mixer?\n2. Could you send a photo?']);
+        // The line after the last item stays on its own line: the sign-off never joins the list (live sweep).
+        expect(renderWhatsApp('Two quick things before Ben prices it:\n1. Is the tap a mixer or two separate taps?\n2. Is there an isolation valve under the sink?\nCheers').bubbles.map((b) => b.text))
+            .toEqual(['Two quick things before Ben prices it:\n1. Is the tap a mixer or two separate taps?\n2. Is there an isolation valve under the sink?\nCheers']);
+        expect(renderWhatsApp('Could you tell me:\n1. the size of the mirror\n2. what the wall is made of\nThanks').bubbles.map((b) => b.text))
+            .toEqual(['Could you tell me:\n1. the size of the mirror\n2. what the wall is made of\nThanks']);
+        // A number ending a sentence is not a list item.
+        expect(renderWhatsApp('Is that flat 2. Thanks.').bubbles.map((b) => b.text)).toEqual(['Is that flat 2. Thanks.']);
+        const hours = 'Lovely, thanks for the details about the fence panels and the posts along the back of the garden. Our hours are 8 a.m. to 5 p.m. on weekdays, and a visit takes about 2 hrs. at most. Could you make sure the side gate is unlocked?';
+        const h = renderWhatsApp(hours);
+        expect(h.ok).toBe(true);
+        for (const b of h.bubbles) expect(b.text).not.toMatch(/(?:\b[ap]\.m|\bhrs|\b\d)\.$/);
+        expect(h.bubbles.map((b) => b.text).join(' ')).toBe(hours);
+    });
     it('returns the reply to the composer at the soft ceiling rather than sending a wall', () => {
         const r = renderWhatsApp(Array.from({ length: BUBBLE_CEILING + 1 }, (_, i) => `Bubble ${i}.`).join('\n\n'));
         expect(r.ok).toBe(false);
@@ -464,5 +501,35 @@ describe('shortenBriefFor', () => {
         const ucs2 = shortenBriefFor('sms', ucs2Text, renderSms(ucs2Text).bubbles);
         expect(ucs2).toMatchObject({ channel: 'sms', charBudget: UCS2_MULTI * SMS_MAX_SEGMENTS });
         if (ucs2.channel === 'sms') expect(ucs2.charBudget).toBeLessThan(gsm7.channel === 'sms' ? gsm7.charBudget : 0);
+        // The characters that cost the room are named, so the retry can drop them (round 25); a GSM7 text names none.
+        expect(ucs2).toMatchObject({ wideChars: ['\u{1F44D}'] });
+        expect(gsm7).toMatchObject({ wideChars: [] });
+        const mixed = 'About 2\u00bd hrs, 1.2m \u00d7 30cm \u{1F44D} \u{1F44D}';
+        expect(shortenBriefFor('sms', mixed, renderSms(mixed).bubbles)).toMatchObject({ wideChars: ['\u00bd', '\u00d7', '\u{1F44D}'] });
+    });
+});
+
+describe('a bulleted list the composer wrote (round 23)', () => {
+    const texts = (r: { bubbles: { text: string }[] }) => r.bubbles.map((b) => b.text);
+
+    it('goes out as one sentence of comma-joined items, with no hyphen as punctuation and the words after it a new sentence', () => {
+        const reply = 'Thanks for the photos. Could you send me:\n- a photo of the whole tap\n- the rough size of the cupboard\nCheers';
+        const wa = renderWhatsApp(reply);
+        const sms = render('sms', reply);
+        expect(texts(wa)).toEqual(['Thanks for the photos. Could you send me: a photo of the whole tap, the rough size of the cupboard. Cheers']);
+        expect(texts(sms)).toEqual(['Thanks for the photos. Could you send me: a photo of the whole tap, the rough size of the cupboard. Cheers']);
+    });
+
+    it('drops dot and star markers, keeps question items whole and leaves a lower-case run-on alone', () => {
+        expect(texts(render('sms', 'No problem. Just a few bits:\n• the postcode\n• a photo of the door\n• roughly how wide it is')))
+            .toEqual(['No problem. Just a few bits: the postcode, a photo of the door, roughly how wide it is']);
+        expect(texts(renderWhatsApp('Thanks Sam. A couple of questions:\n* Is the leak from the tap body or underneath?\n* How old is the tap?')))
+            .toEqual(['Thanks Sam. A couple of questions: Is the leak from the tap body or underneath? How old is the tap?']);
+        expect(texts(renderWhatsApp('Great, that helps.\n- a photo of the fan\n- which room it is in\nand we will get it priced.')))
+            .toEqual(['Great, that helps. a photo of the fan, which room it is in and we will get it priced.']);
+    });
+
+    it('leaves a person\'s own list as typed', () => {
+        expect(texts(render('sms', 'Two things:\n- the washer\n- the valve', { asTyped: true }))).toEqual(['Two things:\n- the washer\n- the valve']);
     });
 });

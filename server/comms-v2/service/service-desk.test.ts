@@ -114,6 +114,38 @@ describe('the Service specialist on the desk', () => {
         expect(out.result.kbIds).toEqual(['kb-areas']);
         expect(out.file.hold).toBeNull();
     });
+    it.each([
+        'Do you travel to Derby?',
+        'Hi, are you covering Beeston?',
+        'Does your area include West Bridgford?',
+        'Would you be able to come to Beeston?',
+        'Are you able to cover Beeston? need a tap fixed',
+        'do you cover beeston as well? shelves need putting up',
+        "We're in Stapleford - do you cover that far out?",
+    ])('an everyday coverage wording the router sent to Scoping still reaches Service and is answered from the areas-covered row: %s', async (text) => {
+        const AREAS = 'We cover Nottingham and the surrounding areas, Beeston and West Bridgford included.';
+        const areasKb = { async list() { return [{ id: 'kb-areas', topic: 'Which areas do you cover?', approvedWords: AREAS }]; } };
+        const { client, gateway } = desk({
+            router: () => route({ subjects: ['scoping'], turnKind: 'question' }),
+            specialist: ({ system, user }) => {
+                if (!isService(system)) return scopingOut();
+                expect(user).toContain('kb-areas');
+                return serviceOut({ answers: [{ asked: 'areas covered', source: 'kb', id: 'kb-areas' }] });
+            },
+            composer: ({ user }) => {
+                expect(user).toContain('cite knowledge-base id kb-areas');
+                const factId = /\(fact (fact_[^)]+)\)/.exec(user)![1];
+                return { reply: `${AREAS}\n\nWhat's the job you've got in mind?`, factIds: [factId], kbIds: ['kb-areas'] };
+            },
+        }, { kb: areasKb });
+        const out = await gateway.inbound(turn(text, '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(2);
+        expect(out.result.decision).toBe('send');
+        expect(out.result.kbIds).toEqual(['kb-areas']);
+        expect(out.result.bubbles[0].text).toBe(AREAS);
+        expect(out.file.hold).toBeNull();
+    });
     it('a mixed coverage-and-job turn the router sent to Scoping runs both: Scoping takes the job half and Service does not hold it as no source', async () => {
         const { client, gateway } = desk({
             router: () => route({ subjects: ['scoping'], turnKind: 'enquiry' }),

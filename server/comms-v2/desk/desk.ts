@@ -37,7 +37,7 @@ import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, Proposal, SpecialistReturn } from './desk-types';
 import { fixedLine, heldAckLine, knowledgeBaseFixedLines, lateMediaAckLine, LATE_MEDIA_MS, type FixedLine, type FixedLineSource } from './fixed-lines';
 import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
-import { deferralMatch, offersCall, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
+import { asksForCall, asksProposed, deferralMatch, offersCall, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
 import { TurnModelWatch, type TurnReport } from './model-health';
 import type { Exception, HoldException, Route } from './router';
@@ -59,6 +59,7 @@ import { refreshBenToRequest } from '../quoting/ben-to-request';
 import { draftToRecover, markDraftFailed, type BackgroundDraftHooks } from '../quoting/background-draft';
 import { repeatedSentences, saidSinceLastQuestion, withoutSentences } from './repeat';
 import { detectOptOut } from '../../opt-out-detect';
+import { transcriptOf } from '../channels/call-adapter';
 
 export interface DeskDeps extends CaseFileDeps {
     client?: ModelClient;
@@ -98,11 +99,32 @@ function optOutPlace(channel: Turn['channel']): string {
     }
 }
 
-/** An opt-out in any one message the turn carries, each read on its own as the old inbound path reads it. */
+/** A speaker label in a transcript ("Customer:", "Agent:", "Speaker 1:"), and the ones that are our side of the call. */
+const RE_SPEAKER = /\b((?:agent|ben|va|customer|caller|speaker\s*\d+)):/i;
+const RE_OUR_SPEAKER = /^(?:agent|ben|va)$/i;
+
+/**
+ * A call transcript as the short messages the opt-out check reads: each sentence the caller said, on
+ * its own, so "please stop contacting me" inside a long call is read as the terse instruction it is.
+ * Speech runs on, so a sentence is also cut at commas and at "so", "but", "and": "...sorted it at the
+ * weekend so please stop contacting me about it" reads its last clause on its own.
+ * Our side of the call, where it is labelled, is left out.
+ */
+function transcriptSentences(body: string): string[] {
+    const parts = transcriptOf({ body } as Turn).split(RE_SPEAKER);
+    const said: string[] = [parts[0]];
+    for (let i = 1; i + 1 < parts.length; i += 2) if (!RE_OUR_SPEAKER.test(parts[i])) said.push(parts[i + 1]);
+    return said.flatMap((s) => s.split(/[.?!\n,;:]+|\b(?:so|but|and)\b/i)).map((s) => s.trim()).filter(Boolean);
+}
+
+/** An opt-out in any one message the turn carries, each read on its own as the old inbound path reads it; a call transcript sentence by sentence. */
 function optOutIn(file: CaseFile, turn: Turn): ReturnType<typeof detectOptOut> {
     for (const id of messagesOf(turn)) {
-        const match = detectOptOut(file.turns.find((t) => t.id === id)?.body ?? (id === turn.id ? turn.body : null));
-        if (match) return match;
+        const body = file.turns.find((t) => t.id === id)?.body ?? (id === turn.id ? turn.body : null);
+        for (const text of turn.kind === 'call_transcript' && body ? transcriptSentences(body) : [body]) {
+            const match = detectOptOut(text);
+            if (match) return match;
+        }
     }
     return null;
 }
@@ -549,11 +571,24 @@ export class Desk implements DeskLike {
             return { guards: runGuards({ file, party, turn, reply: words(text), factIds: Array.from(new Set([...prefixFactIds, ...ids])), kbIds: merged, kbRows, fixedLines: sentLines(), lookedUp, proposedSubject, liveQuoteRefs }), kbIds: merged };
         };
         // One thing at a time (checklist 2.3) is checked with the guards, so the one retry covers it too;
-        // so is a composed reply that thanks for media the late line already thanks for.
+        // so is a composed reply that thanks for media the late line already thanks for, and one that offers
+        // a call to a party who prefers text or has already rung (1.5): the brief says not to, and nothing
+        // else holds the composer to it. A call the customer asks for in this turn may be answered. A promise of
+        // more or a not-ready customer gets one acknowledgement and then quiet (2.5, 6.2, answers 8 and 19), so a
+        // question in that reply is checked the same way: it would ask them for something they have just put off.
+        // A short pause ("one sec, let me check") gets the same acknowledgement-only brief (2.4): they are away finding something.
+        const quietTurn = route.turnKind === 'promise_of_more' || route.turnKind === 'not_ready' || route.turnKind === 'short_pause';
+        const quietWhy = route.turnKind === 'not_ready' ? 'said they are not ready yet' : route.turnKind === 'short_pause' ? 'asked for a moment and will be straight back' : 'promised to send more';
+        const noCallOffer = exceptions.includes('callback') || asksForCall(turn.body) ? null
+            : party.prefersText ? 'they prefer text' : party.alreadyRung ? 'they have already rung us' : null;
         const withOneThing = (g: GuardOutcome, text: string): GuardOutcome => {
             const n = scopingQuestionCount(text);
             const failures = [...g.failures];
-            if (n > 1) failures.push(`one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`);
+            const own = fixedLines.reduce((t, f) => t.split(f.text).join(' '), text);
+            if (quietTurn && scopingQuestionCount(own) > 0) failures.push(`an acknowledgement only, no question: they have ${quietWhy}, so ask them nothing and use no question mark`);
+            else if (n > 1) failures.push(`one thing at a time: ${n} questions about the job in one reply; ask one, with one question mark`);
+            const offer = noCallOffer ? offersCall(own) : null;
+            if (offer) failures.push(`do not offer or mention a call ("${offer}"): ${noCallOffer}`);
             if (lateAck && RE_THANKS_MEDIA.test(text)) failures.push('the photo or video came in earlier and a line after your reply thanks for it: do not thank for it yourself');
             return failures.length > g.failures.length ? { ok: false, guards: g.guards, failures } : g;
         };
@@ -751,7 +786,7 @@ export class Desk implements DeskLike {
         const deps = this.fileDeps();
         const party = partyOf(file, partyId)!;
         for (const subject of ['media', 'postcode', 'access'] as const) if (textAsks(said, subject)) ledgerAsk(file, subject, deps);
-        if (proposal?.nextQuestion && said.includes('?')) ledgerAsk(file, proposal.nextQuestion.subject, deps);
+        if (proposal?.nextQuestion && asksProposed(said, proposal.nextQuestion.subject)) ledgerAsk(file, proposal.nextQuestion.subject, deps);
         if (proposal?.mentionPhotos && /\b(?:photo|photos|picture|pictures|pic|pics|video|snap|image)s?\b/i.test(said)) ledgerAsk(file, 'media', deps);
         // The thanks is spent only where the words that went carried one: a thanks the ledger
         // records but the reply never made leaves the photo unacknowledged for good, which is the

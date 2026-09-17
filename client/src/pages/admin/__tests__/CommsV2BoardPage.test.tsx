@@ -385,6 +385,46 @@ describe('<CommsV2BoardPage>', () => {
         expect(screen.getByTestId('answer-sent').textContent).toContain('quote/q123');
     });
 
+    it('a held draft refused on a shut window offers the template send on the held card itself, which sends on one tap', async () => {
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        const detail: CaseFileDetail = {
+            id: 'case_held', stage: 'quoted', mode: 'sandbox', party: null,
+            job: { type: 'leaking tap', location: null, quoteRef: 'q123', bookingRef: null },
+            turns: [{ id: 't1', at: new Date().toISOString(), channel: 'whatsapp', direction: 'inbound', kind: 'text', body: 'Is the new washer included?', media: [] }],
+            facts: [],
+            hold: { approver: { kind: 'human', id: 'ben' }, reason: 'guards failed twice', since: new Date().toISOString(), draft: 'Yes, the washer is on your quote.' },
+            holdApproverAssigned: true,
+        };
+        const { calls } = mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+            {
+                method: 'POST', url: '/api/comms-v2/case-files/case_held/send-held-draft',
+                reply: () => ({ status: 409, json: { error: 'the whatsapp window is shut (the customer last wrote on WhatsApp more than 24 hours ago); a shut window never carries freeform words, so this reply cannot go until the customer writes again' } }),
+            },
+            {
+                method: 'POST', url: '/api/comms-v2/case-files/case_held/send-template',
+                reply: () => ({ json: { ok: true, sent: { approver: 'human:ben@handyservices.app', bubbles: ['Hi Sam, your quote is ready: https://handyservices.app/quote/q123'] }, release: { words: 'x' } } }),
+            },
+        ]);
+
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await user.click(screen.getByTestId('board-card-case_held'));
+
+        await user.click(await screen.findByRole('button', { name: /send as it stands/i }));
+        await waitFor(() => expect(screen.getByTestId('send-held-draft-error').textContent).toContain('window is shut'));
+        // Ben is offered the template here, without having to type an answer first to discover it.
+        expect(screen.getByTestId('send-template-option')).toBeTruthy();
+        expect(screen.queryByTestId('answer-error')).toBeNull();
+
+        const boardLoads = calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/comms-v2/board')).length;
+        await user.click(screen.getByRole('button', { name: /send a template reply/i }));
+        await waitFor(() => expect(calls.filter((c) => c.method === 'POST' && c.url.endsWith('/send-template'))).toHaveLength(1));
+        await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/comms-v2/board')).length).toBeGreaterThan(boardLoads));
+    });
+
     it('on a wide screen the conversation docks in a permanent panel beside the board instead of a sheet', async () => {
         stubViewport(true);
         const user = userEvent.setup();
@@ -475,6 +515,7 @@ describe('<CommsV2BoardPage>', () => {
             turns: [
                 { id: 'c1', at, channel: 'call', direction: 'inbound', kind: 'call_transcript', body: '[call: they rang us and were answered, 2 min]\n[Caller]: my gutter is overflowing', media: [], call: { outcome: 'answered_inbound', headline: 'call: they rang us and were answered, 2 min', summary: 'Overflowing gutter at the back', transcript: '[Caller]: my gutter is overflowing' } },
                 { id: 'c2', at, channel: 'call', direction: 'inbound', kind: 'call_transcript', body: '[call: they rang us and were answered, 1 min]\n(no transcript)', media: [], call: { outcome: 'answered_inbound', headline: 'call: they rang us and were answered, 1 min', summary: null, transcript: null } },
+                { id: 'c3', at, channel: 'call', direction: 'inbound', kind: 'call_transcript', body: '[missed call, rang 20 s: nobody spoke to them]', media: [], call: { outcome: 'missed', headline: 'missed call, rang 20 s: nobody spoke to them', summary: null, transcript: null } },
             ],
             facts: [],
             hold: null,
@@ -500,5 +541,9 @@ describe('<CommsV2BoardPage>', () => {
         expect(screen.getByTestId('call-summary-c2').textContent).toBe('No summary yet');
         expect(screen.getByTestId('call-turn-c2').textContent).toContain('No transcript yet');
         expect(screen.getByTestId('call-turn-c2').textContent).not.toContain('(no transcript)');
+
+        // A missed call never gets a transcript: its bubble promises neither one nor a summary.
+        expect(screen.getByTestId('call-turn-c3').textContent).toBe('missed call, rang 20 s: nobody spoke to them');
+        expect(screen.queryByTestId('call-summary-c3')).toBeNull();
     });
 });

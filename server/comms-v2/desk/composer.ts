@@ -12,12 +12,13 @@
  * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
  */
 import { z } from 'zod/v4';
-import { ASK_SUBJECTS, customerVisibleFacts, isSupersededFigure, type CaseFile, type Party, type ReplyChannel, type Turn, isTurnOf } from './case-file';
+import { ASK_SUBJECTS, customerVisibleFacts, isSupersededFigure, type CaseFile, type Party, type ReplyChannel, type Turn, isTurnOf, mediaFailedNote, type TurnMedia, mediaCountLabel } from './case-file';
 import type { FixedLine } from './fixed-lines';
 import type { SpecialistReturn } from './desk-types';
 import { COMPOSER_MODEL, type ModelClient, type StructuredResult } from './models';
 import type { Route } from './router';
 import { composerChannelLines } from '../channels/composer-lines';
+import { GSM7_MULTI } from '../channels/sms-adapter';
 import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, type ShortenBrief } from './sender';
 import { withoutDashPunctuation } from './dashes';
 
@@ -136,10 +137,27 @@ function withoutWords(text: string, drop: Set<string>): string {
     }).join('').replace(/\s{2,}/g, ' ').replace(/\s+([.,;:!?)])/g, '$1').trim();
 }
 
+/** Said of a photo or video no description came back for, so the composer does not invent what it shows. */
+const NOT_SEEN = 'not seen by you';
+
+/**
+ * A turn's media as the thread shows it: "[1 photo and 1 video: photo, <what it shows>; video, <what it shows>]".
+ * One the vision model could not describe is marked as not seen ("[1 video, not seen by you]").
+ */
+function mediaFor(media: TurnMedia[], unmentioned: Set<string>): string {
+    const mixed = new Set(media.map((m) => m.kind)).size > 1;
+    const shown = media.filter((m) => m.description).map((m) => `${mixed ? `${m.kind === 'image' ? 'photo' : 'video'}, ` : ''}${withoutWords(lightPhotoSummary(m.description!.description), unmentioned).replace(/\.$/, '')}`);
+    const unseen = media.filter((m) => !m.description);
+    if (!shown.length) return ` [${mediaCountLabel(media)}, ${NOT_SEEN}]`;
+    if (unseen.length) shown.push(`${mediaCountLabel(unseen)} ${NOT_SEEN}`);
+    return ` [${mediaCountLabel(media)}: ${shown.join('; ')}]`;
+}
+
 function threadFor(file: CaseFile, turn: Turn, unmentioned: Set<string>): string {
     return file.turns.slice(-16).map((t) => {
-        const media = t.media.length ? ` [${t.media.length} ${t.media[0].kind}${t.media.length > 1 ? 's' : ''}${t.media.map((m) => m.description ? `: ${withoutWords(lightPhotoSummary(m.description.description), unmentioned)}` : '').join('')}]` : '';
-        return `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? (file.parties.find((p) => p.personId === t.partyId)?.name ?? 'customer') : 'you'}: ${t.body}${media}`;
+        const media = t.media.length ? mediaFor(t.media, unmentioned) : '';
+        const said = [`${t.body}${media}`.trim(), mediaFailedNote(t)].filter(Boolean).join(' ');
+        return `${isTurnOf(t, turn) ? '>> ' : ''}${t.direction === 'inbound' ? (file.parties.find((p) => p.personId === t.partyId)?.name ?? 'customer') : 'you'}: ${said}`;
     }).join('\n');
 }
 
@@ -175,7 +193,10 @@ export function buildComposerUser(input: ComposeInput): string {
         else lines.push('- this turn: an acknowledgement only, no question: one short bubble of a few words, and nothing your last message already said');
         lines.push(`- offer a call: ${proposal.offerCall ? 'yes' : 'no, do not mention calling'}`);
         lines.push(`- mention photos once: ${proposal.mentionPhotos ? 'yes, say a photo would help if easy, not as a question' : 'no'}`);
-        lines.push(`- thank for media: ${proposal.thankForMedia ? 'yes' : 'no'}`);
+        // With nothing described there is no light detail to mention (answer 92), and any detail would be made up.
+        const inboundMedia = file.turns.filter((t) => t.direction === 'inbound').flatMap((t) => t.media);
+        const seen = inboundMedia.some((m) => m.description);
+        lines.push(`- thank for media: ${!proposal.thankForMedia ? 'no' : seen ? 'yes' : `yes, but it is ${NOT_SEEN} (no description came back): thank for it plainly and do not say what it shows`}`);
     }
     const never = Array.from(new Set([...neverAsk, ...declined]));
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);
@@ -194,7 +215,9 @@ export function buildComposerUser(input: ComposeInput): string {
     if (shorten) {
         lines.push('');
         lines.push(shorten.channel === 'sms'
-            ? `Your previous reply came to ${shorten.measured} SMS segments, over the ${shorten.ceiling} one text message may use. Say the same in one text message under ${shorten.charBudget} characters. Previous reply:`
+            ? shorten.wideChars.length
+                ? `Your previous reply came to ${shorten.measured} SMS segments, over the ${shorten.ceiling} one text message may use, because it carries ${shorten.wideChars.join(' ')}: one character like that halves what a text message holds. Say the same in one text message without ${shorten.wideChars.length > 1 ? 'those characters' : 'that character'} (no emoji or symbols), under ${GSM7_MULTI * shorten.ceiling} characters. Previous reply:`
+                : `Your previous reply came to ${shorten.measured} SMS segments, over the ${shorten.ceiling} one text message may use. Say the same in one text message under ${shorten.charBudget} characters. Previous reply:`
             : `Your previous reply came to ${shorten.measured} bubbles, over the ceiling of ${shorten.ceiling}. Say the same in at most ${shorten.ceiling} short bubbles, a blank line between them, each one or two sentences of at most ${BUBBLE_MAX_CHARS} characters: a longer one is split in two and counts as two. Previous reply:`);
         lines.push(shorten.previous);
     }

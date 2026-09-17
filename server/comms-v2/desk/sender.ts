@@ -24,12 +24,12 @@
  */
 import { appendTurn, recordSend, partyOf, type CaseFile, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type SendRecord, type CaseFileDeps, type WhatsAppTransport } from './case-file';
 import { KB_BACKED, type FixedLine } from './fixed-lines';
-import { withoutDashPunctuation } from './dashes';
+import { bulletsAsProse, withoutDashPunctuation } from './dashes';
 import type { GuardOutcome } from './guards';
 import { isHumanApprover, type Approver } from '../../approver';
 import { renderEmail } from '../channels/email-adapter';
 import { firstNameOf } from '../channels/envelope';
-import { renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
+import { nonGsmChars, renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
 import type { ChannelReplyPurpose } from '../channels/templates';
 import type { OutboundPurpose } from '../../opt-out';
 import { isOutOfHours, ukHour } from '../../working-hours';
@@ -202,15 +202,47 @@ function splitAtCommas(sentence: string, max: number): string[] {
     return out;
 }
 
+/** A title before a name: the full stop never ends the sentence. */
+const RE_TITLE_END = /\b(?:Mr|Mrs|Ms|Dr)\.$/;
+/** A short form whose full stop ends the sentence only when a capital follows: "e.g. two or three", "approx. 2 hrs", "8 a.m. to 5 p.m.". */
+const RE_ABBREVIATION_END = /(?:\b(?:e\.g|i\.e|approx|incl|etc|vs|no|St|hrs?|mins?)|\b[ap]\.m)\.$/i;
+/** A composer line that starts a numbered list item: "1. Is the tap a mixer?" or "2) A photo". */
+const RE_LIST_ITEM = /^\d{1,2}[.)]\s/;
+
+/**
+ * The sentences of one paragraph, cut after a full stop, question or exclamation mark, except the
+ * full stop of a short form a sentence carries on past, so a bubble never ends on "e.g.". A numbered
+ * list item keeps the line break it came on and starts its own sentence, so its number is never left
+ * on the end of the sentence before it ("Two quick things: 1.").
+ */
+function sentencesIn(text: string): string[] {
+    const out: string[] = [];
+    for (const line of text.split('\n')) {
+        let first = true;
+        for (const piece of line.split(/(?<=[.?!])\s+/).map((s) => s.trim()).filter(Boolean)) {
+            const prev = first ? undefined : out[out.length - 1];
+            first = false;
+            if (prev !== undefined && (RE_TITLE_END.test(prev) || (RE_ABBREVIATION_END.test(prev) && /^[a-z0-9£(]/.test(piece)))) out[out.length - 1] = `${prev} ${piece}`;
+            else out.push(piece);
+        }
+    }
+    return out;
+}
+
+/** Two sentences in one bubble: a list item stays on its own line. */
+function joinSentences(a: string, b: string): string {
+    return `${a}${RE_LIST_ITEM.test(b) ? '\n' : ' '}${b}`;
+}
+
 /** `wideBubbles`: split only past three hundred characters, at sentence boundaries, as before answer 93. */
 function splitWide(text: string): string[] {
     if (text.length <= WIDE_BUBBLE_MAX_CHARS) return [text];
-    const sentences = text.split(/(?<=[.?!])\s+/).map((s) => s.trim()).filter(Boolean);
+    const sentences = sentencesIn(text);
     const out: string[] = [];
     let cur = '';
     for (const s of sentences) {
         if (!cur) { cur = s; continue; }
-        if ((cur + ' ' + s).length <= WIDE_BUBBLE_MAX_CHARS) cur = `${cur} ${s}`;
+        if (joinSentences(cur, s).length <= WIDE_BUBBLE_MAX_CHARS) cur = joinSentences(cur, s);
         else { out.push(cur); cur = s; }
     }
     if (cur) out.push(cur);
@@ -224,13 +256,13 @@ function splitWide(text: string): string[] {
  */
 function splitLong(text: string, max: number): string[] {
     if (text.length <= max) return [text];
-    const sentences = text.split(/(?<=[.?!])\s+/).map((s) => s.trim()).filter(Boolean).flatMap((s) => (s.length > max ? splitAtCommas(s, max) : [s]));
+    const sentences = sentencesIn(text).flatMap((s) => (s.length > max ? splitAtCommas(s, max) : [s]));
     const out: string[] = [];
     let cur = '';
     let inCur = 0;
     for (const s of sentences) {
         if (!cur) { cur = s; inCur = 1; continue; }
-        if (inCur < 2 && (cur + ' ' + s).length <= max) { cur = `${cur} ${s}`; inCur++; }
+        if (inCur < 2 && joinSentences(cur, s).length <= max) { cur = joinSentences(cur, s); inCur++; }
         else { out.push(cur); cur = s; inCur = 1; }
     }
     if (cur) out.push(cur);
@@ -259,18 +291,27 @@ export const SIGN_OFF_LINES = 'Thanks\nBen';
 export const RE_SIGN_OFF_PARAGRAPH = /^\s*thanks\s*\n\s*ben\s*$/i;
 
 /**
+ * A paragraph's line breaks folded into spaces, except around a numbered list item: the break
+ * before an item, and the break after the last one, so a sign-off never joins the list.
+ */
+function foldLines(paragraph: string): string {
+    const lines = paragraph.trim().split(/\s*\n\s*/);
+    return lines.reduce((acc, line, i) => (!acc ? line : RE_LIST_ITEM.test(lines[i - 1]) ? `${acc}\n${line}` : joinSentences(acc, line)), '');
+}
+
+/**
  * WhatsApp: the one reply split into bubbles at the breaks a person would use: the composer's
  * blank lines first, then sentence boundaries (one or two sentences a bubble) and commas for
  * anything over about 160 characters (200 with `softWidth`). Typing gaps of roughly each bubble's typing time. A ceiling reached returns the reply to
  * the composer to shorten rather than sending a wall. `asTyped` is the human path: blank lines
  * still break bubbles, nothing inside one is reflowed. Anything else the desk wrote leaves with no
- * dash used as punctuation, checked after the reflow, which is what turns a line-leading "- " into
- * one between words (dashes.ts).
+ * dash used as punctuation, checked after the reflow; a bulleted list is first written as one
+ * sentence of comma-joined items (`bulletsAsProse`, dashes.ts).
  */
 export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderResult {
     const paragraphs = reply.replace(/\r\n/g, '\n').split(/\n\s*\n+/)
         // Ben's "Thanks / Ben" keeps its line break: folded, it reads as the customer thanking Ben.
-        .map((p) => opts.asTyped ? p.split('\n').map((l) => l.trimEnd()).join('\n').trim() : RE_SIGN_OFF_PARAGRAPH.test(p) ? SIGN_OFF_LINES : withoutDashPunctuation(p.replace(/\s*\n\s*/g, ' ').trim()))
+        .map((p) => opts.asTyped ? p.split('\n').map((l) => l.trimEnd()).join('\n').trim() : RE_SIGN_OFF_PARAGRAPH.test(p) ? SIGN_OFF_LINES : withoutDashPunctuation(foldLines(bulletsAsProse(p))))
         .filter(Boolean);
     const width = opts.softWidth ? BUBBLE_SOFT_MAX_CHARS : BUBBLE_MAX_CHARS;
     const texts = opts.asTyped ? paragraphs : opts.wideBubbles ? paragraphs.flatMap(splitWide) : paragraphs.flatMap((p) => splitLong(p, width));
@@ -282,7 +323,7 @@ export function renderWhatsApp(reply: string, opts: RenderOptions = {}): RenderR
 
 /** Per channel: WhatsApp bubbles; SMS one message of at most two segments; email a letter with a greeting and a sign-off (channels/). Every one of them honours `asTyped`: a person's own words are never reflowed, rewritten or wrapped. Whatever else goes out carries no dash used as punctuation. */
 export function render(channel: ReplyChannel, reply: string, opts: RenderOptions & { name?: string | null } = {}): RenderResult {
-    if (channel === 'sms') return renderSms(opts.asTyped ? reply : withoutDashPunctuation(reply), opts);
+    if (channel === 'sms') return renderSms(opts.asTyped ? reply : withoutDashPunctuation(bulletsAsProse(reply)), opts);
     if (channel === 'email') return renderEmail(opts.asTyped ? reply : withoutDashPunctuation(reply), opts);
     return renderWhatsApp(reply, opts);
 }
@@ -293,7 +334,7 @@ export function render(channel: ReplyChannel, reply: string, opts: RenderOptions
  * number there is read by nobody.
  */
 export type ShortenBrief =
-    | { previous: string; channel: 'sms'; measured: number; ceiling: number; charBudget: number }
+    | { previous: string; channel: 'sms'; measured: number; ceiling: number; charBudget: number; wideChars: string[] }
     | { previous: string; channel: Exclude<ReplyChannel, 'sms'>; measured: number; ceiling: number };
 
 /**
@@ -302,12 +343,13 @@ export type ShortenBrief =
  * the composer the other channel's numbers gives it no reason to shorten, so the retry fails too.
  * The SMS budget is the refusing text's own encoding: one character outside GSM 03.38 halves what
  * two segments hold, so a GSM7 number would send the shortened reply back over the ceiling again.
+ * `wideChars` names those characters (an emoji, a ×), so the retry can drop them and get the room back.
  */
 export function shortenBriefFor(channel: ReplyChannel, previous: string, rendered: RenderedBubble[]): ShortenBrief {
     if (channel === 'sms') {
         const text = rendered[0]?.text ?? '';
         const multi = smsCost(text).encoding === 'ucs2' ? UCS2_MULTI : GSM7_MULTI;
-        return { previous, channel, measured: smsSegmentCount(text), ceiling: SMS_MAX_SEGMENTS, charBudget: multi * SMS_MAX_SEGMENTS };
+        return { previous, channel, measured: smsSegmentCount(text), ceiling: SMS_MAX_SEGMENTS, charBudget: multi * SMS_MAX_SEGMENTS, wideChars: nonGsmChars(text) };
     }
     return { previous, channel, measured: rendered.length, ceiling: BUBBLE_CEILING };
 }

@@ -19,9 +19,9 @@
  * server/comms-v2/desk/human-reply.ts). The desk never rewrites his words, his line breaks inside
  * a bubble included, and the guards never run over them; anything the sender refuses, a shut
  * window or a reply over the bubble ceiling, comes back here to be shown and fixed, never held
- * silently. On a shut window the form instead offers a template send (POST
- * /case-files/:id/send-template) only when one's wording is true for the thread; when none is,
- * it says so rather than offering a retry.
+ * silently. On a shut window the form, and the held draft's one-tap send, instead offer a template
+ * send (POST /case-files/:id/send-template) only when one's wording is true for the thread; when
+ * none is, it says so rather than offering a retry.
  *
  * Not polished, just visible and operable: it doubles as the window onto the sandbox while the
  * rest of the desk is built, so the header carries a control that starts a sandbox thread and
@@ -172,10 +172,12 @@ function TurnMediaView({ media }: { media: TurnMedia }) {
 /** A call turn's bubble body: what happened, the summary, and the transcript behind a toggle. Minimal on purpose; the bubble's design comes later. */
 function CallTurnBody({ turnId, call }: { turnId: string; call: NonNullable<Turn['call']> }) {
     const [open, setOpen] = useState(false);
+    const missed = call.outcome === 'missed';
     return (
         <div data-testid={`call-turn-${turnId}`}>
             <p className="text-xs text-muted-foreground">{call.headline}</p>
-            <p data-testid={`call-summary-${turnId}`}>{call.summary ?? 'No summary yet'}</p>
+            {/* A missed call never gets a transcript, and a summary only when the telephony side wrote one. */}
+            {call.summary || !missed ? <p data-testid={`call-summary-${turnId}`}>{call.summary ?? 'No summary yet'}</p> : null}
             {call.transcript ? (
                 <>
                     <button
@@ -188,7 +190,7 @@ function CallTurnBody({ turnId, call }: { turnId: string; call: NonNullable<Turn
                     </button>
                     {open && <p data-testid={`call-transcript-${turnId}`} className="mt-1 whitespace-pre-wrap text-xs">{call.transcript}</p>}
                 </>
-            ) : (
+            ) : missed ? null : (
                 <p className="mt-1 text-xs text-muted-foreground">No transcript yet</p>
             )}
         </div>
@@ -324,19 +326,25 @@ export function BoardColumn({ stage, cards, onOpenCard, showMode = false }: { st
 
 // ---------------------------------------------------------------- release form
 
-export function ReleaseForm({ fileId, holdReason, holdApprover, holdApproverAssigned, draft, onReleased }: {
+export function ReleaseForm({ fileId, holdReason, holdApprover, holdApproverAssigned, draft, onReleased, lastInboundTurnId = null }: {
     fileId: string;
     holdReason: string;
     holdApprover: string;
     holdApproverAssigned: boolean;
     draft: string | null;
     onReleased: () => void;
+    /** As on the answer form: a fresh customer message may have reopened the window, so a stale send refusal is cleared. */
+    lastInboundTurnId?: string | null;
 }) {
     const [words, setWords] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const [sendBusy, setSendBusy] = useState(false);
     const [sendError, setSendError] = useState<string | null>(null);
+
+    useEffect(() => {
+        setSendError(null);
+    }, [lastInboundTurnId]);
 
     const release = async () => {
         setBusy(true);
@@ -386,6 +394,7 @@ export function ReleaseForm({ fileId, holdReason, holdApprover, holdApproverAssi
                     <p className="text-xs font-medium text-muted-foreground">The reply the desk held back</p>
                     <pre data-testid="hold-draft" className="mt-1 whitespace-pre-wrap rounded-md border bg-background px-2 py-1.5 font-sans text-sm">{draft}</pre>
                     {sendError && <p data-testid="send-held-draft-error" className="mt-2 text-xs text-red-600">{sendError}</p>}
+                    {sendError && /window is shut/.test(sendError) && holdApproverAssigned && <WindowTemplateOption fileId={fileId} onSent={() => onReleased()} />}
                     <Button size="sm" variant="outline" className="mt-2" disabled={sendBusy || !holdApproverAssigned} onClick={sendDraft}>
                         {sendBusy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
                         Send as it stands
@@ -410,6 +419,61 @@ export function ReleaseForm({ fileId, holdReason, holdApprover, holdApproverAssi
     );
 }
 
+// ---------------------------------------------------------------- shut-window template
+
+/**
+ * The fallback when a freeform send is refused because the WhatsApp window is shut: one tap sends
+ * the approved template the server finds true for the thread (quote_ready_link with the quote link
+ * the file shows was sent, or answer_ready_reopen_v1 over an unanswered question) - the captain's
+ * ruling, superseding an earlier "always the reopen nudge" call. Once a send is definitively
+ * refused because nothing is true for this thread, the button is replaced by that explanation
+ * rather than offered again; any other refusal (not yet Meta-approved, a sender refusal) keeps the
+ * button so Ben can retry. Shown under Ben's own answer and under the held draft alike, since both
+ * are refused the same way on a shut window.
+ */
+export function WindowTemplateOption({ fileId, onSent }: { fileId: string; onSent: (bubbles: string[]) => void }) {
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const noTemplateApplies = !!error && /no template is true for this thread/.test(error);
+
+    const sendTemplate = async () => {
+        setBusy(true);
+        setError(null);
+        try {
+            const res = await fetch(`/api/comms-v2/case-files/${fileId}/send-template`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || `Template send failed (${res.status})`);
+            onSent(Array.isArray(data?.sent?.bubbles) ? data.sent.bubbles : []);
+        } catch (e: any) {
+            setError(e?.message || 'Template send failed');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <div className="mt-2" data-testid="send-template-option">
+            {noTemplateApplies ? (
+                <p data-testid="send-template-unavailable" className="text-xs text-muted-foreground">
+                    No approved word is true for this thread yet - the customer needs to write again before a reply can go.
+                </p>
+            ) : (
+                <>
+                    <p className="text-xs text-muted-foreground">The window is shut, so only an approved template can go: the one that fits this thread, if one does.</p>
+                    {error && <p data-testid="send-template-error" className="mt-1 text-xs text-red-600">{error}</p>}
+                    <Button size="sm" variant="outline" className="mt-2" disabled={busy} onClick={sendTemplate}>
+                        {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
+                        Send a template reply
+                    </Button>
+                </>
+            )}
+        </div>
+    );
+}
+
 // ---------------------------------------------------------------- answer form
 
 /**
@@ -428,19 +492,15 @@ export function AnswerForm({ fileId, held, onAnswered, lastInboundTurnId }: {
     const [error, setError] = useState<string | null>(null);
     const [sent, setSent] = useState<string[] | null>(null);
     const [busy, setBusy] = useState(false);
-    const [templateBusy, setTemplateBusy] = useState(false);
-    const [templateError, setTemplateError] = useState<string | null>(null);
 
     useEffect(() => {
         setError(null);
-        setTemplateError(null);
     }, [lastInboundTurnId]);
 
     const answer = async () => {
         setBusy(true);
         setError(null);
         setSent(null);
-        setTemplateError(null);
         try {
             const res = await fetch(`/api/comms-v2/case-files/${fileId}/answer`, {
                 method: 'POST',
@@ -459,36 +519,9 @@ export function AnswerForm({ fileId, held, onAnswered, lastInboundTurnId }: {
         }
     };
 
-    // A shut window refuses freeform words outright (desk/human-reply.ts): this is the fallback
-    // shown in place of retyping. The server offers a template only when its wording is true for
-    // the thread (quote_ready_link with the quote link the file shows was sent, or
-    // answer_ready_reopen_v1 over an unanswered question) - the captain's ruling, superseding an
-    // earlier "always the reopen nudge" call. Once a send is definitively refused because nothing
-    // is true for this thread, the button is replaced by that explanation rather than offered
-    // again; any other refusal (not yet Meta-approved, a sender refusal) keeps the button so Ben
-    // can retry.
+    // A shut window refuses freeform words outright (desk/human-reply.ts): the template offer below is
+    // the fallback shown in place of retyping.
     const windowShut = !!error && /window is shut/.test(error);
-    const noTemplateApplies = !!templateError && /no template is true for this thread/.test(templateError);
-
-    const sendTemplate = async () => {
-        setTemplateBusy(true);
-        setTemplateError(null);
-        try {
-            const res = await fetch(`/api/comms-v2/case-files/${fileId}/send-template`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data?.error || `Template send failed (${res.status})`);
-            setSent(Array.isArray(data?.sent?.bubbles) ? data.sent.bubbles : []);
-            setError(null);
-            onAnswered();
-        } catch (e: any) {
-            setTemplateError(e?.message || 'Template send failed');
-        } finally {
-            setTemplateBusy(false);
-        }
-    };
 
     return (
         <div className="rounded-lg border p-3" data-testid="answer-form">
@@ -507,22 +540,10 @@ export function AnswerForm({ fileId, held, onAnswered, lastInboundTurnId }: {
             />
             {error && <p data-testid="answer-error" className="mt-2 text-xs text-red-600">{error}</p>}
             {windowShut && (
-                <div className="mt-2" data-testid="send-template-option">
-                    {noTemplateApplies ? (
-                        <p data-testid="send-template-unavailable" className="text-xs text-muted-foreground">
-                            No approved word is true for this thread yet - the customer needs to write again before a reply can go.
-                        </p>
-                    ) : (
-                        <>
-                            <p className="text-xs text-muted-foreground">The window is shut, so only an approved template can go: the one that fits this thread, if one does.</p>
-                            {templateError && <p data-testid="send-template-error" className="mt-1 text-xs text-red-600">{templateError}</p>}
-                            <Button size="sm" variant="outline" className="mt-2" disabled={templateBusy} onClick={sendTemplate}>
-                                {templateBusy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Send className="mr-1 h-3 w-3" />}
-                                Send a template reply
-                            </Button>
-                        </>
-                    )}
-                </div>
+                <WindowTemplateOption
+                    fileId={fileId}
+                    onSent={(bubbles) => { setSent(bubbles); setError(null); onAnswered(); }}
+                />
             )}
             {sent && (
                 <div data-testid="answer-sent" className="mt-2 space-y-1">
@@ -634,6 +655,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
                         holdApproverAssigned={data.holdApproverAssigned}
                         draft={data.hold.draft}
                         onReleased={onReleased}
+                        lastInboundTurnId={lastInboundTurnId}
                     />
                 )}
                 <AnswerForm fileId={data.id} held={!!data.hold} onAnswered={onAnswered} lastInboundTurnId={lastInboundTurnId} />

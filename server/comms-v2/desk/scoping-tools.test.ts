@@ -112,6 +112,15 @@ describe('offer_call and regulated', () => {
         expect(regulated(t('a socket has stopped working and a wall needs a lintel')).regulated).toBe(false);
         expect(regulated(t('the boiler cupboard door is hanging off')).regulated).toBe(false);
     });
+    it('reads a combi, a pilot light and a flue beside a gas word as gas, but not a combi oven, microwave or drill, or a wood burner\'s flue', () => {
+        const t = (body: string): Turn => ({ ...fixture(body).turns[0] });
+        for (const body of ['My combi keeps losing pressure', 'My combi boiler is not firing up and there is no hot water', 'I need a new cupboard built in the hall and my boiler serviced', 'Fitted a new box shelf last week, now my boiler is leaking water', 'The kitchen cupboard hinge is loose, and my combi keeps losing pressure', 'can you box in the pipes under my boiler', "the combi's lost pressure again", 'my combi flue is leaking', 'the boiler flue is dripping', 'the flue on my gas fire is loose', 'The pilot light keeps going out', 'both pilot lights are out']) {
+            expect(regulated(t(body)).regulated, body).toBe(true);
+        }
+        for (const body of ['can you fit a combi oven', 'my combi microwave bracket fell off', 'can I borrow your combi drill', 'the flue pipe on my wood burner', 'the chimney flue needs sweeping', 'Need the stove flue looked at', 'the boiler cupboard needs a new door', 'The door on my combi boiler cupboard has come off its hinges', 'Can you build a casing for my combi', 'my combination lock is stuck', 'it has a big influence on the price']) {
+            expect(regulated(t(body)).regulated, body).toBe(false);
+        }
+    });
 });
 
 describe('lexicon', () => {
@@ -120,11 +129,76 @@ describe('lexicon', () => {
         expect(moneyQuestionMatch('Can you do it any cheaper?')).toBeTruthy();
         expect(moneyQuestionMatch('Hi, can I get a quote for a leaking tap?')).toBeNull();
     });
+    it('reads haggling in everyday words as money, but not job talk that looks like it', () => {
+        for (const body of [
+            'Is that the best you can do?', 'Any wiggle room on that?', "That's a bit steep isn't it", 'Can you do it for less than that?', 'Would you do it for less than 150?', "That's a bit dear", "That's over my budget", 'My budget is 200', "I'm on a tight budget", 'Can you do it for £100?', 'You quoted me £150, any cheaper?',
+            'Someone else quoted me 80 for it', 'Can you match 90?', 'Could you do mates rates?', 'Can I pay cash for less?', 'Can you do any better on that?',
+            'Can you go any lower?', 'Can you go any lower on the price?', 'Could you go any lower on the price?', 'Can you go lower than 150?', 'Is there any room to move on that?', 'That seems a lot for a tap', 'Any chance of a deal if I book two jobs?',
+            'Do you do a pensioner rate?', 'Can you do it for 100?', 'Would you take 120?', 'Can you accept 90?', 'Would u take 80 cash?', 'Can you knock a tenner off?', 'Would you do 150 cash?',
+            'Too pricey for me', 'Can you meet me halfway?', 'That is a bit steep for a tap', 'Too dear for me', 'Can you do it for less money?', 'Is that negotiable?', 'Can I pay in instalments?', 'Could you knock some off?',
+        ]) {
+            expect(moneyQuestionMatch(body), body).toBeTruthy();
+        }
+        for (const body of [
+            'Any news on the quote?', 'Can you match the paint colour?', 'Could you lower the shelf a bit?', "I'll take it", 'The drip is a lot worse today',
+            'Can you do any better than a patch repair?', "That's a lot better, thanks", "That's a lot of water", "It'll take 20 minutes",
+            'Can you do it for 2 hours on Friday?', 'Can you take 3 of the old doors away?', 'Dear Ben, my tap drips', 'Is there any room to move the wardrobe?',
+            'Could you knock the old tiles off?', 'I can take 2 photos when I get home', 'It will take 2 people to lift', 'Could you do it for 3 doors?', 'Will it take 45?', 'The job should take 30.', 'the old shed can take 30.',
+            'I can take 20 photos if you like', 'what budget hinges do you use', 'you quoted me last week for the shelves, can you also do the gate', 'Can you do it for 10am?', "We'll go lower on the shelf height", 'Sounds a lot like a washer',
+            'The roof is quite steep, can you still do the gutters?', 'the stairs are very steep', 'The mirror is too high, could it go lower?',
+            'Can you do the shelf for less than an hour?', 'We paid for less work last time',
+            'The roof is a bit steep, will you need scaffolding?', 'Could you go lower with the TV bracket?',
+            'Can the TV go any lower on the wall?', 'Could the shelf go any lower?', 'Can you go any lower with the TV bracket?',
+        ]) {
+            expect(moneyQuestionMatch(body), body).toBeNull();
+        }
+    });
     it('reads a call offer and its negation, and an ask of a subject outside a dismissive clause', () => {
         expect(offersCall('Happy to give you a quick call if easier.')).toBeTruthy();
         expect(offersCall("No problem, we won't call you, text is fine.")).toBeNull();
+        expect(offersCall('Or I can ring you if that is easier?')).toBeTruthy();
+        expect(offersCall('We can chat over the phone if you prefer.')).toBeTruthy();
+        // A call that already happened, or was tried, is not an offer, and a question beside it is still about the job.
+        expect(offersCall('As we discussed on the phone, could you send a photo?')).toBeNull();
+        expect(offersCall('Great speaking to you on the phone.')).toBeNull();
+        expect(offersCall('We tried to call you back but no luck.')).toBeNull();
+        expect(scopingQuestionCount('As we discussed on the phone, could you send a photo?')).toBe(1);
+        expect(offersCall('Happy to give you a quick call this morning if easier?')).toBeTruthy();
+        expect(offersCall("We're trying to fit you in Thursday so Ben will call you tomorrow to confirm.")).toBeTruthy();
+        expect(offersCall('I tried to find a slot and can give you a ring later if easier?')).toBeTruthy();
+        expect(scopingQuestionCount('I tried to find a slot and can give you a ring later if easier?')).toBe(0);
+        expect(offersCall('As I said I can give you a ring tomorrow.')).toBeTruthy();
+        expect(offersCall('I spoke to Ben and he will call you tomorrow.')).toBeTruthy();
+        for (const offer of [
+            'Ben tried to call you earlier and will ring you again', 'Happy chatting on the phone if easier?',
+            'Happy speaking to you on the phone if easier?', 'As I mentioned earlier a quick call might help.',
+        ]) expect(offersCall(offer), offer).toBeTruthy();
+        for (const past of [
+            'Is that the door we talked about on the phone?', 'Did you get the quote after we spoke on the phone?',
+            'Did the photos I mentioned on the phone come through?', 'As we discussed on the phone could you send a photo?',
+            'Was it you I spoke to on the phone yesterday?',
+        ]) {
+            expect(offersCall(past), past).toBeNull();
+            expect(scopingQuestionCount(past), past).toBe(1);
+        }
+        expect(offersCall('As we discussed yesterday on the phone, could you send a photo?')).toBeNull();
+        expect(offersCall("We've spoken before on the phone.")).toBeNull();
+        expect(scopingQuestionCount('Happy to give you a quick call this morning if easier?')).toBe(0);
+        for (const past of [
+            'As we spoke about on the phone, could you send a photo?', 'As we talked about on the phone, could you send a photo?',
+            'We spoke earlier on the phone.', 'Thanks for chatting with me on the phone.',
+        ]) expect(offersCall(past), past).toBeNull();
+        expect(scopingQuestionCount('As we spoke about on the phone, could you send a photo?')).toBe(1);
+        expect(scopingQuestionCount('As we talked about on the phone, could you send a photo?')).toBe(1);
+        expect(scopingQuestionCount('Would a quick call help?')).toBe(0);
         expect(textAsks('If it is easy, could you send a photo?', 'media')).toBe(true);
         expect(textAsks('No worries about photos, what size is the tile?', 'media')).toBe(false);
+        // Thanks for media in one clause and a job question in another is no ask for media.
+        expect(textAsks('Thanks for sending the video, what size is the gap?', 'media')).toBe(false);
+        expect(textAsks('Cheers for the photos, which wall is it going on?', 'media')).toBe(false);
+        expect(textAsks('Thanks for the photo, could you send one of the whole door too?', 'media')).toBe(true);
+        expect(textAsks('Thanks for the pics, could you pop another over of the hinge?', 'media')).toBe(true);
+        expect(textAsks('Thanks for the photo. Could you send a video of it running?', 'media')).toBe(true);
         expect(textAsks('Whereabouts are you?', 'postcode')).toBe(true);
         expect(textAsks('Whereabouts does it catch when it sticks?', 'postcode')).toBe(false);
         expect(textAsks('Where is it sticking, top or side?', 'postcode')).toBe(false);

@@ -142,6 +142,19 @@ describe('the email adapter', () => {
         expect(stripQuotedHistory('new\n> old\n> older')).toBe('new');
         expect(stripQuotedHistory('a\n\n\n\nb\nSent from my iPhone')).toBe('a\n\nb');
     });
+    it('strips a wrapped or run-on reply header, a phone footer and the signature, and keeps the words that only look like them', () => {
+        const gmail = "Yes that's fine, the tap is in the kitchen.\n\nOn Tue, 16 Sept 2026 at 10:02, Handy Services <\nhello@handyservices.example> wrote:\n\n> Could you send a photo?";
+        expect(stripQuotedHistory(gmail)).toBe("Yes that's fine, the tap is in the kitchen.");
+        const yahoo = 'Thanks, Wednesday is good\n\nSent from Yahoo Mail on Android\n\n  On Tue, 16 Sep 2026 at 10:02, Handy Services<hello@x.example> wrote:   Hi Priya, could you send a photo?';
+        expect(stripQuotedHistory(yahoo)).toBe('Thanks, Wednesday is good');
+        expect(stripQuotedHistory('Wednesday is good\n\nOn Tue, 16 Sep 2026 at 10:02, Handy Services<hello@x.example> wrote:   Hi Priya')).toBe('Wednesday is good');
+        expect(stripQuotedHistory('Photo attached.\n\nGet Outlook for iOS<https://aka.ms/o0ukef>\n________________________________\nFrom: Handy Services')).toBe('Photo attached.');
+        // An office address in the signature is not where the job is, so the desk never reads it as the location.
+        const signed = fromInboundEmail({ from: 'Priya <priya@example.com>', subject: 'Dripping tap', text: 'Hi, can you fix a dripping kitchen tap? Thanks\n\n-- \nPriya Shah\nOffice Manager, Acme Ltd\n12 High Road, Leeds LS1 4AB\n07700 900123' });
+        expect(signed.text).toBe('Subject: Dripping tap\n\nHi, can you fix a dripping kitchen tap? Thanks');
+        expect(stripQuotedHistory('Can you come next week?\nOn 3rd floor, flat 12\nFrom 10am onwards is best.\n-- the side gate is open')).toBe('Can you come next week?\nOn 3rd floor, flat 12\nFrom 10am onwards is best.\n-- the side gate is open');
+        expect(stripQuotedHistory('On Monday at 9 the plumber came.\nHe wrote: nothing')).toBe('On Monday at 9 the plumber came.\nHe wrote: nothing');
+    });
     it('keeps the whole body when stripping leaves nothing, so a bottom-posted reply is not answered as silence', () => {
         const bottom = 'On Thu, 10 Sep 2026, Handy Services wrote:\n> what is the postcode?\n\nNG9 2AB, and the fan is over the bath.';
         expect(stripQuotedHistory(bottom)).toContain('NG9 2AB, and the fan is over the bath.');

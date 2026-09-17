@@ -13,7 +13,7 @@
  */
 import type { ReplyChannel, TurnKind } from '../desk/case-file';
 import type { ChannelKind } from '../desk/identity';
-import type { InboundMedia } from '../desk/whatsapp-adapter';
+import type { InboundMedia, MediaFailure } from '../desk/whatsapp-adapter';
 
 export interface IntakeFact { key: string; value: string }
 
@@ -30,7 +30,7 @@ export interface InboundEnvelope {
     at: string;
     providerMessageId: string | null;
     via: string;
-    mediaFailures: Array<{ ref: string; reason: string }>;
+    mediaFailures: MediaFailure[];
     /** The turn kind; text or media when absent. */
     kind?: TurnKind;
     /** What else the turn told us about the person: Identity's hints and link evidence. */

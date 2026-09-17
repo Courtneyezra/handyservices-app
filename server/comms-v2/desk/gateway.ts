@@ -7,7 +7,7 @@
  * desk has one door.
  */
 import { randomUUID } from 'node:crypto';
-import { answeredByReply, appendTurn, coveredByReply, messagesOf, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type TurnWait, type CaseFileDeps } from './case-file';
+import { answeredByReply, appendTurn, coveredByReply, messagesOf, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type TurnWait, type CaseFileDeps, failedMediaFields } from './case-file';
 import { Identity, e164Of, type ResolveResult } from './identity';
 import { MemoryCaseFileStore, type CaseFileStore } from './store';
 import type { InboundTurn } from './whatsapp-adapter';
@@ -103,7 +103,7 @@ export class Gateway {
         }
         if (resolved.role === 'internal') return { kind: 'refused', reason: 'an internal number is not a customer; nothing to scope' };
         const address = e164Of(resolved.canonical) ?? turn.address;
-        const turnBody = { at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })) };
+        const turnBody = { at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...failedMediaFields(turn.mediaFailures) };
         let file = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {
@@ -254,7 +254,7 @@ export class Gateway {
     }
 
     /** One desk pass on a file, after any pass already running or queued on it; the file is put when the pass is done, even when it throws. */
-    private deskPass<T>(file: CaseFile, pass: (file: CaseFile) => Promise<T>): Promise<T> {
+    protected deskPass<T = DeskResult>(file: CaseFile, pass: (file: CaseFile) => Promise<T>): Promise<T> {
         const run = async () => {
             try {
                 return await pass(file);

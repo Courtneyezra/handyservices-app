@@ -45,6 +45,11 @@ export interface DeskResult {
 export interface DeskLike {
     handleTurn(file: CaseFile, turn: Turn): Promise<DeskResult>;
     clockPass(file: CaseFile): Promise<DeskResult>;
+    /**
+     * A call turn's transcript landed after the desk had already read the call at hang-up: read it
+     * for facts only, never a send (channels/channel-desk.ts). Returns the fact ids it recorded.
+     */
+    readLateTranscript?(file: CaseFile, turn: Turn): Promise<string[]>;
 }
 
 // ---------------------------------------------------------------- what a specialist returns

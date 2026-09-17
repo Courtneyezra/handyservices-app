@@ -36,3 +36,30 @@ export function withoutDashPunctuation(text: string): string {
 export function hasDashPunctuation(text: string): boolean {
     return withoutDashPunctuation(text) !== text;
 }
+
+/** A line the composer opened with a bullet: "- a photo", "• the postcode", "* how old is it?". */
+const RE_BULLET_LINE = /^[ \t]*(?:[-*•·▪–—])[ \t]+(?=\S)/;
+
+/**
+ * A bulleted list the desk wrote, turned into the sentence a person would text: the markers go,
+ * the items are joined by commas, and the last item ends its sentence when more words follow, so
+ * "- the rough size of the cupboard\nCheers" (a capital: a new sentence) never folds into "the cupboard Cheers". Run before a
+ * channel folds a paragraph's lines into one, which would otherwise leave "me: - a photo - the
+ * size" with a hyphen used as punctuation. A numbered list is left to the renderer.
+ */
+export function bulletsAsProse(text: string): string {
+    const lines = text.split('\n');
+    const out: string[] = [];
+    let prevBullet = false;
+    lines.forEach((line, i) => {
+        const bullet = RE_BULLET_LINE.test(line);
+        if (!bullet) { out.push(line); prevBullet = false; return; }
+        let item = line.replace(RE_BULLET_LINE, '').trimEnd();
+        if (prevBullet && !/[.,;:!?]$/.test(out[out.length - 1])) out[out.length - 1] += ',';
+        const next = lines[i + 1];
+        if (next !== undefined && /^\s*[A-Z]/.test(next) && !RE_BULLET_LINE.test(next) && !/[.;:!?]$/.test(item)) item += '.';
+        out.push(item);
+        prevBullet = true;
+    });
+    return out.join('\n');
+}

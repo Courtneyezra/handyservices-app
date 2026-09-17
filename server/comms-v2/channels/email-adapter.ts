@@ -156,7 +156,19 @@ export function htmlToText(html: string): string {
 
 // ---------------------------------------------------------------- the new text, without the history
 
-const RE_QUOTE_HEADER = /^(?:On .{3,120}wrote:\s*$|-{2,}\s*Original Message\s*-{2,}\s*$|-{2,}\s*Forwarded message\s*-{2,}\s*$|From:\s.+$|Sent from my \w+.*$|_{5,}\s*$)/i;
+const RE_QUOTE_HEADER = /^(?:On .{3,120}wrote:\s*$|-{2,}\s*Original Message\s*-{2,}\s*$|-{2,}\s*Forwarded message\s*-{2,}\s*$|From:\s.+$|Sent from (?:my \w+|Yahoo Mail|Outlook|Mail for Windows|AOL Mail)\b.*$|Get Outlook for \w+.*$|_{5,}\s*$)/i;
+/** Yahoo's header, with the first quoted words on the same line: "On Tue, 16 Sep 2026 at 10:02, Ben<b@x> wrote:   Hi". */
+const RE_QUOTE_HEADER_INLINE = /^On .{0,120}\d.{0,120}\swrote:\s/i;
+/** The first line of a header a mail client wrapped ("On Tue, 16 Sept 2026 at 10:02, Handy Services <"). */
+const RE_QUOTE_HEADER_START = /^On .{0,120}\d/i;
+/** The signature delimiter, "-- " on a line of its own (RFC 3676): what follows is a signature, not the message. */
+const RE_SIGNATURE = /^--\s*$/;
+
+function isHistoryStart(line: string, next: string | undefined): boolean {
+    const t = line.trim();
+    if (RE_QUOTE_HEADER.test(t) || RE_QUOTE_HEADER_INLINE.test(t) || RE_SIGNATURE.test(t)) return true;
+    return RE_QUOTE_HEADER_START.test(t) && next !== undefined && t.length + next.length <= 240 && RE_QUOTE_HEADER.test(`${t} ${next.trim()}`);
+}
 
 /** The most an unstripped body keeps when the history cannot be told from the new words. */
 export const EMAIL_BODY_MAX = 4000;
@@ -169,7 +181,9 @@ function capBody(text: string): string {
 }
 
 /**
- * The new words only: everything from the first quote header or `>` line on is history. A
+ * The new words only: everything from the first quote header (one a mail client wrapped over two
+ * lines, or Yahoo's with the quote run on), a phone's "Sent from" line, the signature delimiter or
+ * a `>` line on is history. A
  * bottom-posted reply puts the new words under the history, so stripping leaves nothing; the whole
  * body is kept then, capped, because the desk answering a turn with no words in it is worse than
  * the desk reading the history back.
@@ -177,9 +191,10 @@ function capBody(text: string): string {
 export function stripQuotedHistory(text: string): string {
     const normalised = text.replace(/\r\n/g, '\n');
     const out: string[] = [];
-    for (const raw of normalised.split('\n')) {
-        const line = raw.trimEnd();
-        if (/^\s*>/.test(line) || RE_QUOTE_HEADER.test(line.trim())) break;
+    const lines = normalised.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trimEnd();
+        if (/^\s*>/.test(line) || isHistoryStart(line, lines[i + 1])) break;
         out.push(line);
     }
     const kept = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
