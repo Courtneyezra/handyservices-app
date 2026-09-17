@@ -59,6 +59,7 @@ import { refreshBenToRequest } from '../quoting/ben-to-request';
 import { draftToRecover, markDraftFailed, type BackgroundDraftHooks } from '../quoting/background-draft';
 import { repeatedSentences, saidSinceLastQuestion, withoutSentences } from './repeat';
 import { detectOptOut } from '../../opt-out-detect';
+import { transcriptOf } from '../channels/call-adapter';
 
 export interface DeskDeps extends CaseFileDeps {
     client?: ModelClient;
@@ -98,11 +99,30 @@ function optOutPlace(channel: Turn['channel']): string {
     }
 }
 
-/** An opt-out in any one message the turn carries, each read on its own as the old inbound path reads it. */
+/** A speaker label in a transcript ("Customer:", "Agent:", "Speaker 1:"), and the ones that are our side of the call. */
+const RE_SPEAKER = /\b((?:agent|ben|va|customer|caller|speaker\s*\d+)):/i;
+const RE_OUR_SPEAKER = /^(?:agent|ben|va)$/i;
+
+/**
+ * A call transcript as the short messages the opt-out check reads: each sentence the caller said, on
+ * its own, so "please stop contacting me" inside a long call is read as the terse instruction it is.
+ * Our side of the call, where it is labelled, is left out.
+ */
+function transcriptSentences(body: string): string[] {
+    const parts = transcriptOf({ body } as Turn).split(RE_SPEAKER);
+    const said: string[] = [parts[0]];
+    for (let i = 1; i + 1 < parts.length; i += 2) if (!RE_OUR_SPEAKER.test(parts[i])) said.push(parts[i + 1]);
+    return said.flatMap((s) => s.split(/[.?!\n]+/)).map((s) => s.trim()).filter(Boolean);
+}
+
+/** An opt-out in any one message the turn carries, each read on its own as the old inbound path reads it; a call transcript sentence by sentence. */
 function optOutIn(file: CaseFile, turn: Turn): ReturnType<typeof detectOptOut> {
     for (const id of messagesOf(turn)) {
-        const match = detectOptOut(file.turns.find((t) => t.id === id)?.body ?? (id === turn.id ? turn.body : null));
-        if (match) return match;
+        const body = file.turns.find((t) => t.id === id)?.body ?? (id === turn.id ? turn.body : null);
+        for (const text of turn.kind === 'call_transcript' && body ? transcriptSentences(body) : [body]) {
+            const match = detectOptOut(text);
+            if (match) return match;
+        }
     }
     return null;
 }

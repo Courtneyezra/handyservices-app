@@ -208,6 +208,24 @@ describe('the channel desk on a call', () => {
             expect(a.file.hold?.reason).toContain('customer may have asked to stop on a call; check and record the opt-out');
         }
     });
+    it('a caller who asks us to stop in the middle of a real call transcript gets nothing and holds for Ben, while Ben saying the words does not', async () => {
+        const stop = 'Ben: Hi, its Ben from Handy Services, calling about the door handle. Customer: Oh right, look, I have sorted it now, please stop contacting me. Ben: No problem at all, sorry to bother you. Customer: Thanks, bye.';
+        for (const outcome of ['ben_rang', 'answered_inbound'] as const) {
+            const { gateway, client } = rig({ specialist: () => read(), router: () => routeScoping(), composer: () => ({ reply: 'unused', factIds: [], kbIds: [] }) }, approvedAll);
+            const a = await gateway.inbound(call(outcome, '2026-09-11T10:00:00.000Z', stop));
+            if (a.kind !== 'handled') throw new Error(a.kind);
+            expect(a.result).toMatchObject({ decision: 'hold', delivered: false, bubbles: [], templateId: null });
+            expect(a.file.sends).toHaveLength(0);
+            expect(client.calls).toHaveLength(0);
+            expect(a.file.hold?.reason).toContain('customer may have asked to stop on a call; check and record the opt-out');
+        }
+        const { gateway } = rig({ specialist: () => read(), router: () => routeScoping(), composer: () => ({ reply: 'unused', factIds: [], kbIds: [] }) }, approvedAll);
+        const ours = `${TRANSCRIPT} Agent: I will stop contacting you until the photos come. Customer: The fan wont stop buzzing.`;
+        const b = await gateway.inbound(call('ben_rang', '2026-09-11T10:00:00.000Z', ours));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.note ?? '').not.toMatch(/asked us to stop/);
+        expect(b.file.hold?.reason ?? '').not.toMatch(/asked to stop/);
+    });
     it('a missed call on a conversation we are already having gets no text back; after 60 quiet days it is a first contact again', async () => {
         const { gateway, clock } = rig({
             router: () => routeScoping({ turnKind: 'enquiry' }),
@@ -433,7 +451,7 @@ describe('the channel desk on a call', () => {
         const a = await gateway.inbound(live(null), { whatsapp: true });
         if (a.kind !== 'handled') throw new Error(a.kind);
         expect(a.file.hold).toBeNull();
-        const b = await gateway.inbound(live('Customer: Please stop contacting me.'), {}, { attachOnly: true });
+        const b = await gateway.inbound(live('Agent: Handy Services, Ben speaking. Customer: Hi, you sent me a quote for the tap last week. Agent: That is right, did you have any questions? Customer: No, I have had it done now, please stop contacting me. Agent: No problem, sorry to bother you.'), {}, { attachOnly: true });
         expect(b).toMatchObject({ kind: 'attached', changed: true });
         const file = gateway.store.get(a.file.id)!;
         expect(client.calls).toHaveLength(0);
