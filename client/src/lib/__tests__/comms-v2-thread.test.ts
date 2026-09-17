@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    addressLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, replyLine, slotLabel, threadRows, turnTime,
+    hasCustomerTurn, headerLine, heldFor, refusalOf, replyLine, slotLabel, threadRows, turnTime,
 } from '@/lib/comms-v2-thread';
 import type { CaseFileDetail, Turn } from '@/pages/admin/CommsV2BoardPage';
 
@@ -22,11 +22,9 @@ describe('comms-v2-thread', () => {
         expect(heldFor('2026-09-15T09:00:00.000Z', ms)).toBe('2d 3h');
     });
 
-    it('names a slot and strips an address kind', () => {
+    it('names a slot', () => {
         expect(slotLabel('ben')).toBe('Ben');
         expect(slotLabel(null)).toBe('approval');
-        expect(addressLabel('phone:07700900123')).toBe('07700900123');
-        expect(addressLabel('email:sam@example.com')).toBe('sam@example.com');
     });
 
     it('maps turns to bubbles, media, call and system rows', () => {
@@ -62,12 +60,6 @@ describe('comms-v2-thread', () => {
         expect(replyLine({ ...base, replyWindow: { state: 'shut', reason: 'r', closesAt: null } })).toBe('reply via WhatsApp · window shut');
         expect(replyLine({ ...base, replyChannel: 'email', replyWindow: { state: 'open', reason: 'r', closesAt: null } })).toBe('reply via Email');
         expect(headerLine({ ...base, job: { type: null, location: null, quoteRef: null, bookingRef: null }, replyChannel: null, replyWindow: null })).toBe('07700900123');
-    });
-
-    it('reads the hold detail line', () => {
-        const hold = { approver: { kind: 'human', id: 'ben' }, reason: 'r', since: '', draft: null };
-        expect(holdDetailLine(hold)).toBe('Failures: none · Exception: none · Noted on: no');
-        expect(holdDetailLine({ ...hold, failures: ['a', 'b'], exception: 'trust_doubt', notedOn: true })).toBe('Failures: a, b · Exception: trust doubt · Noted on: yes');
     });
 
     it('knows whether a customer has written', () => {

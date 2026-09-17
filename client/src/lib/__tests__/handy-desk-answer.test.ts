@@ -45,6 +45,7 @@ describe('figures and tokens', () => {
     it('strips the channel kind from an address, and makes a two-letter floor token', () => {
         expect(addressLabel('phone:07700900942')).toBe('07700900942');
         expect(addressLabel('+447700900942')).toBe('+447700900942');
+        expect(addressLabel(null)).toBe('');
         expect(tokenOf('Rob Hale', 'phone:0')).toBe('RH');
         expect(tokenOf('gemma', 'phone:0')).toBe('GE');
         expect(tokenOf(null, 'phone:07700900942')).toBe('42');

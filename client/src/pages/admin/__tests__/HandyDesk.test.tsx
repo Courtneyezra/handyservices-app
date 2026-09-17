@@ -385,6 +385,31 @@ describe('HandyDesk', () => {
         expect(await screen.findByTestId('handy-desk-answer')).toHaveTextContent('I drafted a reply to Rob.');
     });
 
+    it('keeps a half-written thread reply while an ask answer takes the right-hand side', async () => {
+        stubWide();
+        let open!: () => void;
+        const gate = new Promise<void>((r) => { open = r; });
+        let answerId = 'a1';
+        const { calls } = routes(askRoutes(gate, () => answerId));
+        const { client } = renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const thread = await screen.findByTestId('handy-desk-thread');
+        await userEvent.type(within(thread).getByLabelText('Your reply to the customer'), 'Marek can be there 2-6 today');
+
+        open();
+        await waitFor(() => expect(calls.some((c) => c.url === '/api/comms-v2/ask/sessions/sess_1')).toBe(true));
+        await new Promise((r) => setTimeout(r, 20));
+        await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+        answerId = 'a2';
+        await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+        const surface = await screen.findByTestId('handy-desk-answer');
+        expect(screen.queryByLabelText('Your reply to the customer')).toBeNull();
+
+        await userEvent.click(within(surface).getByRole('button', { name: 'Back to the conversation' }));
+        const back = await screen.findByTestId('handy-desk-thread');
+        expect(within(back).getByLabelText('Your reply to the customer')).toHaveValue('Marek can be there 2-6 today');
+    });
+
     it('with no ask session, the right side waits for a card', async () => {
         routes();
         renderWithQuery(<HandyDesk />);
