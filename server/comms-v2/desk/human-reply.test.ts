@@ -8,12 +8,13 @@
  * him is what the sender owns: a shut window, a wall of bubbles, a hold that is someone else's.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appendTurn, everAsked, open, hold as setHold, type ApproverSlot, type CaseFile, type Party, type TurnMedia } from './case-file';
+import { appendTurn, everAsked, open, recordFact, hold as setHold, type ApproverSlot, type CaseFile, type Party, type TurnMedia } from './case-file';
 import { truncateWords } from '../channels/envelope';
 import { BEN } from './guards';
 import { humanReply, sendHeldDraft, sendWindowTemplate } from './human-reply';
 import { DESK_APPROVER, send, type TemplateStatusSource } from './sender';
 import { heldAckLine } from './fixed-lines';
+import type { HoldException } from './router';
 
 /** answer_ready_reopen_v1 approved, nothing else. */
 const reopenApproved: TemplateStatusSource = { async approved(name) { return name === 'answer_ready_reopen_v1' ? { contentSid: 'HX_reopen' } : null; } };
@@ -473,8 +474,8 @@ describe('a template send on a shut window: only when the wording is true for th
     });
 
     /** The desk's held acknowledgement after the customer's question, as the desk writes it for a turn carrying `media`. */
-    function deskHeldAck(file: CaseFile, media: TurnMedia[] = [], at = '2026-09-11T10:00:02.000Z'): string {
-        setHold(file, { approver: BEN, reason: 'composer fallback', exception: null }, { now: now('2026-09-11T10:00:01.000Z') });
+    function deskHeldAck(file: CaseFile, media: TurnMedia[] = [], at = '2026-09-11T10:00:02.000Z', hold: { reason: string; exception: HoldException | null } = { reason: 'composer fallback', exception: null }): string {
+        setHold(file, { approver: BEN, ...hold }, { now: now('2026-09-11T10:00:01.000Z') });
         const line = heldAckLine({ media }, file).text;
         const t = appendTurn(file, { at, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: line, media: [], runId: 'run_held_ack', approver: DESK_APPROVER }, { now: now(at) });
         if (!t.ok) throw new Error(t.reason);
@@ -508,6 +509,41 @@ describe('a template send on a shut window: only when the wording is true for th
         expect(out.ok).toBe(true);
         if (!out.ok) return;
         expect(file.sends[file.sends.length - 1]).toMatchObject({ approver: BEN_APPROVER, templateId: 'answer_ready_reopen_v1' });
+    });
+
+    it('a question hold on a recorded job, answered only by the holding line: the template names the job, not the customer\'s words', async () => {
+        const { file, party } = fixture();
+        const f = recordFact(file, { key: 'job_type', value: 'new kitchen tap', source: { kind: 'thread', turnId: file.turns[0].id }, by: 'scoping' }, { now: now(AT) });
+        if (!f.ok) throw new Error(f.reason);
+        deskHeldAck(file, [], undefined, { reason: 'no_source: How much would a new tap be?', exception: 'no_source' });
+        party.channels.find((c) => c.kind === 'whatsapp')!.lastInboundAt = '2026-09-09T10:00:00.000Z';
+
+        const out = await sendWindowTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, reopenApproved);
+
+        expect(out.ok).toBe(true);
+        if (!out.ok) return;
+        expect(out.result.bubbles[0].text).toBe('Hi Sam, you asked us about new kitchen tap and we have an answer for you. Reply to this message and we will send it straight over.');
+        expect(file.hold).toBeNull();
+    });
+
+    it('a complaint hold answered only by the holding line: no template is offered and the hold stands', async () => {
+        const r = open({
+            identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: 'phone:07700900942', propertyId: null, landlordId: null, name: 'Sam' },
+            channel: 'whatsapp', address: '+447700900942',
+            firstTurn: { at: AT, channel: 'whatsapp', kind: 'text', body: 'hello?? anyone there? when will someone come and fix it?', media: [] },
+        }, { now: now(AT) });
+        if (!r.ok) throw new Error(r.reason);
+        const file = r.value;
+        deskHeldAck(file, [], undefined, { reason: 'complaint: nobody came', exception: 'complaint' });
+        file.parties[0].channels.find((c) => c.kind === 'whatsapp')!.lastInboundAt = '2026-09-09T10:00:00.000Z';
+
+        const out = await sendWindowTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, reopenApproved);
+
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/no template is true for this thread/);
+        expect(file.hold).toMatchObject({ exception: 'complaint' });
+        expect(file.sends.filter((s) => s.templateId)).toHaveLength(0);
     });
 
     it('a question, the holding line, then a real reply: the question is answered and no template is offered', async () => {
