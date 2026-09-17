@@ -96,14 +96,15 @@ export class Gateway {
 
     /** A customer WhatsApp turn: identity, the one file, then the desk. */
     async inbound(turn: InboundTurn, seed: SeedInput = {}): Promise<InboundOutcome> {
-        const resolved: ResolveResult = this.identity.resolve('whatsapp', turn.address, { name: turn.name });
+        const known = this.identity.resolveKnown('whatsapp', turn.address, { name: turn.name });
+        const resolved: ResolveResult = known instanceof Promise ? await known : known;
         if (!resolved.ok) {
             if (resolved.reason === 'candidates') { this.log(`identity: ${resolved.candidates.length} candidates for a whatsapp address; no reply`); return { kind: 'candidates', candidates: resolved.candidates.length, address: turn.address }; }
             return { kind: 'refused', reason: resolved.detail };
         }
         if (resolved.role === 'internal') return { kind: 'refused', reason: 'an internal number is not a customer; nothing to scope' };
         const address = e164Of(resolved.canonical) ?? turn.address;
-        const turnBody = { at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...failedMediaFields(turn.mediaFailures) };
+        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...failedMediaFields(turn.mediaFailures) };
         let file = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {

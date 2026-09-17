@@ -18,7 +18,8 @@
 import type { FixedLineKind } from '../desk/fixed-lines';
 import type { HoldException } from '../desk/router';
 
-export type ServiceHoldReason = Extract<HoldException, 'complaint' | 'refund' | 'trust_doubt' | 'no_source' | 'not_converging' | 'change_of_details'>;
+/** `money` only for an invoice money question the router handed to Service that the invoice row did not answer (service/customer-record.ts). */
+export type ServiceHoldReason = Extract<HoldException, 'complaint' | 'refund' | 'trust_doubt' | 'no_source' | 'not_converging' | 'change_of_details' | 'money'>;
 
 export interface ServiceHold { reason: ServiceHoldReason; match: string }
 

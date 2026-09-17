@@ -85,7 +85,9 @@ export class ChannelGateway extends Gateway {
             if (held) return this.attachCall(held.file, held.turn, env);
         }
         if (opts.attachOnly) return { kind: 'refused', reason: 'no call turn on any file to attach this call to' };
-        const resolved: ResolveResult = this.identity.resolve(env.channel, env.address, { name: env.name, email: env.hints?.email ?? null, phone: env.hints?.phone ?? null, postcode: env.hints?.postcode ?? null });
+        const known = this.identity.resolveKnown(env.channel, env.address, { name: env.name, email: env.hints?.email ?? null, phone: env.hints?.phone ?? null, postcode: env.hints?.postcode ?? null });
+        // Synchronous unless the CRM is being asked, so a turn with nothing to look up lands in the order it came.
+        const resolved: ResolveResult = known instanceof Promise ? await known : known;
         if (!resolved.ok) {
             if (resolved.reason === 'candidates') { this.log(`identity: ${resolved.candidates.length} candidates for a ${env.channel} address; no reply`); return { kind: 'candidates', candidates: resolved.candidates.length, address: env.address }; }
             return { kind: 'refused', reason: resolved.detail };
@@ -103,7 +105,7 @@ export class ChannelGateway extends Gateway {
 
         const address = env.channel === 'email' ? resolved.canonical.replace(/^email:/, '') : (e164Of(resolved.canonical) ?? env.address);
         const kind: Turn['kind'] = env.kind ?? (env.media.length ? 'media' : 'text');
-        const turnBody = { at: env.at, channel: env.channel, kind, body: env.text, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(callId ? { callId } : {}), ...(opts.deliveryId ? { deliveryId: opts.deliveryId } : {}), ...failedMediaFields(env.mediaFailures) };
+        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: env.at, channel: env.channel, kind, body: env.text, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(callId ? { callId } : {}), ...(opts.deliveryId ? { deliveryId: opts.deliveryId } : {}), ...failedMediaFields(env.mediaFailures) };
         let file: CaseFile | null = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {

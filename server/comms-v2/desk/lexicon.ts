@@ -60,6 +60,13 @@ export function haggleMatch(text: string): string | null {
     return m ? m[0] : null;
 }
 
+const RE_HAGGLE_PHRASE = new RegExp(`\\b(?:${HAGGLE})\\b`, 'i');
+
+/** Any haggle or terms of payment the lexicon knows: the plain words (`RE_HAGGLE`) or the everyday phrases the money belt fires on. */
+export function haggles(text: string): boolean {
+    return RE_HAGGLE.test(text) || RE_HAGGLE_PHRASE.test(text);
+}
+
 const PLAIN_THING = `(?:(?:that|the|this|your|my|our)\\s+)?(?:(?:quoted?|total|original|old)\\s+)?(?:price|quote|cost|total|figure|amount|£x)`;
 const PLAIN_TAIL = '(?:\\s+(?:now|again|then|please|still|today|at the moment))*';
 const PLAIN_ASKS = [

@@ -74,6 +74,22 @@ describe('route', () => {
         const accepted = await route(portal, portal.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: 'money', turnKind: 'question' }) }));
         expect(accepted).toMatchObject({ subjects: ['quoting'], exceptions: [], turnKind: 'acknowledgement', moneyToQuoting: false });
     });
+    it('a known customer\'s invoice balance question goes to Service; a haggle or payment plan on the invoice keeps the money hold', async () => {
+        const reading = () => ({ subjects: ['service'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'question' });
+        const known = async (text: string) => {
+            const file = fixture(text);
+            file.turns[0].customerId = 'c1';
+            return route(file, file.turns[0], new FakeModelClient({ router: reading }));
+        };
+        const owe = await known('how much do I still owe on my invoice?');
+        expect(owe.moneyToService).toBe(true);
+        expect(owe.exceptions).toEqual([]);
+        for (const text of ['Will you take £60 cash for the invoice balance?', 'Can I go on a payment plan for my invoice?', "can I pay it in parts, it's for my invoice"]) {
+            const r = await known(text);
+            expect(r.moneyToService, text).toBe(false);
+            expect(r.exceptions, text).toContain('money');
+        }
+    });
     it('reads a request for a call from the router itself: there is no callback belt', async () => {
         const call = fixture('Can you ring me about it?');
         const r = await route(call, call.turns[0], new FakeModelClient({ router: () => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: 'callback', turnKind: 'question' }) }));

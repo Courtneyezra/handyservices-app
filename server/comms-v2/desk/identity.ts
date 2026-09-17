@@ -10,6 +10,13 @@
  * either spelling and collapses both to the same key. The E.164 form is what a channel address
  * looks like on the party's channel record, never the identity key.
  *
+ * A known customer is one the CRM already holds (`resolveKnown`, through the `known` lookup
+ * service/customer-record.ts supplies), and only on a proven channel (captain's answer 126, "Only
+ * proven channels"): a turn on WhatsApp or SMS from that number, or an email from an address the
+ * CRM record itself holds. The binding belongs to the key the turn arrived on, never to the person:
+ * a web-form or call turn, and a key linked to the person only through one, never carries a customer
+ * id, so the desk treats such a turn as a new enquiry.
+ *
  * Goal 1: only `homeowner` and `internal` are live. `tenant`, `landlord` and `contractor` exist in
  * the type and return nothing until the landlord service attaches. Role resolution runs in the
  * fixed order internal, contractor, tenant, landlord, known customer, new customer and stops at the
@@ -27,8 +34,13 @@ export type CanonicalKey = `phone:${string}` | `email:${string}`;
 export interface Person {
     id: string;
     role: Role;
-    /** The customer record this person is, when they are a customer. */
+    /** The customer record this person is, when they are a customer: the last one a proven key bound. */
     customerId: string | null;
+    /**
+     * The CRM client each of this person's keys proved, by key (`resolveKnown`). Only a key a turn
+     * arrived on over a proven channel is ever in here.
+     */
+    crmByKey?: Partial<Record<CanonicalKey, string>>;
     name: string | null;
     keys: CanonicalKey[];
     /** For a tenant, later: the property and landlord ids. Null in Goal 1. */
@@ -93,20 +105,33 @@ export function e164Of(key: CanonicalKey): string | null {
     return `+${national}`;
 }
 
+/** The channels a turn proves its own address on (answer 126): a web form's phone is typed by whoever fills it in, and a call is not a thread on file. */
+export const PROVEN_CHANNELS: ReadonlySet<ChannelKind> = new Set<ChannelKind>(['whatsapp', 'sms', 'email']);
+
 const ROLE_ORDER: readonly Role[] = ['internal', 'contractor', 'tenant', 'landlord', 'homeowner'];
+
+/** The CRM clients a key names (service/customer-record.ts `knownCustomer`). */
+export type KnownCustomerLookup = (key: CanonicalKey) => Promise<Array<{ customerId: string; name: string | null }>>;
 
 export interface IdentityOptions {
     directory?: IdentityDirectory;
     newId?: () => string;
+    /** The CRM lookup for a known customer. Unset, nobody is looked up and a fresh key is a new homeowner. */
+    known?: KnownCustomerLookup;
+    log?: (line: string) => void;
 }
 
 export class Identity {
     readonly directory: IdentityDirectory;
     private readonly newId: () => string;
+    private readonly known: KnownCustomerLookup | null;
+    private readonly log: (line: string) => void;
 
     constructor(opts: IdentityOptions = {}) {
         this.directory = opts.directory ?? new MemoryIdentityDirectory();
         this.newId = opts.newId ?? (() => `person_${randomUUID()}`);
+        this.known = opts.known ?? null;
+        this.log = opts.log ?? (() => undefined);
     }
 
     canonical(raw: string | null | undefined): CanonicalKey | null { return canonical(raw); }
@@ -129,8 +154,7 @@ export class Identity {
         if (!person) {
             const asserted = this.namedByAssertedKey(key, hints);
             if (asserted.length) return { ok: false, reason: 'candidates', candidates: asserted };
-            // Known customer would be looked up in the CRM here; Goal 1 has no seeded record, so a
-            // fresh key is a new homeowner.
+            // A fresh key is a new homeowner here; `resolveKnown` looks it up in the CRM.
             person = { id: this.newId(), role: 'homeowner', customerId: null, name: hints.name?.trim() || null, keys: [key], propertyId: null, landlordId: null };
             isNew = true;
         } else {
@@ -139,6 +163,81 @@ export class Identity {
         this.directory.upsert(person);
         const role = ROLE_ORDER.find((r) => r === person!.role) ?? 'homeowner';
         return { ok: true, personId: person.id, customerId: person.customerId, role, isNew, canonical: key, propertyId: person.propertyId, landlordId: person.landlordId, name: person.name };
+    }
+
+    /**
+     * `resolve`, then the known-customer step of the role order. The result's `customerId` is the
+     * CRM client this turn's own key proves, and nothing else: it is set only for a homeowner's turn
+     * on a proven channel (`PROVEN_CHANNELS`) whose own address is the key, when exactly one client
+     * carries that key (for an email, the CRM record itself holds the address). A web-form or call
+     * turn, a key the turn only asserts, and a key linked to the person only through a form are
+     * never looked up and never carry one, whatever another key of the same person proved. Two
+     * clients for one key are Ben's to tell apart, so neither is bound. A lookup that fails leaves
+     * the turn unbound, and says so in the log. A key already bound is not looked up again.
+     *
+     * Synchronous when nothing is to be looked up and no lookup for the same person is still
+     * running, so a turn lands on its file in the order it arrived; otherwise one person's lookups
+     * finish in the order they were asked.
+     */
+    resolveKnown(channel: ChannelKind, address: string, hints: ResolveHints = {}): ResolveResult | Promise<ResolveResult> {
+        const r = this.resolve(channel, address, hints);
+        if (!r.ok) return r;
+        const proven = r.role === 'homeowner' && PROVEN_CHANNELS.has(channel) && canonical(address) === r.canonical;
+        const id = r.personId;
+        const pending = this.lookups.get(id);
+        if (!pending && !(proven && this.wantsLookup(r))) return this.boundFor(r, proven);
+        const entry = { done: Promise.resolve() as Promise<unknown> };
+        const run = (async () => {
+            try {
+                await pending?.done;
+                return proven ? await this.recognise(r) : this.boundFor(r, false);
+            } finally {
+                // Cleared before the caller resumes, so a person's next turn is synchronous again once nothing is running.
+                if (this.lookups.get(id) === entry) this.lookups.delete(id);
+            }
+        })();
+        entry.done = run.catch(() => undefined);
+        this.lookups.set(id, entry);
+        return run;
+    }
+
+    /** Each person's newest lookup, which the next one for them waits on. */
+    private readonly lookups = new Map<string, { done: Promise<unknown> }>();
+
+    private boundTo(personId: string, key: CanonicalKey): string | null {
+        return this.directory.byId(personId)?.crmByKey?.[key] ?? null;
+    }
+
+    /** The result with the client this turn's key proved, or none when the turn is not on a proven channel. */
+    private boundFor(r: Extract<ResolveResult, { ok: true }>, proven: boolean): ResolveResult {
+        const customerId = proven ? this.boundTo(r.personId, r.canonical) : null;
+        return { ...r, customerId, isNew: customerId ? false : r.isNew };
+    }
+
+    private wantsLookup(r: Extract<ResolveResult, { ok: true }>): boolean {
+        return !!this.known && !this.boundTo(r.personId, r.canonical);
+    }
+
+    private async recognise(r: Extract<ResolveResult, { ok: true }>): Promise<ResolveResult> {
+        // An earlier lookup for this person may have bound this key while this turn waited.
+        if (!this.wantsLookup(r)) return this.boundFor(r, true);
+        let found: Array<{ customerId: string; name: string | null }>;
+        try {
+            found = await this.known!(r.canonical);
+        } catch (e: any) {
+            this.log(`identity: the customer record could not be read, so the turn stays unknown to it (${e?.message ?? e})`);
+            return this.boundFor(r, true);
+        }
+        const ids = new Map(found.map((c) => [c.customerId, c]));
+        if (ids.size !== 1) {
+            if (ids.size > 1) this.log(`identity: ${ids.size} customer records carry this ${r.canonical.split(':')[0]}; none is bound`);
+            return this.boundFor(r, true);
+        }
+        const client = Array.from(ids.values())[0];
+        const latest = this.directory.byId(r.personId);
+        if (!latest) return this.boundFor(r, true);
+        this.directory.upsert({ ...latest, customerId: client.customerId, name: latest.name ?? client.name, crmByKey: { ...latest.crmByKey, [r.canonical]: client.customerId } });
+        return { ...this.boundFor(r, true), name: latest.name ?? client.name };
     }
 
     /**
@@ -191,7 +290,8 @@ export class Identity {
     /** A known customer, seeded (the door's `seed.customer: known` on POST /start). */
     seedCustomer(key: CanonicalKey, input: { name?: string | null; customerId?: string | null } = {}): Person {
         const existing = this.directory.byKey(key)[0];
-        const person: Person = existing ?? { id: this.newId(), role: 'homeowner', customerId: input.customerId ?? `customer_${randomUUID().slice(0, 8)}`, name: input.name ?? null, keys: [key], propertyId: null, landlordId: null };
+        const customerId = input.customerId ?? `customer_${randomUUID().slice(0, 8)}`;
+        const person: Person = existing ?? { id: this.newId(), role: 'homeowner', customerId, name: input.name ?? null, keys: [key], propertyId: null, landlordId: null, crmByKey: { [key]: customerId } };
         this.directory.upsert(person);
         return person;
     }

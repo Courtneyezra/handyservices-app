@@ -127,7 +127,7 @@ async function intakeGateway(deps: IntakeGatewayDeps): Promise<{ purpose: Purpos
     return { purpose, gateway: await building };
 }
 
-/** The durable gateway for a purpose: the case file store, the quote store, the draft chain and the diary all open the database that purpose allows. */
+/** The durable gateway for a purpose: the case file store, the quote store, the draft chain, the diary and the customer record all open the database that purpose allows. */
 async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
     const { ChannelGateway } = await import('./channel-gateway');
     const { ChannelDesk } = await import('./channel-desk');
@@ -137,9 +137,12 @@ async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
     const { chainDrafter } = await import('../quoting/draft-quote');
     const { databaseDiary } = await import('../scheduling/diary');
     const { chaseStateFromEnv } = await import('../service/chase');
+    const { databaseCustomerRecords } = await import('../service/customer-record');
     const log = (line: string) => console.log(`[comms-v2 intake] ${line}`);
     const store = await openCaseFileStore({ log }, caseFileRowsFor(purpose));
-    const identity = identityFromCaseFiles(store.all());
+    // A customer the CRM already holds is recognised by the key they write from, and Service reads their record, read-only.
+    const records = databaseCustomerRecords(purpose);
+    const identity = identityFromCaseFiles(store.all(), { known: (key) => records.knownCustomer(key), log });
     const seeded = await seedInternalNumbers(identity);
     log(`identity: ${seeded.registered} internal keys registered${seeded.refused ? `; ${seeded.refused} refused because a case file already holds them as a customer` : ''}`);
     const quotes = databaseQuoteStore(purpose);
@@ -148,7 +151,7 @@ async function buildIntakeGateway(purpose: Purpose): Promise<GatewayT> {
     const notifier = purpose === 'live' ? (await import('../quoting/ben-notifier')).liveBenNotifier() : undefined;
     const modelHealth = await intakeModelHealth(purpose);
     // The quote is drafted off the reply path, and the store is where a finished draft is put (quoting/background-draft.ts).
-    const desk = new Desk({ mode, log, persist: (file) => { store.put(file); return store.flush(); }, ...(modelHealth ? { modelHealth } : {}), quoting: { store: quotes, drafter: chainDrafter(quotes, purpose), ...(notifier ? { notifier } : {}) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv() } });
+    const desk = new Desk({ mode, log, persist: (file) => { store.put(file); return store.flush(); }, ...(modelHealth ? { modelHealth } : {}), quoting: { store: quotes, drafter: chainDrafter(quotes, purpose), ...(notifier ? { notifier } : {}) }, scheduling: { diary: databaseDiary(purpose) }, service: { chase: chaseStateFromEnv(), records } });
     log(`gateway built for the ${purpose} desk (${mode === 'live' ? 'live delivery' : 'dry run'})`);
     const { CUSTOMER_TURN_QUIET_MS } = await import('../desk/turn-window');
     return new ChannelGateway({ desk: new ChannelDesk(desk, { mode, log }), identity, store, presence: messagesPresence, log, quietMs: CUSTOMER_TURN_QUIET_MS });

@@ -123,6 +123,13 @@ export interface Turn {
      */
     deliveryId?: string;
     /**
+     * Inbound only: the CRM client (service_clients.id) this turn's own address proved on a proven
+     * channel (desk/identity.ts `resolveKnown`, answer 126). The customer's record is read for this
+     * turn only when it carries one; a web-form or call turn, or one from a key linked only through a
+     * form, never does, whatever an earlier turn of the same person proved.
+     */
+    customerId?: string | null;
+    /**
      * A delivery's turn only: the desk run that returned a result on it, whatever it decided (a
      * reply, a hold, nothing). A delivery handed over again whose turn has neither this nor a reply
      * covering it (`coveredByReply`) goes to the desk again (channels/channel-gateway.ts).
@@ -536,6 +543,19 @@ export function isSupersededFigure(file: CaseFile, fact: Fact): boolean {
     const ref = fact.source.quoteRef;
     const at = file.facts.indexOf(fact);
     return file.facts.some((f, i) => i > at && f.key === fact.key && f.source.kind === 'quote_line' && f.source.quoteRef === ref);
+}
+
+/** The source field prefix of a fact read from the customer's CRM record (service/customer-record.ts). */
+export const RECORD_READ_FIELD_PREFIX = 'crm:';
+
+/**
+ * A fact that is true only as of the read that wrote it: a diary date, or anything read from the
+ * customer's CRM record (an invoice's status and balance, a visit day). The composer is shown one,
+ * and the figure and date guards accept one, only when this run looked it up; one from an earlier
+ * turn may have moved since (an invoice paid, a visit moved).
+ */
+export function isReadThisRunOnly(fact: Pick<Fact, 'source'>): boolean {
+    return fact.source.kind === 'diary' || (fact.source.kind === 'customer_record' && fact.source.field.startsWith(RECORD_READ_FIELD_PREFIX));
 }
 
 /** The facts a customer reply may be written from: everything on the file except Ben's own. */

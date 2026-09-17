@@ -212,6 +212,19 @@ test:
     and expect a delivered composed reply with no hold, not the not-converging line again. Ben's
     chase and escalation are dry-run template sends to drama numbers; nothing leaves.
 
+    The customer's full record, read-only (server/comms-v2/service/customer-record.ts), on the
+    comms-v2 door, after the Goal 6 lines above (it makes the drama number a known customer for every
+    thread until reset): POST /record-fixture (a client, a lead and invoice SANDBOX-INV-0001, sent and
+    part paid, on the branch only), then start "Hi, how much is left to pay on my invoice?" and expect
+    a delivered reply carrying £80.00 with no hold, every guard passing, and plannedSend.factIds naming
+    facts keyed record:invoice:SANDBOX-INV-0001:... whose source is customer_record; then start "can I
+    get a discount on my invoice?" and expect a hold for ben with reason money and the money line in
+    the reply. That turn carries the client id (turn.customerId), and nothing in it or the reply shows an
+    email or postal address. Then start the web form door (POST /start {door: form, text: "how much is
+    left to pay on my invoice?", name, postcode, seed: {whatsapp: false}}) with the same drama number and
+    expect no client id on that turn, no record facts, and a hold for ben with reason money: a form never
+    binds a customer record (answer 126). Then POST /record-fixture/reset.
+
     The switch-over, on the app's own comms-v2 door (POST http://127.0.0.1:$PORT/api/comms-v2/sandbox/...
     as Ben), never flipping a switch: never write spine.commsDesk or spine.senders.comms_v2, never
     set COMMS_V2_INTAKE, and stop if GET /api/spine/controls shows either row key set. Live-mode

@@ -5,7 +5,8 @@
  *
  * Everything up to delivery runs for real: identity, the case file, the router, the Scoping
  * specialist and its tools (Gemini for a photo), the Scheduling specialist and its diary read,
- * the composer, the guards, the render, the
+ * the Service specialist and the customer's CRM record (read-only, on the branch), the composer,
+ * the guards, the render, the
  * window. Nothing leaves: the sender runs in dry run and lands the planned reply on the case
  * file's thread as an outbound turn, so the next turn sees it. Every response carries the
  * planned send (planned-send.ts) the desk emits itself, and the thread's state. The SMS, form,
@@ -37,6 +38,8 @@ import { quoteStateOf } from '../quoting/quoting-specialist';
 import { chaseRecordOf, createChaseState, type ChaseState } from '../service/chase';
 import { automationState } from '../service/return-to-automation';
 import { serviceDoorRouter, type ApproverForRequest } from '../service/service-door';
+import { liveCustomerRecords } from '../service/customer-record';
+import { Identity } from './identity';
 import { sessionApprover } from '../api/approvers';
 
 /** The drama number, the same one the old sandbox uses, so nothing here can be a real customer. */
@@ -115,15 +118,18 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
     const now = deps.now ?? (() => new Date());
     // Goal 6: the chase with sandbox test values, kept across resets so the ledger is one object; reset clears it.
     const chase = deps.service?.chase ?? createChaseState({ chaseAfterMs: 60 * 60_000, escalateAfterMs: 120 * 60_000, ben: { address: SANDBOX_BEN_E164, name: 'Ben' }, owner: { address: SANDBOX_OWNER_E164, name: null } });
-    const deskDeps: DeskDeps = { ...deps, service: { ...deps.service, chase }, mode: 'dry_run' };
+    // The customer's CRM record, read-only: the branch's unless the caller passed one (a memory record in tests).
+    const records = deps.service?.records ?? liveCustomerRecords;
+    const deskDeps: DeskDeps = { ...deps, service: { ...deps.service, chase, records }, mode: 'dry_run' };
     const desk = () => new ChannelDesk(new Desk(deskDeps), { client: deps.client, templates: deps.templates, sender: deps.sender, now, newId: deps.newId, mode: 'dry_run', log: deps.log });
     const registerInternal = (g: Gateway) => { g.identity.registerInternal('phone:07700900901', 'Ben'); g.identity.registerInternal('phone:07700900902', 'the owner'); };
     const quietMs = deps.quietMs ?? CUSTOMER_TURN_QUIET_MS;
-    let gateway: Gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId, quietMs });
+    const identity = () => new Identity({ known: (key) => records.knownCustomer(key), log: deps.log });
+    let gateway: Gateway = new ChannelGateway({ desk: desk(), identity: identity(), now, newId: deps.newId, quietMs });
     registerInternal(gateway);
     const reset = () => {
         deps.scheduling.diary.emptied = false;
-        gateway = new ChannelGateway({ desk: desk(), now, newId: deps.newId, quietMs });
+        gateway = new ChannelGateway({ desk: desk(), identity: identity(), now, newId: deps.newId, quietMs });
         registerInternal(gateway);
     };
     const router = Router();
@@ -247,7 +253,7 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
         res.json({ ok: true, hours, window: st.window, state: st });
     });
 
-    router.use(serviceDoorRouter({ currentFile, chase, stateOf, now, newId: deps.newId, approver: deps.approver ?? sessionApprover() }));
+    router.use(serviceDoorRouter({ phone: SANDBOX_PHONE_E164.replace(/^\+44/, '0'), currentFile, chase, stateOf, now, newId: deps.newId, approver: deps.approver ?? sessionApprover() }));
     router.use(quoting.router);
 
     return { router, get gateway() { return gateway; }, reset };

@@ -47,6 +47,7 @@ import { chaseIfDue, clearChaseRecord, type ChaseState } from '../service/chase'
 import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY } from '../service/hold-reasons';
 import { serve, type ServiceSpecialistDeps } from '../service/service-specialist';
 import { asksAboutOurArea, asksToChangeDetails } from '../service/service-tools';
+import { asksAboutInvoice } from '../service/customer-record';
 import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, BUBBLE_SOFT_MAX_CHARS, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
 import { channelFixedLines, MOVE_TO_WHATSAPP_SUBJECT } from '../channels/channel-lines';
@@ -430,7 +431,9 @@ export class Desk implements DeskLike {
             const scopingRan = !quotingOwnsThread(file) && !(route.subjects.length === 1 && route.subjects[0] === 'service');
             scoping = scopingRan ? await scope(file, turn, party, client, { ...this.deps.scoping, now: this.now }) : null;
             if (scoping) { calls.push(...scoping.calls); specialists.push(scoping); if (scoping.error) log(`scoping: ${scoping.error}`); }
-            const service = await serve(file, turn, party, client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service') || asksToChangeDetails(turn.body) || asksAboutOurArea(turn.body), scopingRan });
+            // An invoice or receipt question from a customer the CRM knows is Service's whatever the router read, and money the router handed it is its to answer or hold.
+            const invoiceQuestion = !!turn.customerId && asksAboutInvoice(turn.body);
+            const service = await serve(file, turn, party, client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service') || asksToChangeDetails(turn.body) || asksAboutOurArea(turn.body) || invoiceQuestion || !!route.moneyToService, scopingRan, invoiceMoney: !!route.moneyToService });
             calls.push(...service.calls);
             serviceRead = service.calls.length > 0;
             specialists.push(service);

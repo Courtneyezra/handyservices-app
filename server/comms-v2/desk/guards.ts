@@ -18,7 +18,7 @@
  * guards: Ben for a homeowner; for a tenant issue, later, the landlord's rules, then the landlord,
  * then Ben. A rule-based approver is a legal value from day one and has no rules yet.
  */
-import { askedUnanswered, customerTurnUnanswered, everAsked, isSupersededFigure, ledgerEntry, release as releaseHold, sameApprover, type ApproverSlot, type CaseFile, type Fact, type Outcome, type Party, type Turn } from './case-file';
+import { askedUnanswered, customerTurnUnanswered, everAsked, isReadThisRunOnly, isSupersededFigure, ledgerEntry, release as releaseHold, sameApprover, type ApproverSlot, type CaseFile, type Fact, type Outcome, type Party, type Turn } from './case-file';
 import type { GuardName, GuardVerdict } from './desk-types';
 import type { FixedLine } from './fixed-lines';
 import { withoutDashPunctuation } from './dashes';
@@ -83,7 +83,9 @@ export function checkFigure(input: GuardInput): GuardVerdict {
     if (!matches.length) return pass();
     // A quote figure counts only while its quote is live and it is that line's current amount: the
     // price before a reissue is still on the file, and must not be repeated.
-    const live = citedFacts(input).filter((f) => (f.source.kind === 'quote_line' ? input.liveQuoteRefs.has(f.source.quoteRef) && !isSupersededFigure(input.file, f) : f.source.kind === 'customer_record'));
+    // A figure read from the customer's CRM record (an invoice) counts only as this run read it.
+    const looked = new Set(input.lookedUp ?? []);
+    const live = citedFacts(input).filter((f) => (f.source.kind === 'quote_line' ? input.liveQuoteRefs.has(f.source.quoteRef) && !isSupersededFigure(input.file, f) : f.source.kind === 'customer_record' && (!isReadThisRunOnly(f) || looked.has(f.id))));
     const allowed = new Set(live.map((f) => normaliseFigure(f.value)));
     const bad = matches.filter((m) => !allowed.has(normaliseFigure(m)));
     return bad.length ? fail(`a figure appears that is not a line of the live quote or a customer record: ${bad.join(', ')}`) : pass();
@@ -108,14 +110,15 @@ function allOf(re: RegExp, text: string): string[] {
 
 export function checkDate(input: GuardInput): GuardVerdict {
     const looked = new Set(input.lookedUp ?? []);
-    const diary = citedFacts(input).filter((f) => f.source.kind === 'diary' && looked.has(f.id)).map((f) => f.value.toLowerCase());
+    // The diary, or the customer's CRM record (an invoice's dates, a visit day), as this run read it.
+    const diary = citedFacts(input).filter((f) => isReadThisRunOnly(f) && looked.has(f.id)).map((f) => f.value.toLowerCase());
     // A bare ordinal is read as a day on its own words (lexicon.ts ordinalDays), not on whether the
     // reply gives a date elsewhere: "the 1st floor" beside a looked-up date is a floor, and "the 2nd"
     // with no date looked up is still a day the diary did not give. A day has to be a looked-up value.
     const matches = [...allOf(RE_DATE_TIME_DURATION, input.reply), ...ordinalDays(input.reply)];
     if (!matches.length) return pass();
     const bad = matches.filter((m) => !diary.some((v) => saysWhole(v, m.toLowerCase())));
-    return bad.length ? fail(`a date, time or duration appears that this turn did not look up in the diary: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
+    return bad.length ? fail(`a date, time or duration appears that this turn did not look up in the diary or the customer's record: ${bad.map((b) => `"${b}"`).join(', ')}`) : pass();
 }
 
 export function checkCommitment(input: GuardInput): GuardVerdict {
