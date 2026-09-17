@@ -487,7 +487,7 @@ describe('liveDeliverer', () => {
         expect(r.ok).toBe(false);
         if (!r.ok) {
             expect(r.reason).toMatch(/live delivery on email is refused/);
-            expect(r.reason).toMatch(/opt-out ledger/);
+            expect(r.reason).toMatch(/no outbound email path/);
             expect(r.delivered).toEqual([]);
         }
         vi.doUnmock('../../spine/config');

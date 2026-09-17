@@ -527,7 +527,7 @@ export const liveDeliverer: Deliverer = {
             return { ok: false, reason: 'the opt-out ledger could not be read, so the send was refused', delivered, label };
         }
         if (suppression) return { ok: false, reason: optOutRefusalMessage(suppression), delivered, label };
-        if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send, which is the only path that checks the opt-out ledger, carries WhatsApp and SMS only`, delivered, label };
+        if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send carries WhatsApp and SMS only, and there is no outbound email path`, delivered, label };
         const { sendCustomerMessage } = await import('../../outbound');
         let sid: string | null = null;
         for (const b of input.bubbles) {
