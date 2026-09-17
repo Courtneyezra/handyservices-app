@@ -31,7 +31,7 @@ import {
 /**
  * Kanban + docked conversation panel (hsa-comms-v2-ben-board-layouts-s33, option 01): at this width
  * and up the board and the open case file sit side by side, permanent rather than an overlay sheet.
- * Below it, a full-screen sheet, chat-first, with a way back to the board. jsdom has no matchMedia:
+ * Below it, a bottom sheet (`ThreadSheet`), chat-first, with a way back to the board. jsdom has no matchMedia:
  * defaults to narrow, which is the existing sheet behaviour every current test exercises.
  */
 const WIDE_BOARD_QUERY = '(min-width: 1024px)';
