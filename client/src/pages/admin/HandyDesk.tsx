@@ -63,7 +63,8 @@
  * the answer surface shows the thinking card, then the answer, until Ben closes it. With no ask on
  * screen, the right-hand side shows the newest answer on the person's newest session until a card is
  * selected or the answer is closed; then a selected card shows its thread, or below 1024px, where the
- * thread is the sheet, names the card the ask bar is asking about. Both answers render in
+ * thread is the sheet, names the card the ask bar is asking about - and says so when the desk has
+ * answered it since and it has left the queue, the ask keeping its context either way. Both answers render in
  * the one AnswerCard, whose body (client/src/components/handy-desk/AnswerSurface.tsx, T3) carries
  * the typed surface and confirm.
  */
@@ -574,7 +575,11 @@ export default function HandyDesk() {
                                 />
                             </section>
                         ) : selection ? (
-                            <p data-testid="handy-desk-asking" className="py-16 text-center text-sm text-slate-500">Asking about {selection.name}. Tap their card above to read the conversation.</p>
+                            <p data-testid="handy-desk-asking" className="py-16 text-center text-sm text-slate-500">
+                                Asking about {selection.name}. {items.some((i) => i.id === selection.caseFileId)
+                                    ? 'Tap their card above to read the conversation.'
+                                    : 'Their card has left the queue.'}
+                            </p>
                         ) : (
                             <p data-testid="handy-desk-idle" className="py-16 text-center text-sm text-slate-500">Pick something from the queue to see its conversation.</p>
                         )}

@@ -336,6 +336,27 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('handy-desk-idle')).toBeInTheDocument();
     });
 
+    it('on a phone a selected card that leaves the queue says so, keeping the ask context and touching no send', async () => {
+        let held = true;
+        const { calls } = routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: held ? [ROB, GEMMA] : [ROB], sandboxAvailable: true } }) },
+        ]);
+        const { client } = renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const sheet = await screen.findByRole('dialog');
+        expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+        await userEvent.click(within(sheet).getByRole('button', { name: 'Ask about this' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.getByTestId('handy-desk-asking')).toHaveTextContent('Asking about Gemma Patel. Tap their card above to read the conversation.');
+
+        held = false;
+        await client.refetchQueries({ queryKey: ['comms-v2-queue'] });
+        await waitFor(() => expect(screen.queryByTestId('queue-card-case_gemma')).toBeNull());
+        expect(screen.getByTestId('handy-desk-asking')).toHaveTextContent('Asking about Gemma Patel. Their card has left the queue.');
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+        expect(casePosts(calls)).toHaveLength(0);
+    });
+
     it('narrowing the window with a card selected brings its thread into the sheet, not the idle placeholder', async () => {
         const resize = stubViewport(true);
         routes();
