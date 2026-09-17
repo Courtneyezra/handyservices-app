@@ -116,7 +116,7 @@ export function hasCustomerTurn(detail: Pick<CaseFileDetail, 'turns'>): boolean 
     return detail.turns.some((t) => t.direction === 'inbound');
 }
 
-export type RefusalKind = 'shut_window' | 'no_draft' | 'no_slot' | 'other';
+export type RefusalKind = 'shut_window' | 'no_draft' | 'other';
 
 /** A refused send or release, as the thread shows it: its kind, the lead-in, and the desk's own words verbatim. */
 export interface Refusal {
@@ -127,7 +127,6 @@ export interface Refusal {
 
 export function refusalOf(action: 'answer' | 'send_held_draft' | 'release', status: number, error: string | undefined): Refusal {
     const message = refusalMessage(status, error);
-    if (status === 401 || status === 403) return { kind: 'no_slot', lead: action === 'release' ? 'Not released.' : 'Not sent.', message };
     if (/window is shut/.test(message)) return { kind: 'shut_window', lead: "Can't send freeform words.", message };
     if (/there is no held draft to send/.test(message)) return { kind: 'no_draft', lead: 'Nothing to send.', message };
     return { kind: 'other', lead: action === 'release' ? 'Not released.' : 'Not sent.', message };
