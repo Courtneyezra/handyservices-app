@@ -1,7 +1,6 @@
 /**
  * B1 — quick access to the three Handy Desk destinations (Design export "Comms Board.dc.html" §1):
- * Handy Desk, Diary and Comms board. Diary has no admin page yet (task B6), so it ships disabled as
- * "Coming soon". Held colour is amber (captain's answer 95).
+ * Handy Desk, the read-only Diary (B6) and Comms board. Held colour is amber (captain's answer 95).
  *
  * Shared by the admin shell (SidebarLayout: desktop header and sub-1024px slide-out) and the Handy
  * Desk's own full-screen header, which renders outside the shell. Each render passes a variant, used
@@ -16,6 +15,7 @@ import { NEW_BOARD_PATH } from "@/hooks/useOldComms";
 import { queueQuery, updatedAgoLabel, type DeskQueue } from "@/lib/handy-desk-queue";
 import { cn } from "@/lib/utils";
 import { HANDY_DESK_PATH } from "@/lib/handy-desk-path";
+import { DIARY_PATH } from "@/lib/diary";
 
 /**
  * The held-count badge's query. Same query key and interval as Handy Desk's own queue
@@ -83,22 +83,14 @@ export function QuickLinks({ variant, location, heldCount, updatedAt, onNavigate
             >
                 <Sparkles className="w-4 h-4" /> Handy Desk
             </Link>
-            <span
-                title="Coming soon"
-                aria-disabled="true"
+            <Link
+                href={DIARY_PATH}
                 data-testid={`topbar-link-diary-${variant}`}
-                className={cn(
-                    "flex cursor-not-allowed items-center gap-1.5 rounded-md text-sm font-medium",
-                    desk ? "shrink-0 whitespace-nowrap text-slate-500" : "text-muted-foreground/50",
-                    vertical ? "px-3 py-2.5" : "px-3 py-2",
-                )}
+                onClick={onNavigate}
+                className={linkClass(location === DIARY_PATH)}
             >
                 <Calendar className="w-4 h-4" /> Diary
-                <span className={cn(
-                    "rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide",
-                    desk ? "bg-slate-800 text-slate-400" : "bg-muted text-muted-foreground",
-                )}>Coming soon</span>
-            </span>
+            </Link>
             <Link
                 href={NEW_BOARD_PATH}
                 data-testid={`topbar-link-comms-board-${variant}`}

@@ -728,6 +728,20 @@ real 15 minutes. To see it live, start the app with `COMMS_V2_ASK_PROPOSAL_TTL_S
 only when `NODE_ENV` is not `production` and `DATABASE_URL` is not production, and only below 900), wait a minute, and expect the
 confirm to be 410 with the proposal `expired` and nothing sent; otherwise skip the live expiry check.
 
+## Handy Desk: Ben's diary (`diary/`)
+
+Read-only, for `/admin/diary` (`client/src/pages/admin/DiaryPage.tsx`) and the desk's Today strip
+(`client/src/components/handy-desk/TodayStrip.tsx`), mounted by `api/routes.ts` under `/diary`.
+Nothing here writes: no move, seat, block or pool (captain's answers Q8, Q9).
+
+| Part | File | What it does |
+|---|---|---|
+| the week | `diary/week.ts` | `diaryWeekOf`: every contractor with an active pattern, an override or a booking in the range, one lane each. A day is resolved as the contractor's own week is (`server/lib/contractor-week.ts` `resolveWeek`) and shown as cells, never hours: one Full cell for a whole-day or multi-day job (every day of the span, `expandSpanDates`), one Off cell for a day with nothing offered or booked, else AM and PM, each booked, open or off. A booking is on the diary when assigned or taken on and not cancelled, declined or cancelled on the day. Each job chip carries its booking id, quote id and the newest case file whose `job.quoteRef` names that quote (id or short slug) or whose `job.bookingRef` names the booking, with `held` from that file's hold; `onSite` speaks only for today. Plus the "Not jobs" row (`contractor_diary_items`) and booked / open cell counts. `diaryTodayOf` is the Today strip over the same shape. |
+| the rows | `diary/reader.ts` | The same tables the availability matrix reads, on the database in use, selecting no phone, email or address; unlike the matrix it geocodes and backfills nothing. |
+| the routes | `diary/routes.ts` | `GET /diary/week?start=&weeks=1..6` from the Monday on or before `start` (today in London by default); `GET /diary/today`. Case files come from the board's store (`api/store.ts`); if that store cannot be opened the diary still answers, with no thread links. |
+
+"Open thread" links to `/admin/comms-v2?file=<case file id>`, which opens that conversation.
+
 ## Environment
 
 The door needs the branch database string and the model keys from the ordinary environment. The

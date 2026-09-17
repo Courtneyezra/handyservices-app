@@ -727,7 +727,8 @@ export default function CommsV2BoardPage() {
     const [filters, setFilters] = useState<BoardFilters>({ heldOnly: false, mode: 'all' });
     const [view, setView] = useState<BoardView>('kanban');
     const [phoneTab, setPhoneTab] = useState<PhoneTab | null>(null);
-    const [openCardId, setOpenCardId] = useState<string | null>(null);
+    // `?file=<case file id>` opens that conversation, so another page (the diary's "Open thread") can link straight to it.
+    const [openCardId, setOpenCardId] = useState<string | null>(() => new URLSearchParams(window.location.search).get('file'));
     const wide = useIsWideBoard();
     // The phone has no Held only button: its Held chip is that filter, over the whole board.
     const query = wide ? filters : { ...filters, heldOnly: false };

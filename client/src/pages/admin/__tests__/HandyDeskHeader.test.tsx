@@ -1,6 +1,6 @@
 /**
  * The Handy Desk's own header, now that the desk renders outside the admin shell: the Handy Services
- * logo, the shell's quick links (Handy Desk, Diary "Coming soon", Comms board) and the held-count
+ * logo, the shell's quick links (Handy Desk, the read-only Diary, Comms board) and the held-count
  * badge from the same queue the page reads, and a More menu of the sidebar's destinations and Log out.
  */
 import { afterEach, describe, expect, it } from 'vitest';
@@ -22,7 +22,7 @@ function routes() {
 }
 
 describe('HandyDesk header', () => {
-    it('carries the Handy Services logo and the quick links, with Diary disabled as "Coming soon"', async () => {
+    it('carries the Handy Services logo and the quick links, Diary among them', async () => {
         routes();
         renderWithQuery(<HandyDesk />);
 
@@ -32,9 +32,9 @@ describe('HandyDesk header', () => {
         expect(header.getByTestId('topbar-link-handy-desk-desk')).toHaveAttribute('href', '/admin/handy-desk');
         expect(header.getByTestId('topbar-link-comms-board-desk')).toHaveAttribute('href', '/admin/comms-v2');
         const diary = header.getByTestId('topbar-link-diary-desk');
-        expect(diary.tagName).not.toBe('A');
-        expect(diary).toHaveAttribute('aria-disabled', 'true');
-        expect(diary).toHaveTextContent('Coming soon');
+        expect(diary).toHaveAttribute('href', '/admin/diary');
+        expect(diary).not.toHaveAttribute('aria-disabled');
+        expect(diary).not.toHaveTextContent('Coming soon');
     });
 
     it('badges Comms board with the held count when signed in', async () => {

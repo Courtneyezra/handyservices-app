@@ -51,6 +51,9 @@
  * /ask/* mounts the Handy Desk ask agent (server/comms-v2/ask/routes.ts) over the same store this
  * router reads; its one write is a draft on a hold, which goes out only through send-held-draft here.
  *
+ * /diary/* mounts Ben's read-only diary (server/comms-v2/diary/routes.ts): every contractor's week
+ * and the Today strip, with each job chip naming its case file from the same store this router reads.
+ *
  * /sandbox/* mounts the Goal 1 sandbox door unmodified (server/comms-v2/desk/sandbox-door.ts),
  * so the board has sandbox threads to show without duplicating that door's logic here.
  *
@@ -76,6 +79,7 @@ import { oldCommsRetired } from '../old-comms';
 import { closeByHand } from '../file-close';
 import { commsV2DatabaseCheck } from '../live-database';
 import { createAskRouter, type AskRouterDeps } from '../ask/routes';
+import { createDiaryRouter } from '../diary/routes';
 
 /**
  * Who is looking at the board, so it can show a read-only state before a write fails: the slot the
@@ -107,6 +111,7 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
 
     router.use('/sandbox', door.router);
     router.use('/ask', createAskRouter({ ...ask, source: () => sourceFor(door), approvers }));
+    router.use('/diary', createDiaryRouter({ files: async () => (await sourceFor(door)).store.all() }));
 
     router.get('/old-comms', async (_req, res) => {
         res.json({ retired: await retired() });
