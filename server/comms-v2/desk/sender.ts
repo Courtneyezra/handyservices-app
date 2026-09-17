@@ -8,10 +8,11 @@
  * registered approver, and only once its switch has been turned on by hand: the desk is
  * sandbox-only until cutover. SMS and email render through server/comms-v2/channels (Goal 3); a
  * form or a call cannot carry a reply, so `chooseChannel` opens a real channel. Live delivery is
- * WhatsApp and SMS only, because the surviving outbound send is the one path that consults the
- * opt-out ledger; a live email send is refused rather than routed around it. Before that, the
- * deliverer asks the ledger about every address the party has written to us on, phone and email,
- * so an opt-out on any one of them stops a send on every channel. An address nobody wrote from —
+ * WhatsApp and SMS only, because the surviving outbound send carries those two and there is no
+ * outbound email path; a live email send is refused rather than routed around it. Ahead of that
+ * refusal the deliverer asks the opt-out ledger itself, about every address the party has written
+ * to us on, phone and email, so an opt-out on any one of them stops a send on every channel and an
+ * email to an opted-out address is refused as an opt-out. An address nobody wrote from —
  * one typed into the web form, a number a call came from — is never one of them (answer 126): it
  * may be somebody else's, and their opt-out is not this customer's.
  *

@@ -12,7 +12,8 @@
 --
 -- Additive and idempotent. Apply with
 --   npx tsx scripts/_apply-migration.ts migrations/20260916_comms_opt_outs_email_key.sql
--- never db:push. Apply BEFORE deploying the code that writes it.
+-- never db:push. Apply BEFORE deploying the code, which reads email_key on every ledger lookup,
+-- not only when it writes one.
 
 ALTER TABLE comms_opt_outs ADD COLUMN IF NOT EXISTS email_key varchar;
 
