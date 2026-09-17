@@ -5,7 +5,16 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { LiveCallProvider } from "@/contexts/LiveCallContext";
 import { Toaster } from "@/components/ui/toaster";
-import SidebarLayout from "@/components/layout/SidebarLayout";
+import { HANDY_DESK_PATH } from "@/lib/handy-desk-path";
+// The admin shell is its own chunk so the Handy Desk, which renders full screen outside it, never
+// fetches the sidebar, its polling or the live-call socket. Any other admin path starts the chunk
+// at boot, beside the page's own, rather than after React first reaches the shell.
+const loadSidebarLayout = () => import("@/components/layout/SidebarLayout");
+const SidebarLayout = lazy(loadSidebarLayout);
+const isHandyDesk = (path: string) => path === HANDY_DESK_PATH || path === `${HANDY_DESK_PATH}/`;
+if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin") && !isHandyDesk(window.location.pathname)) {
+    void loadSidebarLayout();
+}
 
 // Landing pages - Keep eager for instant load (public-facing, need fast LCP)
 import HandymanLanding from "@/pages/HandymanLanding";
@@ -315,7 +324,7 @@ function Router() {
 
     return (
         <Suspense fallback={<LoadingFallback />}>
-            <SmartBanner />
+            {!isHandyDesk(location) && <SmartBanner />}
             <Switch>
                 {/* ============ PUBLIC ROUTES ============ */}
                 {/* Landing Pages — cities are the canonical landings.
@@ -757,11 +766,10 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                {/* Full screen, outside the admin shell: the desk carries its own header and links. */}
                 <Route path="/admin/handy-desk">
                     <ProtectedRoute role="admin">
-                        <SidebarLayout>
-                            <HandyDesk />
-                        </SidebarLayout>
+                        <HandyDesk />
                     </ProtectedRoute>
                 </Route>
                 <Route path="/admin/staff">
@@ -1334,13 +1342,14 @@ function Router() {
 }
 
 function App() {
+    const [location] = useLocation();
+    // The live-call socket serves the shell and the call pages; the desk has no use for it.
+    const router = isHandyDesk(location) ? <Router /> : <LiveCallProvider><Router /></LiveCallProvider>;
     return (
         <QueryClientProvider client={queryClient}>
             <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-                <LiveCallProvider>
-                    <Router />
-                    <Toaster />
-                </LiveCallProvider>
+                {router}
+                <Toaster />
             </ThemeProvider>
         </QueryClientProvider>
     );

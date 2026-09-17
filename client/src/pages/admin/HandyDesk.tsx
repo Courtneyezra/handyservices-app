@@ -21,9 +21,9 @@
  * renderer (client/src/lib/handy-desk-answer.ts). Both answers render in the one AnswerCard, whose
  * body (client/src/components/handy-desk/AnswerSurface.tsx, T3) carries the typed surface and confirm.
  */
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Loader2, MoreHorizontal } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { useOldComms } from '@/hooks/useOldComms';
 import { useAskSession } from '@/hooks/useAskSession';
@@ -38,6 +38,9 @@ import {
     ACTION_ROUTE, isShutWindow, needsWords, queueCardCopy, queueQuery, refusalMessage, selectionOf,
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem,
 } from '@/lib/handy-desk-queue';
+import { useLocation } from 'wouter';
+import { QuickLinks, useHeldCount } from '@/components/layout/QuickLinks';
+import handyLogo from '@/assets/handy-logo.webp';
 
 const QUEUE_REFETCH_MS = 15_000;
 
@@ -68,11 +71,55 @@ const PILL_SECONDARY = cn(PILL, 'border border-slate-600 text-white hover:border
 
 // ---------------------------------------------------------------- header
 
-function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled: number | null; deskLive: boolean | null }) {
+const AdminNavMenu = lazy(() => import('@/components/layout/AdminNavMenu'));
+
+function DeskMoreMenu() {
+    const [open, setOpen] = useState(false);
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open]);
     return (
-        <header className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-800 px-4 sm:px-6">
-            <span aria-hidden className="h-7 w-7 rounded-lg bg-amber-400" />
+        <div className="relative">
+            <button
+                type="button"
+                data-testid="desk-more-button"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                onClick={() => setOpen((v) => !v)}
+                className={cn('flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors', open ? 'bg-slate-800 text-amber-400' : 'text-slate-300 hover:bg-slate-800 hover:text-white')}
+            >
+                <MoreHorizontal className="h-4 w-4" /> More
+            </button>
+            {open && (
+                <>
+                    <div aria-hidden className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+                    <div className="absolute right-0 top-full z-50 mt-2 rounded-lg border border-slate-700 bg-slate-900 shadow-xl">
+                        <Suspense fallback={<Loader2 className="m-4 h-4 w-4 animate-spin text-slate-400" />}>
+                            <AdminNavMenu onNavigate={() => setOpen(false)} />
+                        </Suspense>
+                    </div>
+                </>
+            )}
+        </div>
+    );
+}
+
+// The desk renders full screen outside the admin shell (client/src/App.tsx), so this header carries
+// the Handy Services logo, the shell's quick links with their held-count badge, and a More menu of the
+// sidebar's destinations and Log out, itself.
+function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled: number | null; deskLive: boolean | null }) {
+    const [location] = useLocation();
+    const { heldCount, updatedAt } = useHeldCount(true);
+    return (
+        <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-800 px-4 py-2 sm:px-6">
+            <img data-testid="handy-desk-logo" src={handyLogo} alt="Handy Services" width={32} height={32} className="h-8 w-8 shrink-0 rounded-full object-cover" />
             <h1 className="text-lg font-extrabold tracking-[-0.02em] text-white">Handy Desk</h1>
+            <div className="order-last w-full overflow-x-auto md:order-none md:w-auto">
+                <QuickLinks variant="desk" location={location} heldCount={heldCount} updatedAt={updatedAt} />
+            </div>
             {sandbox && (
                 <span data-testid="handy-desk-sandbox" className={cn(EYEBROW, 'rounded-full border border-amber-400/60 px-2.5 py-1 text-amber-400')}>Sandbox</span>
             )}
@@ -91,6 +138,7 @@ function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled:
                         Desk {deskLive ? 'on' : 'off'}
                     </span>
                 )}
+                <DeskMoreMenu />
             </div>
         </header>
     );
@@ -347,10 +395,9 @@ export default function HandyDesk() {
         else if (latest) dismiss(latest.id);
     };
 
-    // Height leaves out the layout's 64px header and its scroll container's p-4 / lg:p-8
-    // padding, top and bottom, so the ask bar stays in view without scrolling.
+    // The desk is the whole screen (no admin shell around it), so the ask bar stays in view without scrolling.
     return (
-        <div data-testid="handy-desk" className="flex h-[calc(100vh-6rem)] flex-col lg:h-[calc(100vh-8rem)] overflow-hidden bg-slate-900 font-sans">
+        <div data-testid="handy-desk" className="flex h-dvh flex-col overflow-hidden bg-slate-900 font-sans">
             <DeskHeader sandbox={sandbox} handled={data?.handledToday ?? null} deskLive={oldComms ? oldComms.retired : null} />
 
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">

@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, Settings, Bell, HelpCircle, Package, MessageSquare, Wrench, Mic, DollarSign, Menu, X as CloseIcon, Megaphone, LayoutTemplate, Users, Inbox, User, FileText, Calendar, Kanban, GitBranch, Map, ChevronLeft, ChevronRight, ChevronDown, Home, BarChart3, ClipboardCheck, Building2, AlertCircle, GraduationCap, BookOpen, LogOut, Sparkles, SlidersHorizontal, PoundSterling, Library, Send, Stethoscope, ClipboardList, HardHat, Bot, Activity, ListTodo, FlaskConical } from "lucide-react";
+import { PhoneCall, Bell, HelpCircle, MessageSquare, Menu, X as CloseIcon, User, ChevronLeft, ChevronRight, ChevronDown, BarChart3, LogOut, Sparkles, Send, Stethoscope, ClipboardList, HardHat, ListTodo } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { usePriceQueue, hasAdminToken, adminAuthHeaders } from "@/hooks/usePriceQueue";
 import { useVisionHealth, visionBadge } from "@/hooks/useVisionHealth";
 import { useKnowledgeBase } from "@/hooks/useKnowledgeBase";
-import { useOldComms, NEW_BOARD_PATH, CONTRACTOR_LANE_PATH } from "@/hooks/useOldComms";
-import { queueQuery, updatedAgoLabel, type DeskQueue } from "@/lib/handy-desk-queue";
+import { useOldComms } from "@/hooks/useOldComms";
+import { QuickLinks, useHeldCount } from "@/components/layout/QuickLinks";
+import { adminNavGroups, logOut } from "@/components/layout/admin-nav";
 
 import InstallPrompt from "@/components/InstallPrompt";
 import OpsDock from "@/components/ops/OpsDock";
@@ -16,88 +17,6 @@ import handyLogo from "@/assets/handy-logo.webp";
 
 interface SidebarLayoutProps {
     children: React.ReactNode;
-}
-
-/**
- * B1 — the shell header's quick access to the three Handy Desk destinations (Design export
- * "Comms Board.dc.html" §1). Diary has no admin page yet (task B6), so it ships disabled as
- * "Coming soon". Held colour is amber (captain's answer 95). Rendered once for the desktop header
- * and once, vertically, for the sub-1024px slide-out — same links, same test ids plus a variant
- * suffix so a test can tell them apart.
- */
-function UpdatedAgo({ updatedAt, className, testId }: { updatedAt: number; className: string; testId: string }) {
-    const [now, setNow] = useState(() => Date.now());
-    useEffect(() => {
-        const id = setInterval(() => setNow(Date.now()), 1000);
-        return () => clearInterval(id);
-    }, []);
-    return (
-        <span data-testid={testId} className={className}>
-            {updatedAgoLabel((now - updatedAt) / 1000)}
-        </span>
-    );
-}
-
-function TopBarQuickLinks({ variant, location, heldCount, updatedAt, onNavigate }: {
-    variant: 'desktop' | 'mobile';
-    location: string;
-    heldCount: number | null;
-    updatedAt: number;
-    onNavigate?: () => void;
-}) {
-    const vertical = variant === 'mobile';
-    const linkClass = (active: boolean) => cn(
-        "flex items-center gap-1.5 rounded-md text-sm font-medium transition-colors",
-        vertical ? "px-3 py-2.5" : "px-3 py-2",
-        active ? "bg-slate-900 text-amber-400" : "text-muted-foreground hover:text-foreground hover:bg-muted",
-    );
-    return (
-        <nav
-            data-testid={`topbar-quick-links-${variant}`}
-            className={cn("flex items-center gap-1", vertical ? "flex-col items-stretch gap-1" : "")}
-        >
-            <Link
-                href="/admin/handy-desk"
-                data-testid={`topbar-link-handy-desk-${variant}`}
-                onClick={onNavigate}
-                className={linkClass(location === "/admin/handy-desk")}
-            >
-                <Sparkles className="w-4 h-4" /> Handy Desk
-            </Link>
-            <span
-                title="Coming soon"
-                aria-disabled="true"
-                data-testid={`topbar-link-diary-${variant}`}
-                className={cn(
-                    "flex cursor-not-allowed items-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground/50",
-                    vertical ? "px-3 py-2.5" : "px-3 py-2",
-                )}
-            >
-                <Calendar className="w-4 h-4" /> Diary
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">Coming soon</span>
-            </span>
-            <Link
-                href={NEW_BOARD_PATH}
-                data-testid={`topbar-link-comms-board-${variant}`}
-                onClick={onNavigate}
-                className={linkClass(location === NEW_BOARD_PATH)}
-            >
-                <Kanban className="w-4 h-4" /> Comms board
-                {heldCount !== null && heldCount > 0 && (
-                    <span data-testid={`topbar-held-badge-${variant}`} className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                        {heldCount}
-                    </span>
-                )}
-            </Link>
-            {updatedAt > 0 && (
-                <UpdatedAgo
-                    updatedAt={updatedAt}
-                    testId={`topbar-updated-${variant}`}
-                    className={cn("text-xs text-muted-foreground", vertical ? "px-3 pt-1" : "ml-1 hidden xl:inline")}
-                />
-            )}
-        </nav>
-    );
 }
 
 export default function SidebarLayout({ children }: SidebarLayoutProps) {
@@ -177,21 +96,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const { data: oldComms } = useOldComms({ enabled: hasAdminToken() });
     const commsRetired = oldComms?.retired === true;
 
-    // B1: the shell header's quick-access held-count badge on "Comms board" and its "Updated Ns
-    // ago". Same query key and interval as Handy Desk's own queue (client/src/lib/handy-desk-queue.ts),
-    // so the two pages share one cached fetch; queue items are exactly the held case files, so
-    // items.length is the held count (server/comms-v2/api/queue.ts).
-    const { data: topbarQueue, dataUpdatedAt: topbarQueueUpdatedAt } = useQuery<DeskQueue>({
-        queryKey: ['comms-v2-queue'],
-        queryFn: async () => {
-            const res = await fetch(queueQuery(), { headers: adminAuthHeaders() });
-            if (!res.ok) throw new Error(`Failed to load the queue (${res.status})`);
-            return res.json();
-        },
-        enabled: hasAdminToken() && !isVA,
-        refetchInterval: 15_000,
-    });
-    const heldCount = topbarQueue ? topbarQueue.items.length : null;
+    // B1: the shell header's quick links and their held-count badge (components/layout/QuickLinks.tsx).
+    const { heldCount, updatedAt: topbarQueueUpdatedAt } = useHeldCount(!isVA);
 
     // Persist collapse state
     useEffect(() => {
@@ -234,7 +140,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     aside's sub-1024px slide-out form (the desktop header already carries them). */}
                 {!isVA && !isCollapsed && (
                     <div className="border-b border-border/50 px-4 pb-3 lg:hidden">
-                        <TopBarQuickLinks
+                        <QuickLinks
                             variant="mobile"
                             location={location}
                             heldCount={heldCount}
@@ -255,129 +161,8 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
 
                 {/* Navigation */}
                 <nav className={cn("flex-1 py-4 space-y-6 overflow-y-auto", isCollapsed ? "px-2" : "px-4")}>
-                    {(isVA ? [
-                        // ─── VA Menu: three primary surfaces, everything else grouped ───
-                        {
-                            title: "YOUR TOOLS",
-                            items: [
-                                { icon: ListTodo, label: "Desk", href: "/admin/desk", badge: "NEW" },
-                                commsRetired
-                                    ? { icon: Kanban, label: "Comms Desk v2", href: NEW_BOARD_PATH, badge: null }
-                                    : { icon: Inbox, label: "Comms", href: "/admin/comms", badge: null },
-                                { icon: ClipboardList, label: "Pipeline", href: "/admin/work", badge: null },
-                            ]
-                        },
-                        {
-                            // Everything the VA had before — nothing deleted, just grouped
-                            // behind a collapsed disclosure (Comms/Pipeline moved to primary).
-                            title: "MORE TOOLS",
-                            collapsible: true,
-                            items: [
-                                { icon: LayoutDashboard, label: "Operating System", href: "/admin/os", badge: "NEW" },
-                                { icon: ClipboardCheck, label: "Tasks", href: "/admin/va-tasks", badge: "NEW" },
-                                { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
-                                { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
-                                { icon: Send, label: "Visit Link", href: "/admin/generate-contextual-quote?visit=1", badge: "NEW" },
-                                { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
-                                { icon: DollarSign, label: "Quote Generator (Classic)", href: "/admin/generate-quote" },
-                                { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
-                                { icon: Calendar, label: "Availability", href: "/admin/availability-mobile" },
-                                { icon: BarChart3, label: "My Stats", href: "/admin/va-stats" },
-                                { icon: PhoneCall, label: "Calls", href: "/admin/calls" },
-                            ]
-                        },
-                        {
-                            title: "HELP",
-                            items: [
-                                { icon: BookOpen, label: "Resources", href: "/admin/resources" },
-                                { icon: GraduationCap, label: "Onboarding", href: "/admin/onboarding" },
-                                { icon: ClipboardCheck, label: "Training", href: "/admin/training-center" },
-                            ]
-                        }
-                    ] : [
-                        // ─── Admin Menu: full access ───
-                        {
-                            title: "DISPATCH CONSOLE",
-                            items: [
-                                { icon: ListTodo, label: "Desk", href: "/admin/desk", badge: "NEW" },
-                                { icon: LayoutDashboard, label: "Operating System", href: "/admin/os", badge: "NEW" },
-                                { icon: Home, label: "Pipeline Home", href: "/admin/pipeline-home" },
-                                { icon: PhoneCall, label: "Follow-Ups", href: "/admin/follow-ups", badge: followUpCount > 0 ? String(followUpCount) : null },
-                                commsRetired
-                                    ? { icon: HardHat, label: "Contractor threads", href: CONTRACTOR_LANE_PATH, badge: null }
-                                    : { icon: Inbox, label: "Comms", href: "/admin/comms", badge: "NEW" },
-                                { icon: PoundSterling, label: "Price queue", href: "/admin/price", badge: priceQueueCount > 0 ? String(priceQueueCount) : null },
-                                { icon: FlaskConical, label: "Sandbox", href: "/admin/sandbox", badge: "NEW" },
-                                { icon: Kanban, label: "Comms Desk v2", href: "/admin/comms-v2", badge: "NEW" },
-                                { icon: Sparkles, label: "Handy Desk", href: "/admin/handy-desk", badge: "NEW" },
-                                { icon: Bot, label: "AI Staff", href: "/admin/staff", badge: visionFailing ?? "NEW", alarm: !!visionFailing },
-                                { icon: BookOpen, label: "What we tell customers", href: "/admin/knowledge", badge: kbWaiting > 0 ? String(kbWaiting) : "NEW" },
-                                { icon: Activity, label: "Activity", href: "/admin/activity", badge: "NEW" },
-                                { icon: LayoutTemplate, label: "Dispatch Board", href: "/admin/dispatch" },
-                                { icon: Map, label: "Dispatch Console", href: "/admin/dispatch-console" },
-                                { icon: Calendar, label: "Daily Planner", href: "/admin/daily-planner" },
-                                { icon: BarChart3, label: "Reports Dashboard", href: "/admin/dashboard" },
-                                { icon: PhoneCall, label: "Calls", href: "/admin/calls" },
-                                { icon: Mic, label: "Live Switchboard", href: "/admin/live-call", badge: isLive ? "LIVE" : null },
-                            ]
-                        },
-                        {
-                            title: "OPERATIONS",
-                            items: [
-                                { icon: Building2, label: "Clients", href: "/admin/clients", badge: "NEW" },
-                                { icon: Map, label: "Lead Tube Map", href: "/admin/tube-map", badge: "NEW" },
-                                { icon: GitBranch, label: "Pipeline Map", href: "/admin/pipeline" },
-                                { icon: Kanban, label: "Lead Kanban", href: "/admin/funnel" },
-                                { icon: ClipboardCheck, label: "Segment Review", href: "/admin/leads/review", badge: reviewCount > 0 ? String(reviewCount) : null },
-                                { icon: Users, label: "Contractors", href: "/admin/contractors" },
-                                { icon: Users, label: "Contractor Teams", href: "/admin/contractor-teams", badge: "NEW" },
-                                { icon: Calendar, label: "Availability Board", href: "/admin/contractor-availability" },
-                                { icon: Wrench, label: "Handyman Map", href: "/admin/handymen" },
-                                { icon: LayoutDashboard, label: "Fleet Dashboard", href: "/admin/handyman/dashboard" },
-                                { icon: User, label: "Leads (Classic)", href: "/admin/leads" },
-                            ]
-                        },
-                        {
-                            title: "SALES & FINANCE",
-                            items: [
-                                { icon: Send, label: "Visit Link", href: "/admin/generate-contextual-quote?visit=1", badge: "NEW" },
-                                { icon: Sparkles, label: "New Quote", href: "/admin/generate-contextual-quote" },
-                                { icon: BarChart3, label: "Quote Analytics", href: "/admin/quote-analytics" },
-                                { icon: LayoutTemplate, label: "Quote Platform", href: "/admin/quote-platform" },
-                                { icon: DollarSign, label: "Quote Generator (Classic)", href: "/admin/generate-quote" },
-                                { icon: FileText, label: "Recent Quotes", href: "/admin/quotes" },
-                                { icon: Wrench, label: "Booking Visits", href: "/admin/visits" },
-                                { icon: FileText, label: "Invoices", href: "/admin/invoices" },
-                                { icon: Package, label: "SKU Manager", href: "/admin/skus" },
-                                { icon: Library, label: "SKU Library", href: "/admin/sku-library" },
-                                { icon: Sparkles, label: "Extras Library", href: "/admin/extras" },
-                                { icon: PoundSterling, label: "WTBP Rates", href: "/admin/wtbp-rates" },
-                                { icon: PoundSterling, label: "Pricing Loop", href: "/admin/pricing-loop" },
-                                { icon: Wrench, label: "How We Work", href: "/admin/how-we-work" },
-                            ]
-                        },
-                        {
-                            title: "PROPERTY MGMT",
-                            items: [
-                                { icon: AlertCircle, label: "Tenant Issues", href: "/admin/tenant-issues", badge: "NEW" },
-                                { icon: Building2, label: "Properties", href: "/admin/properties" },
-                            ]
-                        },
-                        {
-                            title: "SYSTEM",
-                            items: [
-                                { icon: Calendar, label: "Availability", href: "/admin/availability" },
-                                { icon: LayoutTemplate, label: "Marketing", href: "/admin/marketing" },
-                                { icon: Settings, label: "Settings", href: "/admin/settings" },
-                                { icon: Bell, label: "Notifications", href: "/admin/notifications" },
-                                { icon: SlidersHorizontal, label: "Pricing Settings", href: "/admin/pricing-settings" },
-                                { icon: Megaphone, label: "Quote Offers", href: "/admin/quote-offers" },
-                                { icon: GraduationCap, label: "Onboarding", href: "/admin/onboarding" },
-                                { icon: BookOpen, label: "VA Resources", href: "/admin/resources" },
-                            ]
-                        }
-                    ]).map((group, idx) => {
-                        const isCollapsibleGroup = !!(group as { collapsible?: boolean }).collapsible;
+                    {adminNavGroups({ isVA, commsRetired, isLive, followUpCount, reviewCount, priceQueueCount, kbWaiting, visionFailing }).map((group, idx) => {
+                        const isCollapsibleGroup = !!group.collapsible;
                         // Collapsible group (VA "MORE TOOLS"): header is a disclosure toggle;
                         // items hide while closed. In icon-mode there is no header to click, so
                         // the items always show.
@@ -423,12 +208,12 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                             {!isCollapsed && item.label}
                                         </div>
                                         {!isCollapsed && item.badge && (
-                                            <span data-testid={(item as any).alarm ? 'sidebar-alarm-badge' : undefined} className={`${(isLive && item.href.includes('live')) || (item as any).alarm ? 'bg-red-500' : 'bg-amber-500'} text-[10px] font-black px-1.5 py-0.5 rounded text-white animate-pulse`}>
+                                            <span data-testid={item.alarm ? 'sidebar-alarm-badge' : undefined} className={`${(isLive && item.href.includes('live')) || item.alarm ? 'bg-red-500' : 'bg-amber-500'} text-[10px] font-black px-1.5 py-0.5 rounded text-white animate-pulse`}>
                                                 {item.badge}
                                             </span>
                                         )}
                                         {isCollapsed && item.badge && (
-                                            <span className={`absolute -top-1 -right-1 w-2 h-2 ${(isLive && item.href.includes('live')) || (item as any).alarm ? 'bg-red-500' : 'bg-amber-500'} rounded-full animate-pulse`} />
+                                            <span className={`absolute -top-1 -right-1 w-2 h-2 ${(isLive && item.href.includes('live')) || item.alarm ? 'bg-red-500' : 'bg-amber-500'} rounded-full animate-pulse`} />
                                         )}
                                     </Link>
                                 ))}
@@ -474,11 +259,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                     </div>
                     {/* Logout button */}
                     <button
-                        onClick={() => {
-                            localStorage.removeItem('adminToken');
-                            localStorage.removeItem('adminUser');
-                            setLocation('/admin/login');
-                        }}
+                        onClick={() => logOut(setLocation)}
                         className={cn(
                             "flex items-center text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg text-sm font-medium transition-colors",
                             isCollapsed ? "justify-center p-2.5 w-full" : "gap-3 px-4 py-2.5 w-full"
@@ -513,7 +294,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                         </div>
                         {!isVA && (
                             <div className="hidden lg:block">
-                                <TopBarQuickLinks
+                                <QuickLinks
                                     variant="desktop"
                                     location={location}
                                     heldCount={heldCount}
@@ -534,11 +315,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                     <HardHat className="w-5 h-5" />
                                 </Link>
                                 <button
-                                    onClick={() => {
-                                        localStorage.removeItem('adminToken');
-                                        localStorage.removeItem('adminUser');
-                                        setLocation('/admin/login');
-                                    }}
+                                    onClick={() => logOut(setLocation)}
                                     className="p-2 text-muted-foreground hover:text-red-400 rounded-full hover:bg-red-500/10 transition-colors"
                                     title="Log out"
                                 >
