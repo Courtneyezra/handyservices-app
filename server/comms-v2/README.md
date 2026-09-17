@@ -639,7 +639,9 @@ built. Tapping a card opens that customer's thread (Handy Desk B4, `client/src/c
 section 3 of the Claude Design export's `Comms Board.dc.html` in Handy Desk's slate and amber, with a
 hold in amber). The same component opens from a Handy Desk queue card. It is a panel beside the board
 at 1024px and up (`useIsWideBoard`, `client/src/pages/admin/CommsV2BoardPage.tsx`), closed with ×
-or Esc. Below that width it is a bottom sheet, closed with ‹ Board (‹ Queue on the desk). It shows:
+or Esc (ignored while focus is in any field on the page, such as the ask bar). Below that width it
+is a bottom sheet, closed with ‹ Board (‹ Queue on the desk); Esc there keeps a half-written reply.
+On the Handy Desk an ask bar answer takes the right-hand side over the thread while it shows. It shows:
 - a header with the reply channel and its window (`replyChannel`, `replyWindow`);
 - customer and desk bubbles, a staff member's by name;
 - media with its description and confidence;
