@@ -338,6 +338,16 @@ export interface ReissueNote {
     at: string;
 }
 
+/**
+ * Whether the file already records that `slug` was accepted and its deposit paid: the acceptance
+ * notification `notifyBen` writes once per quote, cited to that quote (quoting/quoting-tools.ts).
+ * The one read of it, for the live Stripe path (a payment delivered twice) and for anything whose
+ * words are only true of a quote still waiting to be accepted.
+ */
+export function acceptanceRecorded(file: CaseFile, slug: string): boolean {
+    return factsWithPrefix(file, QUOTE_FACT.accepted).some((f) => f.source.kind === 'quote_line' && f.source.quoteRef === slug);
+}
+
 /** Whether the file already records what became of the reissue `runId` claimed. */
 export function reissueRecorded(file: CaseFile, slug: string, runId: string): boolean {
     const line = reissueLineOf(runId);

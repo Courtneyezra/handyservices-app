@@ -421,6 +421,43 @@ describe('a template send on a shut window: only when the wording is true for th
         expect(file.sends[file.sends.length - 1]).toMatchObject({ approver: BEN_APPROVER, templateId: 'quote_ready_link' });
     });
 
+    /** The acceptance the desk records on the file when the deposit is paid (quoting/quoting-tools.ts notifyBen). */
+    function acceptedAndPaid(file: CaseFile): void {
+        const f = recordFact(file, { key: 'quote_accepted', value: 'Quote accepted | recorded, not sent: Quote accepted', source: { kind: 'quote_line', quoteRef: 'q123', line: 'acceptance' }, by: 'quoting' }, { now: now('2026-09-11T09:30:00.000Z') });
+        if (!f.ok) throw new Error(f.reason);
+    }
+
+    it('a quote they have already accepted and paid for: no template is offered, because "your quote is ready" is no longer true', async () => {
+        const { file, party } = await withSentQuoteLink();
+        acceptedAndPaid(file);
+        party.channels.find((c) => c.kind === 'whatsapp')!.lastInboundAt = '2026-09-09T10:00:00.000Z';
+
+        const offer = await previewWindowTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, quoteApproved);
+        expect(offer.ok).toBe(false);
+        if (offer.ok) return;
+        expect(offer.reason).toMatch(/no template is true for this thread/);
+
+        const out = await sendWindowTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, quoteApproved);
+        expect(out.ok).toBe(false);
+        if (out.ok) return;
+        expect(out.reason).toMatch(/no template is true for this thread/);
+        // The quote link send is the only one on the file: nothing went to a customer who has paid.
+        expect(file.sends).toHaveLength(1);
+        expect(file.sends[0].templateId).toBeNull();
+    });
+
+    it('an acceptance recorded for a different quote leaves this thread\'s offer alone', async () => {
+        const { file, party } = await withSentQuoteLink();
+        const f = recordFact(file, { key: 'quote_accepted', value: 'Quote accepted | recorded, not sent: Quote accepted', source: { kind: 'quote_line', quoteRef: 'q999', line: 'acceptance' }, by: 'quoting' }, { now: now('2026-09-11T09:30:00.000Z') });
+        if (!f.ok) throw new Error(f.reason);
+        party.channels.find((c) => c.kind === 'whatsapp')!.lastInboundAt = '2026-09-09T10:00:00.000Z';
+
+        const offer = await previewWindowTemplate({ file, approver: BEN, person: BEN_PERSON }, { now: now() }, quoteApproved);
+        expect(offer.ok).toBe(true);
+        if (!offer.ok) return;
+        expect(offer.body).toContain('https://handyservices.app/quote/q123');
+    });
+
     it('an unanswered customer question: offers answer_ready_reopen_v1 and clears the hold', async () => {
         const { file, party } = fixture(); // firstTurn: "How much would a new tap be?" - unanswered
         heldOnUnansweredQuestion(file);

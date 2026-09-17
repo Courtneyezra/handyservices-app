@@ -332,3 +332,55 @@ round (below).
   part-refused search, so the reader is no longer the thing that decides whether a search counted.
   The post-fix drive's own reply kept the rules too: 95/147/144 characters in three bubbles, gaps
   2850/4410/4320 ms.
+- Round 12 (17 Sep 2026) — held drafts on Ben's board: the queue, what a card carries, releasing and
+  sending a held draft, and the guards over Ben's own words. Driven on the app's own comms-v2
+  sandbox door and board as Ben (Dermot Whelan, West Bridgford, a dripping kitchen mixer tap and a
+  dead extractor fan; enquiry, Ben prices, 30 hours pass, the customer accepts and pays the deposit
+  on the quote page). The board's own rules held on every step: `/queue` gave the card with the
+  hold's reason and exception, its working-hours wait, `hasDraft`, the job type, location, last
+  customer message, reply channel, mode and Ben's `benToRequest` list; `release` with blank words
+  refused ("release needs the approver's words") and changed nothing; `send-held-draft` on a hold
+  carrying none refused ("there is no held draft to send"); an `expectedDraft` that was not the
+  draft now held refused with "the held draft changed since you saw it"; and on a shut window both
+  Ben's typed answer and the held draft refused with the window's own words rather than holding
+  silently. **The guards are the composer's and not Ben's**, proven live: his answer -- "all our
+  work is guaranteed for 12 months ... I will come back and sort it at no charge. I can do Tuesday
+  the 22nd at 9am, and ... about 180 pounds all in" -- a figure, a date, a commitment and a claim
+  about the business with no fact behind any of them, went out exactly as typed, split at his blank
+  line, under `human:ben@handyservices.com`, with the hold released in his words and no guard
+  record on the send. The desk's own composed turns on the same thread were guarded (all eight
+  passing). The "Send as is" path works end to end: the acceptance hold's draft went as two bubbles
+  ("Thanks Dermot, that's come through and I've got the deposit, appreciate it." / "I'll be in touch
+  about the day.") under his human approver once the customer wrote again and the window reopened,
+  and the hold cleared with the draft recorded as the release. A plain `release` with words cleared
+  a hold and sent the customer nothing.
+  **The fault this round found is on the shut-window template button.** On the accepted file --
+  stage `accepted`, `quote_status = accepted: the deposit is paid`, £176 deposit taken -- the board
+  offered Ben `quote_ready_link` and would have sent it: *"Hi Dermot, your quote is ready.
+  Everything is on the link, the itemised price and the booking:
+  https://handyservices.app/quote/4ktwxtqu. Any questions, just reply here."* That is the one wording the captain's answer 58 forbids
+  ("only a template that is true for the thread"): they are not waiting for a quote or a booking,
+  they have accepted and paid, and the desk itself held the file one line earlier saying what they
+  are waiting on is a word from Ben about the day. `sentQuoteLink`
+  (`server/comms-v2/desk/human-reply.ts:199`) read the link off the file's sends with no regard for
+  what became of the quote, so every accepted thread whose window has shut -- the ordinary shape of
+  an acceptance, since most people accept more than 24 hours after their last message -- carried
+  that offer on Ben's card (`/admin/comms-v2` and the Handy Desk both read
+  `GET /case-files/:id/template-offer`, `client/src/pages/admin/CommsV2BoardPage.tsx:361`). Not an
+  ESCALATE: no price, invoice or payment state moves on it -- the quote store refuses a second
+  acceptance (`server/comms-v2/quoting/quote-store.ts:187`) -- it is a false thing said to a
+  customer who has just paid. Fix: `sentQuoteLink` offers no link for a quote the file records as
+  accepted, read through the new `acceptanceRecorded`
+  (`server/comms-v2/quoting/quote-record.ts`), which is the read the live Stripe path already made
+  inline and now shares (`quoting/live-acceptance.ts`). Two regression tests in
+  `desk/human-reply.test.ts`: an accepted, paid thread offers and sends nothing ("no template is
+  true for this thread"), which fails against the old code by sending `quote_ready_link`, and an
+  acceptance recorded against a different quote leaves this thread's offer alone. Re-driven live on
+  a fresh enquiry through price, 30 hours and an acceptance: `template-offer` now answers "no
+  template is true for this thread: the customer needs to write again before a reply can go",
+  `send-template` refuses it 409, and the card still carries the desk's own held draft for Ben to
+  send the moment they write.
+  One thing noted and not chased: a held draft is not re-checked against what the desk has said
+  since, so after the customer wrote again and the desk's fresh reply confirmed the deposit, the
+  older draft on the same hold still said it too. Sending it is Ben's own call and his words are
+  never checked (answer 43), so this is left as recorded behaviour.

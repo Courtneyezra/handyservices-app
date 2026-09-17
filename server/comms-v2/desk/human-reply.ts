@@ -35,6 +35,7 @@ import { clauseAsks, offersCall } from './lexicon';
 import { isHeldAckText } from './fixed-lines';
 import { chooseChannel, DESK_APPROVER, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { humanApprover, type Approver } from '../../approver';
+import { acceptanceRecorded } from '../quoting/quote-record';
 import { HELD_DRAFT_CHANGED } from '@shared/ops-types';
 
 export interface HumanReplyInput {
@@ -193,11 +194,17 @@ export interface SendWindowTemplateInput {
  * records — never re-derived from the quote store and never re-guessed, because a link this
  * function invented could be stale or belong to a different quote. Null when no send on the file
  * ever carried the current job's quote link, which is also true of a quote that is still only a
- * draft: nothing has gone out for it yet.
+ * draft: nothing has gone out for it yet, and of one they have already accepted and paid for.
  */
 function sentQuoteLink(file: CaseFile): string | null {
     const slug = file.job.quoteRef;
     if (!slug) return null;
+    // A quote they have already accepted and paid the deposit on is not a quote that is "ready",
+    // and its page is not a booking they still have to make: `quote_ready_link`'s wording is false
+    // on that thread, so no link is offered from it (answer 58, a template only when its wording is
+    // true; answer 54 keeps quote_accepted_ack_v1 unused until the captain wires it). The acceptance
+    // is read off the file's own record of it, the same read the live Stripe path makes.
+    if (acceptanceRecorded(file, slug)) return null;
     const re = new RegExp(`https?://\\S+/quote/${slug}\\b`);
     for (let i = file.sends.length - 1; i >= 0; i--) {
         for (const b of file.sends[i].bubbles) {
@@ -307,7 +314,9 @@ function heldOnQuestion(file: CaseFile): boolean {
  * call): offer a template only when its wording is true for this thread, read off the case file
  * itself —
  *   - `quote_ready_link`, with the exact link the file already shows was sent, once a quote has
- *     gone out on the thread (`sentQuoteLink`);
+ *     gone out on the thread and while it is still theirs to accept (`sentQuoteLink`: a quote the
+ *     file records as accepted and paid offers no link, because "your quote is ready ... and the
+ *     booking" is not true of a customer who has already booked and paid the deposit);
  *   - `answer_ready_reopen_v1` only when the customer's latest message is a question nothing has
  *     answered since (`unansweredQuestion`; the desk's held acknowledgement alone is not an
  *     answer), and only when any standing hold is for a question (`heldOnQuestion`) — its wording ("you asked us about... and we have an
