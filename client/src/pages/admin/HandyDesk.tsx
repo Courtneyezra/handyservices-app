@@ -295,8 +295,9 @@ export default function HandyDesk() {
     const [showAnswer, setShowAnswer] = useState(false);
     const askSession = useAskSession();
     const exchange = askSession.exchange;
-    // The answer a selected card put away; `FIRST_LOAD` when the card was selected before any answer loaded.
-    const [dismissedAnswer, setDismissedAnswer] = useState<string | typeof FIRST_LOAD | null>(null);
+    // Every answer put away; `FIRST_LOAD` stands for the answer a card selected before the first load puts away.
+    const [dismissed, setDismissed] = useState<ReadonlySet<string | typeof FIRST_LOAD>>(() => new Set());
+    const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
 
     const { data, isLoading, error } = useQuery<DeskQueue>({
         queryKey: ['comms-v2-queue'],
@@ -310,9 +311,13 @@ export default function HandyDesk() {
     const { data: oldComms } = useOldComms();
     const { data: latest } = useLatestAnswer();
     useEffect(() => {
-        if (dismissedAnswer === FIRST_LOAD && latest !== undefined) setDismissedAnswer(latest?.id ?? null);
-    }, [dismissedAnswer, latest]);
-    const answered = latest && dismissedAnswer !== FIRST_LOAD && latest.id !== dismissedAnswer ? latest : null;
+        if (!dismissed.has(FIRST_LOAD) || latest === undefined) return;
+        const next = new Set(dismissed);
+        next.delete(FIRST_LOAD);
+        if (latest) next.add(latest.id);
+        setDismissed(next);
+    }, [dismissed, latest]);
+    const answered = latest && !dismissed.has(FIRST_LOAD) && !dismissed.has(latest.id) ? latest : null;
 
     const items = data?.items ?? [];
     const sandbox = data?.sandboxAvailable === true;
@@ -333,12 +338,13 @@ export default function HandyDesk() {
     const closeAsked = () => {
         setShowAnswer(false);
         const shown = exchange?.answer?.id;
-        if (shown) setDismissedAnswer(shown);
+        if (shown) dismiss(shown);
     };
 
     const select = (item: QueueItem) => {
         setSelection(selectionOf(item));
-        setDismissedAnswer(latest === undefined ? FIRST_LOAD : latest?.id ?? null);
+        if (latest === undefined) dismiss(FIRST_LOAD);
+        else if (latest) dismiss(latest.id);
     };
 
     // Height leaves out the layout's 64px header and its scroll container's p-4 / lg:p-8
@@ -390,7 +396,7 @@ export default function HandyDesk() {
                             <AnswerCard
                                 key={answered.id}
                                 exchange={exchangeOfAnswered(answered)}
-                                onClose={() => setDismissedAnswer(answered.id)}
+                                onClose={() => dismiss(answered.id)}
                                 onChange={answered.ask?.text ? setAskText : undefined}
                                 onConfirmed={handleHandled}
                             />

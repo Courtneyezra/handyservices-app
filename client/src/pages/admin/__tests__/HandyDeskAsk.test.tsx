@@ -129,6 +129,49 @@ describe('HandyDesk ask bar', () => {
         expect(screen.getByTestId('handy-desk-idle')).toBeInTheDocument();
     });
 
+    it('closing an asked answer keeps the answer a selected card put away, and only a new answer takes over', async () => {
+        const answerMsg = (id: string, text: string, runId: string) => [
+            { id: `u_${id}`, sessionId: 'sess_1', role: 'user', content: `asked ${id}`, via: 'typed', createdAt: AT } as AskMessageDTO,
+            { id, sessionId: 'sess_1', role: 'assistant', content: text, runId, createdAt: AT, answer: { finalText: text, surface: { type: 'words' } } } as AskMessageDTO,
+        ];
+        const earlier = answerMsg('aA', 'Answer A.', 'run_0');
+        const { setMessages } = setup({ listed: true });
+        setMessages(earlier);
+        const { client } = renderWithQuery(<HandyDesk />);
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('Answer A.');
+
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_rob')).getByText('Rob Hale'));
+        expect(await screen.findByTestId('handy-desk-thread')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByRole('button', { name: 'What needs me?' })).toBeEnabled());
+        await userEvent.type(screen.getByTestId('handy-desk-ask-input'), 'asked aB');
+        await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
+        expect(await screen.findByTestId('handy-desk-thinking')).toBeInTheDocument();
+
+        const withB = [...earlier, ...answerMsg('aB', 'Answer B.', 'run_1')];
+        setMessages(withB);
+        emit({ type: 'ops_message', sessionId: 'sess_1', message: {}, at: AT });
+        emit({ type: 'ops_run_finished', sessionId: 'sess_1', runId: 'run_1', ok: true, at: AT });
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('Answer B.');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));
+        expect(client.getQueryData<{ id: string }>(['comms-v2-ask-latest'])?.id).toBe('aA');
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+        expect(screen.getByTestId('handy-desk-thread')).toBeInTheDocument();
+
+        const refetchLatest = () => act(async () => {
+            await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+            await new Promise((r) => setTimeout(r, 20));
+        });
+        await refetchLatest();
+        expect(client.getQueryData<{ id: string }>(['comms-v2-ask-latest'])?.id).toBe('aB');
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+        expect(screen.getByTestId('handy-desk-thread')).toBeInTheDocument();
+
+        setMessages([...withB, ...answerMsg('aC', 'Answer C.', 'run_2')]);
+        await refetchLatest();
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('Answer C.');
+    });
+
     it('Change something on the asked answer puts the sentence back in the ask bar', async () => {
         const { setMessages } = setup();
         renderWithQuery(<HandyDesk />);
