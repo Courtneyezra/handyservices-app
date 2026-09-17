@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { randomBytes } from 'crypto';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
+import { lastPerSlug } from './contractor-desk/skills';
 
 const router = Router();
 
@@ -90,8 +91,9 @@ router.put('/skills', requireContractorAuth, async (req: Request, res: Response)
         await db.delete(handymanSkills).where(eq(handymanSkills.handymanId, profile.id));
 
         // Re-add selected skills with new rates
-        for (const s of services) {
-            const categorySlug = s.categorySlug || s.trade || null;
+        // One row per category: a repeated category keeps its last entry (unique index).
+        const entries = lastPerSlug(services.map((s: any) => ({ s, categorySlug: (s?.categorySlug || s?.trade || null) as string | null })));
+        for (const { s, categorySlug } of entries) {
             let serviceId: string | null = null;
 
             // Try to find a matching productizedService for backward compat

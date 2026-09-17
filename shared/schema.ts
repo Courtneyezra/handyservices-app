@@ -623,7 +623,11 @@ export const handymanSkills = pgTable("handyman_skills", {
     hourlyRate: integer("hourly_rate"), // Override standard rate for this specific skill (pence)
     dayRate: integer("day_rate"),       // Day rate (pence)
     proficiency: varchar("proficiency", { length: 20 }).default('competent'), // 'basic' | 'competent' | 'expert'
-});
+}, (table) => [
+    // One row per contractor per category (migration 20260917_handyman_skills_unique_slug.sql). Nulls
+    // stay distinct, so the legacy SKU-linked rows with no category are not affected.
+    uniqueIndex("idx_handyman_skills_handyman_category").on(table.handymanId, table.categorySlug),
+]);
 
 export const handymanSkillRelations = relations(handymanSkills, ({ one }) => ({
     handyman: one(handymanProfiles, {

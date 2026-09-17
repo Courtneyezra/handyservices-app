@@ -300,11 +300,9 @@ router.post('/:id/skills', async (req: Request, res: Response) => {
   try {
     const { categorySlug } = req.body || {};
     if (!categorySlug) return res.status(400).json({ error: 'categorySlug required' });
-    const exists = await db.select({ id: handymanSkills.id }).from(handymanSkills)
-      .where(and(eq(handymanSkills.handymanId, req.params.id), eq(handymanSkills.categorySlug, categorySlug))).limit(1);
-    if (exists.length === 0) {
-      await db.insert(handymanSkills).values({ id: uuidv4(), handymanId: req.params.id, categorySlug, proficiency: 'competent' });
-    }
+    await db.insert(handymanSkills)
+      .values({ id: uuidv4(), handymanId: req.params.id, categorySlug, proficiency: 'competent' })
+      .onConflictDoNothing({ target: [handymanSkills.handymanId, handymanSkills.categorySlug] });
     res.json({ success: true });
   } catch (err: any) {
     console.error('[Hub/skills add] failed:', err?.message);

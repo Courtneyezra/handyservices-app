@@ -19,6 +19,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as bcrypt from 'bcrypt';
 import { geocodeAddress } from './lib/geocoding';
 import { availabilityDayUTC } from './lib/availability-date';
+import { lastPerSlug } from './contractor-desk/skills';
 
 // Multer config for admin contractor profile image uploads
 const profileImageStorage = multer.diskStorage({
@@ -441,7 +442,7 @@ router.post('/', async (req: Request, res: Response) => {
                 }
             }
         }
-        for (const skill of skillsList) {
+        for (const skill of lastPerSlug(skillsList)) {
             await db.insert(handymanSkills).values({
                 id: uuidv4(),
                 handymanId: profileId,
@@ -558,7 +559,7 @@ router.put('/:id', async (req: Request, res: Response) => {
                 }
             }
             await db.delete(handymanSkills).where(eq(handymanSkills.handymanId, id));
-            for (const skill of skillsList) {
+            for (const skill of lastPerSlug(skillsList)) {
                 await db.insert(handymanSkills).values({
                     id: uuidv4(),
                     handymanId: id,
