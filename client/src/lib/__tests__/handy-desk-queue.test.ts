@@ -7,8 +7,10 @@
 import { describe, expect, it } from 'vitest';
 import {
     ACTION_ROUTE, displayName, formatWait, heldCountOf, initialsOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy,
-    queueQuery, queueQueryKey, readyToPriceCardCopy, refusalMessage, selectionOf, updatedAgoLabel, type QueueItem, type ReadyToPriceItem,
+    queueQuery, readyToPriceCardCopy, readyToPriceOf, refusalMessage, selectionOf, updatedAgoLabel, withReadyToPrice,
+    type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
+import type { PriceQueueItem } from '@/hooks/usePriceQueue';
 
 function item(over: Partial<QueueItem> = {}): QueueItem {
     return {
@@ -123,12 +125,6 @@ describe('selectionOf and queueQuery', () => {
         expect(queueQuery('live')).toBe('/api/comms-v2/queue?mode=live');
         expect(queueQuery('sandbox')).toBe('/api/comms-v2/queue?mode=sandbox');
     });
-    it('asks for the quotes to price only when a caller opts in, and caches the two shapes apart', () => {
-        expect(queueQuery({ readyToPrice: true })).toBe('/api/comms-v2/queue?readyToPrice=1');
-        expect(queueQueryKey()).not.toEqual(queueQueryKey(true));
-        // Both sit under the one prefix, so invalidating ['comms-v2-queue'] still moves both.
-        expect(queueQueryKey(true).slice(0, 1)).toEqual(queueQueryKey());
-    });
 });
 
 describe('updatedAgoLabel (B1 top bar)', () => {
@@ -185,6 +181,45 @@ describe('readyToPriceCardCopy (Q12)', () => {
     it('tells the two kinds apart, and counts only the holds for the badge', () => {
         expect(isReadyToPrice(priceItem())).toBe(true);
         expect(isReadyToPrice(item())).toBe(false);
-        expect(heldCountOf({ items: [item({ id: 'a' }), priceItem(), item({ id: 'b' })] })).toBe(2);
+        expect(heldCountOf([item({ id: 'a' }), priceItem(), item({ id: 'b' })])).toBe(2);
+    });
+});
+
+function priceRow(slug: string, over: Partial<PriceQueueItem> = {}): PriceQueueItem {
+    return {
+        slug, quoteId: `q_${slug}`, firstName: 'Sam', name: 'Sam Reid', postcode: 'NG3 3EG', customerType: 'homeowner',
+        job: 'a new tap', lineCount: 1, createdAt: '2026-09-01T09:00:00.000Z', waitingMs: 3 * 3600_000, sourceChannel: 'whatsapp',
+        signals: { checkThis: 0, unpriced: 1, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
+        ...over,
+    };
+}
+
+describe('withReadyToPrice (the client-side merge, Q12)', () => {
+    const held = [item({ id: 'case_a' }), item({ id: 'case_b' })];
+
+    it('keeps every hold at the top and appends the quotes in the price queue\'s own order', () => {
+        // buildPriceQueue owns "oldest first"; the desk keeps whatever order it handed over.
+        const merged = withReadyToPrice(held, { items: [priceRow('older'), priceRow('newer')] });
+        expect(merged.map((i) => i.id)).toEqual(['case_a', 'case_b', 'price:older', 'price:newer']);
+        expect(merged.map((i) => i.kind)).toEqual(['held', 'held', 'ready_to_price', 'ready_to_price']);
+    });
+
+    it('never lets a long-abandoned draft outrank a hold', () => {
+        const merged = withReadyToPrice([item({ id: 'case_fresh' })], { items: [priceRow('ancient', { waitingMs: 183 * 24 * 3600_000 })] });
+        expect(merged[0].id).toBe('case_fresh');
+    });
+
+    it('lists the holds alone while the price read has not answered', () => {
+        expect(withReadyToPrice(held, undefined).map((i) => i.id)).toEqual(['case_a', 'case_b']);
+        expect(withReadyToPrice(held, { items: [] })).toHaveLength(2);
+    });
+
+    it('turns a price-queue row into a card that opens Price and Send, carrying its wall-clock wait', () => {
+        expect(readyToPriceOf(priceRow('sam 123'))).toEqual({
+            kind: 'ready_to_price', id: 'price:sam 123', slug: 'sam 123', quoteId: 'q_sam 123', customerName: 'Sam Reid',
+            job: 'a new tap', postcode: 'NG3 3EG', createdAt: '2026-09-01T09:00:00.000Z', waitingMs: 3 * 3600_000,
+            pricePath: '/admin/price/sam%20123',
+            signals: { checkThis: 0, unpriced: 1, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
+        });
     });
 });

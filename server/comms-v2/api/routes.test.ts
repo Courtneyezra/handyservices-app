@@ -24,9 +24,6 @@ import { noTemplateApproved } from '../desk/sender';
 import { MemoryCaseFileStore } from '../desk/store';
 import { sessionApprover, type ApproverAssignments } from './approvers';
 import { createCommsV2ApiRouter } from './routes';
-import type { PriceQueueItem, PriceQueuePayload } from '../../spine/price-queue';
-
-const noPriceQueue = async (): Promise<PriceQueuePayload> => ({ count: 0, items: [], oldestWaitingMs: null, at: new Date().toISOString() });
 
 let server: import('node:http').Server;
 let base: string;
@@ -49,7 +46,7 @@ beforeAll(async () => {
     const staffNames = async (emails: string[]) => Object.fromEntries(
         emails.filter((e) => e.toLowerCase() === 'ben.real@handyservices.app').map((e) => [e.toLowerCase(), 'Ben Real']),
     );
-    app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => assignments, undefined, undefined, staffNames, undefined, undefined, undefined, noPriceQueue));
+    app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => assignments, undefined, undefined, staffNames));
     server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}/api/comms-v2`;
 });
@@ -365,7 +362,7 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         return file;
     }
 
-    async function harness(sandboxAvailable: () => boolean = () => false, templates?: TemplateStatusSource, priceQueue: () => Promise<PriceQueuePayload> = noPriceQueue) {
+    async function harness(sandboxAvailable: () => boolean = () => false, templates?: TemplateStatusSource) {
         const store = new MemoryCaseFileStore();
         const listed: ApproverAssignments = { ben: ['user_Ben.Real@handyservices.app'] };
         const app = express();
@@ -375,7 +372,7 @@ describe('one tap: send the held draft, and a template send on a shut window', (
             client: new FakeModelClient({ router: () => ({ subjects: [], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry' }), specialist: () => ({ facts: [], jobUnknowns: [], answeredSubjects: [] }), composer: () => ({ reply: 'ignored', factIds: [], kbIds: [] }) }),
             fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb,
         });
-        app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => listed, async () => ({ store, live: true, mode: 'dry_run' as const }), undefined, undefined, sandboxAvailable, undefined, templates, priceQueue));
+        app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => listed, async () => ({ store, live: true, mode: 'dry_run' as const }), undefined, undefined, sandboxAvailable, undefined, templates));
         const srv = await new Promise<import('node:http').Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
         const root = `http://127.0.0.1:${(srv.address() as { port: number }).port}/api/comms-v2`;
         const call = async (method: string, route: string, as?: string, body?: unknown) => {
@@ -560,88 +557,22 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         }
     });
 
-    function priceItem(slug: string, name: string, createdAt: string): PriceQueueItem {
-        return {
-            slug, quoteId: `q_${slug}`, firstName: name.split(' ')[0], name, postcode: null, customerType: 'homeowner',
-            job: 'a new tap', lineCount: 1, createdAt, waitingMs: Date.now() - Date.parse(createdAt), sourceChannel: 'whatsapp',
-            signals: { checkThis: 0, unpriced: 1, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
-        };
-    }
-
-    it('/queue merges the quotes waiting to be priced as ready_to_price items, below every hold, when asked for them', async () => {
-        const payload: PriceQueuePayload = {
-            count: 2,
-            items: [priceItem('oldquote', 'Sam Old', '2019-06-03T09:00:00.000Z'), priceItem('newquote', 'Nia New', new Date().toISOString())],
-            oldestWaitingMs: 1, at: new Date().toISOString(),
-        };
-        const read = vi.fn(async () => payload);
-        const { store, call, close } = await harness(undefined, undefined, read);
+    it('/queue answers the holds alone, and never reads the quotes table whatever the caller asks', async () => {
+        const { store, call, close } = await harness();
         try {
             const recent = fileWithDraftHold();
             const stale = fileWithShutWindow();
             store.put(recent);
             store.put(stale);
-            const queue = await call('GET', '/queue?readyToPrice=1', 'Ben.Real@handyservices.app');
-            expect(queue.status).toBe(200);
-            // Both holds first, on their own office clock; then the quotes, the 2019 draft before today's.
-            expect(queue.json.items.map((i: any) => i.id)).toEqual([stale.id, recent.id, 'price:oldquote', 'price:newquote']);
-            expect(queue.json.items.map((i: any) => i.kind)).toEqual(['held', 'held', 'ready_to_price', 'ready_to_price']);
-            expect(queue.json.items[2]).toMatchObject({
-                kind: 'ready_to_price', slug: 'oldquote', customerName: 'Sam Old', job: 'a new tap', pricePath: '/admin/price/oldquote',
-                createdAt: '2019-06-03T09:00:00.000Z',
-            });
-            expect(queue.json).not.toHaveProperty('priceQueueError');
-
-            // A mode filter names a case file's mode, which a quote draft has not got, so it reads none.
-            read.mockClear();
-            const filtered = await call('GET', '/queue?mode=sandbox&readyToPrice=1', 'Ben.Real@handyservices.app');
-            expect(filtered.json.items.map((i: any) => i.kind)).toEqual(['held', 'held']);
-            expect(read).not.toHaveBeenCalled();
-        } finally {
-            await close();
-        }
-    });
-
-    it('/queue reads no quotes at all unless the caller asks for them: the held-count badge poll must cost nothing', async () => {
-        const read = vi.fn(async (): Promise<PriceQueuePayload> => ({
-            count: 1, items: [priceItem('oldquote', 'Sam Old', '2019-06-03T09:00:00.000Z')], oldestWaitingMs: 1, at: new Date().toISOString(),
-        }));
-        const { store, call, close } = await harness(undefined, undefined, read);
-        try {
-            const held = fileWithDraftHold();
-            store.put(held);
-            const queue = await call('GET', '/queue', 'Ben.Real@handyservices.app');
-            expect(queue.status).toBe(200);
-            expect(read).not.toHaveBeenCalled();
-            expect(queue.json.items.map((i: any) => i.id)).toEqual([held.id]);
-            expect(queue.json).not.toHaveProperty('priceQueueError');
-
-            // Anything but the opt-in's own value leaves the route on its cheap in-memory read.
-            for (const q of ['?readyToPrice=0', '?readyToPrice=true', '?readyToPrice=']) {
-                const other = await call('GET', `/queue${q}`, 'Ben.Real@handyservices.app');
-                expect(other.json.items.map((i: any) => i.id)).toEqual([held.id]);
+            // The quotes to price are the page's own read now, so no shape of this request can carry them.
+            for (const query of ['', '?readyToPrice=1', '?mode=sandbox']) {
+                const queue = await call('GET', `/queue${query}`, 'Ben.Real@handyservices.app');
+                expect(queue.status).toBe(200);
+                expect(queue.json.items.map((i: any) => i.kind)).toEqual(['held', 'held']);
+                expect(queue.json.items.map((i: any) => i.id)).toEqual([stale.id, recent.id]);
+                expect(queue.json).not.toHaveProperty('priceQueueError');
             }
-            expect(read).not.toHaveBeenCalled();
         } finally {
-            await close();
-        }
-    });
-
-    it('/queue still returns the holds, and says so, when the price queue read fails', async () => {
-        const { store, call, close } = await harness(undefined, undefined, async () => { throw new Error('connection refused'); });
-        const errors: unknown[][] = [];
-        const original = console.error;
-        console.error = (...args: unknown[]) => { errors.push(args); };
-        try {
-            const held = fileWithDraftHold();
-            store.put(held);
-            const queue = await call('GET', '/queue?readyToPrice=1', 'Ben.Real@handyservices.app');
-            expect(queue.status).toBe(200);
-            expect(queue.json.items.map((i: any) => i.id)).toEqual([held.id]);
-            expect(queue.json.priceQueueError).toBe('Could not load the quotes waiting to be priced');
-            expect(errors.some((a) => String(a[1]).includes('connection refused'))).toBe(true);
-        } finally {
-            console.error = original;
             await close();
         }
     });

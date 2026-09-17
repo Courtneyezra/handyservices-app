@@ -5,16 +5,16 @@
  * card can offer "Send as is", and the hold's age on the office clock (server/working-hours.ts, the
  * same clock the old desk's `waitingWorkingHours` used), so the order and the badge agree.
  *
- * The quotes waiting to be priced (server/spine/price-queue.ts) follow as `ready_to_price` items
- * (withReadyToPrice), oldest draft first. They are a second group below the holds, never mixed into
- * them: a customer waiting on a reply is never pushed below a draft nobody has priced.
+ * Holds only. The quotes waiting to be priced also appear in Needs you (Q12), but they are read from
+ * /api/spine/price-queue on its own gentler clock and merged in by the page
+ * (client/src/lib/handy-desk-queue.ts `withReadyToPrice`), so this 15-second poll never touches the
+ * quotes table.
  *
  * Read only. Every action a held card takes goes through the board's own routes (routes.ts:
  * send-held-draft, answer, release), so the approver-slot check and the sender's refusals are the
- * same ones the board shows; a ready-to-price card only links to the price screen.
+ * same ones the board shows.
  */
 import type { CaseFile } from '../desk/case-file';
-import type { PriceQueueItem, PriceQueuePayload } from '../../spine/price-queue';
 import { ukParts, workingHoursBetween } from '../../working-hours';
 import type { ApproverAssignments } from './approvers';
 import { cardOf, type BoardCard, type BoardMode } from './board';
@@ -27,38 +27,8 @@ export interface QueueItem extends BoardCard {
     waitingWorkingHours: number;
 }
 
-/**
- * G45 / Q12 - a Route A quote draft waiting for Ben to price it (server/spine/price-queue.ts, the
- * same list /admin/price shows). It is not a hold: there is no case file, no approver slot and no
- * reply to send, so its one action is opening the price screen at `pricePath`. No money figure:
- * the price queue's payload carries none.
- */
-export interface ReadyToPriceItem {
-    kind: 'ready_to_price';
-    /** `price:<slug>`, so it never collides with a case file id. */
-    id: string;
-    slug: string;
-    quoteId: string;
-    customerName: string;
-    /** The job in a few words, as the price queue phrases it. */
-    job: string;
-    postcode: string | null;
-    /** When the draft was created (the Route A Pushover); null when the row has none. */
-    createdAt: string | null;
-    /**
-     * Wall-clock wait in ms, as the price queue measured it, and the only wait this card carries:
-     * the office clock stops scanning after a fortnight, so every older draft would read alike.
-     */
-    waitingMs: number;
-    /** The price screen for this quote. */
-    pricePath: string;
-    signals: PriceQueueItem['signals'];
-}
-
-export type DeskQueueItem = QueueItem | ReadyToPriceItem;
-
 export interface DeskQueue {
-    items: DeskQueueItem[];
+    items: QueueItem[];
     /** Turns answered today (since local midnight, Europe/London): one per outbound run, by the desk or a person. */
     handledToday: number;
 }
@@ -103,31 +73,4 @@ function startedAt(iso: string | null): number {
  */
 function byWait(a: QueueItem, b: QueueItem): number {
     return b.waitingWorkingHours - a.waitingWorkingHours || startedAt(a.holdSince) - startedAt(b.holdSince);
-}
-
-export function readyToPriceOf(item: PriceQueueItem): ReadyToPriceItem {
-    return {
-        kind: 'ready_to_price',
-        id: `price:${item.slug}`,
-        slug: item.slug,
-        quoteId: item.quoteId,
-        customerName: item.name,
-        job: item.job,
-        postcode: item.postcode,
-        createdAt: item.createdAt,
-        waitingMs: item.waitingMs,
-        pricePath: `/admin/price/${encodeURIComponent(item.slug)}`,
-        signals: item.signals,
-    };
-}
-
-/**
- * The Needs you list with the quotes waiting to be priced appended (Q12), in the price queue's own
- * order - oldest draft first, which `PriceQueuePayload.items` guarantees (spine/price-queue.ts). The
- * holds keep the top of the list in their own order: a person waiting on a reply always outranks an
- * unpriced draft, whatever the draft's age. Whether a mode filter allows quotes at all is the
- * route's call (routes.ts), since a quote draft has no case-file mode to filter on.
- */
-export function withReadyToPrice(queue: DeskQueue, prices: PriceQueuePayload): DeskQueue {
-    return { ...queue, items: [...queue.items, ...prices.items.map(readyToPriceOf)] };
 }

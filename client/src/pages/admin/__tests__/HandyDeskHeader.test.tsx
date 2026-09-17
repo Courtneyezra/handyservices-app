@@ -25,6 +25,7 @@ function routes() {
                 ? ({ json: { items: [{ id: 'a', customerName: 'Sam' }, { id: 'b', customerName: 'Rob' }, { id: 'c', customerName: 'Gemma' }].map((i) => ({ ...i, kind: 'held', stage: 'scoping', mode: 'sandbox', held: true, holdReason: 'complaint', holdApproverAssigned: true, benToRequest: [], draft: null, waitingWorkingHours: 1 })), handledToday: 0 } })
                 : ({ status: 401, json: { error: 'admin only' } }),
         },
+        { url: '/api/spine/price-queue', reply: () => ({ json: { count: 0, items: [], oldestWaitingMs: null, at: new Date().toISOString() } }) },
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
     ]);
 }

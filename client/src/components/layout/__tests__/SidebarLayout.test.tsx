@@ -48,19 +48,21 @@ describe('SidebarLayout top bar (B1)', () => {
         expect(screen.queryByTestId('topbar-updated-desktop')).not.toBeInTheDocument();
     });
 
-    it('badges the held count from GET /api/comms-v2/queue, leaving out quotes to price, and labels how long ago it loaded', async () => {
+    it('badges the held count from GET /api/comms-v2/queue, and labels how long ago it loaded', async () => {
         localStorage.setItem('adminToken', 'test-token');
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const { calls } = mockFetch([
             { url: '/api/contractor/inbox', reply: () => ({ json: [] }) },
-            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ id: 'a', kind: 'held' }, { id: 'price:q1', kind: 'ready_to_price' }, { id: 'b', kind: 'held' }, { id: 'c', kind: 'held' }], handledToday: 0 } }) },
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ id: 'a', kind: 'held' }, { id: 'b', kind: 'held' }, { id: 'c', kind: 'held' }], handledToday: 0 } }) },
         ], { fallback: 'notFound' });
         renderWithQuery(withLayout(<div>content</div>));
 
         await waitFor(() => expect(screen.getByTestId('topbar-held-badge-desktop')).toHaveTextContent('3'));
-        // This poll runs every 15s on every admin page, so it never asks the server for the quote read.
-        expect(calls.filter((c) => c.url.startsWith('/api/comms-v2/queue'))).not.toHaveLength(0);
-        expect(calls.every((c) => !c.url.includes('readyToPrice'))).toBe(true);
+        // This poll runs every 15s on every admin page, so it stays the plain held-only read: the
+        // quotes to price are never asked for through the queue endpoint.
+        const queueReads = calls.filter((c) => c.url.startsWith('/api/comms-v2/queue'));
+        expect(queueReads).not.toHaveLength(0);
+        expect(queueReads.every((c) => c.url === '/api/comms-v2/queue')).toBe(true);
         expect(screen.getByTestId('topbar-held-badge-mobile')).toHaveTextContent('3');
         expect(screen.getByTestId('topbar-updated-desktop')).toHaveTextContent(/Updated (just now|\d+s ago)/);
 

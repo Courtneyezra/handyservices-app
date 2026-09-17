@@ -3,11 +3,13 @@
  * server/comms-v2/api/queue.ts) reads as a "Needs you" card: its badge, its lines, and which of the
  * board's own human-send routes its buttons call. Pure, so the mapping is tested apart from the page.
  *
- * The queue also carries the quotes waiting to be priced (`kind: 'ready_to_price'`, answer Q12),
- * whose only action is opening the price screen; `readyToPriceCardCopy` maps those. They cost a
- * database read, so only a caller that passes `readyToPrice` gets them (`queueQuery`).
+ * The quotes waiting to be priced join the same list (`kind: 'ready_to_price'`, answer Q12), whose
+ * only action is opening the price screen; `readyToPriceCardCopy` maps those. They are not on the
+ * queue endpoint: that read costs the quotes table, so the page takes them from the price queue's
+ * own cached query (`usePriceQueue`, 60s with a 30s staleTime) and `withReadyToPrice` merges the two
+ * below the holds, leaving the 15-second queue poll a pure in-memory read.
  */
-import { ageLabel } from '@/hooks/usePriceQueue';
+import { ageLabel, type PriceQueueItem, type PriceQueuePayload } from '@/hooks/usePriceQueue';
 import type { BoardCard } from '@/pages/admin/CommsV2BoardPage';
 
 export interface QueueItem extends BoardCard {
@@ -18,7 +20,7 @@ export interface QueueItem extends BoardCard {
     waitingWorkingHours: number;
 }
 
-/** A Route A quote draft waiting for Ben to price it (server/comms-v2/api/queue.ts ReadyToPriceItem). No money figure. */
+/** A Route A quote draft waiting for Ben to price it, as a Needs you card reads it. No money figure. */
 export interface ReadyToPriceItem {
     kind: 'ready_to_price';
     id: string;
@@ -41,19 +43,44 @@ export function isReadyToPrice(item: DeskQueueItem): item is ReadyToPriceItem {
     return item.kind === 'ready_to_price';
 }
 
-/** How many held case files the queue lists: the Comms board badge. Quotes to price are not holds. */
-export function heldCountOf(queue: Pick<DeskQueue, 'items'>): number {
-    return queue.items.filter((i) => i.kind === 'held').length;
+/** How many held case files the list carries: the Comms board badge. Quotes to price are not holds. */
+export function heldCountOf(items: DeskQueueItem[]): number {
+    return items.filter((i) => i.kind === 'held').length;
 }
 
+/** One price-queue row as a Needs you card: the wait it carries is the wall-clock one the row measured. */
+export function readyToPriceOf(item: PriceQueueItem): ReadyToPriceItem {
+    return {
+        kind: 'ready_to_price',
+        id: `price:${item.slug}`,
+        slug: item.slug,
+        quoteId: item.quoteId,
+        customerName: item.name,
+        job: item.job,
+        postcode: item.postcode,
+        createdAt: item.createdAt,
+        waitingMs: item.waitingMs,
+        pricePath: `/admin/price/${encodeURIComponent(item.slug)}`,
+        signals: item.signals,
+    };
+}
+
+/**
+ * The Needs you list: the holds as the desk ordered them, then the quotes waiting to be priced in the
+ * price queue's own order - oldest draft first, which `PriceQueuePayload.items` guarantees. A person
+ * waiting on a reply always outranks an unpriced draft, whatever the draft's age. With no price
+ * payload yet (still loading, or the read failed) the holds stand alone.
+ */
+export function withReadyToPrice(held: QueueItem[], prices?: Pick<PriceQueuePayload, 'items'>): DeskQueueItem[] {
+    return prices ? [...held, ...prices.items.map(readyToPriceOf)] : held;
+}
+
+/** What GET /api/comms-v2/queue answers: the held files alone, longest working-hours wait first. */
 export interface DeskQueue {
-    /** The held files, longest working-hours wait first, then the quotes to price, oldest first (the server's order). */
-    items: DeskQueueItem[];
+    items: QueueItem[];
     /** Turns the new desk or a person answered since local midnight in London. */
     handledToday?: number;
     sandboxAvailable?: boolean;
-    /** Set when the quotes waiting to be priced could not be read; the held items are still there. */
-    priceQueueError?: string;
 }
 
 /** What a card button does. Every one lands on a /api/comms-v2/case-files/:id route. */
@@ -198,30 +225,13 @@ export function selectionOf(item: QueueItem): DeskSelection {
     return { caseFileId: item.id, address: item.customerAddress, name: displayName(item) };
 }
 
-/**
- * The queue's URL, in the two shapes the route answers: a plain or mode-filtered read of the held
- * files, or the opt-in that also asks for the quotes waiting to be priced. The quotes cost the
- * server a database read, so only the Handy Desk's own queue asks for them, never the held-count
- * badge every admin page polls every 15s (QuickLinks.tsx `useHeldCount`).
- *
- * The two are exclusive by signature: a mode names a case file's mode, which a quote draft has not
- * got, so the route reads no quotes for a filtered queue. Asking for both would quietly return a
- * short list, so it is not a call this can build.
- */
-export function queueQuery(mode?: 'sandbox' | 'live'): string;
-export function queueQuery(opts: { readyToPrice: true }): string;
-export function queueQuery(arg?: 'sandbox' | 'live' | { readyToPrice: true }): string {
-    if (typeof arg === 'object') return '/api/comms-v2/queue?readyToPrice=1';
-    return arg ? `/api/comms-v2/queue?mode=${arg}` : '/api/comms-v2/queue';
+/** The queue's URL: the held files, optionally filtered to one case-file mode. */
+export function queueQuery(mode?: 'sandbox' | 'live'): string {
+    return mode ? `/api/comms-v2/queue?mode=${mode}` : '/api/comms-v2/queue';
 }
 
-/**
- * The two shapes are two different reads, so they are two cache entries; both sit under the one
- * `comms-v2-queue` prefix, so invalidating that key still moves every consumer together.
- */
-export function queueQueryKey(readyToPrice = false): string[] {
-    return readyToPrice ? ['comms-v2-queue', 'ready-to-price'] : ['comms-v2-queue'];
-}
+/** One cached read behind the desk's list and the held-count badge alike. */
+export const QUEUE_KEY = ['comms-v2-queue'];
 
 /** "Updated 8s ago" for the top bar (B1), from the queue query's own `dataUpdatedAt`. */
 export function updatedAgoLabel(secondsAgo: number): string {

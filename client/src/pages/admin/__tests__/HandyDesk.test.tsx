@@ -3,15 +3,16 @@
  * server's order with their badge, sends a held draft with one tap through send-held-draft, sends
  * Ben's own words through answer, shows a refusal as the desk said it (with the template offer on a
  * shut window), and selecting a card puts that conversation on the right and in the ask context. A
- * ready-to-price card (answer Q12) has no conversation: tapping it opens Price and Send for that
- * quote instead.
+ * ready-to-price card (answer Q12) is merged in from /api/spine/price-queue and has no conversation:
+ * tapping it opens Price and Send for that quote instead.
  */
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch, type RecordedCall } from '@test-utils';
 import HandyDesk from '@/pages/admin/HandyDesk';
-import type { QueueItem, ReadyToPriceItem } from '@/lib/handy-desk-queue';
+import type { QueueItem } from '@/lib/handy-desk-queue';
+import type { PriceQueueItem } from '@/hooks/usePriceQueue';
 import type { OpsAnswer } from '@shared/ops-types';
 
 function item(over: Partial<QueueItem>): QueueItem {
@@ -46,6 +47,17 @@ const ASK_ROUTES: Parameters<typeof mockFetch>[0] = [
     { method: 'POST', url: '/api/comms-v2/ask/sessions/today', reply: () => ({ json: SESSION }) },
     { url: '/api/comms-v2/ask/sessions/sess_1', reply: () => ({ json: { session: SESSION, messages: [] } }) },
 ];
+/** One row as /api/spine/price-queue serves it; the page turns it into a Needs you card. */
+const SAM_ROW: PriceQueueItem = {
+    slug: 'sam123', quoteId: 'q1', firstName: 'Sam', name: 'Sam Reid', postcode: 'NG3 3EG', customerType: 'homeowner',
+    job: 'valves and a tap', lineCount: 2, createdAt: new Date().toISOString(), waitingMs: 3 * 3600_000, sourceChannel: 'whatsapp',
+    signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
+};
+const priceRoute = (items: PriceQueueItem[]): Parameters<typeof mockFetch>[0][number] => ({
+    url: '/api/spine/price-queue',
+    reply: () => ({ json: { count: items.length, items, oldestWaitingMs: items[0]?.waitingMs ?? null, at: new Date().toISOString() } }),
+});
+
 const casePosts = (calls: RecordedCall[]) => calls.filter((c) => c.method === 'POST' && c.url.startsWith('/api/comms-v2/case-files/'));
 
 function routes(extra: Parameters<typeof mockFetch>[0] = []) {
@@ -53,6 +65,7 @@ function routes(extra: Parameters<typeof mockFetch>[0] = []) {
         ...extra,
         ...ASK_ROUTES,
         { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB, GEMMA], sandboxAvailable: true } }) },
+        { url: '/api/spine/price-queue', reply: () => ({ json: { count: 0, items: [], oldestWaitingMs: null, at: new Date().toISOString() } }) },
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
         { url: /\/api\/comms-v2\/case-files\/case_rob$/, reply: () => ({ json: detail('case_rob', 'Rob Hale') }) },
         { url: /\/api\/comms-v2\/case-files\/case_gemma$/, reply: () => ({ json: detail('case_gemma', 'Gemma Patel') }) },
@@ -102,6 +115,7 @@ describe('HandyDesk', () => {
     it('an empty queue says nothing needs him', async () => {
         mockFetch([
             { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [] } }) },
+            priceRoute([]),
             { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: true } }) },
             ...ASK_ROUTES,
         ]);
@@ -295,24 +309,18 @@ describe('HandyDesk', () => {
         expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
     });
 
-    it('shows a quote waiting to be priced as a Needs you card in the server\'s order, whose one action opens the price screen', async () => {
-        const SAM: ReadyToPriceItem = {
-            kind: 'ready_to_price', id: 'price:sam123', slug: 'sam123', quoteId: 'q1', customerName: 'Sam Reid',
-            job: 'valves and a tap', postcode: 'NG3 3EG', createdAt: new Date().toISOString(), waitingMs: 3 * 3600_000,
-            pricePath: '/admin/price/sam123', signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
-        };
-        const { calls } = routes([
-            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB, GEMMA, SAM], sandboxAvailable: true } }) },
-        ]);
+    it('shows a quote waiting to be priced as a Needs you card below the holds, whose one action opens the price screen', async () => {
+        const { calls } = routes([priceRoute([SAM_ROW])]);
         renderWithQuery(<HandyDesk />);
 
         const card = await screen.findByTestId('queue-card-price:sam123');
         expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('3 things');
-        // The holds keep the top; the quote follows, exactly as the server ordered them.
+        // Both holds keep the top; the quote follows, merged in from the price queue's own read.
         expect(screen.getAllByTestId(/^queue-card-(case_[a-z]+|price:[a-z0-9]+)$/).map((el) => el.dataset.testid))
             .toEqual(['queue-card-case_rob', 'queue-card-case_gemma', 'queue-card-price:sam123']);
-        // This page is the one caller that wants the quotes, so it is the one that asks for them.
-        expect(calls.filter((c) => c.url.startsWith('/api/comms-v2/queue?readyToPrice=1'))).not.toHaveLength(0);
+        // The 15s hold poll never asks the queue endpoint for quotes; they come off /api/spine/price-queue.
+        expect(calls.filter((c) => c.url.includes('readyToPrice'))).toEqual([]);
+        expect(calls.filter((c) => c.url.startsWith('/api/spine/price-queue'))).not.toHaveLength(0);
         expect(screen.getByTestId('queue-card-badge-price:sam123')).toHaveTextContent('Ready to price · 3 h');
         expect(screen.getByTestId('queue-card-body-price:sam123')).toHaveTextContent('Valves and a tap. 2 lines to check. Nothing sent.');
         expect(within(card).queryByRole('button', { name: /Send|Answer|Release/ })).toBeNull();
@@ -320,6 +328,9 @@ describe('HandyDesk', () => {
         expect(within(card).queryAllByRole('button')).toEqual([]);
         const open = within(card).getByRole('link', { name: 'Open & price' });
         expect(open).toHaveAttribute('href', '/admin/price/sam123');
+
+        // The badge counts holds, never the quotes merged in beside them.
+        expect(screen.getByTestId('topbar-held-badge-desk')).toHaveTextContent('2');
 
         // Opening it is navigation, not a send: no case-file write and no conversation selected.
         await userEvent.click(open);
@@ -330,13 +341,9 @@ describe('HandyDesk', () => {
     });
 
     it('tapping a ready-to-price card anywhere opens Price and Send for that quote', async () => {
-        const SAM: ReadyToPriceItem = {
-            kind: 'ready_to_price', id: 'price:sam123', slug: 'sam123', quoteId: 'q1', customerName: 'Sam Reid',
-            job: 'valves and a tap', postcode: 'NG3 3EG', createdAt: new Date().toISOString(), waitingMs: 3 * 3600_000,
-            pricePath: '/admin/price/sam123', signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
-        };
         const { calls } = routes([
-            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [SAM, ROB], sandboxAvailable: true } }) },
+            priceRoute([SAM_ROW]),
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB], sandboxAvailable: true } }) },
         ]);
         renderWithQuery(<HandyDesk />);
         const card = await screen.findByTestId('queue-card-price:sam123');
@@ -358,26 +365,43 @@ describe('HandyDesk', () => {
 
     it('still lists the holds when the quotes to price could not be read, and says so', async () => {
         routes([
-            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB], priceQueueError: 'Could not load the quotes waiting to be priced', sandboxAvailable: true } }) },
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB], sandboxAvailable: true } }) },
+            { url: '/api/spine/price-queue', reply: () => ({ status: 500, json: { error: 'connection refused' } }) },
         ]);
         renderWithQuery(<HandyDesk />);
         expect(await screen.findByTestId('queue-card-case_rob')).toBeInTheDocument();
-        expect(screen.getByTestId('handy-desk-price-error')).toHaveTextContent('Could not load the quotes waiting to be priced. Held replies are still listed.');
+        expect(await screen.findByTestId('handy-desk-price-error'))
+            .toHaveTextContent('Could not load the quotes waiting to be priced. Held replies are still listed.');
+        expect(screen.queryByTestId('handy-desk-count')).toBeNull();
     });
 
     it('never says the desk is clear while the quotes to price could not be read', async () => {
         routes([
-            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [], priceQueueError: 'Could not load the quotes waiting to be priced', sandboxAvailable: true } }) },
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [], sandboxAvailable: true } }) },
+            { url: '/api/spine/price-queue', reply: () => ({ status: 500, json: { error: 'connection refused' } }) },
         ]);
         renderWithQuery(<HandyDesk />);
 
         const empty = await screen.findByTestId('handy-desk-empty');
-        expect(empty).toHaveTextContent('No held replies. The quotes to price could not be read.');
+        await waitFor(() => expect(empty).toHaveTextContent('No held replies. The quotes to price could not be read.'));
         expect(screen.queryByText(/Nothing needs you/)).toBeNull();
         expect(screen.getByTestId('handy-desk-price-error')).toBeInTheDocument();
         // No number at all: a count the desk cannot stand behind is worse than none.
         expect(screen.queryByTestId('handy-desk-count')).toBeNull();
         expect(screen.queryByText(/\b\d+ things?\b/)).toBeNull();
+    });
+
+    it('states no count at all when the queue read itself fails', async () => {
+        routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ status: 503, json: { error: 'the store could not be opened' } }) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+
+        expect(await screen.findByText(/Could not load the queue/)).toBeInTheDocument();
+        expect(screen.queryByTestId('handy-desk-count')).toBeNull();
+        expect(screen.queryByText(/\b\d+ things?\b/)).toBeNull();
+        expect(screen.queryByText(/Nothing needs you/)).toBeNull();
+        expect(screen.queryByTestId('handy-desk-empty')).toBeNull();
     });
 
     it('says the desk is clear when there is nothing waiting and the quotes read fine', async () => {
@@ -398,7 +422,7 @@ describe('HandyDesk', () => {
         await waitFor(() => expect(screen.getByTestId('topbar-held-badge-desk')).toHaveTextContent('2'));
         const reads = calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/comms-v2/queue'));
         expect(reads).toHaveLength(1);
-        expect(reads[0].url).toBe('/api/comms-v2/queue?readyToPrice=1');
+        expect(reads[0].url).toBe('/api/comms-v2/queue');
         localStorage.clear();
     });
 });

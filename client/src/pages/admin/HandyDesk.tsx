@@ -10,8 +10,10 @@
  * refuses is shown on the card as it said it, and a shut WhatsApp window offers the template reply
  * the board offers.
  *
- * A quote waiting to be priced (answer Q12) is a card below the holds, in the server's order - a
- * person waiting on a reply is never pushed down the list by a draft nobody has priced. It is not a
+ * A quote waiting to be priced (answer Q12) is a card below the holds, oldest draft first - a person
+ * waiting on a reply is never pushed down the list by a draft nobody has priced. Those come from the
+ * price queue's own cached query (`usePriceQueue`), not from /queue, so the 15-second hold poll never
+ * runs that database read; `withReadyToPrice` merges the two. It is not a
  * hold, so it puts no conversation on the right: tapping the card - anywhere on it, or its one
  * "Open & price" pill - opens Price and Send for that quote (/admin/price/:slug, PriceAndSendPage in
  * client/src/App.tsx), which this page neither replaces nor changes.
@@ -41,9 +43,10 @@ import { SurfaceBody } from '@/components/handy-desk/AnswerSurface';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import { exchangeOfAnswered, latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
-    ACTION_ROUTE, heldCountOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy, queueQuery, queueQueryKey, readyToPriceCardCopy, refusalMessage, selectionOf,
+    ACTION_ROUTE, QUEUE_KEY, heldCountOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy, queueQuery, readyToPriceCardCopy, refusalMessage, selectionOf, withReadyToPrice,
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
+import { usePriceQueue } from '@/hooks/usePriceQueue';
 import { Link, useLocation } from 'wouter';
 import { QuickLinks } from '@/components/layout/QuickLinks';
 import handyLogo from '@/assets/handy-logo.webp';
@@ -393,15 +396,17 @@ export default function HandyDesk() {
     const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
 
     const { data, isLoading, error, dataUpdatedAt } = useQuery<DeskQueue>({
-        // This page is the one caller that wants the quotes to price, so it is the one that asks.
-        queryKey: queueQueryKey(true),
+        queryKey: QUEUE_KEY,
         queryFn: async () => {
-            const res = await fetch(queueQuery({ readyToPrice: true }), { headers: getAuthHeaders() });
+            const res = await fetch(queueQuery(), { headers: getAuthHeaders() });
             if (!res.ok) throw new Error(`Failed to load the queue (${res.status})`);
             return res.json();
         },
         refetchInterval: QUEUE_REFETCH_MS,
     });
+    // The quotes to price come off the price queue's own cached query, on its slower clock: this
+    // page must not put that database read behind the 15-second hold poll.
+    const prices = usePriceQueue();
     const { data: oldComms } = useOldComms();
     const { data: latest } = useLatestAnswer();
     useEffect(() => {
@@ -413,12 +418,13 @@ export default function HandyDesk() {
     }, [dismissed, latest]);
     const answered = latest && !dismissed.has(FIRST_LOAD) && !dismissed.has(latest.id) ? latest : null;
 
-    const items = data?.items ?? [];
+    const items = withReadyToPrice(data?.items ?? [], prices.data);
     const sandbox = data?.sandboxAvailable === true;
+    const pricesFailed = prices.isError;
 
     const handleHandled = (note: string) => {
         setDone((d) => [{ key: Date.now(), note }, ...d].slice(0, 3));
-        queryClient.invalidateQueries({ queryKey: ['comms-v2-queue'] });
+        queryClient.invalidateQueries({ queryKey: QUEUE_KEY });
         queryClient.invalidateQueries({ queryKey: ['comms-v2-case-file'] });
     };
 
@@ -448,21 +454,21 @@ export default function HandyDesk() {
                 sandbox={sandbox}
                 handled={data?.handledToday ?? null}
                 deskLive={oldComms ? oldComms.retired : null}
-                heldCount={data ? heldCountOf(data) : null}
+                heldCount={data ? heldCountOf(items) : null}
                 updatedAt={dataUpdatedAt}
             />
 
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
                     <p className={cn(EYEBROW, 'text-amber-400')}>Needs you</p>
-                    {!data?.priceQueueError && (
+                    {data && !error && !pricesFailed && (
                         <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
-                            {isLoading ? '…' : `${items.length} ${items.length === 1 ? 'thing' : 'things'}`}
+                            {`${items.length} ${items.length === 1 ? 'thing' : 'things'}`}
                         </p>
                     )}
                     <p className="mt-1 text-[13px] text-slate-400">Held replies first, longest wait in working hours; then the quotes to price, oldest first.</p>
-                    {data?.priceQueueError && (
-                        <p role="alert" data-testid="handy-desk-price-error" className="mt-2 text-xs text-red-300">{data.priceQueueError}. Held replies are still listed.</p>
+                    {pricesFailed && (
+                        <p role="alert" data-testid="handy-desk-price-error" className="mt-2 text-xs text-red-300">Could not load the quotes waiting to be priced. Held replies are still listed.</p>
                     )}
 
                     <div className="mt-5 space-y-3">
@@ -472,7 +478,7 @@ export default function HandyDesk() {
                             <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
                         ) : items.length === 0 ? (
                             <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">
-                                {data?.priceQueueError ? 'No held replies. The quotes to price could not be read.' : 'Nothing needs you.'}
+                                {pricesFailed ? 'No held replies. The quotes to price could not be read.' : 'Nothing needs you.'}
                             </p>
                         ) : (
                             items.map((item) => isReadyToPrice(item) ? (

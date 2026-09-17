@@ -2,11 +2,11 @@
  * Handy Desk T1 - the queue read over in-memory case files built with Contract 2's own calls, the
  * same fixture style board.test.ts uses: only held files, the held draft carried through, and the
  * order is the office working-hours wait, so a hold raised at the weekend waits behind a weekday one.
- * The quotes waiting to be priced are a second group below every hold, oldest draft first.
+ * The quotes waiting to be priced are not on this endpoint: the page merges them in
+ * (client/src/lib/handy-desk-queue.ts), so they are tested there.
  */
 import { describe, expect, it } from 'vitest';
-import { queueOf, withReadyToPrice } from './queue';
-import type { PriceQueueItem } from '../../spine/price-queue';
+import { queueOf } from './queue';
 import { appendTurn, hold, open, type CaseFile } from '../desk/case-file';
 import type { ResolveResult } from '../desk/identity';
 
@@ -115,69 +115,9 @@ describe('queueOf hold exception', () => {
     });
 });
 
-function priceItem(slug: string, name: string, createdAt: string | null): PriceQueueItem {
-    return {
-        slug, quoteId: `q_${slug}`, firstName: name, name, postcode: 'NG1', customerType: 'homeowner', job: 'guttering',
-        lineCount: 2, createdAt, waitingMs: createdAt ? NOW.getTime() - Date.parse(createdAt) : 0, sourceChannel: null,
-        signals: { checkThis: 1, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: null },
-    };
-}
-const prices = (...items: PriceQueueItem[]) => ({ count: items.length, items, oldestWaitingMs: null, at: NOW.toISOString() });
-
-describe('withReadyToPrice', () => {
-    it('keeps the holds at the top in their own order and appends the quotes in the price queue\'s order', () => {
-        const heldOld = heldFile('HeldOld', '2026-09-11T09:00:00.000Z');   // Fri 10:00 -> 7h
-        const heldNew = heldFile('HeldNew', '2026-09-11T14:00:00.000Z');   // Fri 15:00 -> 2h
-        const held = queueOf([heldNew, heldOld], {}, {}, NOW);
-        // As buildPriceQueue emits them: oldest draft first, a row with no created_at last.
-        const merged = withReadyToPrice(held, prices(
-            priceItem('weekend', 'Wes', '2026-09-06T10:00:00.000Z'),
-            priceItem('sam', 'Sam', '2026-09-11T11:00:00.000Z'),
-            priceItem('undated', 'Una', null),
-        ));
-        // Every hold first, in the order queueOf put them; the quotes follow, untouched.
-        expect(merged.items.map((i) => i.id)).toEqual([heldOld.id, heldNew.id, 'price:weekend', 'price:sam', 'price:undated']);
-        expect(merged.items.map((i) => i.kind)).toEqual(['held', 'held', 'ready_to_price', 'ready_to_price', 'ready_to_price']);
-        expect(merged.items.filter((i) => i.kind === 'held').map((i) => i.id)).toEqual(held.items.map((i) => i.id));
-        expect(merged.handledToday).toBe(held.handledToday);
-        expect(merged.items[3]).toEqual({
-            kind: 'ready_to_price', id: 'price:sam', slug: 'sam', quoteId: 'q_sam', customerName: 'Sam', job: 'guttering', postcode: 'NG1',
-            createdAt: '2026-09-11T11:00:00.000Z', waitingMs: 5 * 3600_000, pricePath: '/admin/price/sam',
-            signals: { checkThis: 1, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: null },
-        });
-    });
-
-    it('never lets a long-abandoned draft outrank a hold raised minutes ago', () => {
-        const fresh = heldFile('Fresh', '2026-09-11T15:50:00.000Z');
-        const merged = withReadyToPrice(queueOf([fresh], {}, {}, NOW), prices(
-            priceItem('ancient', 'Anna', '2026-03-01T09:00:00.000Z'),
-            priceItem('old', 'Otto', '2026-08-20T09:00:00.000Z'),
-        ));
-        expect(merged.items.map((i) => i.id)).toEqual([fresh.id, 'price:ancient', 'price:old']);
-    });
-
-    it('does not re-rank the quotes: they keep the order the price queue handed over', () => {
-        // The producer owns "oldest first" (buildPriceQueue). Whatever order it gives, the desk keeps,
-        // so the two can never quietly disagree about the rule.
-        const merged = withReadyToPrice(queueOf([], {}, {}, NOW), prices(
-            priceItem('second', 'Sid', '2026-09-10T09:00:00.000Z'),
-            priceItem('first', 'Fay', '2026-09-01T09:00:00.000Z'),
-        ));
-        expect(merged.items.map((i) => i.id)).toEqual(['price:second', 'price:first']);
-    });
-
-    it('carries the true wall-clock wait, so two drafts past the office clock\'s fortnight cap still differ', () => {
-        const merged = withReadyToPrice(queueOf([], {}, {}, NOW), prices(
-            priceItem('sixmonths', 'Sam', '2026-03-13T16:00:00.000Z'),
-            priceItem('twentydays', 'Tom', '2026-08-22T16:00:00.000Z'),
-        ));
-        const waits = merged.items.map((i) => (i as { waitingMs: number }).waitingMs);
-        expect(waits[0]).toBeGreaterThan(waits[1]);
-        expect(waits[1]).toBe(20 * 24 * 3600_000);
-        expect(merged.items.some((i) => 'waitingWorkingHours' in i)).toBe(false);
-    });
-
-    it('gives held items the held kind', () => {
-        expect(queueOf([heldFile('Held', '2026-09-11T09:00:00.000Z')], {}, {}, NOW).items[0].kind).toBe('held');
+describe('the queue carries holds only', () => {
+    it('gives held items the held kind and nothing else', () => {
+        const { items } = queueOf([heldFile('Held', '2026-09-11T09:00:00.000Z')], {}, {}, NOW);
+        expect(items.map((i) => i.kind)).toEqual(['held']);
     });
 });
