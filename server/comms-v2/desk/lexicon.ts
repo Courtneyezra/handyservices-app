@@ -146,14 +146,18 @@ const RE_ABOUT_A_QUESTION = /\b(?:on|about) (?:that|this)\b|\bquestion\b|\bfind 
  */
 const RE_JOB_ASK = /\b(?:can|could|would|will) (?:you|someone|ben)\b[^.?!\n]{0,20}\b(?:fix|repair|replace|do|sort|put|hang|mount|install|fit|come|pop|look|help|paint|build|change|remove|unblock|assemble|take a look)\b|\bhow (?:long|soon|quickly)\b/i;
 
+/** A second question joined on by "and" or "but": "can you fix my tap and do you work weekends?". */
+const RE_JOINED_QUESTION = /\s+(?:and|but)\s+(?=(?:do|does|are|is|can|could|will|would|have|what|when|where|which|who|how)\b)/i;
+
 /**
- * The words of a reply that put off a question the customer asked on this turn, or null. The
- * customer's own words must ask something (RE_ASKING) that is not the job itself, and the reply's sentence must say it will
+ * The words of a reply that put off a question the customer asked on this turn, or null. A clause
+ * of the customer's words must ask something (RE_ASKING) that is not the job itself, and the reply's sentence must say it will
  * check or come back on that question. A sentence about the quote is the wrap-up or its delivery
  * ("I'll get the quote over to you"), not a question left open, so it is skipped.
  */
 export function deferralMatch(reply: string, asked: string): string | null {
-    if (!sentencesOf(asked).some((s) => RE_ASKING.test(s) && !RE_JOB_ASK.test(s))) return null;
+    const clauses = sentencesOf(asked).flatMap((s) => clausesOf(s)).flatMap((c) => c.split(RE_JOINED_QUESTION));
+    if (!clauses.some((c) => RE_ASKING.test(c) && !RE_JOB_ASK.test(c))) return null;
     for (const sentence of sentencesOf(reply)) {
         if (/\bquote\b/i.test(sentence) || !RE_ABOUT_A_QUESTION.test(sentence)) continue;
         const m = RE_DEFERS.exec(sentence);

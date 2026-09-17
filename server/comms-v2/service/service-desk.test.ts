@@ -149,6 +149,7 @@ describe('the Service specialist on the desk', () => {
             ["A dripping kitchen tap, got it.\n\nOn the Checkatrade question, I'll check and come back to you on that one.\n\nIs it a mixer tap or two separate taps?", CHECKATRADE],
             ["A dripping kitchen tap, got it.\n\nOn Checkatrade, let me check and come back to you on that one.\n\nIs it a mixer tap or two separate taps?", CHECKATRADE],
             ["A dripping kitchen tap, got it.\n\nOn weekends, I'll check and come back to you on that.\n\nIs it a mixer tap or two separate taps?", 'Hi, my kitchen tap is dripping. Do you work weekends?'],
+            ["A dripping kitchen tap, got it.\n\nOn weekends, I'll check and come back to you on that.\n\nIs it a mixer tap or two separate taps?", 'Hi, can you fix my dripping tap and do you work weekends?'],
         ]) {
             it(`holds on no_source so the promise reaches Ben's board: "${asked}"`, async () => {
                 const { client, gateway } = scopingOnly(reply);
@@ -179,6 +180,13 @@ describe('the Service specialist on the desk', () => {
                 expect(out.result.decision).toBe('send');
                 expect(out.file.hold).toBeNull();
             }
+        });
+        it('a job request with two parts is one job: no card', async () => {
+            const { gateway } = scopingOnly("A tap and a sink, got it. I'll check and come back to you on that.");
+            const out = await gateway.inbound(turn('Hi, can you fix the kitchen tap and the bathroom sink?', '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.result.decision).toBe('send');
+            expect(out.file.hold).toBeNull();
         });
         it('a customer who asked nothing leaves no card, whatever the reply puts off', async () => {
             const { gateway } = scopingOnly("A dripping kitchen tap, got it. I'll check and come back to you on that.");
