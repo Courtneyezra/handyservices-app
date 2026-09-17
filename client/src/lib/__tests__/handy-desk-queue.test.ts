@@ -37,19 +37,16 @@ function item(over: Partial<QueueItem> = {}): QueueItem {
 }
 
 describe('queueCardCopy', () => {
-    it('badges the hold reason with the working-hours wait and names the job, place and channel', () => {
+    it('names the customer and the working-hours wait, and carries no message, job line or draft text', () => {
         const copy = queueCardCopy(item());
-        expect(copy.badge).toBe('money question · 3 h');
-        expect(copy.sub).toBe('leaking tap · NG1 1AA · WhatsApp');
-        expect(copy.name).toBe('Rob Hale');
-        expect(copy.initials).toBe('RH');
-        expect(copy.body).toBe('How much roughly?');
-        expect(copy.blocked).toBeNull();
+        expect(copy).toMatchObject({ name: 'Rob Hale', wait: '3 h', hasDraft: false, blocked: null });
+        // A card is scanning information only: the customer's words and the desk's draft live in the thread.
+        expect(Object.keys(copy).sort()).toEqual(['blocked', 'hasDraft', 'more', 'name', 'primary', 'secondary', 'wait']);
     });
 
     it('a held draft offers Send as is, on send-held-draft, and Rewrite, on answer', () => {
         const copy = queueCardCopy(item({ draft: 'Hi Rob, Tuesday works.' }));
-        expect(copy.draft).toBe('Hi Rob, Tuesday works.');
+        expect(copy.hasDraft).toBe(true);
         expect(copy.primary).toEqual({ action: 'send_held_draft', label: 'Send as is' });
         expect(copy.secondary).toEqual({ action: 'rewrite', label: 'Rewrite' });
         expect(copy.more).toEqual([]);
@@ -73,11 +70,10 @@ describe('queueCardCopy', () => {
         expect(queueCardCopy(item({ holdApproverAssigned: false })).blocked).toMatch(/No one is assigned to the ben slot/);
     });
 
-    it('a card with nothing known yet still reads: the address stands in for the name, and the sub-line is empty', () => {
+    it('a card with nothing known yet still reads: the address stands in for the name', () => {
         const copy = queueCardCopy(item({ customerName: null, jobType: null, location: null, replyChannel: null, holdReason: null }));
         expect(copy.name).toBe('07700900942');
-        expect(copy.sub).toBe('');
-        expect(copy.badge).toBe('Held · 3 h');
+        expect(copy.wait).toBe('3 h');
     });
 });
 

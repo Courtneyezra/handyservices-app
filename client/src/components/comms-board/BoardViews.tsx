@@ -6,18 +6,18 @@
  * Cards and Floor tokens carry scanning information only; every one opens the file (`onOpen`), and
  * the page decides where it opens.
  */
-import { AlertTriangle, Mail, MessageCircle, MessageSquare } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { initialsOf, displayName } from '@/lib/handy-desk-queue';
 import {
     ACCENT_STAGES, boardCounts, cardWait, holdChip, phoneCards, relativeTime, shortName, STAGE_LABELS, STAGES,
     type PhoneTab, type Stage,
 } from '@/lib/comms-board';
+import { ChannelIcon, DraftDot } from '@/components/comms-board/CardScan';
 import type { Board, BoardCard, BoardMode } from '@/pages/admin/CommsV2BoardPage';
 
 export const EYEBROW = 'text-[10px] font-bold uppercase tracking-[0.1em]';
 const EASE = 'transition-colors duration-200 ease-[var(--ease-out)]';
-const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email' };
 
 export type BoardView = 'kanban' | 'floor';
 
@@ -93,24 +93,6 @@ export function HeldOnlyButton({ on, onToggle }: { on: boolean; onToggle: () => 
 
 // ---------------------------------------------------------------- card
 
-const CHANNEL_ICON: Record<string, typeof MessageSquare> = { whatsapp: MessageCircle, sms: MessageSquare, email: Mail };
-
-/** The channel a reply would go on, as an icon that names itself. */
-function ChannelIcon({ channel, className }: { channel: BoardCard['replyChannel']; className?: string }) {
-    const label = channel ? CHANNEL_LABEL[channel] ?? channel : 'No reply channel';
-    const Icon = (channel && CHANNEL_ICON[channel]) || MessageSquare;
-    return (
-        <span role="img" aria-label={label} title={label} className={cn('inline-flex shrink-0', !channel && 'opacity-40', className)}>
-            <Icon aria-hidden className="h-3.5 w-3.5" />
-        </span>
-    );
-}
-
-/** The amber dot a held card wears when the desk held a draft back. */
-function DraftDot({ id }: { id: string }) {
-    return <span data-testid={`board-card-draft-${id}`} role="img" aria-label="Draft ready" title="Draft ready" className="h-2 w-2 shrink-0 rounded-full bg-amber-400" />;
-}
-
 /**
  * One file on the Kanban, and on the phone with its stage named where the column does not name it.
  * Scanning information only (captain, 17 Sep 2026): the name and channel, the hold's short amber
@@ -140,7 +122,7 @@ export function BoardCardView({ card, onOpen, showMode = false, showStage = fals
             <span className="flex min-w-0 items-center gap-1.5">
                 <ChannelIcon channel={card.replyChannel} className={card.held ? 'text-amber-300' : 'text-slate-400'} />
                 <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-white">{name}</span>
-                {card.held && card.hasDraft && <DraftDot id={card.id} />}
+                {card.held && card.hasDraft && <DraftDot testId={`board-card-draft-${card.id}`} />}
                 <span
                     data-testid={`board-card-wait-${card.id}`}
                     title={card.held ? 'Waiting on you, in office working hours' : 'Customer last wrote'}
@@ -266,7 +248,7 @@ export function BoardFloor({ board, onOpenCard, nowMs }: { board: Board; onOpenC
                                         <span className="truncate">{shortName(card)}</span>
                                     </span>
                                     <span className={cn('flex items-center gap-1 text-center text-[9px] font-bold', card.held ? 'text-amber-400' : 'text-slate-500')}>
-                                        {card.held && card.hasDraft && <DraftDot id={card.id} />}
+                                        {card.held && card.hasDraft && <DraftDot testId={`board-card-draft-${card.id}`} />}
                                         {card.held ? `held ${cardWait(card, nowMs)}` : cardWait(card, nowMs)}
                                     </span>
                                 </button>

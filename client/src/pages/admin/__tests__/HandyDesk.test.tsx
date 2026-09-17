@@ -97,8 +97,13 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('2 things');
         const cards = screen.getAllByTestId(/^queue-card-case_[a-z]+$/).map((el) => el.dataset.testid);
         expect(cards).toEqual(['queue-card-case_rob', 'queue-card-case_gemma']);
-        expect(screen.getByTestId('queue-card-badge-case_rob')).toHaveTextContent('guard hold · 5 h');
-        expect(screen.getByTestId('queue-card-draft-case_rob')).toHaveTextContent('Hi Rob, Tuesday morning works.');
+        // Scanning information only: the hold chip, the working-hours wait and a Draft ready dot, no words.
+        const rob = within(screen.getByTestId('queue-card-case_rob'));
+        expect(rob.getByTestId('queue-card-hold-case_rob')).toHaveTextContent('guard hold');
+        expect(rob.getByTestId('queue-card-wait-case_rob')).toHaveTextContent('5 h');
+        expect(rob.getByRole('img', { name: 'Draft ready' })).toBe(screen.getByTestId('queue-card-draft-case_rob'));
+        expect(rob.getByRole('img', { name: 'WhatsApp' })).toBeInTheDocument();
+        expect(screen.getByTestId('queue-card-case_rob').textContent).not.toContain('Hi Rob, Tuesday morning works.');
         const gemma = within(screen.getByTestId('queue-card-case_gemma'));
         expect(gemma.getByRole('button', { name: 'Answer in words' })).toBeInTheDocument();
         expect(gemma.getByRole('button', { name: 'More' })).toBeInTheDocument();

@@ -1,8 +1,12 @@
 /**
- * The slim slate header of the admin pages that render full screen, outside the admin shell
- * (client/src/App.tsx): the Handy Desk and the comms board. It carries the Handy Services logo, the
- * page's title and the shell's quick links with their held-count badge; the page adds its own
- * controls after them (`children`), pushed right with `ml-auto`.
+ * The slim slate header every new-desk page wears, rendering full screen outside the admin shell
+ * (`FULL_SCREEN_ADMIN_PATHS`, client/src/App.tsx): the Handy Desk, the comms board, and the diary
+ * when it lands - that is the whole layout from here on (captain, 17 Sep 2026), so a new page in the
+ * family carries this header rather than the shell or a header of its own.
+ *
+ * It carries the Handy Services logo, the page's title and the shell's quick links with their
+ * held-count badge; the page adds its own controls after them (`children`), pushed right with
+ * `ml-auto`.
  */
 import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";

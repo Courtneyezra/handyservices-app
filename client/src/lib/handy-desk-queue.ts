@@ -1,6 +1,8 @@
 /**
  * Handy Desk T1 - how a held case file from the new desk (GET /api/comms-v2/queue,
- * server/comms-v2/api/queue.ts) reads as a "Needs you" card: its badge, its lines, and which of the
+ * server/comms-v2/api/queue.ts) reads as a "Needs you" card: scanning information only, as on the
+ * comms board (captain, 17 Sep 2026) - the name and the hold's working-hours wait, with the hold's
+ * own chip read straight off the card (`holdChip`, client/src/lib/comms-board.ts) - and which of the
  * board's own human-send routes its buttons call. Pure, so the mapping is tested apart from the page.
  */
 import type { BoardCard, BoardViewer } from '@/pages/admin/CommsV2BoardPage';
@@ -30,14 +32,11 @@ export interface QueueButton {
 }
 
 export interface QueueCardCopy {
-    initials: string;
     name: string;
-    /** Job, place and reply channel, whichever are known. */
-    sub: string;
-    /** Hold reason and wait, rendered in caps. */
-    badge: string;
-    body: string | null;
-    draft: string | null;
+    /** The hold's wait in office working hours. */
+    wait: string;
+    /** The desk held a reply back, so the card wears the Draft ready dot and offers "Send as is". */
+    hasDraft: boolean;
     primary: QueueButton;
     /** The outlined pill; null on a card whose only other action sits behind "More". */
     secondary: QueueButton | null;
@@ -46,8 +45,6 @@ export interface QueueCardCopy {
     /** Why nobody can act on the card yet, when that is so. */
     blocked: string | null;
 }
-
-const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email' };
 
 /** Where each action posts. `rewrite` is Ben's own words, so it is the answer route. */
 export const ACTION_ROUTE: Record<QueueAction, 'send-held-draft' | 'answer' | 'release'> = {
@@ -82,18 +79,11 @@ export function displayName(item: Pick<BoardCard, 'customerName' | 'customerAddr
 }
 
 export function queueCardCopy(item: QueueItem): QueueCardCopy {
-    const name = displayName(item);
-    const sub = [item.jobType, item.location, item.replyChannel ? CHANNEL_LABEL[item.replyChannel] : null]
-        .filter(Boolean)
-        .join(' · ');
     const hasDraft = !!item.draft;
     return {
-        initials: initialsOf(name),
-        name,
-        sub,
-        badge: `${item.holdReason ?? 'Held'} · ${formatWait(item.waitingWorkingHours)}`,
-        body: item.lastCustomerMessage,
-        draft: item.draft,
+        name: displayName(item),
+        wait: formatWait(item.waitingWorkingHours),
+        hasDraft,
         primary: hasDraft ? { action: 'send_held_draft', label: 'Send as is' } : { action: 'answer', label: 'Answer in words' },
         secondary: hasDraft ? { action: 'rewrite', label: 'Rewrite' } : null,
         more: hasDraft ? [] : [{ action: 'release', label: 'Release' }],

@@ -41,6 +41,8 @@ import {
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem,
 } from '@/lib/handy-desk-queue';
 import { FullScreenHeader } from '@/components/layout/FullScreenHeader';
+import { ChannelIcon, DraftDot } from '@/components/comms-board/CardScan';
+import { holdChip } from '@/lib/comms-board';
 
 const QUEUE_REFETCH_MS = 15_000;
 
@@ -111,6 +113,7 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
     onHandled: (note: string) => void;
 }) {
     const copy = queueCardCopy(item);
+    const hold = holdChip(item);
     const [composing, setComposing] = useState<QueueAction | null>(null);
     const [words, setWords] = useState('');
     const [busy, setBusy] = useState<QueueAction | 'template' | null>(null);
@@ -149,30 +152,33 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
             aria-current={active ? 'true' : undefined}
             onClick={onSelect}
             className={cn(
-                'cursor-pointer rounded-3xl border bg-[#111c33] p-4 transition-colors duration-200 ease-[var(--ease-out)] motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-[240ms]',
+                'cursor-pointer rounded-2xl border bg-[#111c33] px-3 py-2.5 transition-colors duration-200 ease-[var(--ease-out)] motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-[240ms]',
                 active ? 'border-amber-400 bg-amber-400/10' : 'border-slate-800 hover:border-amber-400',
             )}
         >
-            <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); }} className="flex w-full items-center gap-3 text-left">
-                <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-400 text-sm font-bold text-slate-900">{copy.initials}</span>
-                <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[15px] font-bold text-white">{copy.name}</span>
-                    {copy.sub && <span data-testid={`queue-card-sub-${item.id}`} className="block truncate text-xs text-slate-400">{copy.sub}</span>}
+            <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); }} className="w-full text-left">
+                <span className="flex min-w-0 items-center gap-1.5">
+                    <ChannelIcon channel={item.replyChannel} className="text-amber-300" />
+                    <span className="min-w-0 flex-1 truncate text-[15px] font-bold text-white">{copy.name}</span>
+                    {copy.hasDraft && <DraftDot testId={`queue-card-draft-${item.id}`} />}
+                    <span data-testid={`queue-card-wait-${item.id}`} title="Waiting on you, in office working hours" className="shrink-0 text-[10px] font-semibold tabular-nums text-amber-300">
+                        {copy.wait}
+                    </span>
                 </span>
-                {showMode && <span className={cn(EYEBROW, 'shrink-0 text-slate-500')}>{item.mode}</span>}
+                <span className="mt-1.5 flex flex-wrap items-center gap-1">
+                    {hold && (
+                        <span data-testid={`queue-card-hold-${item.id}`} title={item.holdReason ?? undefined} className="max-w-full truncate rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-slate-900">
+                            {hold}
+                        </span>
+                    )}
+                    {showMode && (
+                        <span data-testid={`queue-card-mode-${item.id}`} className={cn('rounded-full px-2 py-0.5 text-[10px] font-semibold', item.mode === 'sandbox' ? 'border border-dashed border-slate-600 text-slate-400' : 'bg-slate-800 text-slate-300')}>
+                            {item.mode}
+                        </span>
+                    )}
+                </span>
             </button>
-            <p data-testid={`queue-card-badge-${item.id}`} className={cn(EYEBROW, 'mt-3 text-amber-400')}>{copy.badge}</p>
-            {copy.body && <p className="mt-2 line-clamp-3 text-[13px] text-slate-300">&ldquo;{copy.body}&rdquo;</p>}
-            {item.benToRequest.length > 0 && (
-                <p className="mt-2 text-xs text-slate-400"><span className="font-semibold text-slate-300">Ask for:</span> {item.benToRequest.join(', ')}</p>
-            )}
-            {copy.draft && (
-                <div data-testid={`queue-card-draft-${item.id}`} className="mt-3 rounded-[14px] bg-white/5 px-3 py-2">
-                    <p className={cn(EYEBROW, 'text-slate-400')}>The desk's draft</p>
-                    <p className="mt-1 whitespace-pre-wrap text-[13px] text-slate-200">{copy.draft}</p>
-                </div>
-            )}
-            {copy.blocked && <p data-testid={`queue-card-blocked-${item.id}`} className="mt-3 text-xs text-amber-200/80">{copy.blocked}</p>}
+            {copy.blocked && <p data-testid={`queue-card-blocked-${item.id}`} className="mt-2 text-xs text-amber-200/80">{copy.blocked}</p>}
 
             {composing && (
                 <div className="mt-3" onClick={(e) => e.stopPropagation()}>
@@ -201,7 +207,7 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
                 </div>
             )}
 
-            <div className="mt-4 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+            <div className="mt-3 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
                 {composing ? (
                     <>
                         <button type="button" className={PILL_PRIMARY} disabled={disabled || !words.trim()} onClick={() => run(composing)}>
