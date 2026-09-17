@@ -9,6 +9,7 @@
  */
 import { expandSpanDates } from '../../shared/schedule-composition';
 import { addDaysStr } from '../../shared/uk-time';
+import { isPlaceholderEmail } from './no-email';
 
 export type DeliveryTier = 'partner' | 'core' | 'adhoc';
 const TIER_ORDER: DeliveryTier[] = ['partner', 'core', 'adhoc'];
@@ -44,6 +45,8 @@ export interface RosterProfileRow {
   identityDocumentUrl: string | null;
   partnerStatus: string | null;
   partnerActivatedAt: Date | null;
+  /** When an admin activated them; null means not activated (code login and matching refuse). */
+  activatedAt: Date | null;
   /** True when an access code is stored; the code itself is never loaded. */
   hasAccessCode: boolean;
   /** True when an app token is stored; the token itself is never loaded. */
@@ -101,6 +104,9 @@ export interface RosterContractor {
   vertical: string;
   priority: number | null;
   activation: {
+    /** An admin has let them in. Self-signups start false; only an admin changes it. */
+    activated: boolean;
+    activatedAt: string | null;
     accountActive: boolean;
     availabilityStatus: string | null;
     partnerStatus: string | null;
@@ -213,7 +219,7 @@ export function shapeContractor(p: RosterProfileRow, ctx: RosterContext): Roster
     name,
     firstName: p.firstName,
     lastName: p.lastName,
-    email: p.email,
+    email: isPlaceholderEmail(p.email) ? null : p.email,
     phone: p.phone,
     businessName: p.businessName,
     imageUrl: p.profileImageUrl ?? p.heroImageUrl ?? null,
@@ -223,6 +229,8 @@ export function shapeContractor(p: RosterProfileRow, ctx: RosterContext): Roster
     vertical: p.vertical ?? 'handyman',
     priority: p.deliveryPriority,
     activation: {
+      activated: p.activatedAt != null,
+      activatedAt: iso(p.activatedAt),
       accountActive: p.accountActive !== false,
       availabilityStatus: p.availabilityStatus,
       partnerStatus: p.partnerStatus,

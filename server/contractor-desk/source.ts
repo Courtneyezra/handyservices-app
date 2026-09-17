@@ -55,6 +55,7 @@ export const ROSTER_PROFILE_COLUMNS = {
   identityDocumentUrl: handymanProfiles.identityDocumentUrl,
   partnerStatus: handymanProfiles.partnerStatus,
   partnerActivatedAt: handymanProfiles.partnerActivatedAt,
+  activatedAt: handymanProfiles.activatedAt,
   hasAccessCode: sql<boolean>`(${handymanProfiles.accessCode} is not null and ${handymanProfiles.accessCode} <> '')`,
   hasAppLink: sql<boolean>`(${handymanProfiles.appToken} is not null and ${handymanProfiles.appToken} <> '')`,
   createdAt: handymanProfiles.createdAt,

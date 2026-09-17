@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { handymanProfiles, handymanSkills, handymanAvailability, contractorAvailabilityDates, contractorBookingRequests, masterAvailability, masterBlockedDates, users, productizedServices } from "@shared/schema";
-import { eq, and, lte, gte, inArray } from "drizzle-orm";
+import { eq, and, lte, gte, inArray, isNotNull } from "drizzle-orm";
 
 interface Coordinates {
     lat: number;
@@ -66,11 +66,13 @@ export async function findBestContractors(
     // match every vertical (legacy callers).
     vertical?: string,
 ): Promise<RankedContractor[]> {
-    // 1. Fetch all active contractors (verified or public)
+    // 1. Fetch all active contractors (public, and activated by an admin: a public profile a
+    // contractor switched on themselves never makes them a candidate before activation)
     // For V1 Beta, we assume all contractors in DB are candidates if they have location set
     const allContractors = await db.query.handymanProfiles.findMany({
         where: and(
             eq(handymanProfiles.publicProfileEnabled, true),
+            isNotNull(handymanProfiles.activatedAt),
             vertical ? eq(handymanProfiles.vertical, vertical) : undefined,
         ),
         // We could also check verificationStatus here

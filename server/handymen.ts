@@ -175,7 +175,8 @@ router.post('/profile', requireAdmin, async (req, res) => {
             res.json({ success: true, id: existing[0].id });
         } else {
             const id = uuidv4();
-            await db.insert(handymanProfiles).values({ id, userId, ...data });
+            // An admin creating the profile is the admin letting the contractor in.
+            await db.insert(handymanProfiles).values({ activatedAt: new Date(), activatedBy: (req as any).user?.id ?? null, id, userId, ...data });
             res.json({ success: true, id });
         }
     } catch (error) {

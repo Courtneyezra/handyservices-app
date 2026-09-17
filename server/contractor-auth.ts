@@ -3,7 +3,8 @@ import { geocodeAddress } from './lib/geocoding';
 import { AutoSkuGenerator } from './services/auto-sku-generator';
 import { db } from './db';
 import { users, handymanProfiles, contractorSessions, productizedServices, handymanSkills } from '../shared/schema';
-import { eq, and, or, sql } from 'drizzle-orm';
+import { eq, and, or, sql, inArray, isNotNull } from 'drizzle-orm';
+import { accessCodeNeedsUpgrade, hashAccessCode, isActivated, storedAccessCodeCandidates } from './lib/contractor-access';
 
 import { v4 as uuidv4 } from 'uuid';
 import { randomBytes } from 'crypto';
@@ -346,8 +347,11 @@ router.post('/login', async (req: Request, res: Response) => {
 
         // Ensure the contractor has a my-week field-app token so login lands in
         // the NEW app, not the legacy dashboard. Idempotent: mint once, reuse after.
-        let appToken = profileResult[0]?.appToken ?? null;
-        if (profileResult[0] && !appToken) {
+        // A contractor an admin has not activated gets no app token: they may sign in
+        // to finish their profile, but not into the field app.
+        const activated = !!profileResult[0] && isActivated(profileResult[0]);
+        let appToken = activated ? profileResult[0].appToken ?? null : null;
+        if (activated && !appToken) {
             appToken = randomBytes(24).toString('base64url'); // 32 chars, matches app-link mint
             await db.update(handymanProfiles)
                 .set({ appToken, updatedAt: new Date() })
@@ -426,8 +430,9 @@ function recordLoginFail(ip: string) {
 }
 function clearLoginFails(ip: string) { loginAttempts.delete(ip); }
 
-// GET /api/contractor/roster - the login picker: active contractors who have a
-// keycode set (i.e. can actually log in). Name + avatar only, no sensitive data.
+// GET /api/contractor/roster - the login picker: active contractors an admin has
+// activated who have a keycode set (i.e. can actually log in). Name + avatar only,
+// no sensitive data.
 router.get('/roster', async (_req: Request, res: Response) => {
     try {
         const rows = await db
@@ -441,6 +446,7 @@ router.get('/roster', async (_req: Request, res: Response) => {
             .innerJoin(users, eq(users.id, handymanProfiles.userId))
             .where(and(
                 sql`${handymanProfiles.accessCode} is not null`,
+                isNotNull(handymanProfiles.activatedAt),
                 or(eq(users.isActive, true), sql`${users.isActive} is null`),
             ));
         res.json({
@@ -459,6 +465,8 @@ router.get('/roster', async (_req: Request, res: Response) => {
 // POST /api/contractor/code-login - Simple field login: name + keycode.
 // Resolves to the contractor's my-week app_token (minting one if missing).
 // Name matches first name OR "first last" (case-insensitive); code is the secret.
+// The code is stored hashed (server/lib/contractor-access.ts); a contractor an
+// admin has not activated is refused.
 router.post('/code-login', async (req: Request, res: Response) => {
     try {
         const ip = clientIp(req);
@@ -475,6 +483,12 @@ router.post('/code-login', async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Enter your code' });
         }
 
+        const candidates = storedAccessCodeCandidates(code);
+        if (candidates.length === 0) {
+            recordLoginFail(ip);
+            return res.status(401).json({ error: 'Name or code not recognised' });
+        }
+
         // The code alone identifies the contractor (codes are unique per person).
         // An optional profileId/name narrows it further if the caller supplies one.
         const identity = profileId
@@ -485,14 +499,15 @@ router.post('/code-login', async (req: Request, res: Response) => {
                     sql`lower(${users.firstName} || ' ' || ${users.lastName}) = ${name.toLowerCase()}`,
                 )
                 : undefined;
-        const whereClause = identity
-            ? and(eq(handymanProfiles.accessCode, code), identity)
-            : eq(handymanProfiles.accessCode, code);
+        const codeMatches = inArray(handymanProfiles.accessCode, candidates);
+        const whereClause = identity ? and(codeMatches, identity) : codeMatches;
 
         const rows = await db
             .select({
                 profileId: handymanProfiles.id,
                 appToken: handymanProfiles.appToken,
+                accessCode: handymanProfiles.accessCode,
+                activatedAt: handymanProfiles.activatedAt,
                 firstName: users.firstName,
                 lastName: users.lastName,
                 isActive: users.isActive,
@@ -512,7 +527,21 @@ router.post('/code-login', async (req: Request, res: Response) => {
         if (match.isActive === false) {
             return res.status(403).json({ error: 'Account is deactivated' });
         }
+        if (!isActivated(match)) {
+            return res.status(403).json({ error: 'Account is not active yet' });
+        }
         clearLoginFails(ip);
+
+        // A code stored before hashing: store its hash instead. The login goes ahead either way.
+        if (accessCodeNeedsUpgrade(match.accessCode)) {
+            try {
+                await db.update(handymanProfiles)
+                    .set({ accessCode: hashAccessCode(code), updatedAt: new Date() })
+                    .where(and(eq(handymanProfiles.id, match.profileId), eq(handymanProfiles.accessCode, code)));
+            } catch (upgradeError) {
+                console.error('[ContractorAuth] Code-login: could not hash a plain-text access code:', upgradeError);
+            }
+        }
 
         // Ensure they have a my-week token (mint once, reuse after).
         let appToken = match.appToken;

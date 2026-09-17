@@ -10,7 +10,7 @@
 import { Router } from "express";
 import { db } from "./db";
 import { leads, personalizedQuotes, calls, contractorBookingRequests, contractorAvailabilityDates, handymanProfiles } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc, isNotNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { optionalAuth } from "./auth";
@@ -490,7 +490,7 @@ liveCallActionsRouter.post('/api/live-call/book-visit', async (req, res) => {
 
         // Get first available contractor as placeholder (will be properly assigned during dispatch)
         const defaultContractor = await db.query.handymanProfiles.findFirst({
-            where: eq(handymanProfiles.publicProfileEnabled, true),
+            where: and(eq(handymanProfiles.publicProfileEnabled, true), isNotNull(handymanProfiles.activatedAt)),
         });
 
         if (!defaultContractor) {

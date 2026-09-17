@@ -591,10 +591,19 @@ export const handymanProfiles = pgTable("handyman_profiles", {
     // /my-week/:token → availability harvesting. Issued lazily from the Hub.
     appToken: varchar("app_token", { length: 80 }).unique(),
 
-    // Simple field-login: contractor enters their name + this short keycode at
-    // /partner/login → resolves to their app_token → my-week. Low-friction by
-    // design (the token URL is already unguessed-link security).
-    accessCode: varchar("access_code", { length: 12 }),
+    // Simple field-login: contractor enters this keycode at /partner/login →
+    // resolves to their app_token → my-week. Issued by an admin
+    // (server/contractor-desk/routes.ts) and stored as `sha256:<hex>`
+    // (server/lib/contractor-access.ts); older plain-text codes still match and
+    // are hashed on their next login. Unique when set (partial index in
+    // migrations/20260917_contractor_activation_access_code.sql).
+    accessCode: varchar("access_code", { length: 80 }),
+
+    // Admin activation. Anyone can sign up, but only an admin lets a contractor
+    // in: code login and quote matching refuse a profile with no activated_at.
+    // activated_by is the admin's user id (or `migration:…` for the backfill).
+    activatedAt: timestamp("activated_at"),
+    activatedBy: varchar("activated_by", { length: 120 }),
 
     // Availability freshness — updated when contractor toggles availability
     lastAvailabilityRefresh: timestamp("last_availability_refresh"),

@@ -353,6 +353,11 @@ const OVERRIDES: Record<string, Treatment> = {
     'gmb_posts.google_name': 'keep',
     'handyman_profiles.business_name': 'business_name',
     'handyman_profiles.slug': 'token',
+    // The /partner/login code, now stored as `sha256:<hex>` (older rows: the plain code). A secret
+    // either way; a scrubbed branch has no working codes until an admin issues new ones.
+    'handyman_profiles.access_code': 'token',
+    // The admin's user id who activated the contractor, or `migration:20260917` for the backfill.
+    'handyman_profiles.activated_by': 'actor',
     'handyman_profiles.bio': 'narrative',
     'handyman_profiles.social_links': 'json_deep',
     'handyman_profiles.ai_rules': 'json_deep',

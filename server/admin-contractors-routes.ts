@@ -426,6 +426,9 @@ router.post('/', async (req: Request, res: Response) => {
             publicProfileEnabled: true,
             availabilityStatus: 'available',
             verificationStatus: 'unverified',
+            // An admin adding a contractor is the admin letting them in.
+            activatedAt: new Date(),
+            activatedBy: (req as any).user?.id ?? null,
         });
 
         // 3. Create skills

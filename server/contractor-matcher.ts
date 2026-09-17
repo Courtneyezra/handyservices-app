@@ -11,6 +11,7 @@
 
 import { db } from './db';
 import { handymanSkills, handymanProfiles, users } from '../shared/schema';
+import { isActivated } from './lib/contractor-access';
 import { inArray, and, eq } from 'drizzle-orm';
 
 // ---------------------------------------------------------------------------
@@ -65,7 +66,7 @@ function toRad(degrees: number): number {
  * Steps:
  *   1. Query handymanSkills for contractors with ANY of the required categories
  *   2. Group by contractor, calculating which categories each covers
- *   3. Filter to only verified/active contractors
+ *   3. Filter to contractors an admin has activated who are verified or have a public profile
  *   4. If customer coordinates available, filter by service radius (Haversine)
  *   5. Sort: full coverage first, then by distance
  */
@@ -143,6 +144,7 @@ export async function findCandidateContractors(params: {
       radiusMiles: handymanProfiles.radiusMiles,
       verificationStatus: handymanProfiles.verificationStatus,
       publicProfileEnabled: handymanProfiles.publicProfileEnabled,
+      activatedAt: handymanProfiles.activatedAt,
     })
     .from(handymanProfiles)
     .where(and(
@@ -150,9 +152,11 @@ export async function findCandidateContractors(params: {
       params.vertical ? eq(handymanProfiles.vertical, params.vertical) : undefined,
     ));
 
-  // Filter to verified or active contractors (verified status, or public profile enabled as fallback)
+  // Only a contractor an admin has activated is matched: anyone can sign up and switch on a public
+  // profile, but that alone must never put them in front of a customer. Among the activated, the
+  // verified status or a public profile makes them eligible, as before.
   const activeProfiles = profiles.filter(
-    (p) => p.verificationStatus === 'verified' || p.publicProfileEnabled === true,
+    (p) => isActivated(p) && (p.verificationStatus === 'verified' || p.publicProfileEnabled === true),
   );
 
   if (activeProfiles.length === 0) {
