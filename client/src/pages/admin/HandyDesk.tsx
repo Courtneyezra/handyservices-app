@@ -421,6 +421,9 @@ export default function HandyDesk() {
     const items = withReadyToPrice(data?.items ?? [], prices.data);
     const sandbox = data?.sandboxAvailable === true;
     const pricesFailed = prices.isError;
+    // The holds answer in milliseconds and the quotes do not, so until that read settles the desk
+    // cannot count what needs him, nor say it is clear.
+    const quotesSettled = pricesFailed || prices.data !== undefined;
 
     const handleHandled = (note: string) => {
         setDone((d) => [{ key: Date.now(), note }, ...d].slice(0, 3));
@@ -461,7 +464,7 @@ export default function HandyDesk() {
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
                     <p className={cn(EYEBROW, 'text-amber-400')}>Needs you</p>
-                    {data && !error && !pricesFailed && (
+                    {data && !error && quotesSettled && !pricesFailed && (
                         <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
                             {`${items.length} ${items.length === 1 ? 'thing' : 'things'}`}
                         </p>
@@ -474,7 +477,7 @@ export default function HandyDesk() {
                     <div className="mt-5 space-y-3">
                         {error ? (
                             <p role="alert" className="rounded-3xl border border-red-400/40 p-4 text-sm text-red-300">Could not load the queue - retrying automatically.</p>
-                        ) : isLoading ? (
+                        ) : isLoading || (!quotesSettled && items.length === 0) ? (
                             <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
                         ) : items.length === 0 ? (
                             <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">

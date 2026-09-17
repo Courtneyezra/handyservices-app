@@ -57,20 +57,6 @@ export function queueOf(files: CaseFile[], filter: { mode?: BoardMode } = {}, as
         });
     }
     // Longest working-hours wait first; two equal waits (both raised out of hours) fall back to the older hold.
-    items.sort(byWait);
+    items.sort((a, b) => b.waitingWorkingHours - a.waitingWorkingHours || Date.parse(a.holdSince!) - Date.parse(b.holdSince!));
     return { items, handledToday: handledRuns.size };
-}
-
-/** A start time as a sortable number; an item with none sorts last. */
-function startedAt(iso: string | null): number {
-    const ms = iso ? Date.parse(iso) : NaN;
-    return Number.isFinite(ms) ? ms : Number.POSITIVE_INFINITY;
-}
-
-/**
- * Longest working-hours wait first; two equal waits (both raised out of hours) fall back to the
- * older hold. Held items only: a quote to price is never ranked against a customer's hold.
- */
-function byWait(a: QueueItem, b: QueueItem): number {
-    return b.waitingWorkingHours - a.waitingWorkingHours || startedAt(a.holdSince) - startedAt(b.holdSince);
 }

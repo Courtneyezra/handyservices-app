@@ -404,6 +404,33 @@ describe('HandyDesk', () => {
         expect(screen.queryByTestId('handy-desk-empty')).toBeNull();
     });
 
+    it('states no count and never says the desk is clear while the price read is still pending', async () => {
+        routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [], handledToday: 0, sandboxAvailable: true } }) },
+            { url: '/api/spine/price-queue', reply: () => new Promise(() => {}) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+
+        // The hold read has answered - its handled count is on screen - while the quotes are still coming.
+        await screen.findByTestId('handy-desk-handled');
+        expect(screen.queryByTestId('handy-desk-count')).toBeNull();
+        expect(screen.queryByText(/\b\d+ things?\b/)).toBeNull();
+        expect(screen.queryByText(/Nothing needs you/)).toBeNull();
+        expect(screen.queryByTestId('handy-desk-empty')).toBeNull();
+    });
+
+    it('shows the holds that have arrived while the quotes are still loading, and counts nothing yet', async () => {
+        routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB], handledToday: 0, sandboxAvailable: true } }) },
+            { url: '/api/spine/price-queue', reply: () => new Promise(() => {}) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+
+        expect(await screen.findByTestId('queue-card-case_rob')).toBeInTheDocument();
+        expect(screen.queryByTestId('handy-desk-count')).toBeNull();
+        expect(screen.queryByText(/Nothing needs you/)).toBeNull();
+    });
+
     it('says the desk is clear when there is nothing waiting and the quotes read fine', async () => {
         routes([
             { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [], sandboxAvailable: true } }) },
