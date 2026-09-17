@@ -106,8 +106,7 @@ export const leadSubmitRateLimit = createLeadSubmitRateLimit();
  */
 export function isWebFormEnquiry(lead: { source?: string | null; stripePaymentId?: unknown }): boolean {
     if (lead.stripePaymentId) return false;
-    const source = (lead.source || '').trim();
-    if (source === 'personalized_quote') return false;
+    const source = lead.source || '';
     return ['web_quote', 'webform', 'website'].includes(source) || source.endsWith('hero_flow');
 }
 

@@ -19,6 +19,10 @@ vi.mock('./comms-v2/channels/intake', () => ({
     forwardToCommsV2: (event: any) => { forwarded.push(event); },
 }));
 
+vi.mock('./index', () => ({ broadcastToClients: vi.fn() }));
+
+vi.mock('./agents/comms-lanes', () => ({ scheduleInboundTriage: vi.fn() }));
+
 vi.mock('./db', () => {
     const chain = (): any => {
         const p: any = Promise.resolve([]);
