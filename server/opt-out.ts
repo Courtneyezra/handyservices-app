@@ -12,7 +12,8 @@
  * Three jobs live here, and nothing else:
  *
  *   1. DETECT — decide whether an inbound message is an opt-out. Deliberately conservative (see
- *      detectOptOut). This is a trades business: "can you stop the leak" and "stop by on Tuesday"
+ *      detectOptOut, which lives in server/opt-out-detect.ts, free of the database, and is re-exported
+ *      here). This is a trades business: "can you stop the leak" and "stop by on Tuesday"
  *      are normal customer messages, and silencing a live customer because they used the word stop
  *      is its own harm.
  *   2. RECORD — write it down, keyed on the normalised phone identity so it holds across every
