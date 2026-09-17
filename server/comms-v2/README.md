@@ -558,7 +558,9 @@ slate and amber, held in amber): a Kanban / Floor toggle over the same `GET /boa
 `client/src/lib/comms-board.ts`), Held only, the Live / Sandbox switch, "N open files · M held",
 held cards in an amber ring and border with their hold age, `holdException` and a "Draft ready"
 pill from `hasDraft`, and the states: a skeleton on the first fetch only, an empty board, an empty
-held filter with "Show all files", a failed fetch that keeps the last good copy with "Retry now",
+held filter with "Show all files", a filter change that keeps the previous board dimmed and busy
+only until the new one arrives (a failed fetch for the new filter shows the error, never the old
+filter's cards), a failed poll that keeps the last good copy with "Retry now",
 and the read-only board when `viewer.canAct` is false, where an open file hides Send, Release and
 Answer. Below 1024px it is one stage at a time under a chip row with Held first, and there is no
 Floor on a phone. It still doubles as the window onto the sandbox while the rest of the desk is
