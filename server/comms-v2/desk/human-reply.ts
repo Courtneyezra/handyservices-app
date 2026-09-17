@@ -35,6 +35,7 @@ import { clauseAsks, offersCall } from './lexicon';
 import { isHeldAckText } from './fixed-lines';
 import { chooseChannel, DESK_APPROVER, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { humanApprover, type Approver } from '../../approver';
+import { HELD_DRAFT_CHANGED } from '@shared/ops-types';
 
 export interface HumanReplyInput {
     file: CaseFile;
@@ -161,10 +162,12 @@ export async function humanReply(input: HumanReplyInput, deps: CaseFileDeps = {}
  * bubbles, with the desk's punctuation rules, and otherwise unchanged. Refuses first when there is
  * no draft to send, then everything `humanReply` refuses.
  */
-export async function sendHeldDraft(input: Omit<HumanReplyInput, 'words'>, deps: CaseFileDeps = {}): Promise<HumanReplyOutcome> {
-    const draft = input.file.hold?.draft;
+export async function sendHeldDraft(input: Omit<HumanReplyInput, 'words'> & { expectedDraft?: string }, deps: CaseFileDeps = {}): Promise<HumanReplyOutcome> {
+    const { expectedDraft, ...rest } = input;
+    const draft = rest.file.hold?.draft;
     if (!draft) return { ok: false, reason: 'there is no held draft to send' };
-    return humanReply({ ...input, words: draft, deskDraft: true }, deps);
+    if (expectedDraft !== undefined && expectedDraft !== draft) return { ok: false, reason: HELD_DRAFT_CHANGED };
+    return humanReply({ ...rest, words: draft, deskDraft: true }, deps);
 }
 
 export interface SendWindowTemplateInput {

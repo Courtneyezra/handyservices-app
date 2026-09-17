@@ -12,8 +12,8 @@ import type { OpsAnswer } from '@shared/ops-types';
 import { AnswerCard } from '@/components/handy-desk/AnswerSurface';
 import type { AnsweredAsk } from '@/lib/handy-desk-answer';
 
-function answered(answer: OpsAnswer, ask: AnsweredAsk['ask'] = { text: 'What did Sam say?', via: 'voice' }): AnsweredAsk {
-    return { id: 'a1', at: '2026-09-17T09:00:00.000Z', ask, answer };
+function answered(answer: OpsAnswer, ask: AnsweredAsk['ask'] = { text: 'What did Sam say?', via: 'voice' }, at = new Date(Date.now() - 5 * 60_000).toISOString()): AnsweredAsk {
+    return { id: 'a1', at, ask, answer };
 }
 
 const DRAFTED: OpsAnswer = {
@@ -40,6 +40,7 @@ describe('AnswerCard', () => {
         expect(screen.getByTestId('surface-turn-t2')).toHaveTextContent('Ben');
         expect(screen.getByTestId('answer-outgoing-tile')).toHaveTextContent('WhatsApp · +447700900942');
         expect(screen.getByTestId('answer-outgoing-tile')).toHaveTextContent('Hi Sam, let me check the diary.');
+        expect(screen.getByTestId('answer-outgoing-age')).toHaveTextContent('drafted 5 min ago');
         expect(screen.getByTestId('answer-note')).toHaveTextContent('Held on the card for you to send.');
         expect(screen.getByRole('button', { name: 'Send as is' })).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'Change something' })).toBeInTheDocument();
@@ -53,13 +54,14 @@ describe('AnswerCard', () => {
         expect(screen.queryByTestId('answer-confirm')).toBeNull();
     });
 
-    it('confirm posts send-held-draft and shows the done state', async () => {
+    it('confirm posts send-held-draft with the tile\'s draft as expected, and shows the done state', async () => {
         const { calls } = mockFetch([{ method: 'POST', url: '/api/comms-v2/case-files/case_sam/send-held-draft', reply: () => ({ json: { ok: true } }) }]);
         const onConfirmed = vi.fn();
         render(<AnswerCard answered={answered(DRAFTED)} onConfirmed={onConfirmed} />);
         await userEvent.click(screen.getByRole('button', { name: 'Send as is' }));
         expect(await screen.findByTestId('answer-done')).toHaveTextContent('Sent to +447700900942 on WhatsApp.');
         expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['POST /api/comms-v2/case-files/case_sam/send-held-draft']);
+        expect(calls[0].body).toEqual({ expectedDraft: 'Hi Sam, let me check the diary.' });
         expect(onConfirmed).toHaveBeenCalledWith('Sent to +447700900942 on WhatsApp.');
         expect(screen.queryByTestId('answer-confirm')).toBeNull();
     });
@@ -80,6 +82,48 @@ describe('AnswerCard', () => {
             '/api/comms-v2/case-files/case_sam/send-template',
         ]);
         expect(screen.queryByTestId('answer-done')).toBeNull();
+    });
+
+    it('a changed held draft is refused, re-read and shown, and the next confirm expects the new draft', async () => {
+        const { calls } = mockFetch([
+            {
+                method: 'POST', url: '/api/comms-v2/case-files/case_sam/send-held-draft',
+                reply: (c) => c.body?.expectedDraft === 'Hi Sam, Tuesday 10am is free.'
+                    ? { json: { ok: true } }
+                    : { status: 409, json: { error: 'the held draft changed since you saw it' } },
+            },
+            { url: '/api/comms-v2/case-files/case_sam', reply: () => ({ json: { id: 'case_sam', hold: { approver: { kind: 'human', id: 'ben' }, reason: 'r', since: new Date().toISOString(), draft: 'Hi Sam, Tuesday 10am is free.' } } }) },
+        ]);
+        render(<AnswerCard answered={answered(DRAFTED)} />);
+        await userEvent.click(screen.getByRole('button', { name: 'Send as is' }));
+        await waitFor(() => expect(screen.getByTestId('answer-outgoing-tile')).toHaveTextContent('Hi Sam, Tuesday 10am is free.'));
+        expect(screen.getByTestId('answer-outgoing-tile')).not.toHaveTextContent('let me check the diary');
+        expect(screen.getByTestId('answer-outgoing-age')).toHaveTextContent('as it stands now');
+        expect(screen.getByTestId('answer-confirm-error')).toHaveTextContent('The held draft changed since you saw it');
+        expect(screen.queryByTestId('answer-done')).toBeNull();
+
+        await userEvent.click(screen.getByRole('button', { name: 'Send as is' }));
+        expect(await screen.findByTestId('answer-done')).toBeInTheDocument();
+        expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+            'POST /api/comms-v2/case-files/case_sam/send-held-draft',
+            'GET /api/comms-v2/case-files/case_sam',
+            'POST /api/comms-v2/case-files/case_sam/send-held-draft',
+        ]);
+        expect(calls[0].body).toEqual({ expectedDraft: 'Hi Sam, let me check the diary.' });
+        expect(calls[2].body).toEqual({ expectedDraft: 'Hi Sam, Tuesday 10am is free.' });
+    });
+
+    it('an answer from an earlier London day offers no send and says why', () => {
+        const { calls } = mockFetch([]);
+        const yesterday = new Date(Date.now() - 26 * 3_600_000).toISOString();
+        render(<AnswerCard answered={answered(DRAFTED, undefined, yesterday)} onChange={() => {}} />);
+        expect(screen.getByTestId('answer-outgoing-tile')).toHaveTextContent('Hi Sam, let me check the diary.');
+        expect(screen.getByTestId('answer-outgoing-age')).toHaveTextContent('drafted 1 day ago');
+        expect(screen.queryByTestId('answer-confirm')).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Send as is' })).toBeNull();
+        expect(screen.getByTestId('answer-stale-day')).toHaveTextContent('from an earlier day');
+        expect(screen.getByRole('button', { name: 'Change something' })).toBeInTheDocument();
+        expect(calls).toHaveLength(0);
     });
 
     it('a 403 reads as no approver slot, not a retry', async () => {

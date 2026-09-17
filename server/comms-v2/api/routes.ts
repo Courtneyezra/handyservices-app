@@ -31,7 +31,8 @@
  *                                    the board to show him
  * POST /case-files/:id/send-held-draft - one tap: send the reply the desk held back exactly as it
  *                                    stands, through desk/human-reply.ts sendHeldDraft, the same
- *                                    pipeline as /answer with the held draft as the words
+ *                                    pipeline as /answer with the held draft as the words; an
+ *                                    optional `expectedDraft` refuses (409) when the draft differs
  * POST /case-files/:id/send-template   - a template send on a shut window, through
  *                                    desk/human-reply.ts sendWindowTemplate: offers a template only
  *                                    when its wording is true for the thread (quote_ready_link with
@@ -208,7 +209,9 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         if (!src) return;
         const file = src.store.get(req.params.id);
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
-        const outcome = await sendHeldDraft({ file, approver, person: user.email ?? user.id, mode: src.mode });
+        const expectedDraft = req.body?.expectedDraft;
+        if (expectedDraft !== undefined && typeof expectedDraft !== 'string') { res.status(400).json({ error: 'expectedDraft must be the draft text' }); return; }
+        const outcome = await sendHeldDraft({ file, approver, person: user.email ?? user.id, mode: src.mode, expectedDraft });
         if (!outcome.ok) { res.status(409).json({ error: outcome.reason }); return; }
         src.store.put(file);
         res.json({ ok: true, card: cardOf(file, assignments), sent: { approver: outcome.result.approver, runId: outcome.result.runId, bubbles: outcome.result.bubbles.map((b) => b.text), turnId: outcome.result.turnId }, release: outcome.release });

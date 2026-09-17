@@ -375,10 +375,10 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         app.use('/api/comms-v2', createCommsV2ApiRouter(door, async () => listed, async () => ({ store, live: true, mode: 'dry_run' as const }), undefined, undefined, sandboxAvailable, undefined, templates));
         const srv = await new Promise<import('node:http').Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
         const root = `http://127.0.0.1:${(srv.address() as { port: number }).port}/api/comms-v2`;
-        const call = async (method: string, route: string, as?: string) => {
+        const call = async (method: string, route: string, as?: string, body?: unknown) => {
             const headers: Record<string, string> = { 'content-type': 'application/json' };
             if (as) headers['x-test-user'] = as;
-            const res = await fetch(`${root}${route}`, { method, headers });
+            const res = await fetch(`${root}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
             return { status: res.status, json: await res.json() as any };
         };
         return { store, call, close: () => new Promise<void>((r) => srv.close(() => r())) };
@@ -403,6 +403,42 @@ describe('one tap: send the held draft, and a template send on a shut window', (
             const detail = await call('GET', `/case-files/${file.id}`);
             expect(detail.json.hold).toBeNull();
             expect(detail.json.turns.at(-1)).toMatchObject({ approver: 'human:Ben.Real@handyservices.app', body: 'Hi Priya, that is usually around £80 fitted.' });
+        } finally {
+            await close();
+        }
+    });
+
+    it('send-held-draft: an expectedDraft matching the held draft sends it', async () => {
+        const { store, call, close } = await harness();
+        try {
+            const file = fileWithDraftHold();
+            store.put(file);
+            const sent = await call('POST', `/case-files/${file.id}/send-held-draft`, 'Ben.Real@handyservices.app', { expectedDraft: 'Hi Priya, that is usually around £80 fitted.' });
+            expect(sent.status).toBe(200);
+            expect(sent.json.sent.bubbles).toEqual(['Hi Priya, that is usually around £80 fitted.']);
+            expect(store.get(file.id)!.hold).toBeNull();
+        } finally {
+            await close();
+        }
+    });
+
+    it('send-held-draft: an expectedDraft the held draft no longer matches is refused 409, and nothing is sent', async () => {
+        const { store, call, close } = await harness();
+        try {
+            const file = fileWithDraftHold();
+            store.put(file);
+            const turnsBefore = file.turns.length;
+            const refused = await call('POST', `/case-files/${file.id}/send-held-draft`, 'Ben.Real@handyservices.app', { expectedDraft: 'Hi Priya, an older draft.' });
+            expect(refused.status).toBe(409);
+            expect(refused.json.error).toBe('the held draft changed since you saw it');
+            const after = store.get(file.id)!;
+            expect(after.hold?.draft).toBe('Hi Priya, that is usually around £80 fitted.');
+            expect(after.turns).toHaveLength(turnsBefore);
+            expect(after.sends).toHaveLength(0);
+
+            const badType = await call('POST', `/case-files/${file.id}/send-held-draft`, 'Ben.Real@handyservices.app', { expectedDraft: 42 });
+            expect(badType.status).toBe(400);
+            expect(store.get(file.id)!.hold).not.toBeNull();
         } finally {
             await close();
         }

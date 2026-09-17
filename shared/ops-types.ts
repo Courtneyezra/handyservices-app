@@ -232,10 +232,15 @@ export type AnswerSurfaceType = AnswerSurface['type'];
  * person pressing confirm does, through an existing route:
  *   draft.release -> POST /api/comms-v2/case-files/:caseFileId/send-held-draft
  * which is the board's human send path, with its approver check, window rule,
- * bubble ceiling and opt-out ledger. No other kind exists yet.
+ * bubble ceiling and opt-out ledger. No other kind exists yet. The confirm
+ * posts `{ expectedDraft }`, the tile's text, so a draft replaced since the
+ * answer was shown is refused with HELD_DRAFT_CHANGED instead of sent.
  */
 export type ConfirmAction =
   | { kind: 'draft.release'; args: { caseFileId: string } };
+
+/** send-held-draft's 409 reason when the held draft is no longer the `expectedDraft` the caller saw. */
+export const HELD_DRAFT_CHANGED = 'the held draft changed since you saw it';
 
 /** One message that goes out if the person confirms: a held draft, shown as it stands. */
 export interface OpsOutgoing {

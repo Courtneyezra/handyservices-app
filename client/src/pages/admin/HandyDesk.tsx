@@ -293,8 +293,8 @@ export default function HandyDesk() {
     const [showAnswer, setShowAnswer] = useState(false);
     const askSession = useAskSession();
     const exchange = askSession.exchange;
-    // The answer showing on the right; selecting a card puts it away until a newer one lands.
-    const [dismissedAnswer, setDismissedAnswer] = useState<string | null>(null);
+    // When a card was last selected: an answer given before then stays put away, only a newer one takes over.
+    const [selectedAt, setSelectedAt] = useState<number | null>(null);
 
     const { data, isLoading, error } = useQuery<DeskQueue>({
         queryKey: ['comms-v2-queue'],
@@ -307,7 +307,7 @@ export default function HandyDesk() {
     });
     const { data: oldComms } = useOldComms();
     const { data: latest } = useLatestAnswer();
-    const answered = latest && latest.id !== dismissedAnswer ? latest : null;
+    const answered = latest && (selectedAt === null || Date.parse(latest.at) > selectedAt) ? latest : null;
 
     const items = data?.items ?? [];
     const sandbox = data?.sandboxAvailable === true;
@@ -326,7 +326,7 @@ export default function HandyDesk() {
 
     const select = (item: QueueItem) => {
         setSelection(selectionOf(item));
-        if (latest) setDismissedAnswer(latest.id);
+        setSelectedAt(Date.now());
     };
 
     // Height leaves out the layout's 64px header and its scroll container's p-4 / lg:p-8

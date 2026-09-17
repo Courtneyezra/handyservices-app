@@ -144,6 +144,14 @@ export function confirmRequest(action: ConfirmAction): { url: string; method: 'P
     }
 }
 
+/**
+ * The draft the confirm expects to send: the one outgoing tile, since the agent offers a confirm
+ * only when exactly one held draft stands. send-held-draft refuses when the file's draft differs.
+ */
+export function expectedDraftOf(answer: OpsAnswer): string | undefined {
+    return answer.outgoing?.length === 1 ? answer.outgoing[0].text : undefined;
+}
+
 /** The case file a confirm acts on, for the template offer a shut window needs. */
 export function confirmCaseFileId(action: ConfirmAction): string {
     return action.args.caseFileId;
@@ -155,6 +163,28 @@ export function confirmedNote(answer: OpsAnswer): string {
     if (!first) return 'Done.';
     const more = (answer.outgoing?.length ?? 0) > 1 ? ` and ${answer.outgoing!.length - 1} more` : '';
     return `Sent to ${addressLabel(first.to)} on ${CHANNEL_LABEL[first.channel]}${more}.`;
+}
+
+// ---------------------------------------------------------------- the answer's age
+
+function londonDay(at: Date): string {
+    return at.toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+}
+
+/** Whether an answer was given on an earlier Europe/London day than `now`; its draft is not offered for sending. */
+export function isEarlierDay(at: string, now: Date): boolean {
+    return londonDay(new Date(at)) < londonDay(now);
+}
+
+/** How old an answer is, as the outgoing tile says it. */
+export function ageLabel(at: string, now: Date): string {
+    const minutes = Math.floor((now.getTime() - new Date(at).getTime()) / 60_000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes} min ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days} ${days === 1 ? 'day' : 'days'} ago`;
 }
 
 // ---------------------------------------------------------------- the thinking card

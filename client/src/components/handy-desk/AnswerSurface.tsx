@@ -5,20 +5,23 @@
  *
  * The answer is the ask agent's OpsAnswer (server/comms-v2/ask/surface.ts); every figure on it was
  * read off the new desk by the server. The confirm is the only write, and today the only action is
- * `draft.release`: POST /api/comms-v2/case-files/:id/send-held-draft, the board's human send path.
+ * `draft.release`: POST /api/comms-v2/case-files/:id/send-held-draft, the board's human send path,
+ * with the tile's draft as `expectedDraft`: a draft the desk replaced since is refused, re-read and
+ * shown for another confirm. An answer from an earlier London day offers no send.
  * Whatever that refuses is shown as the desk said it, and a shut WhatsApp window offers the template
  * reply the queue card offers. The ask bar (T2) passes `pending` and `steps` for the thinking state
  * and `onChange` to take the sentence back.
  */
 import { useState } from 'react';
 import { Check, Loader2, MapPin } from 'lucide-react';
-import type { AnswerSurface, LeanRunStep, OpsAnswer } from '@shared/ops-types';
+import { HELD_DRAFT_CHANGED, type AnswerSurface, type LeanRunStep, type OpsAnswer } from '@shared/ops-types';
 import { adminAuthHeaders } from '@/hooks/usePriceQueue';
+import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import { cn } from '@/lib/utils';
 import { isShutWindow, refusalMessage } from '@/lib/handy-desk-queue';
 import {
-    CHANNEL_LABEL, STAGE_LABEL, VIA_LABEL, addressLabel, confirmCaseFileId, confirmRequest, confirmedNote,
-    diaryCellLook, formatPence, isChangedCell, isLate, thinkingLines, tokenOf, turnLabel, turnText,
+    CHANNEL_LABEL, STAGE_LABEL, VIA_LABEL, addressLabel, ageLabel, confirmCaseFileId, confirmRequest, confirmedNote,
+    diaryCellLook, expectedDraftOf, formatPence, isChangedCell, isEarlierDay, isLate, thinkingLines, tokenOf, turnLabel, turnText,
     type AnsweredAsk, type DiaryCellLook,
 } from '@/lib/handy-desk-answer';
 
@@ -36,12 +39,12 @@ function dayOf(iso: string): string {
     return new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'Europe/London' });
 }
 
-async function post(url: string): Promise<{ ok: true } | { ok: false; message: string }> {
+async function post(url: string, body?: unknown): Promise<{ ok: true } | { ok: false; message: string; draftChanged?: boolean }> {
     try {
-        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...adminAuthHeaders() } });
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...adminAuthHeaders() }, body: body === undefined ? undefined : JSON.stringify(body) });
         if (res.ok) return { ok: true };
         const data = await res.json().catch(() => ({}));
-        return { ok: false, message: refusalMessage(res.status, data?.error) };
+        return { ok: false, message: refusalMessage(res.status, data?.error), draftChanged: res.status === 409 && data?.error === HELD_DRAFT_CHANGED };
     } catch (e: any) {
         return { ok: false, message: e?.message || 'Could not reach the desk' };
     }
@@ -262,16 +265,46 @@ export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], 
     const [error, setError] = useState<string | null>(null);
     const [templateError, setTemplateError] = useState<string | null>(null);
     const [done, setDone] = useState<string | null>(null);
+    // The held draft as re-read after the desk replaced it; the tile shows it and the confirm expects it.
+    const [reread, setReread] = useState<string | null>(null);
+    const [draftGone, setDraftGone] = useState(false);
+    const now = new Date();
+    const staleDay = !!answered && isEarlierDay(answered.at, now);
+    const expectedDraft = reread ?? (answer ? expectedDraftOf(answer) : undefined);
+    const outgoing = answer?.outgoing && reread !== null ? [{ ...answer.outgoing[0], text: reread }] : answer?.outgoing;
+
+    const rereadDraft = async (caseFileId: string) => {
+        try {
+            const res = await fetch(`/api/comms-v2/case-files/${encodeURIComponent(caseFileId)}`, { headers: adminAuthHeaders() });
+            if (!res.ok) { setError(`The held draft changed since you saw it, and the case file could not be read again (${res.status}).`); return; }
+            const detail: CaseFileDetail = await res.json();
+            const draft = detail.hold?.draft;
+            if (!draft) {
+                setDraftGone(true);
+                setError('The held draft changed since you saw it, and there is no held draft on this file now.');
+                return;
+            }
+            setReread(draft);
+            setError('The held draft changed since you saw it. This is the draft as it stands now; confirm again to send it.');
+        } catch (e: any) {
+            setError(e?.message || 'Could not reach the desk');
+        }
+    };
 
     const confirm = async () => {
-        if (!answer?.confirm) return;
+        if (!answer?.confirm || expectedDraft === undefined) return;
         setBusy('confirm');
         setError(null);
         setTemplateError(null);
-        const result = await post(confirmRequest(answer.confirm.action).url);
+        const result = await post(confirmRequest(answer.confirm.action).url, { expectedDraft });
+        if (!result.ok && result.draftChanged) {
+            await rereadDraft(confirmCaseFileId(answer.confirm.action));
+            setBusy(null);
+            return;
+        }
         setBusy(null);
         if (!result.ok) { setError(result.message); return; }
-        const note = confirmedNote(answer);
+        const note = confirmedNote({ ...answer, outgoing });
         setDone(note);
         onConfirmed?.(note);
     };
@@ -320,13 +353,16 @@ export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], 
                 )}
             </div>
 
-            {answer && answer.outgoing && answer.outgoing.length > 0 && (
+            {answer && outgoing && outgoing.length > 0 && !draftGone && (
                 <div data-testid="answer-outgoing">
                     <p className={cn(EYEBROW, 'text-slate-500')}>What goes out when you confirm</p>
                     <ul className="mt-2 space-y-2">
-                        {answer.outgoing.map((o, i) => (
+                        {outgoing.map((o, i) => (
                             <li key={i} data-testid="answer-outgoing-tile" className="rounded-2xl bg-slate-100 p-3">
-                                <p className="text-xs font-semibold text-slate-600">{CHANNEL_LABEL[o.channel]} · {addressLabel(o.to)}</p>
+                                <p className="text-xs font-semibold text-slate-600">
+                                    {CHANNEL_LABEL[o.channel]} · {addressLabel(o.to)}
+                                    {answered && <span data-testid="answer-outgoing-age" className="font-normal text-slate-500"> · {reread !== null ? 'as it stands now' : `drafted ${ageLabel(answered.at, now)}`}</span>}
+                                </p>
                                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{o.text}</p>
                             </li>
                         ))}
@@ -337,6 +373,9 @@ export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], 
             {answer && (
                 <footer className="space-y-2">
                     {error && <p role="alert" data-testid="answer-confirm-error" className="text-sm text-red-700">{error}</p>}
+                    {staleDay && answer.confirm && !done && (
+                        <p data-testid="answer-stale-day" className="text-sm text-slate-600">This answer is from an earlier day, so its draft is not offered for sending. Ask again for the draft as it stands today.</p>
+                    )}
                     {error && isShutWindow(error) && !done && (
                         <div>
                             {templateError && <p role="alert" data-testid="answer-template-error" className="mb-2 text-sm text-red-700">{templateError}</p>}
@@ -358,7 +397,7 @@ export function AnswerCard({ answered, pendingAsk, pending = false, steps = [], 
                                     Change something
                                 </button>
                             )}
-                            {answer.confirm && (
+                            {answer.confirm && expectedDraft !== undefined && !staleDay && !draftGone && (
                                 <button type="button" data-testid="answer-confirm" className={cn(PILL_PRIMARY, !answer.note && !(onChange && ask) && 'ml-auto')} disabled={busy !== null} onClick={confirm}>
                                     {busy === 'confirm' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                                     {answer.confirm.label}
