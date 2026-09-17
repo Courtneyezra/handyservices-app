@@ -422,7 +422,9 @@ An event finds its files by the quote it names, matching the job's quote referen
 slug (Quoting's draft) or its id (the scheduling fixture), and by the booking it names, matching the
 job's booking reference: a booked customer's follow-up file, opened by their next message and given only
 the booking by `linkPartyBooking` when they ask when we are coming, closes with the job, so their next
-enquiry opens a fresh file rather than one still naming the old booking. Only files not yet done, on the live
+enquiry opens a fresh file rather than one still naming the old booking. The booking alone closes a file
+only while it carries no quote reference: a follow-up file since quoted for a new job stays open with that
+quote, and closes when that quote's own events arrive. Only files not yet done, on the live
 intake's store and only while the new desk is the live desk (`commsV2Live`). Each call is awaited
 after the event's own write and never throws into it; no log line carries a value from a file.
 

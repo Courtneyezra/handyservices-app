@@ -19,7 +19,8 @@
  * Each event names a quote and, where it has one, the booking, which is how a file is found: the
  * quote reference on its job is the quote's short slug (Quoting's draft) or its id (the scheduling
  * fixture), so both are matched, and a follow-up file that carries only the booking (the booked
- * customer asking when we are coming, scheduling-tools.ts `linkPartyBooking`) is matched on it. Only
+ * customer asking when we are coming, scheduling-tools.ts `linkPartyBooking`) is matched on it; a file
+ * since quoted for another job is not, and stays open with that quote. Only
  * while the new desk is the live desk (switch.ts `commsV2Live`), on the live intake's store, and
  * only files that are not done. Nothing here throws into the event that called it, and no log line
  * carries a value from a file.
@@ -70,11 +71,11 @@ async function liveSlugOf(quoteId: string): Promise<string | null> {
     return row?.slug ?? null;
 }
 
-/** The files not yet done whose job names this quote, by its id or its slug, or this booking. */
+/** The files not yet done whose job names this quote, by its id or its slug, or this booking with no other quote. */
 export function filesForJob(files: CaseFile[], quoteRefs: ReadonlyArray<string | null>, bookingId: string | null): CaseFile[] {
     const wanted = new Set(quoteRefs.filter((r): r is string => !!r));
     return files.filter((f) => f.stage !== 'done'
-        && ((!!f.job.quoteRef && wanted.has(f.job.quoteRef)) || (!!bookingId && f.job.bookingRef === bookingId)));
+        && ((!!f.job.quoteRef && wanted.has(f.job.quoteRef)) || (!!bookingId && f.job.bookingRef === bookingId && !f.job.quoteRef)));
 }
 
 /** Closes the live files an event's quote or booking names. Never throws; a refusal or a failure is logged and the event goes on. */

@@ -292,6 +292,37 @@ describe('the automatic close on live events', () => {
         expect(await pickerLink(next.file, { diary, now, baseUrl: 'https://test.local' }, diaryDown)).toMatchObject({ ok: true, slug: 'newslug1' });
     });
 
+    it('a follow-up file since quoted for a new job stays open when the old booking is signed off', async () => {
+        const g = new Gateway({ desk: fakeDesk });
+        const quoting = quotingDeps();
+        const old = await quotedThread(g, quoting);
+        const oldQuote = old.job.quoteRef;
+        const deps: FileCloseDeps = { liveState: async () => ({ live: true }), store: async () => g.store, slugOf: async () => oldQuote, now, log: () => {} };
+        expect((await fileBooked('old-quote-id', 'bk1', deps)).closed).toEqual([{ caseId: old.id, to: 'booked' }]);
+
+        const asked = await g.inbound(turn('When are you coming? Also can you hang a door? NG9 2AB', '2026-09-18T09:00:00.000Z'));
+        if (asked.kind !== 'handled') throw new Error(asked.kind);
+        const followUp = asked.file;
+        followUp.job.bookingRef = 'bk1';
+        recordFact(followUp, { key: 'job_type', value: 'hang a door', source: { kind: 'thread', turnId: followUp.turns[0].id }, by: 'scoping' });
+        recordFact(followUp, { key: 'location', value: 'NG9 2AB', source: { kind: 'thread', turnId: followUp.turns[0].id }, by: 'scoping' });
+        setStage(followUp, 'scoping', 'test');
+        setStage(followUp, 'ready', 'test');
+        expect((await draftQuote(followUp, followUp.parties[0], intake, quoting)).ok).toBe(true);
+        setStage(followUp, 'quoted', 'test');
+        const newQuote = followUp.job.quoteRef;
+        expect(newQuote).toBeTruthy();
+        expect(newQuote).not.toBe(oldQuote);
+
+        const out = await fileDone('old-quote-id', 'bk1', 'signed_off', deps);
+        expect(out.closed).toEqual([{ caseId: old.id, to: 'done' }]);
+        expect(followUp.stage).toBe('quoted');
+        expect(followUp.job.quoteRef).toBe(newQuote);
+        const reply = await g.inbound(turn('Looks good', '2026-09-19T09:00:00.000Z'));
+        if (reply.kind !== 'handled') throw new Error(reply.kind);
+        expect(reply.file.id).toBe(followUp.id);
+    });
+
     it('does nothing while the new desk is not the live desk, and never throws into the event', async () => {
         const file = fileFor('p1', 'accepted');
         file.job.quoteRef = 'Q1';
