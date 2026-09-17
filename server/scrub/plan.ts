@@ -288,6 +288,26 @@ const OVERRIDES: Record<string, Treatment> = {
     // leaf like a note, regenerated rather than trusted to the sweep.
     'comms_v2_case_files.reason': 'note',
 
+    // --- inbound emails kept until the desk has them (server/comms-v2/channels/inbound-email-store.ts).
+    //     `email_id` is Resend's opaque id and `claim_id` a minted uuid, both kept by the id rule;
+    //     `status` is an enumeration. `envelope` is the turn the desk reads
+    //     (server/comms-v2/channels/envelope.ts), walked by the leaf keys below, which apply only
+    //     inside this table. `hints.email`, `hints.phone` and `hints.postcode` reach the ordinary
+    //     rules; `references` is an array of bare strings and is swept.
+    'comms_v2_inbound_emails.status': 'keep',
+    'comms_v2_inbound_emails.last_error': 'note',
+    'comms_v2_inbound_emails.envelope': 'json_deep',
+    'comms_v2_inbound_emails.name': 'person_name',          // the sender's display name
+    'comms_v2_inbound_emails.address': 'contact',           // the sender's address, or a reach address
+    'comms_v2_inbound_emails.text': 'message_body',         // the email's words
+    'comms_v2_inbound_emails.subject': 'note',              // the email's subject line
+    'comms_v2_inbound_emails.path': 'url',                  // a downloaded photo's local path
+    'comms_v2_inbound_emails.ref': 'note',                  // a refused attachment's file name
+    'comms_v2_inbound_emails.reason': 'note',               // why an attachment was refused
+    'comms_v2_inbound_emails.value': 'note',                // a fact the adapter established
+    'comms_v2_inbound_emails.provider_message_id': 'external_id', // the email's Message-ID, which names the sender's mail host
+    'comms_v2_inbound_emails.message_id': 'external_id',
+
     // --- names the rules would miss
     'tenants.name': 'person_name',
     'contractor_teams.name': 'business_name',

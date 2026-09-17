@@ -40,10 +40,19 @@ export interface ChannelGatewayDeps extends GatewayDeps {
 export interface InboundOptions {
     /** Only fill in a call turn already on a file; never open a file, add a turn or run the desk. */
     attachOnly?: boolean;
+    /**
+     * The delivery this turn comes from, recorded on the turn. A delivery already on any file adds
+     * no second turn: its turn goes to the desk again only while the desk has not handled it
+     * (`handAgain`), and is otherwise answered `duplicate`. One still being landed in this process
+     * throws, so the caller keeps it and tries again later.
+     */
+    deliveryId?: string;
 }
 
 export class ChannelGateway extends Gateway {
     private readonly presence: WhatsAppPresence;
+    /** Deliveries being landed in this process, so a second hand-over racing the first adds nothing. */
+    private readonly landing = new Set<string>();
 
     constructor(deps: ChannelGatewayDeps) {
         super(deps);
@@ -52,6 +61,23 @@ export class ChannelGateway extends Gateway {
 
     /** Any channel's turn: identity, the one file, the party's reach, the adapter's facts, then the desk. */
     async inbound(env: InboundEnvelope, seed: ChannelSeed = {}, opts: InboundOptions = {}): Promise<InboundOutcome> {
+        const deliveryId = opts.deliveryId;
+        if (!deliveryId) return this.land(env, seed, opts);
+        const held = this.deliveryTurn(deliveryId);
+        if (held) {
+            const result = await this.handAgain(held.file, held.turn);
+            return result ? { kind: 'handled', ...held, result, burst: [held.turn.id] } : { kind: 'duplicate', ...held };
+        }
+        if (this.landing.has(deliveryId)) throw new Error('this delivery is being handed to the desk already');
+        this.landing.add(deliveryId);
+        try {
+            return await this.land(env, seed, opts);
+        } finally {
+            this.landing.delete(deliveryId);
+        }
+    }
+
+    private async land(env: InboundEnvelope, seed: ChannelSeed, opts: InboundOptions): Promise<InboundOutcome> {
         const callId = env.channel === 'call' && env.kind === 'call_transcript' ? env.providerMessageId : null;
         if (callId) {
             const held = this.callTurn(callId);
@@ -76,7 +102,7 @@ export class ChannelGateway extends Gateway {
 
         const address = env.channel === 'email' ? resolved.canonical.replace(/^email:/, '') : (e164Of(resolved.canonical) ?? env.address);
         const kind: Turn['kind'] = env.kind ?? (env.media.length ? 'media' : 'text');
-        const turnBody = { at: env.at, channel: env.channel, kind, body: env.text, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(callId ? { callId } : {}) };
+        const turnBody = { at: env.at, channel: env.channel, kind, body: env.text, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(callId ? { callId } : {}), ...(opts.deliveryId ? { deliveryId: opts.deliveryId } : {}) };
         let file: CaseFile | null = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {
@@ -103,6 +129,15 @@ export class ChannelGateway extends Gateway {
 
         const { result, burst } = await this.handTurn(file, landed);
         return { kind: 'handled', file, turn: landed, result, burst };
+    }
+
+    /** The turn a delivery already landed, on whichever file holds it, done files included. */
+    private deliveryTurn(deliveryId: string): { file: CaseFile; turn: Turn } | null {
+        for (const file of this.store.all()) {
+            const turn = file.turns.find((t) => t.deliveryId === deliveryId);
+            if (turn) return { file, turn };
+        }
+        return null;
     }
 
     /** The turn a call already made, on whichever file holds it, done files included. */

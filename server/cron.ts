@@ -70,6 +70,18 @@ export function setupCronJobs() {
         }
     }));
 
+    // COMMS-V2 INBOUND EMAIL RETRY — every minute. Hands each kept inbound email the desk does not
+    // have yet to it again, with backoff; does nothing while COMMS_V2_EMAIL_INBOUND is off
+    // (server/comms-v2/channels/inbound-email-store.ts).
+    gateCustomerLoop('cron: comms-v2 inbound email retry (every minute)', () => cron.schedule("* * * * *", async () => {
+        try {
+            const { runInboundEmailRetryTick } = await import('./comms-v2/channels/email-inbound');
+            await runInboundEmailRetryTick();
+        } catch (error) {
+            console.error("[Cron] comms-v2 inbound email retry failed:", error);
+        }
+    }));
+
     gateCustomerLoop('cron: comms agent SLA sweep (Mon-Fri 8-18)', () => cron.schedule("*/30 8-17 * * 1-5", async () => {
         try {
             // Phase 3: in live mode the spine owns the customer lane; legacy runCommsAgent is never called.

@@ -7,7 +7,7 @@
  * desk has one door.
  */
 import { randomUUID } from 'node:crypto';
-import { answeredByReply, appendTurn, messagesOf, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type TurnWait, type CaseFileDeps } from './case-file';
+import { answeredByReply, appendTurn, coveredByReply, messagesOf, open, partyOf, recordFact, ask as ledgerAsk, answered as ledgerAnswered, thanked as ledgerThanked, snapshot, type CaseFile, type Turn, type TurnWait, type CaseFileDeps } from './case-file';
 import { Identity, e164Of, type ResolveResult } from './identity';
 import { MemoryCaseFileStore, type CaseFileStore } from './store';
 import type { InboundTurn } from './whatsapp-adapter';
@@ -46,6 +46,8 @@ export type InboundOutcome =
     | { kind: 'handled'; file: CaseFile; turn: Turn; result: DeskResult; burst: string[] }
     /** A call already on a file, passed again: its turn filled in where the new pass says more, and no desk run. */
     | { kind: 'attached'; file: CaseFile; turn: Turn; changed: boolean }
+    /** A delivery already on a file (`Turn.deliveryId`) whose turn the desk has handled, handed over again: nothing added, no desk run. */
+    | { kind: 'duplicate'; file: CaseFile; turn: Turn }
     /** Identity returned candidates: nothing is sent until a person picks one. */
     | { kind: 'candidates'; candidates: number; address: string }
     | { kind: 'refused'; reason: string };
@@ -54,6 +56,7 @@ export type InboundOutcome =
 export function notHandledReason(out: Exclude<InboundOutcome, { kind: 'handled' }>): string {
     if (out.kind === 'candidates') return 'identity returned candidates';
     if (out.kind === 'attached') return 'this call is already on the file; its turn was filled in and the desk did not run';
+    if (out.kind === 'duplicate') return 'this delivery is already on the file and the desk has handled it; the desk did not run again';
     return out.reason;
 }
 
@@ -141,7 +144,28 @@ export class Gateway {
         if (this.quietMs > 0 && waitsForQuiet(landed)) return this.joinBurst(file, landed);
         for (const b of Array.from(this.waiting.values())) if (b.file.id === file.id && b.turns[0].partyId === landed.partyId) this.flush(b);
         for (const w of this.leftBehind(file)) if (w.partyId === landed.partyId) this.recover(file, w).catch((err) => this.log(`recovering a burst on case ${file.id} failed: ${err?.message ?? err}`));
-        return { result: await this.deskPass(file, (f) => this.desk.handleTurn(f, landed)), burst: [landed.id] };
+        return { result: await this.deskPass(file, (f) => this.handle(f, landed)), burst: [landed.id] };
+    }
+
+    /**
+     * A delivery's turn already on the file, to the desk again unless the desk has handled it: a
+     * reply to its party covers it (one answering it or a later turn, or a person's own words after
+     * it) or a run recorded its result on it. Checked inside the file's queue, so a
+     * pass still running on it counts; null when there was nothing to do.
+     */
+    protected handAgain(file: CaseFile, turn: Turn): Promise<DeskResult | null> {
+        return this.deskPass(file, async (f) => {
+            if (deskHandled(f, turn)) return null;
+            this.log(`delivery turn ${turn.id} on case ${f.id} has no desk result; handing it to the desk again`);
+            return this.handle(f, turn);
+        });
+    }
+
+    /** The desk on one turn; a delivery's turn records the run that handled it, in the pass's own put. */
+    private async handle(file: CaseFile, turn: Turn): Promise<DeskResult> {
+        const result = await this.desk.handleTurn(file, turn);
+        if (turn.deliveryId) turn.handledBy = result.runId;
+        return result;
     }
 
     /**
@@ -230,7 +254,7 @@ export class Gateway {
     }
 
     /** One desk pass on a file, after any pass already running or queued on it; the file is put when the pass is done, even when it throws. */
-    private deskPass(file: CaseFile, pass: (file: CaseFile) => Promise<DeskResult>): Promise<DeskResult> {
+    private deskPass<T>(file: CaseFile, pass: (file: CaseFile) => Promise<T>): Promise<T> {
         const run = async () => {
             try {
                 return await pass(file);
@@ -332,6 +356,11 @@ export class Gateway {
         const f = this.store.get(fileId);
         return f ? snapshot(f) : null;
     }
+}
+
+/** Whether the desk has handled a turn: a reply to its party covers it, or a run recorded its result on it. */
+function deskHandled(file: CaseFile, turn: Turn): boolean {
+    return !!turn.handledBy || coveredByReply(file, turn);
 }
 
 /** Takes waits off the file; the key goes with the last one, so a file with nothing waiting reads as it did before waits were recorded. */

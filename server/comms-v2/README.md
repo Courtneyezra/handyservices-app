@@ -170,16 +170,35 @@ refused there. The route has its own authentication: Resend's Svix signature (`s
 `svix-timestamp`, `svix-signature`), checked over the raw body with the `svix` library against
 `RESEND_INBOUND_WEBHOOK_SECRET`. A missing or bad signature, or a timestamp more than five minutes
 out, is a 401. A delivery already taken, whether by its `svix-id` or by its received email's id, is
-answered 200 and adds no second turn. That memory is per process and lasts a day.
+answered 200 and adds no second turn: the process remembers both for a day, and the store below
+holds the email id for good.
 
 **Switched off unless turned on deliberately.** The route accepts nothing into the desk unless
 `COMMS_V2_EMAIL_INBOUND=1` and the intake switch `COMMS_V2_INTAKE=1` are both set, each read the way
 `COMMS_V2_INTAKE` is (exactly `1`). Off, it answers 404 and reads nothing. On but without the
-signing secret or `RESEND_API_KEY`, it answers 503. On, it forwards the turn to the intake, which
+signing secret or `RESEND_API_KEY`, it answers 503. On, it keeps the turn and then hands it to the intake, which
 takes it to the gateway in use (dry run until the desk is live, as for every other channel).
-That forward is not durable: the route answers 200 before the desk has taken the turn, so a turn
-the intake fails to take is lost. Inbound email must not be switched on until the durable
-store-and-retry (follow-up task `hsa-comms-v2-email-inbound-durable`) lands.
+
+**Kept before Resend is answered** (the captain's "Separate safeguard", `channels/inbound-email-store.ts`).
+The route writes each accepted email's envelope to `comms_v2_inbound_emails`, keyed by Resend's email
+id, before it answers 200; a write that fails is a 503, so Resend delivers again. The first hand-over
+starts after the answer, and the comms worker's minute loop (`runInboundEmailRetryTick`, only while
+inbound email is on) retries each row the desk does not have yet with backoff, up to eight attempts.
+An attempt holds its row for ten minutes, so two never run at once. The row is done once the intake
+has returned, the desk has handled the turn, and the durable case file store has written the file
+the turn landed on (`forwardNow` flushes that file alone, so another file's failing write does not
+hold this email). An email that spends every attempt is kept as failed, logged at error level and
+paged. The hand-over
+carries a delivery id (`resend:<email id>`) that the gateway records on the turn (`Turn.deliveryId`)
+and refuses to land twice (`duplicate`), so a redelivery, an attempt racing another, or a restart
+between the desk taking the email and the row being marked adds no second turn. The desk runs on
+that turn again only while it is unhandled: no reply to the party covers it (`coveredByReply`, the
+one-reply guard's position rule, so a reply to a later turn or a person's own words after it count)
+and no desk run recorded its result
+on it (`Turn.handledBy`, written in the same put as the run's reply; a hold or a deliberate
+no-reply is a result). So a desk run that throws after the turn landed is run again on the next
+attempt, through the file's one pass queue, and a run that finished is never run twice. The
+switches, the migration and the worker needed to turn it on are in docs/RUNBOOK.md.
 
 Automated and internal mail never becomes a turn (`ignoredReason` in `channels/resend-inbound.ts`):
 an `Auto-Submitted` header other than `no`, `Precedence` bulk, list or junk, a noreply,
