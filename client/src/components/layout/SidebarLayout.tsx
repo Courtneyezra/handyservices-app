@@ -25,11 +25,24 @@ interface SidebarLayoutProps {
  * and once, vertically, for the sub-1024px slide-out — same links, same test ids plus a variant
  * suffix so a test can tell them apart.
  */
-function TopBarQuickLinks({ variant, location, heldCount, updatedLabel, onNavigate }: {
+function UpdatedAgo({ updatedAt, className, testId }: { updatedAt: number; className: string; testId: string }) {
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(id);
+    }, []);
+    return (
+        <span data-testid={testId} className={className}>
+            {updatedAgoLabel((now - updatedAt) / 1000)}
+        </span>
+    );
+}
+
+function TopBarQuickLinks({ variant, location, heldCount, updatedAt, onNavigate }: {
     variant: 'desktop' | 'mobile';
     location: string;
     heldCount: number | null;
-    updatedLabel: string | null;
+    updatedAt: number;
     onNavigate?: () => void;
 }) {
     const vertical = variant === 'mobile';
@@ -76,10 +89,12 @@ function TopBarQuickLinks({ variant, location, heldCount, updatedLabel, onNaviga
                     </span>
                 )}
             </Link>
-            {updatedLabel && (
-                <span data-testid={`topbar-updated-${variant}`} className={cn("text-xs text-muted-foreground", vertical ? "px-3 pt-1" : "ml-1 hidden xl:inline")}>
-                    {updatedLabel}
-                </span>
+            {updatedAt > 0 && (
+                <UpdatedAgo
+                    updatedAt={updatedAt}
+                    testId={`topbar-updated-${variant}`}
+                    className={cn("text-xs text-muted-foreground", vertical ? "px-3 pt-1" : "ml-1 hidden xl:inline")}
+                />
             )}
         </nav>
     );
@@ -177,15 +192,6 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
         refetchInterval: 15_000,
     });
     const heldCount = topbarQueue ? topbarQueue.items.length : null;
-    const [topbarNow, setTopbarNow] = useState(() => Date.now());
-    useEffect(() => {
-        if (!topbarQueueUpdatedAt) return;
-        const id = setInterval(() => setTopbarNow(Date.now()), 1000);
-        return () => clearInterval(id);
-    }, [topbarQueueUpdatedAt]);
-    const topbarUpdatedLabel = topbarQueueUpdatedAt
-        ? updatedAgoLabel((topbarNow - topbarQueueUpdatedAt) / 1000)
-        : null;
 
     // Persist collapse state
     useEffect(() => {
@@ -232,7 +238,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                             variant="mobile"
                             location={location}
                             heldCount={heldCount}
-                            updatedLabel={topbarUpdatedLabel}
+                            updatedAt={topbarQueueUpdatedAt}
                             onNavigate={() => setIsSidebarOpen(false)}
                         />
                     </div>
@@ -511,7 +517,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
                                     variant="desktop"
                                     location={location}
                                     heldCount={heldCount}
-                                    updatedLabel={topbarUpdatedLabel}
+                                    updatedAt={topbarQueueUpdatedAt}
                                 />
                             </div>
                         )}
