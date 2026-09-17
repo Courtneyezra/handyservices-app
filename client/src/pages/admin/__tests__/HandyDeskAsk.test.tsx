@@ -24,9 +24,10 @@ const ROB: QueueItem = {
 };
 const SESSION = { id: 'sess_1', title: 'Handy Desk, Thu 17 Sep', createdBy: 'ben@example.test', status: 'active', createdAt: AT, updatedAt: AT };
 
-function setup(opts: { messageReply?: () => { status?: number; json?: unknown } } = {}) {
+function setup(opts: { messageReply?: () => { status?: number; json?: unknown }; listed?: boolean } = {}) {
     let messages: AskMessageDTO[] = [];
     const fetch = mockFetch([
+        ...(opts.listed ? [{ url: '/api/comms-v2/ask/sessions?limit=1', reply: () => ({ json: [SESSION] }) }] : []),
         { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB] } }) },
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
         { url: /\/api\/comms-v2\/case-files\/case_rob$/, reply: () => ({ json: { id: 'case_rob', turns: [], speakerNames: {} } }) },
@@ -93,11 +94,100 @@ describe('HandyDesk ask bar', () => {
         expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('I have held a reply for Rob.');
         expect(screen.queryByTestId('handy-desk-thinking')).toBeNull();
         expect(screen.getByTestId('handy-desk-surface')).toHaveTextContent('Hi Rob, we will give you a call.');
-        // Nothing on the answer sends: the draft goes from its card.
+        // Nothing sends until he confirms: the answer offers its confirm, and nothing was posted.
+        expect(screen.getByRole('button', { name: 'Send it' })).toBeInTheDocument();
         expect(calls.filter((c) => c.method === 'POST' && c.url.startsWith('/api/comms-v2/case-files/'))).toHaveLength(0);
 
         await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));
         expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+    });
+
+    it('a closed asked answer stays closed when the newest-answer read catches up to it', async () => {
+        const { setMessages } = setup({ listed: true });
+        const { client } = renderWithQuery(<HandyDesk />);
+        await screen.findByTestId('queue-card-case_rob');
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Show me the floor' })).toBeEnabled());
+        await userEvent.click(screen.getByRole('button', { name: 'Show me the floor' }));
+        expect(await screen.findByTestId('handy-desk-thinking')).toBeInTheDocument();
+
+        setMessages([
+            { id: 'u1', sessionId: 'sess_1', role: 'user', content: 'Show me the floor', via: 'tap', createdAt: AT } as AskMessageDTO,
+            { id: 'a1', sessionId: 'sess_1', role: 'assistant', content: 'Two files need you.', runId: 'run_1', createdAt: AT, answer: { finalText: 'Two files need you.', surface: { type: 'words' } } } as AskMessageDTO,
+        ]);
+        emit({ type: 'ops_message', sessionId: 'sess_1', message: {}, at: AT });
+        emit({ type: 'ops_run_finished', sessionId: 'sess_1', runId: 'run_1', ok: true, at: AT });
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('Two files need you.');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+        await act(async () => {
+            await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+            await new Promise((r) => setTimeout(r, 20));
+        });
+        expect(client.getQueryData<{ id: string }>(['comms-v2-ask-latest'])?.id).toBe('a1');
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+        expect(screen.getByTestId('handy-desk-idle')).toBeInTheDocument();
+    });
+
+    it('closing an asked answer keeps the answer a selected card put away, and only a new answer takes over', async () => {
+        const answerMsg = (id: string, text: string, runId: string) => [
+            { id: `u_${id}`, sessionId: 'sess_1', role: 'user', content: `asked ${id}`, via: 'typed', createdAt: AT } as AskMessageDTO,
+            { id, sessionId: 'sess_1', role: 'assistant', content: text, runId, createdAt: AT, answer: { finalText: text, surface: { type: 'words' } } } as AskMessageDTO,
+        ];
+        const earlier = answerMsg('aA', 'Answer A.', 'run_0');
+        const { setMessages } = setup({ listed: true });
+        setMessages(earlier);
+        const { client } = renderWithQuery(<HandyDesk />);
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('Answer A.');
+
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_rob')).getByText('Rob Hale'));
+        expect(await screen.findByTestId('handy-desk-thread')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByRole('button', { name: 'What needs me?' })).toBeEnabled());
+        await userEvent.type(screen.getByTestId('handy-desk-ask-input'), 'asked aB');
+        await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
+        expect(await screen.findByTestId('handy-desk-thinking')).toBeInTheDocument();
+
+        const withB = [...earlier, ...answerMsg('aB', 'Answer B.', 'run_1')];
+        setMessages(withB);
+        emit({ type: 'ops_message', sessionId: 'sess_1', message: {}, at: AT });
+        emit({ type: 'ops_run_finished', sessionId: 'sess_1', runId: 'run_1', ok: true, at: AT });
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('Answer B.');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));
+        expect(client.getQueryData<{ id: string }>(['comms-v2-ask-latest'])?.id).toBe('aA');
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+        expect(screen.getByTestId('handy-desk-thread')).toBeInTheDocument();
+
+        const refetchLatest = () => act(async () => {
+            await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+            await new Promise((r) => setTimeout(r, 20));
+        });
+        await refetchLatest();
+        expect(client.getQueryData<{ id: string }>(['comms-v2-ask-latest'])?.id).toBe('aB');
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+        expect(screen.getByTestId('handy-desk-thread')).toBeInTheDocument();
+
+        setMessages([...withB, ...answerMsg('aC', 'Answer C.', 'run_2')]);
+        await refetchLatest();
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('Answer C.');
+    });
+
+    it('Change something on the asked answer puts the sentence back in the ask bar', async () => {
+        const { setMessages } = setup();
+        renderWithQuery(<HandyDesk />);
+        await screen.findByTestId('queue-card-case_rob');
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Show me the floor' })).toBeEnabled());
+        await userEvent.click(screen.getByRole('button', { name: 'Show me the floor' }));
+        setMessages([
+            { id: 'u1', sessionId: 'sess_1', role: 'user', content: 'Show me the floor', via: 'tap', createdAt: AT } as AskMessageDTO,
+            { id: 'a1', sessionId: 'sess_1', role: 'assistant', content: 'Two files need you.', runId: 'run_1', createdAt: AT, answer: { finalText: 'Two files need you.', surface: { type: 'words' } } } as AskMessageDTO,
+        ]);
+        emit({ type: 'ops_message', sessionId: 'sess_1', message: {}, at: AT });
+        emit({ type: 'ops_run_finished', sessionId: 'sess_1', runId: 'run_1', ok: true, at: AT });
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('Two files need you.');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Change something' }));
+        expect(screen.getByTestId('handy-desk-ask-input')).toHaveValue('Show me the floor');
     });
 
     it('settles the run from the polled session when the finish event never arrives', async () => {

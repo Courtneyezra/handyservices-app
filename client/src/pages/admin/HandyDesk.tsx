@@ -15,9 +15,13 @@
  * card's copy lives in client/src/lib/handy-desk-queue.ts.
  *
  * The ask bar (T2) asks the new desk's ask agent (/api/comms-v2/ask, useAskSession); while it runs
- * the answer surface shows the thinking card, then the answer (AnswerCard), until Ben closes it.
+ * the answer surface shows the thinking card, then the answer, until Ben closes it. With no ask on
+ * screen, the right-hand side shows the newest answer on the person's newest session until a card is
+ * selected or the answer is closed; a selected card shows its thread through the same `thread`
+ * renderer (client/src/lib/handy-desk-answer.ts). Both answers render in the one AnswerCard, whose
+ * body (client/src/components/handy-desk/AnswerSurface.tsx, T3) carries the typed surface and confirm.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2 } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
@@ -26,8 +30,10 @@ import { useAskSession } from '@/hooks/useAskSession';
 import { cn } from '@/lib/utils';
 import { AnswerCard } from '@/components/handy-desk/AnswerCard';
 import { AskBar } from '@/components/handy-desk/AskBar';
-import type { AskVia } from '@shared/ops-types';
-import type { CaseFileDetail, Turn } from '@/pages/admin/CommsV2BoardPage';
+import type { AskMessageDTO, AskVia, OpsSessionDTO } from '@shared/ops-types';
+import { SurfaceBody } from '@/components/handy-desk/AnswerSurface';
+import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
+import { exchangeOfAnswered, latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
     ACTION_ROUTE, isShutWindow, needsWords, queueCardCopy, queueQuery, refusalMessage, selectionOf,
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem,
@@ -232,19 +238,6 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
 
 // ---------------------------------------------------------------- answer surface (idle: the selected thread)
 
-function timeOf(iso: string): string {
-    return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
-}
-
-function whoOf(turn: Turn, customer: string, speakerNames: Record<string, string> = {}): { label: string; desk: boolean } {
-    if (turn.direction === 'inbound') return { label: customer, desk: false };
-    if (turn.approver?.startsWith('human:')) {
-        const login = turn.approver.slice('human:'.length);
-        return { label: speakerNames[login.toLowerCase()] || login.split('@')[0] || 'Staff', desk: true };
-    }
-    return { label: 'Desk', desk: true };
-}
-
 function SelectedThread({ selection }: { selection: DeskSelection }) {
     const { data, isLoading, error } = useQuery<CaseFileDetail>({
         queryKey: ['comms-v2-case-file', selection.caseFileId],
@@ -259,28 +252,40 @@ function SelectedThread({ selection }: { selection: DeskSelection }) {
     if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>;
     if (error || !data) return <p className="text-sm text-red-600">Could not load this conversation.</p>;
 
+    const surface = threadSurfaceOfDetail(data);
     return (
         <section data-testid="handy-desk-thread" className="rounded-3xl bg-white p-5 shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
-            <p className={cn(EYEBROW, 'text-slate-500')}>Thread · {selection.name}</p>
-            <ol className="mt-4 space-y-3">
-                {data.turns.map((t) => {
-                    const who = whoOf(t, selection.name, data.speakerNames);
-                    return (
-                        <li key={t.id} className="grid grid-cols-[70px_1fr] gap-3 text-sm">
-                            <span className="pt-0.5 text-xs tabular-nums text-slate-400">{timeOf(t.at)}</span>
-                            <div className="min-w-0">
-                                <p className={cn(EYEBROW, who.desk ? 'text-amber-500' : 'text-slate-400')}>{who.label}</p>
-                                <p className="mt-0.5 whitespace-pre-wrap text-slate-800">{t.call ? (t.call.summary ?? t.call.headline) : t.body}</p>
-                            </div>
-                        </li>
-                    );
-                })}
-            </ol>
+            <p className={cn(EYEBROW, 'mb-4 text-slate-500')}>Thread · {selection.name}</p>
+            <SurfaceBody surface={{ ...surface, customerName: surface.customerName ?? selection.name }} speakerNames={data.speakerNames} />
         </section>
     );
 }
 
+/**
+ * The newest answer on the signed-in person's newest ask session (GET /api/comms-v2/ask/sessions,
+ * then the session). Read only: the page never opens a session; the ask bar does. Polled like the
+ * queue, so an answer given anywhere shows here within fifteen seconds.
+ */
+function useLatestAnswer() {
+    return useQuery<AnsweredAsk | null>({
+        queryKey: ['comms-v2-ask-latest'],
+        queryFn: async () => {
+            const list = await fetch('/api/comms-v2/ask/sessions?limit=1', { headers: getAuthHeaders() });
+            if (!list.ok) throw new Error(`Failed to load ask sessions (${list.status})`);
+            const sessions: OpsSessionDTO[] = await list.json();
+            if (!sessions[0]) return null;
+            const res = await fetch(`/api/comms-v2/ask/sessions/${encodeURIComponent(sessions[0].id)}`, { headers: getAuthHeaders() });
+            if (!res.ok) throw new Error(`Failed to load the ask session (${res.status})`);
+            const body: { messages: AskMessageDTO[] } = await res.json();
+            return latestAnswered(body.messages ?? []);
+        },
+        refetchInterval: QUEUE_REFETCH_MS,
+    });
+}
+
 // ---------------------------------------------------------------- page
+
+const FIRST_LOAD = Symbol('first answer load');
 
 export default function HandyDesk() {
     const queryClient = useQueryClient();
@@ -290,6 +295,9 @@ export default function HandyDesk() {
     const [showAnswer, setShowAnswer] = useState(false);
     const askSession = useAskSession();
     const exchange = askSession.exchange;
+    // Every answer put away; `FIRST_LOAD` stands for the answer a card selected before the first load puts away.
+    const [dismissed, setDismissed] = useState<ReadonlySet<string | typeof FIRST_LOAD>>(() => new Set());
+    const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
 
     const { data, isLoading, error } = useQuery<DeskQueue>({
         queryKey: ['comms-v2-queue'],
@@ -301,6 +309,15 @@ export default function HandyDesk() {
         refetchInterval: QUEUE_REFETCH_MS,
     });
     const { data: oldComms } = useOldComms();
+    const { data: latest } = useLatestAnswer();
+    useEffect(() => {
+        if (!dismissed.has(FIRST_LOAD) || latest === undefined) return;
+        const next = new Set(dismissed);
+        next.delete(FIRST_LOAD);
+        if (latest) next.add(latest.id);
+        setDismissed(next);
+    }, [dismissed, latest]);
+    const answered = latest && !dismissed.has(FIRST_LOAD) && !dismissed.has(latest.id) ? latest : null;
 
     const items = data?.items ?? [];
     const sandbox = data?.sandboxAvailable === true;
@@ -315,6 +332,19 @@ export default function HandyDesk() {
         const ok = await askSession.ask(text, via, selection);
         if (ok) setShowAnswer(true);
         return ok;
+    };
+
+    // Closing the asked answer puts that answer away, so a later read of the newest answer does not bring it back.
+    const closeAsked = () => {
+        setShowAnswer(false);
+        const shown = exchange?.answer?.id;
+        if (shown) dismiss(shown);
+    };
+
+    const select = (item: QueueItem) => {
+        setSelection(selectionOf(item));
+        if (latest === undefined) dismiss(FIRST_LOAD);
+        else if (latest) dismiss(latest.id);
     };
 
     // Height leaves out the layout's 64px header and its scroll container's p-4 / lg:p-8
@@ -345,7 +375,7 @@ export default function HandyDesk() {
                                     item={item}
                                     active={item.id === selection?.caseFileId}
                                     showMode={sandbox}
-                                    onSelect={() => setSelection(selectionOf(item))}
+                                    onSelect={() => select(item)}
                                     onHandled={handleHandled}
                                 />
                             ))
@@ -361,11 +391,19 @@ export default function HandyDesk() {
                 <section aria-label="Answer" className="flex min-h-[50vh] flex-col bg-slate-50 lg:min-h-0">
                     <div className="flex-1 px-4 py-6 sm:px-8 lg:overflow-y-auto">
                         {exchange && (showAnswer || exchange.live) ? (
-                            <AnswerCard exchange={exchange} onClose={() => setShowAnswer(false)} />
+                            <AnswerCard exchange={exchange} onClose={closeAsked} onChange={setAskText} onConfirmed={handleHandled} />
+                        ) : answered ? (
+                            <AnswerCard
+                                key={answered.id}
+                                exchange={exchangeOfAnswered(answered)}
+                                onClose={() => dismiss(answered.id)}
+                                onChange={answered.ask?.text ? setAskText : undefined}
+                                onConfirmed={handleHandled}
+                            />
                         ) : selection ? (
                             <SelectedThread key={selection.caseFileId} selection={selection} />
                         ) : (
-                            <p className="py-16 text-center text-sm text-slate-500">Pick something from the queue to see its conversation.</p>
+                            <p data-testid="handy-desk-idle" className="py-16 text-center text-sm text-slate-500">Pick something from the queue to see its conversation.</p>
                         )}
                     </div>
                     <AskBar

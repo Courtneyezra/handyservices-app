@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch, type RecordedCall } from '@test-utils';
 import HandyDesk from '@/pages/admin/HandyDesk';
 import type { QueueItem } from '@/lib/handy-desk-queue';
+import type { OpsAnswer } from '@shared/ops-types';
 
 function item(over: Partial<QueueItem>): QueueItem {
     return {
@@ -53,7 +54,26 @@ function routes(extra: Parameters<typeof mockFetch>[0] = []) {
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
         { url: /\/api\/comms-v2\/case-files\/case_rob$/, reply: () => ({ json: detail('case_rob', 'Rob Hale') }) },
         { url: /\/api\/comms-v2\/case-files\/case_gemma$/, reply: () => ({ json: detail('case_gemma', 'Gemma Patel') }) },
+        { url: '/api/comms-v2/ask/sessions', reply: () => ({ json: [] }) },
     ]);
+}
+
+const ANSWER: OpsAnswer = {
+    finalText: 'I drafted a reply to Rob.',
+    surface: { type: 'words' },
+    outgoing: [{ to: '+447700900111', channel: 'wa', text: 'Hi Rob, Tuesday morning works.' }],
+    confirm: { label: 'Send as is', action: { kind: 'draft.release', args: { caseFileId: 'case_rob' } } },
+};
+
+function askRoutes(gate?: Promise<void>, answerId: () => string = () => 'a1'): Parameters<typeof mockFetch>[0] {
+    const at = new Date(Date.now() - 60_000).toISOString();
+    return [
+        { url: '/api/comms-v2/ask/sessions?limit=1', reply: async () => { await gate; return { json: [{ id: 'sess_1', title: 'Today', createdBy: 'ben', status: 'active', createdAt: at, updatedAt: at }] }; } },
+        { url: '/api/comms-v2/ask/sessions/sess_1', reply: () => ({ json: { session: { id: 'sess_1' }, messages: [
+            { id: 'u1', sessionId: 'sess_1', role: 'user', content: 'Draft Rob a reply', via: 'typed', createdAt: at },
+            { id: answerId(), sessionId: 'sess_1', role: 'assistant', content: ANSWER.finalText, answer: ANSWER, createdAt: at },
+        ] } }) },
+    ];
 }
 
 describe('HandyDesk', () => {
@@ -199,5 +219,77 @@ describe('HandyDesk', () => {
         await userEvent.click(within(screen.getByTestId('queue-card-case_rob')).getByText('Rob Hale'));
         expect(await screen.findByText('Rob Hale asks a thing')).toBeInTheDocument();
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Rob Hale');
+    });
+    it('shows the newest ask answer on the right, confirms it through send-held-draft, and a selected card puts it away', async () => {
+        const { calls } = routes([
+            ...askRoutes(),
+            { method: 'POST', url: '/api/comms-v2/case-files/case_rob/send-held-draft', reply: () => ({ json: { ok: true } }) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+        const surface = await screen.findByTestId('handy-desk-answer');
+        expect(within(surface).getByTestId('handy-desk-said')).toHaveTextContent('Draft Rob a reply');
+        expect(within(surface).getByTestId('handy-desk-reply')).toHaveTextContent('I drafted a reply to Rob.');
+        expect(within(surface).getByTestId('answer-outgoing-tile')).toHaveTextContent('Hi Rob, Tuesday morning works.');
+
+        await userEvent.click(within(surface).getByRole('button', { name: 'Send as is' }));
+        expect(await within(surface).findByTestId('answer-done')).toHaveTextContent('Sent to +447700900111 on WhatsApp.');
+        expect(casePosts(calls).map((c) => c.url)).toEqual(['/api/comms-v2/case-files/case_rob/send-held-draft']);
+        expect(casePosts(calls)[0].body).toEqual({ expectedDraft: 'Hi Rob, Tuesday morning works.' });
+        expect(calls.some((c) => c.method !== 'GET' && c.url.startsWith('/api/comms-v2/ask') && !c.url.endsWith('/sessions/today'))).toBe(false);
+
+        await userEvent.click(within(screen.getByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        expect(await screen.findByTestId('handy-desk-thread')).toHaveTextContent('Gemma Patel asks a thing');
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+    });
+
+    it('closing the newest answer puts it away and shows the idle side', async () => {
+        routes(askRoutes());
+        renderWithQuery(<HandyDesk />);
+        expect(await screen.findByTestId('handy-desk-answer')).toHaveTextContent('I drafted a reply to Rob.');
+        await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+        expect(screen.getByTestId('handy-desk-idle')).toBeInTheDocument();
+    });
+
+    it('Change something on the newest answer puts its sentence back in the ask bar', async () => {
+        routes(askRoutes());
+        renderWithQuery(<HandyDesk />);
+        const surface = await screen.findByTestId('handy-desk-answer');
+        expect(screen.getByTestId('handy-desk-ask-input')).toHaveValue('');
+        await userEvent.click(within(surface).getByRole('button', { name: 'Change something' }));
+        expect(screen.getByTestId('handy-desk-ask-input')).toHaveValue('Draft Rob a reply');
+    });
+
+    it('a card selected before the ask answer loads is not replaced by that answer, only by a different one', async () => {
+        let open!: () => void;
+        const gate = new Promise<void>((r) => { open = r; });
+        let answerId = 'a1';
+        const { calls } = routes(askRoutes(gate, () => answerId));
+        const { client } = renderWithQuery(<HandyDesk />);
+        await screen.findByTestId('queue-card-case_gemma');
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+
+        await userEvent.click(within(screen.getByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        expect(await screen.findByTestId('handy-desk-thread')).toHaveTextContent('Gemma Patel asks a thing');
+        open();
+        await waitFor(() => expect(calls.some((c) => c.url === '/api/comms-v2/ask/sessions/sess_1')).toBe(true));
+        await new Promise((r) => setTimeout(r, 20));
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+        expect(screen.getByTestId('handy-desk-thread')).toHaveTextContent('Gemma Patel asks a thing');
+
+        await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+
+        answerId = 'a2';
+        await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+        expect(await screen.findByTestId('handy-desk-answer')).toHaveTextContent('I drafted a reply to Rob.');
+    });
+
+    it('with no ask session, the right side waits for a card', async () => {
+        routes();
+        renderWithQuery(<HandyDesk />);
+        await screen.findByTestId('queue-card-case_rob');
+        expect(await screen.findByTestId('handy-desk-idle')).toBeInTheDocument();
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
     });
 });
