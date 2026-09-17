@@ -244,7 +244,7 @@ export async function planWindowTemplate(input: SendWindowTemplateInput, now: Da
     let pick: Awaited<ReturnType<typeof pickTemplate>>;
     if (link) {
         pick = await pickTemplate('quote_ready', { name: party.name, topic: link, link, at: now }, templates);
-    } else if (unansweredQuestion(file, turn)) {
+    } else if (heldOnQuestion(file) && unansweredQuestion(file, turn)) {
         pick = await pickTemplate('service_reply', { name: party.name, topic: file.job.type ?? truncateWords(turn.body, 60), at: now }, templates);
     } else {
         return refuse('no template is true for this thread: the customer needs to write again before a reply can go');
@@ -271,6 +271,16 @@ export async function previewWindowTemplate(input: SendWindowTemplateInput, deps
 }
 
 /**
+ * The standing hold, if any, is for a question: raised with no exception (the composer or a guard
+ * held the reply) or on `no_source` (a question nothing on file answers). A complaint, a refund, a
+ * money line or any other exception hold is Ben's own call, so a nudge never reaches it and never
+ * clears it. Read from the recorded exception, never the reason's words.
+ */
+function heldOnQuestion(file: CaseFile): boolean {
+    return !file.hold || file.hold.exception === null || file.hold.exception === 'no_source';
+}
+
+/**
  * A template send on a shut window, from the board. Captain's ruling (Firstmate decision
  * hsa-comms-v2-board-conversation-view, superseding the earlier "always answer_ready_reopen_v1"
  * call): offer a template only when its wording is true for this thread, read off the case file
@@ -279,7 +289,7 @@ export async function previewWindowTemplate(input: SendWindowTemplateInput, deps
  *     gone out on the thread (`sentQuoteLink`);
  *   - `answer_ready_reopen_v1` only when the customer's latest message is a question nothing has
  *     answered since (`unansweredQuestion`; the desk's held acknowledgement alone is not an
- *     answer) — its wording ("you asked us about... and we have an
+ *     answer), and only when any standing hold is for a question (`heldOnQuestion`) — its wording ("you asked us about... and we have an
  *     answer") is false on any other thread;
  *   - otherwise no template applies: refuses rather than sending or offering a word that is not
  *     true, and the board shows this as "the customer needs to write again" rather than a retry.
