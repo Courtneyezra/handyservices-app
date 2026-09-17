@@ -268,21 +268,42 @@ describe('closeByHand', () => {
         expect(file.stage).toBe('done');
     });
 
-    it('releases a hold held for the same slot first, with the words or a default', () => {
+    it('closes an unheld file without words', () => {
         const file = fileFor('p1', 'scoping');
-        hold(file, { approver: BEN, reason: 'money: how much' });
         const r = closeByHand(file, { approver: BEN, person: 'ben@example.test' }, { now });
         if (!r.ok) throw new Error(r.reason);
-        expect(r.release).toMatchObject({ approver: BEN, words: 'closed the file by hand', reason: 'money: how much' });
+        expect(r.release).toBeNull();
+        expect(r.change.words).toBeUndefined();
+        expect(file.stage).toBe('done');
+    });
+
+    it('releases a hold held for the same slot first, with the person\'s own words', () => {
+        const file = fileFor('p1', 'scoping');
+        hold(file, { approver: BEN, reason: 'money: how much' });
+        const r = closeByHand(file, { approver: BEN, person: 'ben@example.test', words: 'Priced it on the phone' }, { now });
+        if (!r.ok) throw new Error(r.reason);
+        expect(r.release).toMatchObject({ approver: BEN, words: 'Priced it on the phone', reason: 'money: how much' });
         expect(file.hold).toBeNull();
         expect(file.stage).toBe('done');
-        expect(r.change.words).toBeUndefined();
+        expect(r.change.words).toBe('Priced it on the phone');
+    });
+
+    it('a held file closed without words refuses as a release does, and nothing changes', () => {
+        const file = fileFor('p1', 'scoping');
+        hold(file, { approver: BEN, reason: 'money: how much' });
+        const before = JSON.stringify(file);
+        for (const words of [undefined, '', '   ']) {
+            expect(closeByHand(file, { approver: BEN, person: 'ben@example.test', words }, { now })).toEqual({ ok: false, status: 409, reason: 'release needs the approver\'s words' });
+        }
+        expect(JSON.stringify(file)).toBe(before);
+        expect(file.hold).not.toBeNull();
+        expect(file.stage).toBe('scoping');
     });
 
     it('a hold held for another slot refuses, and nothing changes; a done file and no person refuse too', () => {
         const file = fileFor('p1', 'scoping');
         hold(file, { approver: { kind: 'human', id: 'landlord' }, reason: 'landlord: approval' });
-        expect(closeByHand(file, { approver: BEN, person: 'ben@example.test' })).toEqual({ ok: false, status: 409, reason: 'only landlord may release this hold' });
+        expect(closeByHand(file, { approver: BEN, person: 'ben@example.test', words: 'Done' })).toEqual({ ok: false, status: 409, reason: 'only landlord may release this hold' });
         expect(file.hold).not.toBeNull();
         expect(file.stage).toBe('scoping');
         expect(closeByHand(fileFor('p2', 'scoping'), { approver: BEN, person: '  ' })).toMatchObject({ ok: false, status: 400 });

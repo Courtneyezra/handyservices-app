@@ -119,7 +119,8 @@ export type HandCloseOutcome =
 /**
  * Ben closes the file from the board. The file goes to done with the person on the stage change.
  * A standing hold is released first, by the same rule as any release (only its named approver, with
- * words), so a closed file never waits in anyone's queue; when that release refuses, nothing changes.
+ * the approver's own words), so a closed file never waits in anyone's queue; when that release
+ * refuses, nothing changes. A file with no hold closes without words.
  */
 export function closeByHand(file: CaseFile, input: { approver: ApproverSlot; person: string; words?: string }, deps: { now?: () => Date } = {}): HandCloseOutcome {
     if (file.stage === 'done') return { ok: false, status: 409, reason: 'the file is already done' };
@@ -128,7 +129,7 @@ export function closeByHand(file: CaseFile, input: { approver: ApproverSlot; per
     const words = input.words?.trim() ?? '';
     let rel: HoldRelease | null = null;
     if (file.hold) {
-        const released = release(file, input.approver, words || 'closed the file by hand', deps);
+        const released = release(file, input.approver, words, deps);
         if (!released.ok) return { ok: false, status: 409, reason: released.reason };
         rel = released.value;
     }

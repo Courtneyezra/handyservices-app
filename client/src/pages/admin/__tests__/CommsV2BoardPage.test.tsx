@@ -230,6 +230,34 @@ describe('<CommsV2BoardPage>', () => {
         expect(screen.getByTestId('close-file')).toBeTruthy();
     });
 
+    it('on a held file the words box says words are required, and a close without them shows the refusal', async () => {
+        const user = userEvent.setup();
+        const board = boardWithOneCardPerStage();
+        const detail: CaseFileDetail = {
+            id: 'case_held', stage: 'scoping', mode: 'sandbox', party: null,
+            job: { type: null, location: null, quoteRef: null, bookingRef: null },
+            turns: [], facts: [],
+            hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money: how much', since: new Date().toISOString(), draft: null },
+            holdApproverAssigned: true,
+        };
+        const { calls } = mockFetch([
+            { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
+            { url: '/api/comms-v2/case-files/case_held', reply: () => ({ json: detail }) },
+            { method: 'POST', url: '/api/comms-v2/case-files/case_held/close', reply: () => ({ status: 409, json: { error: "release needs the approver's words" } }) },
+        ]);
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
+        await user.click(screen.getByTestId('board-card-case_held'));
+        await waitFor(() => expect(screen.getByTestId('close-file')).toBeTruthy());
+        await user.click(screen.getByTestId('close-file'));
+        expect(screen.getByLabelText('Your words, for the file (required to release the hold)')).toBeTruthy();
+        expect(screen.queryByLabelText('Your words, for the file (optional)')).toBeNull();
+        await user.click(screen.getByTestId('close-file-yes'));
+        await waitFor(() => expect(screen.getByTestId('close-file-error').textContent).toBe("release needs the approver's words"));
+        expect(screen.getByTestId('close-file-confirm')).toBeTruthy();
+        expect(calls.find((c) => c.method === 'POST' && c.url.endsWith('/close'))?.body).toEqual({ words: '' });
+    });
+
     it('a done file offers no close', async () => {
         const board = boardWithOneCardPerStage();
         const detail: CaseFileDetail = {

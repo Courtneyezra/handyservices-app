@@ -479,8 +479,8 @@ export function AnswerForm({ fileId, held, onAnswered, lastInboundTurnId }: {
 
 // ---------------------------------------------------------------- close by hand
 
-/** Close the file by hand: optional words, then a second tap to confirm. Shown on any file not yet done. */
-export function CloseFileForm({ fileId, onClosed }: { fileId: string; onClosed: () => void }) {
+/** Close the file by hand: words (required on a held file), then a second tap to confirm. Shown on any file not yet done. */
+export function CloseFileForm({ fileId, held, onClosed }: { fileId: string; held: boolean; onClosed: () => void }) {
     const [confirming, setConfirming] = useState(false);
     const [words, setWords] = useState('');
     const [busy, setBusy] = useState(false);
@@ -516,8 +516,8 @@ export function CloseFileForm({ fileId, onClosed }: { fileId: string; onClosed: 
     return (
         <div data-testid="close-file-confirm" className="rounded-lg border p-3">
             <p className="text-sm font-semibold">Close this file as done?</p>
-            <p className="mt-1 text-xs text-muted-foreground">The desk takes no more turns on it. The customer's next message opens a new file. A hold on it is released.</p>
-            <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="close-words">Your words, for the file (optional)</label>
+            <p className="mt-1 text-xs text-muted-foreground">The desk takes no more turns on it. The customer's next message opens a new file.{held ? ' The file is held: your words release the hold.' : ''}</p>
+            <label className="mt-3 block text-xs font-medium text-muted-foreground" htmlFor="close-words">{held ? 'Your words, for the file (required to release the hold)' : 'Your words, for the file (optional)'}</label>
             <Textarea id="close-words" value={words} onChange={(e) => setWords(e.target.value)} placeholder="Why it is closed" className="mt-1" rows={2} />
             {error && <p data-testid="close-file-error" className="mt-2 text-xs text-red-600">{error}</p>}
             <div className="mt-3 flex gap-2">
@@ -643,7 +643,7 @@ export function CaseFileDetailView({ fileId, onReleased, onAnswered, showMode = 
                     />
                 )}
                 {!readOnly && <AnswerForm fileId={data.id} held={!!data.hold} onAnswered={onAnswered} lastInboundTurnId={lastInboundTurnId} />}
-                {!readOnly && data.stage !== 'done' && <CloseFileForm key={data.id} fileId={data.id} onClosed={onAnswered} />}
+                {!readOnly && data.stage !== 'done' && <CloseFileForm key={data.id} fileId={data.id} held={!!data.hold} onClosed={onAnswered} />}
             </div>
         </div>
     );
