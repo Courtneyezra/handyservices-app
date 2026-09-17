@@ -6,7 +6,7 @@
  *
  * A card's buttons are the board's own human-send routes (POST /api/comms-v2/case-files/:id/...):
  * "Send as is" is send-held-draft, "Rewrite" and "Answer in words" are answer with Ben's words, and
- * "Release" is release with his words for the file. The server decides who may act; whatever it
+ * "Release" (under "More" on a card with no draft) is release with his words for the file. The server decides who may act; whatever it
  * refuses is shown on the card as it said it, and a shut WhatsApp window offers the template reply
  * the board offers.
  *
@@ -18,6 +18,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2 } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
+import { useOldComms } from '@/hooks/useOldComms';
 import { cn } from '@/lib/utils';
 import type { CaseFileDetail, Turn } from '@/pages/admin/CommsV2BoardPage';
 import {
@@ -54,7 +55,7 @@ const PILL_SECONDARY = cn(PILL, 'border border-slate-600 text-white hover:border
 
 // ---------------------------------------------------------------- header
 
-function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled: number; deskLive: boolean | null }) {
+function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled: number | null; deskLive: boolean | null }) {
     return (
         <header className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-800 px-4 sm:px-6">
             <span aria-hidden className="h-7 w-7 rounded-lg bg-amber-400" />
@@ -63,7 +64,9 @@ function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled:
                 <span data-testid="handy-desk-sandbox" className={cn(EYEBROW, 'rounded-full border border-amber-400/60 px-2.5 py-1 text-amber-400')}>Sandbox</span>
             )}
             <div className="ml-auto flex items-center gap-3">
-                <span data-testid="handy-desk-handled" className="hidden text-xs text-slate-400 sm:inline">{handled} handled</span>
+                {handled !== null && (
+                    <span data-testid="handy-desk-handled" title="Turns answered today, by the desk or a person" className="hidden text-xs text-slate-400 sm:inline">{handled} handled</span>
+                )}
                 {deskLive !== null && (
                     // Read-only: whether the new desk is the live desk (GET /api/comms-v2/old-comms). Switching it is the cutover runbook, not a tap here.
                     <span
@@ -93,6 +96,7 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
     const [composing, setComposing] = useState<QueueAction | null>(null);
     const [words, setWords] = useState('');
     const [busy, setBusy] = useState<QueueAction | 'template' | null>(null);
+    const [moreOpen, setMoreOpen] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [templateError, setTemplateError] = useState<string | null>(null);
     const disabled = !!copy.blocked || busy !== null;
@@ -194,12 +198,27 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
                             {busy === copy.primary.action && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                             {copy.primary.label}
                         </button>
-                        <button type="button" className={PILL_SECONDARY} disabled={disabled} onClick={() => run(copy.secondary.action)}>
-                            {copy.secondary.label}
-                        </button>
+                        {copy.secondary ? (
+                            <button type="button" className={PILL_SECONDARY} disabled={disabled} onClick={() => run(copy.secondary!.action)}>
+                                {copy.secondary.label}
+                            </button>
+                        ) : copy.more.length > 0 && (
+                            <button type="button" className={PILL_SECONDARY} disabled={disabled} aria-expanded={moreOpen} onClick={() => setMoreOpen((o) => !o)}>
+                                More
+                            </button>
+                        )}
                     </>
                 )}
             </div>
+            {!composing && moreOpen && (
+                <div className="mt-2 flex flex-wrap gap-3" onClick={(e) => e.stopPropagation()}>
+                    {copy.more.map((b) => (
+                        <button key={b.action} type="button" className="min-h-11 text-sm font-semibold text-slate-300 underline-offset-4 hover:text-amber-400 hover:underline disabled:opacity-50" disabled={disabled} onClick={() => { setMoreOpen(false); run(b.action); }}>
+                            {b.label}
+                        </button>
+                    ))}
+                </div>
+            )}
         </article>
     );
 }
@@ -259,7 +278,6 @@ function SelectedThread({ selection }: { selection: DeskSelection }) {
 export default function HandyDesk() {
     const queryClient = useQueryClient();
     const [selection, setSelection] = useState<DeskSelection | null>(null);
-    const [handled, setHandled] = useState(0);
     const [done, setDone] = useState<{ key: number; note: string }[]>([]);
 
     const { data, isLoading, error } = useQuery<DeskQueue>({
@@ -271,20 +289,12 @@ export default function HandyDesk() {
         },
         refetchInterval: QUEUE_REFETCH_MS,
     });
-    const { data: oldComms } = useQuery<{ retired: boolean }>({
-        queryKey: ['comms-v2-old-comms'],
-        queryFn: async () => {
-            const res = await fetch('/api/comms-v2/old-comms', { headers: getAuthHeaders() });
-            if (!res.ok) throw new Error(`Failed to read the desk switch (${res.status})`);
-            return res.json();
-        },
-    });
+    const { data: oldComms } = useOldComms();
 
     const items = data?.items ?? [];
     const sandbox = data?.sandboxAvailable === true;
 
     const handleHandled = (note: string) => {
-        setHandled((n) => n + 1);
         setDone((d) => [{ key: Date.now(), note }, ...d].slice(0, 3));
         queryClient.invalidateQueries({ queryKey: ['comms-v2-queue'] });
         queryClient.invalidateQueries({ queryKey: ['comms-v2-case-file'] });
@@ -292,7 +302,7 @@ export default function HandyDesk() {
 
     return (
         <div data-testid="handy-desk" className="flex h-[calc(100vh-64px)] flex-col overflow-hidden bg-slate-900 font-sans">
-            <DeskHeader sandbox={sandbox} handled={handled} deskLive={oldComms ? oldComms.retired : null} />
+            <DeskHeader sandbox={sandbox} handled={data?.handledToday ?? null} deskLive={oldComms ? oldComms.retired : null} />
 
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">

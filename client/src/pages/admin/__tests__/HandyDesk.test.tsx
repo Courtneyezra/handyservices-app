@@ -59,7 +59,11 @@ describe('HandyDesk', () => {
         expect(cards).toEqual(['queue-card-case_rob', 'queue-card-case_gemma']);
         expect(screen.getByTestId('queue-card-badge-case_rob')).toHaveTextContent('guard hold · 5 h');
         expect(screen.getByTestId('queue-card-draft-case_rob')).toHaveTextContent('Hi Rob, Tuesday morning works.');
-        expect(within(screen.getByTestId('queue-card-case_gemma')).getByRole('button', { name: 'Answer in words' })).toBeInTheDocument();
+        const gemma = within(screen.getByTestId('queue-card-case_gemma'));
+        expect(gemma.getByRole('button', { name: 'Answer in words' })).toBeInTheDocument();
+        expect(gemma.getByRole('button', { name: 'More' })).toBeInTheDocument();
+        expect(gemma.queryByRole('button', { name: 'Release' })).toBeNull();
+        expect(gemma.getAllByRole('button').filter((b) => /rounded-full/.test(b.className))).toHaveLength(2);
         expect(screen.getByTestId('handy-desk-sandbox')).toBeInTheDocument();
         expect(screen.getByTestId('handy-desk-status')).toHaveTextContent('Desk off');
         expect(calls.some((c) => c.url.startsWith('/api/desk'))).toBe(false);
@@ -75,19 +79,22 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('0 things');
     });
 
-    it('Send as is posts send-held-draft with no body, counts it handled and shows the done card', async () => {
+    it('Send as is posts send-held-draft with no body, shows the done card and the server\'s handled count again', async () => {
+        let handledToday = 4;
         const { calls } = routes([
-            { method: 'POST', url: '/api/comms-v2/case-files/case_rob/send-held-draft', reply: () => ({ json: { ok: true } }) },
+            { method: 'POST', url: '/api/comms-v2/case-files/case_rob/send-held-draft', reply: () => { handledToday += 1; return { json: { ok: true } }; } },
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB, GEMMA], handledToday, sandboxAvailable: true } }) },
         ]);
         renderWithQuery(<HandyDesk />);
         const card = await screen.findByTestId('queue-card-case_rob');
+        expect(screen.getByTestId('handy-desk-handled')).toHaveTextContent('4 handled');
         await userEvent.click(within(card).getByRole('button', { name: 'Send as is' }));
 
         await waitFor(() => expect(screen.getByTestId('handy-desk-done')).toHaveTextContent('Sent to Rob Hale'));
         const post = calls.find((c) => c.method === 'POST');
         expect(post?.url).toBe('/api/comms-v2/case-files/case_rob/send-held-draft');
         expect(post?.body).toBeNull();
-        expect(screen.getByTestId('handy-desk-handled')).toHaveTextContent('1 handled');
+        await waitFor(() => expect(screen.getByTestId('handy-desk-handled')).toHaveTextContent('5 handled'));
     });
 
     it('Answer in words opens a box and posts his words to answer', async () => {
@@ -108,12 +115,13 @@ describe('HandyDesk', () => {
         expect(post.body).toEqual({ words: 'Sorry Gemma, I will call you at 3.' });
     });
 
-    it('Release posts his words to release', async () => {
+    it('Release, under More, posts his words to release', async () => {
         const { calls } = routes([
             { method: 'POST', url: '/api/comms-v2/case-files/case_gemma/release', reply: () => ({ json: { ok: true } }) },
         ]);
         renderWithQuery(<HandyDesk />);
         const card = await screen.findByTestId('queue-card-case_gemma');
+        await userEvent.click(within(card).getByRole('button', { name: 'More' }));
         await userEvent.click(within(card).getByRole('button', { name: 'Release' }));
         await userEvent.type(within(card).getByLabelText('Your words, for the file'), 'Spoke to her, resolved.');
         await userEvent.click(within(card).getByRole('button', { name: 'Release hold' }));
@@ -161,7 +169,7 @@ describe('HandyDesk', () => {
         const card = await screen.findByTestId('queue-card-case_nobody');
         expect(within(card).getByTestId('queue-card-blocked-case_nobody')).toHaveTextContent('nobody can act on this yet');
         expect(within(card).getByRole('button', { name: 'Answer in words' })).toBeDisabled();
-        expect(within(card).getByRole('button', { name: 'Release' })).toBeDisabled();
+        expect(within(card).getByRole('button', { name: 'More' })).toBeDisabled();
     });
 
     it('selecting a card makes it the active one, shows its thread and sets the ask context', async () => {

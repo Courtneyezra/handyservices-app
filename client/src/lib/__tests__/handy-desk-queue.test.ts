@@ -1,7 +1,7 @@
 /**
  * Handy Desk T1 - a held case file from the new desk reads as a "Needs you" card: the badge is the
  * hold reason and the working-hours wait, a held draft offers "Send as is" / "Rewrite", no draft
- * offers "Answer in words" / "Release", each on the board's own route, and a refusal reads as the
+ * offers "Answer in words" with "Release" under "More", each on the board's own route, and a refusal reads as the
  * desk said it.
  */
 import { describe, expect, it } from 'vitest';
@@ -52,16 +52,18 @@ describe('queueCardCopy', () => {
         expect(copy.draft).toBe('Hi Rob, Tuesday works.');
         expect(copy.primary).toEqual({ action: 'send_held_draft', label: 'Send as is' });
         expect(copy.secondary).toEqual({ action: 'rewrite', label: 'Rewrite' });
+        expect(copy.more).toEqual([]);
         expect(ACTION_ROUTE[copy.primary.action]).toBe('send-held-draft');
-        expect(ACTION_ROUTE[copy.secondary.action]).toBe('answer');
+        expect(ACTION_ROUTE[copy.secondary!.action]).toBe('answer');
         expect(needsWords(copy.primary.action)).toBe(false);
-        expect(needsWords(copy.secondary.action)).toBe(true);
+        expect(needsWords(copy.secondary!.action)).toBe(true);
     });
 
-    it('no draft offers Answer in words, on answer, and Release, on release, both with words', () => {
+    it('no draft offers Answer in words, on answer, and Release under More, on release, both with words', () => {
         const copy = queueCardCopy(item());
         expect(copy.primary).toEqual({ action: 'answer', label: 'Answer in words' });
-        expect(copy.secondary).toEqual({ action: 'release', label: 'Release' });
+        expect(copy.secondary).toBeNull();
+        expect(copy.more).toEqual([{ action: 'release', label: 'Release' }]);
         expect(ACTION_ROUTE.answer).toBe('answer');
         expect(ACTION_ROUTE.release).toBe('release');
         expect(needsWords('answer') && needsWords('release')).toBe(true);

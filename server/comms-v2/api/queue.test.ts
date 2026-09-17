@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { queueOf } from './queue';
-import { hold, open, type CaseFile } from '../desk/case-file';
+import { appendTurn, hold, open, type CaseFile } from '../desk/case-file';
 import type { ResolveResult } from '../desk/identity';
 
 let seq = 0;
@@ -78,6 +78,25 @@ describe('queueOf', () => {
     });
 
     it('an empty desk is an empty queue', () => {
-        expect(queueOf([], {}, {}, NOW)).toEqual({ items: [] });
+        expect(queueOf([], {}, {}, NOW)).toEqual({ items: [], handledToday: 0 });
+    });
+
+    it('counts the turns handled since London midnight, one per outbound run, by the desk or a person, held or not', () => {
+        function reply(file: CaseFile, when: string, runId: string, approver: string) {
+            const done = appendTurn(file, { at: when, channel: 'whatsapp', direction: 'outbound', partyId: file.turns[0].partyId, kind: 'text', body: 'Reply', media: [], runId, approver });
+            if (!done.ok) throw new Error(done.reason);
+        }
+        const answered = openFile('Answered', '2026-09-10T20:00:00.000Z');
+        reply(answered, '2026-09-10T22:30:00.000Z', 'run_yesterday', 'agent.comms_v2'); // Thu 23:30 BST
+        reply(answered, '2026-09-10T23:30:00.000Z', 'run_desk', 'agent.comms_v2');      // Fri 00:30 BST
+        reply(answered, '2026-09-10T23:30:05.000Z', 'run_desk', 'agent.comms_v2');      // second bubble, same run
+        reply(answered, '2026-09-11T09:00:00.000Z', 'run_ben', 'human:ben@example.com');
+        const held = heldFile('Held', '2026-09-11T08:00:00.000Z');
+        reply(held, '2026-09-11T08:30:00.000Z', 'run_held', 'agent.comms_v2');
+
+        const queue = queueOf([answered, held], {}, {}, NOW);
+        expect(queue.handledToday).toBe(3);
+        expect(queue.items.map((i) => i.customerName)).toEqual(['Held']);
+        expect(queueOf([answered, held], { mode: 'live' }, {}, NOW).handledToday).toBe(0);
     });
 });

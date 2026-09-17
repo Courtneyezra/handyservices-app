@@ -10,7 +10,7 @@
  * same ones the board shows.
  */
 import type { CaseFile } from '../desk/case-file';
-import { workingHoursBetween } from '../../working-hours';
+import { ukParts, workingHoursBetween } from '../../working-hours';
 import type { ApproverAssignments } from './approvers';
 import { cardOf, type BoardCard, type BoardMode } from './board';
 
@@ -23,14 +23,26 @@ export interface QueueItem extends BoardCard {
 
 export interface DeskQueue {
     items: QueueItem[];
+    /** Turns answered today (since local midnight, Europe/London): one per outbound run, by the desk or a person. */
+    handledToday: number;
+}
+
+function ukDay(d: Date): string {
+    const p = ukParts(d);
+    return `${p.year}-${p.month}-${p.day}`;
 }
 
 export function queueOf(files: CaseFile[], filter: { mode?: BoardMode } = {}, assignments: ApproverAssignments = {}, now: Date = new Date()): DeskQueue {
     const items: QueueItem[] = [];
+    const today = ukDay(now);
+    const handledRuns = new Set<string>();
     for (const file of files) {
-        if (!file.hold) continue;
         const card = cardOf(file, assignments);
         if (filter.mode && card.mode !== filter.mode) continue;
+        for (const t of file.turns) {
+            if (t.direction === 'outbound' && t.runId && ukDay(new Date(t.at)) === today) handledRuns.add(`${file.id}:${t.runId}`);
+        }
+        if (!file.hold) continue;
         items.push({
             ...card,
             draft: file.hold.draft,
@@ -39,5 +51,5 @@ export function queueOf(files: CaseFile[], filter: { mode?: BoardMode } = {}, as
     }
     // Longest working-hours wait first; two equal waits (both raised out of hours) fall back to the older hold.
     items.sort((a, b) => b.waitingWorkingHours - a.waitingWorkingHours || Date.parse(a.holdSince!) - Date.parse(b.holdSince!));
-    return { items };
+    return { items, handledToday: handledRuns.size };
 }

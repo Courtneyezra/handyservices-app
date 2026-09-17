@@ -14,6 +14,8 @@ export interface QueueItem extends BoardCard {
 
 export interface DeskQueue {
     items: QueueItem[];
+    /** Turns the new desk or a person answered since local midnight in London. */
+    handledToday?: number;
     sandboxAvailable?: boolean;
 }
 
@@ -35,7 +37,10 @@ export interface QueueCardCopy {
     body: string | null;
     draft: string | null;
     primary: QueueButton;
-    secondary: QueueButton;
+    /** The outlined pill; null on a card whose only other action sits behind "More". */
+    secondary: QueueButton | null;
+    /** Actions under the card's "More" control. */
+    more: QueueButton[];
     /** Why nobody can act on the card yet, when that is so. */
     blocked: string | null;
 }
@@ -88,7 +93,8 @@ export function queueCardCopy(item: QueueItem): QueueCardCopy {
         body: item.lastCustomerMessage,
         draft: item.draft,
         primary: hasDraft ? { action: 'send_held_draft', label: 'Send as is' } : { action: 'answer', label: 'Answer in words' },
-        secondary: hasDraft ? { action: 'rewrite', label: 'Rewrite' } : { action: 'release', label: 'Release' },
+        secondary: hasDraft ? { action: 'rewrite', label: 'Rewrite' } : null,
+        more: hasDraft ? [] : [{ action: 'release', label: 'Release' }],
         blocked: item.holdApproverAssigned
             ? null
             : `No one is assigned to the ${item.holdApprover ?? 'approver'} slot, so nobody can act on this yet. Set the comms_v2_approvers row.`,

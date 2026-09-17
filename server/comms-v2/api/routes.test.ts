@@ -108,6 +108,7 @@ describe('the board over the sandbox door', () => {
         const detail = await call('GET', `/case-files/${id}`);
         expect(queue.json.items[0]).toMatchObject({ held: true, holdApprover: 'ben', lastCustomerMessage: 'How much roughly?', draft: detail.json.hold.draft });
         expect(typeof queue.json.items[0].waitingWorkingHours).toBe('number');
+        expect(typeof queue.json.handledToday).toBe('number');
         expect(typeof queue.json.sandboxAvailable).toBe('boolean');
 
         const liveOnly = await call('GET', '/queue?mode=live');
