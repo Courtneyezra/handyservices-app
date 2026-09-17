@@ -3,8 +3,8 @@
  * Both are reads; there is no write here.
  *
  * GET /diary/week?start=YYYY-MM-DD&weeks=1..6 - every contractor's lanes from the Monday on or
- *     before `start` (default: this week in London), the "Not jobs" row and the booked / open
- *     counts (week.ts diaryWeekOf). The page asks for one week, or the weeks a month spans.
+ *     before `start` (default: this week in London) and the "Not jobs" row (week.ts diaryWeekOf).
+ *     The page asks for one week, or the weeks a month spans.
  * GET /diary/today - the Today strip (week.ts diaryTodayOf) for today in London.
  *
  * A job chip names the case file for its job from the same store the board reads (api/store.ts), so

@@ -60,7 +60,6 @@ export interface DiaryWeek {
     today: string;
     lanes: DiaryLane[];
     notJobs: DiaryNotJob[];
-    counts: { booked: number; open: number };
 }
 
 export interface TodayContractor {
@@ -186,6 +185,11 @@ export function visibleDates(week: Pick<DiaryWeek, 'dates' | 'lanes'>): string[]
     return week.dates.filter((date) => !isWeekend(date) || week.lanes.some((l) => l.days.some((d) => d.date === date && d.cells.some((c) => c.jobs.length > 0))));
 }
 
+/** The days a month view shows: every weekday of the range, whatever is on it. */
+export function weekdayDates(week: Pick<DiaryWeek, 'dates'>): string[] {
+    return week.dates.filter((date) => !isWeekend(date));
+}
+
 export const SLOT_LABEL: Record<DiarySlot, string> = { am: 'AM', pm: 'PM', full: 'Full' };
 export const OFFERED_LABEL: Record<DiaryOffered, string> = { am: 'AM', pm: 'PM', full: 'Full', off: 'Off' };
 
@@ -236,28 +240,53 @@ export interface MonthDay {
     note: string;
 }
 
+/** One bar per contractor half-day on a day, booked first: a Full cell is two halves. The diary's one unit. */
+export function halfDayBars(week: Pick<DiaryWeek, 'lanes'>, date: string): BarKind[] {
+    const bars: BarKind[] = [];
+    for (const lane of week.lanes) {
+        const day = lane.days.find((d) => d.date === date);
+        if (!day) continue;
+        for (const cell of day.cells) for (let i = 0; i < (cell.slot === 'full' ? 2 : 1); i += 1) bars.push(cell.state);
+    }
+    const order: Record<BarKind, number> = { booked: 0, open: 1, off: 2 };
+    return bars.sort((a, b) => order[a] - order[b]);
+}
+
 /** One bar per contractor half-day, booked first; fill is booked over the half-days offered or booked. */
 export function monthDays(week: DiaryWeek, firstOfMonth: string): MonthDay[] {
     const month = firstOfMonth.slice(0, 7);
-    return week.dates.filter((d) => !isWeekend(d)).map((date) => {
-        const bars: BarKind[] = [];
+    return weekdayDates(week).map((date) => {
+        const bars = halfDayBars(week, date);
         const names: string[] = [];
         for (const lane of week.lanes) {
             const day = lane.days.find((d) => d.date === date);
-            if (!day) continue;
-            for (const cell of day.cells) {
-                const halves = cell.slot === 'full' ? 2 : 1;
-                for (let i = 0; i < halves; i += 1) bars.push(cell.state);
+            for (const cell of day?.cells ?? []) {
                 if (cell.state === 'booked') for (const j of cell.jobs) if (j.spanDays > 1 && j.spanDay === 1) names.push(`${j.customerName} · ${j.spanDays}-day block`);
             }
         }
-        const order: Record<BarKind, number> = { booked: 0, open: 1, off: 2 };
-        bars.sort((a, b) => order[a] - order[b]);
         const booked = bars.filter((b) => b === 'booked').length;
         const total = bars.filter((b) => b !== 'off').length;
         const note = names[0] ?? (total > 0 && booked === 0 ? 'Nothing booked' : '');
         return { date, inMonth: date.slice(0, 7) === month, bars, booked, total, note };
     });
+}
+
+// ---------------------------------------------------------------- the header's figures
+
+/**
+ * The header's figures, in contractor half-days - the unit the month's bars draw - over exactly the
+ * days the view on screen shows, so a Saturday no view draws never counts.
+ */
+export function halfDayCounts(week: Pick<DiaryWeek, 'lanes'>, dates: string[]): { booked: number; open: number } {
+    let booked = 0;
+    let open = 0;
+    for (const date of dates) {
+        for (const bar of halfDayBars(week, date)) {
+            if (bar === 'booked') booked += 1;
+            else if (bar === 'open') open += 1;
+        }
+    }
+    return { booked, open };
 }
 
 // ---------------------------------------------------------------- today

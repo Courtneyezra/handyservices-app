@@ -1,6 +1,6 @@
 /**
  * Ben's diary (B6), read the way the page reads it: a week of lanes with AM / PM / Full / Off cells,
- * multi-day spans, the case file a job chip opens, the "Not jobs" row, the counts, and the Today strip.
+ * multi-day spans, the case file a job chip opens, the "Not jobs" row, and the Today strip.
  */
 import { describe, expect, it } from 'vitest';
 import type { CaseFile } from '../desk/case-file';
@@ -130,13 +130,6 @@ describe('the diary week', () => {
         expect(day(w, 'hp_craig', MON).cells[0].jobs[0]).toMatchObject({ caseFileId: 'case_new', held: true });
         expect(day(w, 'hp_craig', TUE).cells[0].jobs[0]).toMatchObject({ caseFileId: 'case_booking', held: false });
         expect(day(w, 'hp_craig', WED).cells[0].jobs[0]).toMatchObject({ caseFileId: null, held: false });
-    });
-
-    it('counts booked and open cells across the range', () => {
-        const w = diaryWeekOf(rows({ bookings: [booking({ scheduledDate: MON, scheduledSlot: 'full_day' }), booking({ id: 'bk_b', scheduledDate: TUE, scheduledSlot: 'am' })] }), [], { start: MON, weeks: 1, today: MON });
-        // Craig: Mon full (1 booked), Tue AM booked + PM open, Wed-Fri 2 open each = 1+1 booked, 1+6 open.
-        // Marek: Mon-Fri one open AM each = 5 open.
-        expect(w.counts).toEqual({ booked: 2, open: 12 });
     });
 
     it('lists the "Not jobs" row in the range with a label and the contractor, in date and time order', () => {

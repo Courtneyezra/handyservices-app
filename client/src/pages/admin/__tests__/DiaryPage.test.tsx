@@ -39,7 +39,6 @@ function weekFrom(from: string, over: Partial<DiaryWeek> = {}, days = 7): DiaryW
             { contractorId: 'hp_marek', name: 'Marek Test', initials: 'MT', trades: [], days: dates.map(offDay) },
         ],
         notJobs: [{ id: 'di_1', date: dates[0], contractorId: 'hp_craig', contractorName: 'Craig Test', slot: 'pm', startTime: '17:30', kind: 'quote_visit', label: 'Quote visit · Gemma H. · Craig 17:30', done: false }],
-        counts: { booked: 3, open: 9 },
         ...over,
     };
 }
@@ -56,8 +55,9 @@ describe('DiaryPage', () => {
         const week = await screen.findByTestId('diary-week');
         expect(calls[0].url).toBe(`/api/comms-v2/diary/week?start=${MON}&weeks=1`);
         expect(screen.getByTestId('diary-range')).toHaveTextContent('21–25 Sep 2026');
-        expect(screen.getByTestId('diary-counts')).toHaveTextContent('3 booked');
-        expect(screen.getByTestId('diary-counts')).toHaveTextContent('9 open slots');
+        // Craig Mon-Fri: 2 open, AM booked + PM open, Full, Full, 2 open; Marek off. Half-days, the month's unit.
+        expect(screen.getByTestId('diary-counts')).toHaveTextContent('5 half-days booked');
+        expect(screen.getByTestId('diary-counts')).toHaveTextContent('5 half-days open');
 
         // Mon-Fri only: the weekend has nothing booked.
         expect(within(week).queryByTestId('diary-day-head-2026-09-26')).not.toBeInTheDocument();
@@ -109,6 +109,45 @@ describe('DiaryPage', () => {
         expect(screen.getByTestId('diary-side')).toHaveTextContent('Marek is off');
 
         expect(calls.every((c) => c.method === 'GET')).toBe(true);
+    });
+
+    it('counts in half-days over the days on screen, so a Saturday the grid leaves out never inflates the figures', async () => {
+        // Craig is offered Mon-Sat with nothing booked; nobody has a job at the weekend, so the grid is Mon-Fri.
+        const offeredAllWeek = (from: string): DiaryWeek => {
+            const base = weekFrom(from);
+            return { ...base, notJobs: [], lanes: [{ contractorId: 'hp_craig', name: 'Craig Test', initials: 'CT', trades: [], days: base.dates.map((d, i) => (i === 6 ? offDay(d) : openDay(d))) }] };
+        };
+        diaryRoutes((u) => ({ json: offeredAllWeek(u.searchParams.get('start')!) }));
+        renderWithQuery(<DiaryPage initialToday={TODAY} />);
+        const week = await screen.findByTestId('diary-week');
+
+        expect(within(week).queryByTestId('diary-day-head-2026-09-26')).not.toBeInTheDocument();
+        expect(screen.getByTestId('diary-counts')).toHaveTextContent('0 half-days booked');
+        expect(screen.getByTestId('diary-counts')).toHaveTextContent('10 half-days open');
+    });
+
+    it('draws and counts a Saturday with a job in the week, and neither draws nor counts it in the month', async () => {
+        const satBooked = (from: string, days: number): DiaryWeek => {
+            const base = weekFrom(from, {}, days);
+            const sat = addDays(base.start, 5);
+            const days_ = base.dates.map((d): DiaryDay => (d === sat
+                ? { date: d, offered: 'full', cells: [{ slot: 'full', state: 'booked', jobs: [job({ bookingId: 'bk_sat', slot: 'full' })] }] }
+                : offDay(d)));
+            return { ...base, notJobs: [], lanes: [{ contractorId: 'hp_craig', name: 'Craig Test', initials: 'CT', trades: [], days: days_ }] };
+        };
+        diaryRoutes((u) => ({ json: satBooked(u.searchParams.get('start')!, Number(u.searchParams.get('weeks')) * 7) }));
+        renderWithQuery(<DiaryPage initialToday={TODAY} />);
+        const week = await screen.findByTestId('diary-week');
+
+        expect(within(week).getByTestId('diary-day-head-2026-09-26')).toBeInTheDocument();
+        expect(within(week).getByTestId('diary-cell-hp_craig-2026-09-26-full')).toHaveTextContent('Test Customer');
+        expect(screen.getByTestId('diary-counts')).toHaveTextContent('2 half-days booked');
+        expect(screen.getByTestId('diary-counts')).toHaveTextContent('0 half-days open');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Month' }));
+        const month = await screen.findByTestId('diary-month');
+        expect(within(month).queryByTestId('diary-month-day-2026-09-05')).not.toBeInTheDocument();
+        expect(screen.getByTestId('diary-counts')).toHaveTextContent('0 half-days booked');
     });
 
     it('shows a job held on the desk in amber', async () => {
@@ -176,7 +215,7 @@ describe('DiaryPage', () => {
     it('shows a loading state, then the empty state when nobody is offered', async () => {
         let release!: () => void;
         const gate = new Promise<void>((r) => { release = r; });
-        mockFetch([{ url: '/api/comms-v2/diary/week', reply: async (c) => { await gate; return { json: weekFrom(new URL(c.url, 'http://x').searchParams.get('start')!, { lanes: [], notJobs: [], counts: { booked: 0, open: 0 } }) }; } }]);
+        mockFetch([{ url: '/api/comms-v2/diary/week', reply: async (c) => { await gate; return { json: weekFrom(new URL(c.url, 'http://x').searchParams.get('start')!, { lanes: [], notJobs: [] }) }; } }]);
         renderWithQuery(<DiaryPage initialToday={TODAY} />);
         expect(await screen.findByTestId('diary-loading')).toBeInTheDocument();
         release();

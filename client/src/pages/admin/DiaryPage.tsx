@@ -16,8 +16,8 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { adminAuthHeaders } from '@/lib/admin-auth';
 import { cn } from '@/lib/utils';
 import {
-    addDays, addMonths, cellCopy, dayNumber, dowOf, londonToday, monthDays, monthLabel, monthOf, monthStart, mondayOf,
-    shortDate, threadPath, visibleDates, weekLabel, weekQuery, weeksInMonth,
+    addDays, addMonths, cellCopy, dayNumber, dowOf, halfDayCounts, londonToday, monthDays, monthLabel, monthOf, monthStart, mondayOf,
+    shortDate, threadPath, visibleDates, weekLabel, weekQuery, weekdayDates, weeksInMonth,
     type CellKind, type DiaryCell, type DiaryLane, type DiaryView, type DiaryWeek,
 } from '@/lib/diary';
 
@@ -308,6 +308,9 @@ export default function DiaryPage({ initialToday }: { initialToday?: string } = 
 
     useEffect(() => setSelected(null), [url]);
 
+    // The figures describe what is on screen: the days this view draws, in contractor half-days.
+    const counts = useMemo(() => (data ? halfDayCounts(data, view === 'month' ? weekdayDates(data) : visibleDates(data)) : null), [data, view]);
+
     const step = (n: number) => (view === 'week' ? setWeekStart((w) => addDays(w, 7 * n)) : setMonth((m) => addMonths(m, n)));
     const goToday = () => { setView('week'); setWeekStart(mondayOf(today)); setMonth(monthOf(today)); };
     const pickWeek = (monday: string) => { setWeekStart(monday); setView('week'); };
@@ -330,10 +333,10 @@ export default function DiaryPage({ initialToday }: { initialToday?: string } = 
                     <button type="button" aria-label="Next" className={ROUND_BTN} onClick={() => step(1)}><ChevronRight className="h-4 w-4" /></button>
                     <button type="button" className="h-9 rounded-full border border-slate-700 px-3 text-xs text-slate-400 hover:border-amber-400 hover:text-amber-400" onClick={goToday}>Today</button>
                 </div>
-                {data && (
+                {counts && (
                     <div data-testid="diary-counts" className="flex gap-4 text-xs text-slate-400 lg:ml-auto">
-                        <span><span className="font-bold text-white">{data.counts.booked}</span> booked</span>
-                        <span><span className="font-bold text-amber-400">{data.counts.open}</span> open slots</span>
+                        <span><span className="font-bold text-white">{counts.booked}</span> half-days booked</span>
+                        <span><span className="font-bold text-amber-400">{counts.open}</span> half-days open</span>
                     </div>
                 )}
             </header>

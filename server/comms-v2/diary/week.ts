@@ -149,7 +149,6 @@ export interface DiaryWeek {
     today: string;
     lanes: DiaryLane[];
     notJobs: DiaryNotJob[];
-    counts: { booked: number; open: number };
 }
 
 // ---------------------------------------------------------------- dates
@@ -231,8 +230,9 @@ function offeredOf(day: Pick<DayAvailability, 'am' | 'pm'>): DiaryOffered {
 
 /**
  * Every contractor with something on the diary in the range (an active weekly pattern, an override,
- * a booking), as lanes of days of cells, plus the non-job row and the counts. `start` is snapped to
- * its Monday; `weeks` is clamped to 1..MAX_WEEKS.
+ * a booking), as lanes of days of cells, plus the non-job row. `start` is snapped to its Monday;
+ * `weeks` is clamped to 1..MAX_WEEKS. What the header counts is the view's own, over the days it
+ * draws (client/src/lib/diary.ts `halfDayCounts`), so nothing here adds up cells.
  */
 export function diaryWeekOf(rows: DiaryRows, files: CaseFile[], opts: { start: string; weeks: number; today: string }): DiaryWeek {
     const start = mondayOf(opts.start);
@@ -266,8 +266,6 @@ export function diaryWeekOf(rows: DiaryRows, files: CaseFile[], opts: { start: s
         });
     }
 
-    let booked = 0;
-    let open = 0;
     const lanes: DiaryLane[] = [];
     for (const c of rows.contractors) {
         const patterns = rows.patterns.filter((p) => p.contractorId === c.id);
@@ -291,10 +289,6 @@ export function diaryWeekOf(rows: DiaryRows, files: CaseFile[], opts: { start: s
             } else {
                 cells = (['am', 'pm'] as const).map((s) => ({ slot: s, state: day[s], jobs: dayJobs.filter((j) => j.slot === s) }));
             }
-            for (const cell of cells) {
-                if (cell.state === 'booked') booked += 1;
-                if (cell.state === 'open') open += 1;
-            }
             return { date: day.date, offered, cells };
         });
         lanes.push({ contractorId: c.id, name: c.name, initials: initialsOf(c.name), trades: c.trades, days });
@@ -311,7 +305,7 @@ export function diaryWeekOf(rows: DiaryRows, files: CaseFile[], opts: { start: s
         })
         .sort((a, b) => a.date.localeCompare(b.date) || (a.startTime ?? a.slot).localeCompare(b.startTime ?? b.slot));
 
-    return { start, dates, today: opts.today, lanes, notJobs, counts: { booked, open } };
+    return { start, dates, today: opts.today, lanes, notJobs };
 }
 
 // ---------------------------------------------------------------- today
