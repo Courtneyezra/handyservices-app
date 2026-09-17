@@ -66,6 +66,7 @@ Rules:
 4. Diary, map, quote and ledger views are not connected to this desk yet. If asked, answer in words with what the case files show and say so.
 5. Never invent data: every name, count and quote from a customer must come from a tool result. If the selected card is named, start there.
 6. If a draft is refused, say why in plain words; do not retry more than once with a different brief.
+7. Earlier messages in this conversation describe the desk as it was then. What is held, waiting or drafted now comes only from this ask's fresh read and your tool results.
 
 Answer surface: "thread" for one customer's conversation (always when you drafted or looked at one file), "floor" for the whole board, "words" otherwise. finalText is one to three short sentences, UK English, plain, no markdown.`;
 
@@ -141,7 +142,10 @@ export function contextFile(files: CaseFile[], context: AskContext | null): Case
     return hits[0] ?? null;
 }
 
-function goalFor(opts: RunAskTurnOptions, selected: CaseFile | null, route: AskRoute | null): string {
+/** Characters of a fresh read the goal carries. */
+const FRESH_READ_CAP = 12000;
+
+function goalFor(opts: RunAskTurnOptions, selected: CaseFile | null, route: AskRoute | null, fresh: { tool: string; result: unknown } | null): string {
     const lines = [`Ben ${opts.via === 'voice' ? 'said' : opts.via === 'tap' ? 'tapped' : 'typed'}: ${opts.userMessage}`];
     if (selected) {
         const party = customerOf(selected);
@@ -152,6 +156,10 @@ function goalFor(opts: RunAskTurnOptions, selected: CaseFile | null, route: AskR
         lines.push('No card is selected.');
     }
     if (route) lines.push(`Router hint: surface ${route.surface}${route.wantsDraft ? ', wants a draft' : ''}.`);
+    if (fresh) {
+        const json = JSON.stringify(fresh.result);
+        lines.push(`Fresh ${fresh.tool} read, taken for this ask (the current state; answer from this, not from earlier messages):\n${json.length > FRESH_READ_CAP ? `${json.slice(0, FRESH_READ_CAP)}...` : json}`);
+    }
     return lines.join('\n');
 }
 
@@ -207,10 +215,25 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
     }
 
     const tools = askTools({ source: deps.source, assignments, approver: opts.approver, person: opts.person, client, now }, state);
+
+    // The session carries earlier runs' answers, which go stale: a floor ask reads the board and a
+    // thread ask reads the selected file before the reasoner starts, whatever the history says.
+    const freshRead = routed.route?.surface === 'floor' ? { tool: 'get_board', input: {} }
+        : selected && (!routed.route || routed.route.surface === 'thread') ? { tool: 'get_case_file', input: { caseFileId: selected.id } }
+        : null;
+    let fresh: { tool: string; result: unknown } | null = null;
+    if (freshRead) {
+        const tool = tools.find((t) => t.name === freshRead.tool)!;
+        push(lean({ at: now().toISOString(), type: 'tool_call', detail: freshRead }));
+        const result = await tool.run(freshRead.input);
+        push(lean({ at: now().toISOString(), type: 'tool_result', detail: { tool: freshRead.tool, result } }));
+        fresh = { tool: freshRead.tool, result };
+    }
+
     const result = await loop({
         name: `${ASK_AGENT_NAME}:${opts.sessionId.slice(0, 8)}`,
         system: ASK_SYSTEM,
-        goal: goalFor(opts, selected, routed.route),
+        goal: goalFor(opts, selected, routed.route, fresh),
         tools,
         model: SPECIALIST_MODEL,
         maxTurns: MAX_TURNS,

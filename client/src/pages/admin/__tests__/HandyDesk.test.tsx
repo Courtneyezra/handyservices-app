@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithQuery, mockFetch } from '@test-utils';
+import { renderWithQuery, mockFetch, type RecordedCall } from '@test-utils';
 import HandyDesk from '@/pages/admin/HandyDesk';
 import type { QueueItem } from '@/lib/handy-desk-queue';
 
@@ -38,9 +38,17 @@ function detail(id: string, name: string) {
     };
 }
 
+const SESSION = { id: 'sess_1', title: 'Handy Desk, Thu 17 Sep', createdBy: 'ben@example.test', status: 'active', createdAt: '2026-09-17T08:00:00.000Z', updatedAt: '2026-09-17T08:00:00.000Z' };
+const ASK_ROUTES: Parameters<typeof mockFetch>[0] = [
+    { method: 'POST', url: '/api/comms-v2/ask/sessions/today', reply: () => ({ json: SESSION }) },
+    { url: '/api/comms-v2/ask/sessions/sess_1', reply: () => ({ json: { session: SESSION, messages: [] } }) },
+];
+const casePosts = (calls: RecordedCall[]) => calls.filter((c) => c.method === 'POST' && c.url.startsWith('/api/comms-v2/case-files/'));
+
 function routes(extra: Parameters<typeof mockFetch>[0] = []) {
     return mockFetch([
         ...extra,
+        ...ASK_ROUTES,
         { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB, GEMMA], sandboxAvailable: true } }) },
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
         { url: /\/api\/comms-v2\/case-files\/case_rob$/, reply: () => ({ json: detail('case_rob', 'Rob Hale') }) },
@@ -73,6 +81,7 @@ describe('HandyDesk', () => {
         mockFetch([
             { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [] } }) },
             { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: true } }) },
+            ...ASK_ROUTES,
         ]);
         renderWithQuery(<HandyDesk />);
         expect(await screen.findByTestId('handy-desk-empty')).toHaveTextContent('Nothing needs you.');
@@ -91,7 +100,7 @@ describe('HandyDesk', () => {
         await userEvent.click(within(card).getByRole('button', { name: 'Send as is' }));
 
         await waitFor(() => expect(screen.getByTestId('handy-desk-done')).toHaveTextContent('Sent to Rob Hale'));
-        const post = calls.find((c) => c.method === 'POST');
+        const post = casePosts(calls)[0];
         expect(post?.url).toBe('/api/comms-v2/case-files/case_rob/send-held-draft');
         expect(post?.body).toBeNull();
         await waitFor(() => expect(screen.getByTestId('handy-desk-handled')).toHaveTextContent('5 handled'));
@@ -109,8 +118,8 @@ describe('HandyDesk', () => {
         await userEvent.type(within(card).getByLabelText('Your reply to the customer'), 'Sorry Gemma, I will call you at 3.');
         await userEvent.click(send);
 
-        await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true));
-        const post = calls.find((c) => c.method === 'POST')!;
+        await waitFor(() => expect(casePosts(calls).length > 0).toBe(true));
+        const post = casePosts(calls)[0]!;
         expect(post.url).toBe('/api/comms-v2/case-files/case_gemma/answer');
         expect(post.body).toEqual({ words: 'Sorry Gemma, I will call you at 3.' });
     });
@@ -127,7 +136,7 @@ describe('HandyDesk', () => {
         await userEvent.click(within(card).getByRole('button', { name: 'Release hold' }));
 
         await waitFor(() => expect(screen.getByTestId('handy-desk-done')).toHaveTextContent('Released Gemma Patel'));
-        expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ words: 'Spoke to her, resolved.' });
+        expect(casePosts(calls)[0]?.body).toEqual({ words: 'Spoke to her, resolved.' });
     });
 
     it('a shut window refusal is shown as the desk said it, with the template reply offered', async () => {
@@ -143,7 +152,7 @@ describe('HandyDesk', () => {
         expect(await within(card).findByTestId('queue-card-error-case_rob')).toHaveTextContent(reason);
         await userEvent.click(within(card).getByRole('button', { name: 'Send a template reply' }));
         expect(await within(card).findByTestId('queue-card-template-error-case_rob')).toHaveTextContent('no template is true for this thread');
-        expect(calls.filter((c) => c.method === 'POST').map((c) => c.url)).toEqual([
+        expect(casePosts(calls).map((c) => c.url)).toEqual([
             '/api/comms-v2/case-files/case_rob/send-held-draft',
             '/api/comms-v2/case-files/case_rob/send-template',
         ]);
@@ -164,6 +173,7 @@ describe('HandyDesk', () => {
         mockFetch([
             { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [item({ id: 'case_nobody', holdApproverAssigned: false })] } }) },
             { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
+            ...ASK_ROUTES,
         ]);
         renderWithQuery(<HandyDesk />);
         const card = await screen.findByTestId('queue-card-case_nobody');

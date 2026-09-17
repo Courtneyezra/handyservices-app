@@ -150,7 +150,7 @@ describe('an ask, end to end', () => {
                 confirm: { label: 'Send as is', action: { kind: 'draft.release', args: { caseFileId: file.id } } },
             },
         });
-        expect(detail.messages[1].transcript.map((s: any) => s.tool ?? s.type)).toEqual(['route', 'draft_reply', 'draft_reply', 'give_answer', 'give_answer']);
+        expect(detail.messages[1].transcript.map((s: any) => s.tool ?? s.type)).toEqual(['route', 'get_case_file', 'get_case_file', 'draft_reply', 'draft_reply', 'give_answer', 'give_answer']);
     });
 
     it('a session that cannot be touched after the answer keeps the one answer and finishes ok', async () => {
