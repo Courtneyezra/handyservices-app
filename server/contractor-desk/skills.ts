@@ -75,7 +75,7 @@ export function lastPerSlug<T extends { categorySlug?: string | null }>(skills: 
       noSlug.push(s);
     }
   }
-  return [...noSlug, ...bySlug.values()];
+  return [...noSlug, ...Array.from(bySlug.values())];
 }
 
 export interface SkillStore {
