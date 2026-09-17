@@ -369,8 +369,10 @@ describe('HandyDesk', () => {
         ]);
         renderWithQuery(<HandyDesk />);
         expect(await screen.findByTestId('queue-card-case_rob')).toBeInTheDocument();
-        expect(await screen.findByTestId('handy-desk-price-error'))
-            .toHaveTextContent('Could not load the quotes waiting to be priced. Held replies are still listed.');
+        expect(await screen.findByTestId('handy-desk-alert-quotes_unread'))
+            .toHaveTextContent('Could not load the quotes waiting to be priced.');
+        // The alert speaks only for the price read: it never asserts what the hold read did.
+        expect(screen.getByTestId('handy-desk-alert-quotes_unread')).not.toHaveTextContent(/held repl/i);
         expect(screen.queryByTestId('handy-desk-count')).toBeNull();
     });
 
@@ -384,7 +386,8 @@ describe('HandyDesk', () => {
         const empty = await screen.findByTestId('handy-desk-empty');
         await waitFor(() => expect(empty).toHaveTextContent('No held replies. The quotes to price could not be read.'));
         expect(screen.queryByText(/Nothing needs you/)).toBeNull();
-        expect(screen.getByTestId('handy-desk-price-error')).toBeInTheDocument();
+        // With no holds at all, nothing on screen may claim held replies are still listed.
+        expect(screen.getByTestId('handy-desk-alert-quotes_unread')).not.toHaveTextContent(/held repl/i);
         // No number at all: a count the desk cannot stand behind is worse than none.
         expect(screen.queryByTestId('handy-desk-count')).toBeNull();
         expect(screen.queryByText(/\b\d+ things?\b/)).toBeNull();
@@ -425,10 +428,10 @@ describe('HandyDesk', () => {
         // The 60s refetch fails; React Query keeps the payload, so the quotes stay listed.
         await client.refetchQueries({ queryKey: ['spine-price-queue'] });
 
-        await screen.findByTestId('handy-desk-price-stale');
-        expect(screen.getByTestId('handy-desk-price-stale')).toHaveTextContent('The quotes to price may be out of date.');
+        await screen.findByTestId('handy-desk-alert-quotes_stale');
+        expect(screen.getByTestId('handy-desk-alert-quotes_stale')).toHaveTextContent('The quotes to price may be out of date.');
         // Never "could not be read" directly above the rows it is talking about.
-        expect(screen.queryByTestId('handy-desk-price-error')).toBeNull();
+        expect(screen.queryByTestId('handy-desk-alert-quotes_unread')).toBeNull();
         expect(screen.getByTestId('queue-card-price:sam123')).toBeInTheDocument();
         expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('2 things');
     });
@@ -449,8 +452,8 @@ describe('HandyDesk', () => {
         await screen.findByTestId('queue-card-case_rob');
         await client.refetchQueries({ queryKey: ['comms-v2-queue'] });
 
-        await screen.findByTestId('handy-desk-queue-stale');
-        expect(screen.getByTestId('handy-desk-queue-stale')).toHaveTextContent('The held replies may be out of date.');
+        await screen.findByTestId('handy-desk-alert-queue_stale');
+        expect(screen.getByTestId('handy-desk-alert-queue_stale')).toHaveTextContent('The held replies may be out of date.');
         // The retained holds stay listed, so the hard queue error must not replace them.
         expect(screen.getByTestId('queue-card-case_rob')).toBeInTheDocument();
         expect(screen.queryByText(/Could not load the queue/)).toBeNull();

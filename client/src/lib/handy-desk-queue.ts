@@ -46,11 +46,6 @@ export function isReadyToPrice(item: DeskQueueItem): item is ReadyToPriceItem {
     return item.kind === 'ready_to_price';
 }
 
-/** How many held case files the list carries: the Comms board badge. Quotes to price are not holds. */
-export function heldCountOf(items: DeskQueueItem[]): number {
-    return items.filter((i) => i.kind === 'held').length;
-}
-
 /** One price-queue row as a Needs you card: the wait it carries is the wall-clock one the row measured. */
 export function readyToPriceOf(item: PriceQueueItem): ReadyToPriceItem {
     return {
@@ -93,44 +88,93 @@ export function readStateOf(read: { isError: boolean; data: unknown }): ReadStat
 
 const standsBehind = (state: ReadState) => state === 'ok' || state === 'error_stale';
 
-/** What the "Needs you" column shows, decided once from both reads rather than per element. */
-export interface NeedsYouView {
-    /** The headline count: only when both reads have a payload the desk can stand behind. */
-    showCount: boolean;
-    /** The whole column is still waiting on its first holds. */
-    showSpinner: boolean;
-    /** The holds could not be read and none are on screen. */
-    showQueueError: boolean;
-    showItems: boolean;
-    /** The holds are listed and the quotes are still coming. */
-    quotesLoading: boolean;
-    empty: 'clear' | 'quotes_unread' | null;
-    holdsStale: boolean;
-    quotesUnread: boolean;
-    quotesStale: boolean;
+/**
+ * Which cell of the read grid the column is in: the hold read's state over the price read's. Every
+ * sentence the column shows is decided from this one value, so a state nobody thought of shows up
+ * as an unhandled cell in one table rather than as a wrong sentence on one element.
+ */
+export type DeskCell = `${ReadState}/${ReadState}`;
+
+export type AlertTone = 'error' | 'warn';
+
+export interface DeskAlert {
+    id: 'queue_unread' | 'queue_stale' | 'quotes_unread' | 'quotes_stale';
+    tone: AlertTone;
+    text: string;
 }
 
 /**
- * The one rule behind every combination: the desk never states what it cannot stand behind, and
- * never contradicts what is on the screen. So the count needs a payload from both reads (a retained
- * one counts - it is what Ben is looking at), "Nothing needs you." needs both to be genuinely empty,
- * and a read that failed with its last payload still listed is called out of date, never unread.
+ * Everything the "Needs you" column renders, decided once. No element re-reads the queries: the page
+ * renders this and nothing else, so the copy cannot drift from the state that produced it.
  */
-export function needsYouView(holds: ReadState, quotes: ReadState, itemCount: number): NeedsYouView {
-    const listed = holds !== 'loading';
+export interface NeedsYouView {
+    cell: DeskCell;
+    /** The headline, already worded; null when the desk cannot stand behind a number. */
+    countText: string | null;
+    /** The cards to list, holds first then quotes; empty when nothing may be listed yet. */
+    items: DeskQueueItem[];
+    /** The held count for the header badge; null while the holds are unknown. */
+    heldCount: number | null;
+    /** The column is still waiting on its first holds, so nothing can be said yet. */
+    showSpinner: boolean;
+    /** The holds are listed and the quotes are still coming. */
+    quotesLoading: boolean;
+    /** Already worded; null unless the column is genuinely empty and knows it. */
+    emptyText: string | null;
+    /** Already worded, in the order they render. Each speaks only for its own read. */
+    alerts: DeskAlert[];
+}
+
+/**
+ * The one rule behind every cell: the desk never states what it cannot stand behind, and never
+ * contradicts what is on the screen. So the count needs a payload from both reads (a retained one
+ * counts - it is what Ben is looking at), "Nothing needs you." needs both to be genuinely empty, and
+ * a read that failed with its last payload still listed is called out of date, never unread.
+ *
+ * An alert speaks only for its own read: none of them says what the other read did, because it does
+ * not know. That is why "Held replies are still listed." is not in this file - the list below says
+ * what is listed.
+ */
+export function needsYouView(
+    holds: { state: ReadState; items: QueueItem[] },
+    quotes: { state: ReadState; payload?: Pick<PriceQueuePayload, 'items'> },
+): NeedsYouView {
+    const cell: DeskCell = `${holds.state}/${quotes.state}`;
+    const holdsKnown = standsBehind(holds.state);
+    const quotesKnown = standsBehind(quotes.state);
+    // A read the desk cannot stand behind contributes nothing to the list, so an unread hold never
+    // silently counts as zero holds. Quotes that WERE read still show once the hold read has settled
+    // - under the queue's own error, because unpriced work is real whether or not the holds could be
+    // fetched - but never before it, or they would render first and be reordered as the holds land.
+    const holdsSettled = holds.state !== 'loading';
+    const items = withReadyToPrice(
+        holdsKnown ? holds.items : [],
+        holdsSettled && quotesKnown ? quotes.payload : undefined,
+    );
+
+    const alerts: DeskAlert[] = [];
+    if (holds.state === 'error_stale') alerts.push({ id: 'queue_stale', tone: 'warn', text: 'The held replies may be out of date.' });
+    if (quotes.state === 'error_no_data') alerts.push({ id: 'quotes_unread', tone: 'error', text: 'Could not load the quotes waiting to be priced.' });
+    if (quotes.state === 'error_stale') alerts.push({ id: 'quotes_stale', tone: 'warn', text: 'The quotes to price may be out of date.' });
+    if (holds.state === 'error_no_data') alerts.unshift({ id: 'queue_unread', tone: 'error', text: 'Could not load the queue - retrying automatically.' });
+
+    const quotesLoading = holdsKnown && quotes.state === 'loading';
+    // "Nothing needs you." is a claim about both reads, so it needs both, and it waits for a pending
+    // price read rather than calling the desk clear while the quotes are still coming.
+    const emptyText = items.length > 0 || !holdsKnown || quotesLoading ? null
+        : quotes.state === 'error_no_data' ? 'No held replies. The quotes to price could not be read.'
+        : quotesKnown ? 'Nothing needs you.'
+        : null;
+
     return {
-        showCount: standsBehind(holds) && standsBehind(quotes),
-        showSpinner: holds === 'loading',
-        showQueueError: holds === 'error_no_data',
-        showItems: listed && itemCount > 0,
-        quotesLoading: standsBehind(holds) && quotes === 'loading',
-        empty: itemCount > 0 || !standsBehind(holds) ? null
-            : holds === 'ok' && quotes === 'error_no_data' ? 'quotes_unread'
-            : standsBehind(quotes) ? 'clear'
-            : null,
-        holdsStale: holds === 'error_stale',
-        quotesUnread: quotes === 'error_no_data',
-        quotesStale: quotes === 'error_stale',
+        cell,
+        countText: holdsKnown && quotesKnown ? `${items.length} ${items.length === 1 ? 'thing' : 'things'}` : null,
+        items,
+        heldCount: holdsKnown ? holds.items.length : null,
+        showSpinner: holds.state === 'loading',
+        quotesLoading,
+        emptyText,
+        alerts,
     };
 }
 

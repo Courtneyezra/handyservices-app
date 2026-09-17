@@ -73,7 +73,7 @@ import { SurfaceBody } from '@/components/handy-desk/AnswerSurface';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import { exchangeOfAnswered, latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
-    ACTION_ROUTE, QUEUE_KEY, heldCountOf, isReadyToPrice, isShutWindow, needsWords, needsYouView, queueCardCopy, queueQuery, readStateOf, readyToPriceCardCopy, refusalMessage, selectionOf, withReadyToPrice,
+    ACTION_ROUTE, QUEUE_KEY, isReadyToPrice, isShutWindow, needsWords, needsYouView, queueCardCopy, queueQuery, readStateOf, readyToPriceCardCopy, refusalMessage, selectionOf,
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
 import { usePriceQueue } from '@/hooks/usePriceQueue';
@@ -342,7 +342,6 @@ export function ReadyToPriceCard({ item }: { item: ReadyToPriceItem }) {
     return (
         <article
             data-testid={`queue-card-${item.id}`}
-            data-kind="ready_to_price"
             onClick={open}
             className="cursor-pointer rounded-3xl border border-slate-800 bg-[#111c33] p-4 transition-colors duration-200 ease-[var(--ease-out)] hover:border-amber-400 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-[240ms]"
         >
@@ -448,11 +447,14 @@ export default function HandyDesk() {
     }, [dismissed, latest]);
     const answered = latest && !dismissed.has(FIRST_LOAD) && !dismissed.has(latest.id) ? latest : null;
 
-    const items = withReadyToPrice(data?.items ?? [], prices.data);
     const sandbox = data?.sandboxAvailable === true;
-    // Two reads answer at different speeds and fail independently, so what the column may say is
-    // decided once from both of their states (handy-desk-queue.ts `needsYouView`).
-    const view = needsYouView(readStateOf({ isError, data }), readStateOf(prices), items.length);
+    // Two reads answer at different speeds and fail independently, so everything the column says -
+    // the count, the cards, the empty sentence and every alert - is decided once from both of their
+    // states (handy-desk-queue.ts `needsYouView`). Nothing below re-reads the queries.
+    const view = needsYouView(
+        { state: readStateOf({ isError, data }), items: data?.items ?? [] },
+        { state: readStateOf(prices), payload: prices.data },
+    );
 
     const handleHandled = (note: string) => {
         setDone((d) => [{ key: Date.now(), note }, ...d].slice(0, 3));
@@ -486,37 +488,35 @@ export default function HandyDesk() {
                 sandbox={sandbox}
                 handled={data?.handledToday ?? null}
                 deskLive={oldComms ? oldComms.retired : null}
-                heldCount={data ? heldCountOf(items) : null}
+                heldCount={view.heldCount}
                 updatedAt={dataUpdatedAt}
             />
 
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
                     <p className={cn(EYEBROW, 'text-amber-400')}>Needs you</p>
-                    {view.showCount && (
+                    {view.countText && (
                         <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
-                            {`${items.length} ${items.length === 1 ? 'thing' : 'things'}`}
+                            {view.countText}
                         </p>
                     )}
                     <p className="mt-1 text-[13px] text-slate-400">Held replies first, longest wait in working hours; then the quotes to price, oldest first.</p>
-                    {view.quotesUnread && (
-                        <p role="alert" data-testid="handy-desk-price-error" className="mt-2 text-xs text-red-300">Could not load the quotes waiting to be priced. Held replies are still listed.</p>
-                    )}
-                    {view.quotesStale && (
-                        <p role="alert" data-testid="handy-desk-price-stale" className="mt-2 text-xs text-amber-300">The quotes to price may be out of date.</p>
-                    )}
-                    {view.holdsStale && (
-                        <p role="alert" data-testid="handy-desk-queue-stale" className="mt-2 text-xs text-amber-300">The held replies may be out of date.</p>
-                    )}
+                    {view.alerts.map((alert) => (
+                        <p
+                            key={alert.id}
+                            role="alert"
+                            data-testid={`handy-desk-alert-${alert.id}`}
+                            className={cn('mt-2 text-xs', alert.tone === 'error' ? 'text-red-300' : 'text-amber-300')}
+                        >
+                            {alert.text}
+                        </p>
+                    ))}
 
                     <div className="mt-5 space-y-3">
-                        {view.showQueueError && (
-                            <p role="alert" className="rounded-3xl border border-red-400/40 p-4 text-sm text-red-300">Could not load the queue - retrying automatically.</p>
-                        )}
                         {view.showSpinner && (
                             <div data-testid="handy-desk-loading" className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
                         )}
-                        {view.showItems && items.map((item) => isReadyToPrice(item) ? (
+                        {view.items.map((item) => isReadyToPrice(item) ? (
                             <ReadyToPriceCard key={item.id} item={item} />
                         ) : (
                             <QueueCard
@@ -533,9 +533,9 @@ export default function HandyDesk() {
                                 <Loader2 className="h-4 w-4 animate-spin" /> Loading the quotes to price…
                             </p>
                         )}
-                        {view.empty && (
+                        {view.emptyText && (
                             <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">
-                                {view.empty === 'quotes_unread' ? 'No held replies. The quotes to price could not be read.' : 'Nothing needs you.'}
+                                {view.emptyText}
                             </p>
                         )}
                         {done.map((d) => (

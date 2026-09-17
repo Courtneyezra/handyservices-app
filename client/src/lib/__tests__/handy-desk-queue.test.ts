@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-    ACTION_ROUTE, displayName, formatWait, heldCountOf, initialsOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy,
+    ACTION_ROUTE, displayName, formatWait, initialsOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy,
     needsYouView, queueQuery, readStateOf, readyToPriceCardCopy, readyToPriceOf, refusalMessage, selectionOf, updatedAgoLabel, withReadyToPrice,
     type QueueItem, type ReadState, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
@@ -180,7 +180,6 @@ describe('readyToPriceCardCopy (Q12)', () => {
     it('tells the two kinds apart, and counts only the holds for the badge', () => {
         expect(isReadyToPrice(priceItem())).toBe(true);
         expect(isReadyToPrice({ ...item(), kind: 'held' })).toBe(false);
-        expect(heldCountOf([{ ...item({ id: 'a' }), kind: 'held' }, priceItem(), { ...item({ id: 'b' }), kind: 'held' }])).toBe(2);
     });
 });
 
@@ -234,63 +233,99 @@ describe('readStateOf', () => {
     });
 });
 
-describe('needsYouView - every combination of the two reads', () => {
+describe('needsYouView - the read grid, one row per cell', () => {
     const STATES: ReadState[] = ['loading', 'ok', 'error_no_data', 'error_stale'];
+    const QUEUE_UNREAD = 'Could not load the queue - retrying automatically.';
+    const QUEUE_STALE = 'The held replies may be out of date.';
+    const QUOTES_UNREAD = 'Could not load the quotes waiting to be priced.';
+    const QUOTES_STALE = 'The quotes to price may be out of date.';
+    const CLEAR = 'Nothing needs you.';
+    const NO_HOLDS = 'No held replies. The quotes to price could not be read.';
 
-    // The grid in client/src/pages/admin/HandyDesk.tsx's header, one row per cell, read with an
-    // empty list so the empty-state column is exercised.
-    const GRID: Array<[ReadState, ReadState, { count: boolean; spinner: boolean; queueError: boolean; quotesLoading: boolean; empty: 'clear' | 'quotes_unread' | null }]> = [
-        ['loading', 'loading', { count: false, spinner: true, queueError: false, quotesLoading: false, empty: null }],
-        ['loading', 'ok', { count: false, spinner: true, queueError: false, quotesLoading: false, empty: null }],
-        ['loading', 'error_no_data', { count: false, spinner: true, queueError: false, quotesLoading: false, empty: null }],
-        ['loading', 'error_stale', { count: false, spinner: true, queueError: false, quotesLoading: false, empty: null }],
-        ['ok', 'loading', { count: false, spinner: false, queueError: false, quotesLoading: true, empty: null }],
-        ['ok', 'ok', { count: true, spinner: false, queueError: false, quotesLoading: false, empty: 'clear' }],
-        ['ok', 'error_no_data', { count: false, spinner: false, queueError: false, quotesLoading: false, empty: 'quotes_unread' }],
-        ['ok', 'error_stale', { count: true, spinner: false, queueError: false, quotesLoading: false, empty: 'clear' }],
-        ['error_no_data', 'loading', { count: false, spinner: false, queueError: true, quotesLoading: false, empty: null }],
-        ['error_no_data', 'ok', { count: false, spinner: false, queueError: true, quotesLoading: false, empty: null }],
-        ['error_no_data', 'error_no_data', { count: false, spinner: false, queueError: true, quotesLoading: false, empty: null }],
-        ['error_no_data', 'error_stale', { count: false, spinner: false, queueError: true, quotesLoading: false, empty: null }],
-        ['error_stale', 'loading', { count: false, spinner: false, queueError: false, quotesLoading: true, empty: null }],
-        ['error_stale', 'ok', { count: true, spinner: false, queueError: false, quotesLoading: false, empty: 'clear' }],
-        ['error_stale', 'error_no_data', { count: false, spinner: false, queueError: false, quotesLoading: false, empty: null }],
-        ['error_stale', 'error_stale', { count: true, spinner: false, queueError: false, quotesLoading: false, empty: 'clear' }],
+    const holdsOf = (state: ReadState, n: number) => ({ state, items: Array.from({ length: n }, (_, i) => item({ id: `case_${i}` })) });
+    const quotesOf = (state: ReadState, n: number) => ({ state, payload: { items: Array.from({ length: n }, (_, i) => priceRow(`q${i}`)) } });
+
+    /**
+     * Every cell of the grid, with one hold and one quote to read, then again with both empty so the
+     * empty sentence is exercised. `listed` is how many cards render; `count` and `empty` are the
+     * exact sentences; `alerts` are the alert ids in render order. A state nobody thought of fails
+     * here as a missing row rather than as a wrong sentence on one element.
+     */
+    const GRID: Array<[ReadState, ReadState, {
+        listed: number; count: string | null; alerts: string[]; spinner: boolean; quotesLoading: boolean; empty: string | null;
+    }]> = [
+        ['loading', 'loading', { listed: 0, count: null, alerts: [], spinner: true, quotesLoading: false, empty: null }],
+        ['loading', 'ok', { listed: 0, count: null, alerts: [], spinner: true, quotesLoading: false, empty: null }],
+        ['loading', 'error_no_data', { listed: 0, count: null, alerts: ['quotes_unread'], spinner: true, quotesLoading: false, empty: null }],
+        ['loading', 'error_stale', { listed: 0, count: null, alerts: ['quotes_stale'], spinner: true, quotesLoading: false, empty: null }],
+        ['ok', 'loading', { listed: 1, count: null, alerts: [], spinner: false, quotesLoading: true, empty: null }],
+        ['ok', 'ok', { listed: 2, count: '2 things', alerts: [], spinner: false, quotesLoading: false, empty: CLEAR }],
+        ['ok', 'error_no_data', { listed: 1, count: null, alerts: ['quotes_unread'], spinner: false, quotesLoading: false, empty: NO_HOLDS }],
+        ['ok', 'error_stale', { listed: 2, count: '2 things', alerts: ['quotes_stale'], spinner: false, quotesLoading: false, empty: CLEAR }],
+        ['error_no_data', 'loading', { listed: 0, count: null, alerts: ['queue_unread'], spinner: false, quotesLoading: false, empty: null }],
+        ['error_no_data', 'ok', { listed: 1, count: null, alerts: ['queue_unread'], spinner: false, quotesLoading: false, empty: null }],
+        ['error_no_data', 'error_no_data', { listed: 0, count: null, alerts: ['queue_unread', 'quotes_unread'], spinner: false, quotesLoading: false, empty: null }],
+        ['error_no_data', 'error_stale', { listed: 1, count: null, alerts: ['queue_unread', 'quotes_stale'], spinner: false, quotesLoading: false, empty: null }],
+        ['error_stale', 'loading', { listed: 1, count: null, alerts: ['queue_stale'], spinner: false, quotesLoading: true, empty: null }],
+        ['error_stale', 'ok', { listed: 2, count: '2 things', alerts: ['queue_stale'], spinner: false, quotesLoading: false, empty: CLEAR }],
+        ['error_stale', 'error_no_data', { listed: 1, count: null, alerts: ['queue_stale', 'quotes_unread'], spinner: false, quotesLoading: false, empty: NO_HOLDS }],
+        ['error_stale', 'error_stale', { listed: 2, count: '2 things', alerts: ['queue_stale', 'quotes_stale'], spinner: false, quotesLoading: false, empty: CLEAR }],
     ];
 
     it.each(GRID)('holds %s, quotes %s', (holds, quotes, expected) => {
-        const v = needsYouView(holds, quotes, 0);
-        expect({ count: v.showCount, spinner: v.showSpinner, queueError: v.showQueueError, quotesLoading: v.quotesLoading, empty: v.empty }).toEqual(expected);
+        const full = needsYouView(holdsOf(holds, 1), quotesOf(quotes, 1));
+        expect(full.cell).toBe(`${holds}/${quotes}`);
+        expect(full.items).toHaveLength(expected.listed);
+        expect(full.countText).toBe(expected.count);
+        expect(full.alerts.map((a) => a.id)).toEqual(expected.alerts);
+        expect(full.showSpinner).toBe(expected.spinner);
+        expect(full.quotesLoading).toBe(expected.quotesLoading);
+        // A populated list never carries an empty sentence.
+        if (expected.listed > 0) expect(full.emptyText).toBeNull();
+
+        const bare = needsYouView(holdsOf(holds, 0), quotesOf(quotes, 0));
+        expect(bare.emptyText).toBe(expected.empty);
     });
 
-    it('alerts name each read: unread when it has nothing, out of date when its last payload is listed', () => {
+    it('every cell is covered exactly once', () => {
+        expect(GRID).toHaveLength(STATES.length * STATES.length);
+        expect(new Set(GRID.map(([h, q]) => `${h}/${q}`)).size).toBe(GRID.length);
+    });
+
+    it('words each alert for its own read only, never for the other one', () => {
+        const texts = [QUEUE_UNREAD, QUEUE_STALE, QUOTES_UNREAD, QUOTES_STALE];
         for (const holds of STATES) {
             for (const quotes of STATES) {
-                const v = needsYouView(holds, quotes, 2);
-                expect(v.quotesUnread).toBe(quotes === 'error_no_data');
-                expect(v.quotesStale).toBe(quotes === 'error_stale');
-                expect(v.holdsStale).toBe(holds === 'error_stale');
-                // An alert never says a read could not be made while its rows are on the screen.
-                if (v.quotesStale) expect(v.quotesUnread).toBe(false);
+                for (const a of needsYouView(holdsOf(holds, 1), quotesOf(quotes, 1)).alerts) {
+                    expect(texts).toContain(a.text);
+                    // The bug this replaced: an alert about one read asserting what the other did.
+                    if (a.id.startsWith('quotes')) expect(a.text).not.toMatch(/held repl/i);
+                    if (a.id.startsWith('queue')) expect(a.text).not.toMatch(/quote/i);
+                }
             }
         }
     });
 
-    it('never claims the desk is clear while anything is listed', () => {
+    it('never states a count, nor claims the desk is clear, unless both reads have a payload', () => {
+        const known = (s: ReadState) => s === 'ok' || s === 'error_stale';
         for (const holds of STATES) {
             for (const quotes of STATES) {
-                expect(needsYouView(holds, quotes, 3).empty).toBeNull();
-                expect(needsYouView(holds, quotes, 3).showItems).toBe(holds !== 'loading');
+                expect(needsYouView(holdsOf(holds, 1), quotesOf(quotes, 1)).countText === null).toBe(!(known(holds) && known(quotes)));
+                const empty = needsYouView(holdsOf(holds, 0), quotesOf(quotes, 0));
+                if (empty.emptyText === CLEAR) expect(known(holds) && known(quotes)).toBe(true);
             }
         }
     });
 
-    it('never states a count it cannot stand behind: both reads must have a payload', () => {
-        for (const holds of STATES) {
-            for (const quotes of STATES) {
-                const settled = (s: ReadState) => s === 'ok' || s === 'error_stale';
-                expect(needsYouView(holds, quotes, 1).showCount).toBe(settled(holds) && settled(quotes));
-            }
-        }
+    it('holds keep the top of the list and the quotes follow them', () => {
+        const v = needsYouView(holdsOf('ok', 2), quotesOf('ok', 3));
+        expect(v.items.map((i) => i.kind)).toEqual(['held', 'held', 'ready_to_price', 'ready_to_price', 'ready_to_price']);
+    });
+
+    it('counts only the holds for the header badge, and nothing while they are unknown', () => {
+        expect(needsYouView(holdsOf('ok', 2), quotesOf('ok', 5)).heldCount).toBe(2);
+        expect(needsYouView(holdsOf('error_stale', 2), quotesOf('ok', 5)).heldCount).toBe(2);
+        expect(needsYouView(holdsOf('loading', 0), quotesOf('ok', 5)).heldCount).toBeNull();
+        expect(needsYouView(holdsOf('error_no_data', 0), quotesOf('ok', 5)).heldCount).toBeNull();
     });
 });
