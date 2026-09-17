@@ -7,10 +7,13 @@
  *            (the quote page's picker, a slot the customer reserved before paying, promoted by the
  *            Stripe webhook; and the flex placements that reuse it) and `assignFromPool` (a paid job
  *            with no slot placed from the dispatch pool, a slot offer the customer took, or the
- *            webhook's auto-assign). The booking's id goes onto the file's job.
+ *            webhook's auto-assign); and Ben's dispatch from the daily planner
+ *            (server/daily-planner-routes.ts: confirm-dispatch, dispatch-all, confirm-cluster). The
+ *            booking's id goes onto the file's job.
  *   done     the job is signed off: server/job-lifecycle.ts `finalizeJobCompletion` (the one
- *            completion spine the job routes and the ops actions share) and the field app's complete
- *            route (server/contractor-app-routes.ts); or its invoice is paid: the Stripe webhook's
+ *            completion spine the job routes and the ops actions share), the field app's complete
+ *            route (server/contractor-app-routes.ts) and the contractor dashboard's complete route
+ *            (server/job-assignment.ts); or its invoice is paid: the Stripe webhook's
  *            invoice payment and POST /api/invoices/:id/mark-paid. The public payment-link completion
  *            is not wired: it is unauthenticated and verifies no payment.
  *   by hand  POST /api/comms-v2/case-files/:id/close from the board (api/routes.ts, `closeByHand`),
