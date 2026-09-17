@@ -134,10 +134,7 @@ export function hasCustomerTurn(detail: Pick<CaseFileDetail, 'turns'>): boolean 
     return detail.turns.some((t) => t.direction === 'inbound');
 }
 
-/** send-held-draft's refusal when the held draft is not the one the caller saw (PR 109's HELD_DRAFT_CHANGED). */
-export const HELD_DRAFT_CHANGED = 'the held draft changed since you saw it';
-
-export type RefusalKind = 'shut_window' | 'no_draft' | 'draft_changed' | 'no_slot' | 'other';
+export type RefusalKind = 'shut_window' | 'no_draft' | 'no_slot' | 'other';
 
 /** A refused send or release, as the thread shows it: its kind, the lead-in, and the desk's own words verbatim. */
 export interface Refusal {
@@ -151,7 +148,6 @@ export function refusalOf(action: 'answer' | 'send_held_draft' | 'release', stat
     if (status === 401 || status === 403) return { kind: 'no_slot', lead: action === 'release' ? 'Not released.' : 'Not sent.', message };
     if (/window is shut/.test(message)) return { kind: 'shut_window', lead: "Can't send freeform words.", message };
     if (/there is no held draft to send/.test(message)) return { kind: 'no_draft', lead: 'Nothing to send.', message };
-    if (message === HELD_DRAFT_CHANGED) return { kind: 'draft_changed', lead: 'The draft changed.', message };
     return { kind: 'other', lead: action === 'release' ? 'Not released.' : 'Not sent.', message };
 }
 

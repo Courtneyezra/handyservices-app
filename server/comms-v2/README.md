@@ -650,8 +650,7 @@ or Esc. Below that width it is a bottom sheet, closed with ‹ Board (‹ Queue 
 
 "Send this" posts send-held-draft. The route takes no `expectedDraft` yet, so the view first re-reads
 the file and sends only when the held draft is still the one on screen; otherwise it shows the new
-draft and asks again. It treats a 409 "the held draft changed since you saw it" the same way. One box
-feeds both "Send reply" (answer) and "Release hold only" (release). A reply shows as a sending bubble
+draft and asks again. One box feeds both "Send reply" (answer) and "Release hold only" (release). A reply shows as a sending bubble
 at once, then as sent from the response, until a read carries its turn.
 
 On a shut window, freeform sends are disabled, whether the file says the window is shut or a send is

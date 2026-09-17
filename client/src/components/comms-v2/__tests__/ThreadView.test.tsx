@@ -68,6 +68,23 @@ describe('<ThreadView>', () => {
         expect(onClose).toHaveBeenCalledTimes(2);
     });
 
+    it('Esc leaves the panel open while the focused box holds words, and closes it with an empty box or focus elsewhere', async () => {
+        const { onClose } = mount([fileRoute(detail())]);
+        const box = await ready();
+        box.focus();
+        fireEvent.keyDown(box, { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledTimes(1);
+
+        await userEvent.type(box, 'half a reply');
+        fireEvent.keyDown(box, { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(words().value).toBe('half a reply');
+
+        box.blur();
+        fireEvent.keyDown(window, { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledTimes(2);
+    });
+
     it('as a sheet, closes with the back button named for where it returns', async () => {
         const { onClose } = mount([fileRoute(detail())], { layout: 'sheet', backTo: 'Queue' });
         await ready();
@@ -168,18 +185,6 @@ describe('<ThreadView>', () => {
 
         await userEvent.click(screen.getByRole('button', { name: 'Send this' }));
         await waitFor(() => expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1));
-    });
-
-    it('a 409 "the held draft changed since you saw it" re-reads the file and asks again rather than showing a refusal', async () => {
-        const { calls } = mount([
-            fileRoute(detail()),
-            { method: 'POST', url: `${FILE}/send-held-draft`, reply: () => ({ status: 409, json: { error: 'the held draft changed since you saw it' } }) },
-        ]);
-        await userEvent.click(await screen.findByRole('button', { name: 'Send this' }));
-        expect(await screen.findByTestId('draft-changed')).toBeInTheDocument();
-        expect(screen.queryByTestId('thread-refusal')).toBeNull();
-        expect(screen.queryByTestId('thread-pending')).toBeNull();
-        await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.url === FILE).length).toBeGreaterThanOrEqual(3));
     });
 
     it('a 409 "there is no held draft to send" hides Send this, keeps the composer, and re-reads the file', async () => {
@@ -350,6 +355,21 @@ describe('<ThreadView>', () => {
         expect(words()).toBeDisabled();
         expect(words().placeholder).toBe('Needs a customer turn to answer');
         expect(screen.queryByTestId('thread-unroutable')).toBeNull();
+    });
+
+    it('a held file with no customer turn keeps the box open for Release hold only, with Send reply disabled', async () => {
+        const call = { id: 'c1', at: iso(10), channel: 'phone', direction: 'outbound', kind: 'text', body: 'Called Priya', media: [], approver: 'human:ben' } as CaseFileDetail['turns'][number];
+        const { calls } = mount([
+            fileRoute(detail({ turns: [call], hold: { ...detail().hold!, draft: null }, replyChannel: null, replyWindow: null, replyRefusal: 'no customer turn to answer' })),
+            { method: 'POST', url: `${FILE}/release`, reply: () => ({ json: { ok: true } }) },
+        ]);
+        expect(await screen.findByTestId('thread-empty')).toBeInTheDocument();
+        expect(words()).toBeEnabled();
+        await userEvent.type(words(), 'Spoke to her on the phone.');
+        expect(screen.getByRole('button', { name: 'Send reply' })).toBeDisabled();
+        await userEvent.click(screen.getByRole('button', { name: 'Release hold only' }));
+        expect(await screen.findByTestId('thread-released')).toBeInTheDocument();
+        expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ words: 'Spoke to her on the phone.' });
     });
 
     it('a session the server says holds no slot sees the thread and the held draft with every action hidden', async () => {
