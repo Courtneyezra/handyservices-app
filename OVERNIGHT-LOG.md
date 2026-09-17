@@ -35,3 +35,20 @@ round it was found.
   live: Priya's quote (au64wlx9, £205) aged 31 days closed as `done` on a `/run`, and her later "is
   that quote still good? how much now?" opened a fresh file and held for Ben on `money` with no
   price and no reissue — correct, since the new file carries no quote.
+- Round 3 (17 Sep 2026) — the ask agent's proposal store, WhatsApp, driven on the app's own
+  comms-v2 ask bar and board as Ben, with a second synthetic admin seeded on the branch database
+  (`va.sandbox.drama@handyservices.test`, listed in no approver slot). No issue: every rule the
+  store claims held live. Ben asked for a reply on Marcus's complaint card; the run held the draft
+  and saved `draft.release` as a proposal with nothing sent and the draft still on the hold. The
+  unlisted admin could neither read (404 "no such proposal") nor confirm (404) Ben's proposal, and
+  every board write on that card — release, send-held-draft, answer, close — refused them 403 "no
+  approver slot is assigned to this user", with `viewer.canAct` false; asked on their own ask
+  session, `draft_reply` came back refused in the same words, so nothing was drafted and nothing
+  proposed. Ben's own confirm ran it once, under `human:ben@handyservices.com` — ignoring a
+  `person` planted in the body — as three bubbles through the one sender, released the hold, and a
+  second confirm returned `repeat: true` and sent nothing more. With
+  `COMMS_V2_ASK_PROPOSAL_TTL_SECONDS=60` a proposal made at 20:14:16 expired at 20:15:16 and the
+  confirm after it was a 410 with the draft left held for Ben's own send. One thing for the
+  captain, written to OVERNIGHT-QUESTIONS.md rather than guessed: the plan strip bound the pending
+  confirm to "Promise call tomorrow to rebook", a step the same answer said it could not do, and
+  the confirm then marked that step done and chased the next one.
