@@ -2,9 +2,9 @@
  * Test-only stand-in for `server/db.ts`, for the redaction tests. It holds full rows, secrets
  * included, and answers a select with only the columns the query named, the way Postgres does, so
  * a test proves what a route's own column list lets out. It knows just enough of drizzle for
- * `requireAdmin`, the contractor desk source and the old `/api/admin/contractors/:id` read:
+ * `requireAdmin`, the contractor desk source, the old `/api/admin/contractors/:id` read and `/api/handymen`:
  * `select(fields).from(t).innerJoin/leftJoin/where/orderBy/limit/groupBy`, and
- * `query.<table>.findFirst({ columns, with })`. Filters are ignored: every row of the table answers.
+ * `query.<table>.findFirst/findMany({ columns, with })`. Filters are ignored: every row of the table answers.
  */
 import { getTableColumns, getTableName, type Table } from 'drizzle-orm';
 import {
@@ -82,6 +82,20 @@ function pickColumns(row: Row | undefined, columns?: Record<string, boolean>): R
   return Object.fromEntries(Object.entries(row).filter(([k]) => columns[k] !== false));
 }
 
+type ProfileQuery = { columns?: Record<string, boolean>; with?: Record<string, any> };
+
+function profileWith(profile: Row, opts: ProfileQuery): Row {
+  const out = pickColumns(profile, opts.columns)!;
+  const w = opts.with ?? {};
+  if (w.user) {
+    const user = fakeRows.users?.find((u) => u.id === profile.userId);
+    out.user = pickColumns(user, w.user === true ? undefined : w.user.columns);
+  }
+  if (w.skills) out.skills = (fakeRows.handyman_skills ?? []).filter((s) => s.handymanId === profile.id);
+  if (w.availability) out.availability = (fakeRows.handyman_availability ?? []).filter((a) => a.handymanId === profile.id);
+  return out;
+}
+
 export const fakeDb: any = {
   select: (fields?: Record<string, any>) => selectChain(fields),
   query: {
@@ -89,18 +103,12 @@ export const fakeDb: any = {
       findFirst: async () => fakeRows.users?.find((u) => u.id === fakeState.sessionUserId),
     },
     handymanProfiles: {
-      findFirst: async (opts: { columns?: Record<string, boolean>; with?: Record<string, any> } = {}) => {
+      findFirst: async (opts: ProfileQuery = {}) => {
         const profile = fakeRows.handyman_profiles?.[0];
-        if (!profile) return undefined;
-        const out = pickColumns(profile, opts.columns)!;
-        const w = opts.with ?? {};
-        if (w.user) {
-          const user = fakeRows.users?.find((u) => u.id === profile.userId);
-          out.user = pickColumns(user, w.user === true ? undefined : w.user.columns);
-        }
-        if (w.skills) out.skills = (fakeRows.handyman_skills ?? []).filter((s) => s.handymanId === profile.id);
-        return out;
+        return profile ? profileWith(profile, opts) : undefined;
       },
+      findMany: async (opts: ProfileQuery = {}) =>
+        (fakeRows.handyman_profiles ?? []).map((p) => profileWith(p, opts)),
     },
   },
 };
