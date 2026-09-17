@@ -33,6 +33,7 @@ let mode: BoardSource['mode'] = 'dry_run';
 let script: ScriptStep[] = [];
 let composed = 'Thanks Sam, could you send us a photo of the tap?';
 const events: CommsEvent[] = [];
+const sessions = new MemoryAskSessionStore(() => new Date('2026-09-17T09:10:00.000Z'));
 /** The board's send path reads the wall clock, so files are dated from it: a window opened ten minutes ago, or two days ago. */
 const openAt = () => new Date(Date.now() - 10 * 60_000).toISOString();
 const shutAt = () => new Date(Date.now() - 48 * 3_600_000).toISOString();
@@ -55,7 +56,7 @@ beforeAll(async () => {
     app.use('/api/comms-v2', createCommsV2ApiRouter(
         door, async () => assignments, async () => ({ store, live: mode === 'live', mode }), async () => false, async () => ({}), () => false,
         {
-            sessions: new MemoryAskSessionStore(() => new Date('2026-09-17T09:10:00.000Z')),
+            sessions,
             turnDeps: { client, loop: (opts) => scriptedLoop(script)(opts) },
             emit: (evt) => events.push(evt),
             now: () => new Date('2026-09-17T09:10:00.000Z'),
@@ -117,6 +118,12 @@ describe('sessions', () => {
         const s = await call('POST', '/ask/sessions/today');
         expect((await call('POST', `/ask/sessions/${s.json.id}/messages`, { text: '  ' })).status).toBe(400);
     });
+
+    it('takes the ask only as text', async () => {
+        const s = await call('POST', '/ask/sessions/today');
+        expect(await call('POST', `/ask/sessions/${s.json.id}/messages`, { content: 'what is waiting?' })).toEqual({ status: 400, json: { error: 'an ask needs text' } });
+        expect((await call('GET', `/ask/sessions/${s.json.id}`)).json.messages).toEqual([]);
+    });
 });
 
 describe('an ask, end to end', () => {
@@ -144,6 +151,24 @@ describe('an ask, end to end', () => {
             },
         });
         expect(detail.messages[1].transcript.map((s: any) => s.tool ?? s.type)).toEqual(['route', 'draft_reply', 'draft_reply', 'give_answer', 'give_answer']);
+    });
+
+    it('a session that cannot be touched after the answer keeps the one answer and finishes ok', async () => {
+        const file = whatsappFile({ at: openAt() });
+        store.put(file);
+        const touch = vi.spyOn(sessions, 'touch').mockRejectedValueOnce(new Error('connection reset'));
+        const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+            const detail = await askForDraft(file);
+            expect(touch).toHaveBeenCalledTimes(1);
+            expect(events.at(-1)).toMatchObject({ type: 'ops_run_finished', ok: true });
+            expect(detail.messages.map((m: any) => [m.role, m.content])).toEqual([['user', 'Ask Sam for a photo'], ['assistant', 'Drafted.']]);
+            expect(events.filter((e) => e.type === 'ops_message')).toHaveLength(2);
+            expect(quiet).toHaveBeenCalledWith(expect.stringMatching(/touch session/), expect.any(Error));
+        } finally {
+            touch.mockRestore();
+            quiet.mockRestore();
+        }
     });
 
     it('a failed run still finishes, with the failure on the thread', async () => {

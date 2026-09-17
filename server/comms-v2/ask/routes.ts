@@ -7,7 +7,7 @@
  * GET  /sessions?limit=           - the person's active sessions, newest first
  * GET  /sessions/:id              - { session, messages } (messages oldest first, AskMessageDTO)
  * POST /sessions/:id/archive
- * POST /sessions/:id/messages {text|content, via?, context?} -> 202 { runId }
+ * POST /sessions/:id/messages {text, via?, context?} -> 202 { runId }
  *
  * A message starts a run and returns at once; the run streams over the comms event bus
  * (server/comms-events.ts, GET /api/comms/events) with the ops_* events of shared/ops-types.ts:
@@ -140,8 +140,7 @@ export function createAskRouter(deps: AskRouterDeps): Router {
     router.post('/sessions/:id/messages', async (req, res) => {
         const sessionId = req.params.id;
         const person = personOf(req)!;
-        const raw = typeof req.body?.text === 'string' ? req.body.text : typeof req.body?.content === 'string' ? req.body.content : '';
-        const content = raw.trim();
+        const content = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
         if (!content) { res.status(400).json({ error: 'an ask needs text' }); return; }
         if (content.length > MAX_ASK_CHARS) { res.status(400).json({ error: `an ask is at most ${MAX_ASK_CHARS} characters` }); return; }
         const via: AskVia = VIAS.includes(req.body?.via) ? req.body.via : 'typed';
@@ -183,9 +182,9 @@ export function createAskRouter(deps: AskRouterDeps): Router {
                     sessionId, role: 'assistant', content: result.answer.finalText, runId,
                     transcript: result.leanTranscript, answer: result.answer, usage: result.usage,
                 });
-                await sessions.touch(sessionId);
                 emit({ type: 'ops_message', sessionId, message: reply, at: stamp() });
                 ok = true;
+                await sessions.touch(sessionId).catch((error) => console.error(`[AskAgent] touch session ${sessionId} failed after run ${runId}:`, error));
             } catch (error: any) {
                 console.error(`[AskAgent] run ${runId} failed for session ${sessionId}:`, error);
                 try {

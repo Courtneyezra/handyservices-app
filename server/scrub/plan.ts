@@ -323,6 +323,8 @@ const OVERRIDES: Record<string, Treatment> = {
     'comms_v2_ask_messages.final_text': 'message_body',  // the answer's reply line, which names customers
     'comms_v2_ask_messages.text': 'message_body',        // an outgoing tile, or the model's own text
     'comms_v2_ask_messages.draft': 'message_body',       // a held reply read back or written
+    'comms_v2_ask_messages.standing_draft': 'message_body', // the held reply a refused draft found
+    'comms_v2_ask_messages.last_draft': 'message_body',  // the last attempt a refused draft wrote
     'comms_v2_ask_messages.last_customer_message': 'message_body',
     'comms_v2_ask_messages.phone': 'contact',            // the thread's address: E.164 or an e-mail
     'comms_v2_ask_messages.to': 'contact',               // where an outgoing tile would go

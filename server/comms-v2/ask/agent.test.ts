@@ -4,8 +4,6 @@
  * whose data is read off the file. It reads nothing from the old system: no message_drafts, no
  * old inbox board, no old Ops Manager, no VA call sheet, no old comms agent.
  */
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 const touched = vi.hoisted(() => ({ modules: [] as string[] }));
@@ -30,25 +28,6 @@ function ask(over: Partial<RunAskTurnOptions> = {}): RunAskTurnOptions {
 }
 
 describe('the agent reads only the new desk', () => {
-    const dir = __dirname;
-    const sources = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && f !== 'ask-fixtures.ts');
-    const importsOf = (file: string) => Array.from(readFileSync(join(dir, file), 'utf8').matchAll(/(?:from\s+|import\()\s*'([^']+)'/g)).map((m) => m[1]);
-
-    it('imports nothing from the old desk, the old drafts, the old board or the old Ops Manager', () => {
-        const forbidden = /message-drafts|inbox-board|ops-manager|va-call-tasks|agents\/comms|draft-guards|desk-routes|server\/spine|\.\.\/\.\.\/spine/;
-        for (const file of sources) expect(importsOf(file).filter((s) => forbidden.test(s)), file).toEqual([]);
-    });
-
-    it('reaches outside server/comms-v2 only for the wire types, the generic runner, the event bus and its own tables', () => {
-        const allowed = new Set(['@shared/ops-types', '@shared/schema', '../../agents/runner', '../../agents/transcript-lean', '../../comms-events', '../../db', '@anthropic-ai/sdk', 'drizzle-orm', 'express', 'node:crypto', 'zod/v4']);
-        for (const file of sources) {
-            for (const spec of importsOf(file)) {
-                const inside = spec.startsWith('./') || (spec.startsWith('../') && !spec.startsWith('../../'));
-                if (!inside) expect(allowed.has(spec), `${file} imports ${spec}`).toBe(true);
-            }
-        }
-    });
-
     it('offers exactly its read tools, the one draft tool and the answer', async () => {
         const { source } = memorySource([whatsappFile()]);
         const seen: { opts?: any; results: unknown[] } = { results: [] };

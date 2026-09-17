@@ -611,10 +611,14 @@ Reused from the old Ops Manager's wire: `OpsSessionDTO`, `OpsMessageDTO` (extend
 `ops_*` event names and shapes, and the one-run-per-session lock. Replaced: its tables
 (`ops_sessions`/`ops_messages`), its tools, its `queue_draft` write and its model choice.
 
-Not produced yet, though typed in `AnswerSurface`: `diary` (`server/lib/contractor-week.ts`),
-`map` (`server/dispatch-map-routes.ts`), `quote` and `ledger` (both wait on money actions). The
-only `ConfirmAction` is `draft.release`; the design's `booking.*`, `call.start`, `invoice.chase`
-and `contractor.pay`, and a `POST /api/ops/confirm` that executes them, are not built.
+Not produced yet: this is the server half of the Handy Desk, the ask agent and its `OpsAnswer`
+contract. The queue page (T1), the ask bar and answer surface UIs (T2, T3) and the confirm
+executor (T4) are separate follow-up tasks. Typed in `AnswerSurface` but not yet produced: `diary`
+(`server/lib/contractor-week.ts`), `map` (`server/dispatch-map-routes.ts`), `quote` and `ledger`
+(both wait on money actions). The agent proposes only `draft.release` today; T4 adds
+`POST /api/ops/confirm`, which executes a person's confirm, and the `booking.move`,
+`booking.create` and `call.start` actions alongside `draft.release`. `invoice.chase` and
+`contractor.pay` stay out: no money actions yet.
 
 ## Environment
 
