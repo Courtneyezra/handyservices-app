@@ -13,7 +13,7 @@
  * which no matcher separated from a phone call reliably, so the router reads it.
  */
 import { z } from 'zod/v4';
-import { isReady, partyOf, type CaseFile, type Turn, type ModelCallRecord, STAGES, isTurnOf, mediaCountLabel, mediaFailedNote } from './case-file';
+import { isReady, type CaseFile, type Turn, type ModelCallRecord, STAGES, isTurnOf, mediaCountLabel, mediaFailedNote } from './case-file';
 import { moneyQuestionMatch, regulatedMatch } from './lexicon';
 import { ROUTER_MODEL, type ModelClient } from './models';
 import { applyQuotingRoute } from '../quoting/quoting-specialist';
@@ -137,7 +137,7 @@ export async function route(file: CaseFile, turn: Turn, client: ModelClient, liv
     out.subjects = handed.subjects;
     out.turnKind = handed.turnKind;
     // The same hook for Service: money on a known customer's invoice is read from the invoice row, never guessed.
-    const known = !!partyOf(file, turn.partyId)?.customerId;
+    const known = !!turn.customerId;
     const moneyToService = moneyRaised && !quoting.moneyToQuoting && turn.kind !== 'portal_action' && known && invoiceMoneyQuestion(turn.body);
     if (moneyToService && !out.subjects.includes('service')) out.subjects.unshift('service');
     // The belts: regulated and money are holds the model cannot unsay. Each adds to what the model

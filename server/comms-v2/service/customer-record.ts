@@ -27,7 +27,7 @@
 import { assertCommsV2DatabaseFor, type DatabasePurpose } from '../live-database';
 import { RECORD_READ_FIELD_PREFIX } from '../desk/case-file';
 import type { CanonicalKey } from '../desk/identity';
-import { bookingRowToDiary, branchInUse, formatDiaryDate, notStandingReason } from '../scheduling/diary';
+import { bookingRowToDiary, branchInUse, formatDiaryDate, notStandingReason, unacceptedReason, type DiaryBooking } from '../scheduling/diary';
 import { pounds, statusOfRow, type QuoteStatus } from '../quoting/quote-record';
 
 export interface KnownCustomer { customerId: string; name: string | null }
@@ -39,6 +39,8 @@ export interface RecordJob {
     quoteRef: string | null;
     /** 'pending' | 'accepted' | 'declined' | 'in_progress' | 'completed' | 'cancelled' */
     status: string;
+    /** The dispatch board's own column; a visit day is read back only once a contractor has taken the job on. */
+    assignmentStatus: string | null;
     dayOfStatus: string | null;
     /** The days the visit occupies, ISO, through the diary's own span read. */
     scheduledDays: string[];
@@ -137,9 +139,12 @@ export function recordItems(record: CustomerRecord, today: string): RecordItem[]
     }
     for (const j of record.jobs) {
         const facts: ItemFact[] = [{ attr: 'status', label: 'status', value: jobStatus(j) }];
-        const gone = notStandingReason({ id: j.id, quoteRef: j.quoteRef, scheduledDate: j.scheduledDays[0] ?? null, scheduledDays: j.scheduledDays, durationDays: Math.max(1, j.scheduledDays.length), status: j.status, assignmentStatus: null, dayOfStatus: j.dayOfStatus, createdAt: null, completedAt: j.completedAt }, today);
-        // A cancelled visit's day is not a visit date: nobody is coming.
-        if (j.scheduledDays.length && gone?.kind !== 'cancelled') facts.push({ attr: 'visit', label: j.scheduledDays.length > 1 ? 'visit days' : 'visit day', value: j.scheduledDays.map((d) => formatDiaryDate(d)).join(', ') });
+        const booking: DiaryBooking = { id: j.id, quoteRef: j.quoteRef, scheduledDate: j.scheduledDays[0] ?? null, scheduledDays: j.scheduledDays, durationDays: Math.max(1, j.scheduledDays.length), status: j.status, assignmentStatus: j.assignmentStatus, dayOfStatus: j.dayOfStatus, createdAt: null, completedAt: j.completedAt };
+        const gone = notStandingReason(booking, today);
+        // A cancelled visit's day is not a visit date: nobody is coming. A standing booking no contractor has taken
+        // on carries a day nobody has agreed to work, which the diary never confirms (scheduling/diary.ts unacceptedReason).
+        const visitStands = gone ? gone.kind === 'done' : !unacceptedReason(booking);
+        if (j.scheduledDays.length && visitStands) facts.push({ attr: 'visit', label: j.scheduledDays.length > 1 ? 'visit days' : 'visit day', value: j.scheduledDays.map((d) => formatDiaryDate(d)).join(', ') });
         const done = dayOf(j.completedAt);
         if (done) facts.push({ attr: 'completed_on', label: 'completed on', value: done });
         items.push({ ref: `job:${j.id}`, kind: 'job', summary: j.summary, facts });
@@ -176,8 +181,12 @@ export function recordSourceField(item: RecordItem, fact: ItemFact): string {
  * money question of this shape is Service's to answer from the invoice row (desk/router.ts).
  */
 export const RE_INVOICE_QUESTION = /\b(?:invoices?|receipts?|balance|owe|owing|outstanding|paid|payments?)\b/i;
-/** Money words an invoice row cannot answer: a price to agree, a refund, a dispute. Those stay Ben's. */
-export const RE_NOT_A_RECORD_READ = /\b(?:discount\w*|cheap\w*|deals?|refund\w*|knock\w*|reduc\w*|lower|less|wrong|overcharg\w*|dispute\w*|negotia\w*|budget|instal\w*|plan|quotes?|quoted)\b/i;
+/**
+ * Money words an invoice row cannot answer: a price for work (the words the money belt fires on for
+ * a new price), a price to agree, a refund, a dispute. A turn carrying any of them stays Ben's, even
+ * when it also asks about an invoice, since answering the invoice half would clear the hold on the rest.
+ */
+export const RE_NOT_A_RECORD_READ = /\b(?:discount\w*|cheap\w*|expensive|deals?|refund\w*|knock\w*|reduc\w*|lower|less|wrong|overcharg\w*|dispute\w*|negotia\w*|budget|instal\w*|plan|quotes?|quoted|cost\w*|pric\w*|charg\w*|estimat\w*|ballpark|rates?|fees?|rough(?:ly)?)\b|\bhow much (?:would|will|to|for|is it|does it|do you)\b/i;
 
 export function asksAboutInvoice(text: string): boolean {
     return RE_INVOICE_QUESTION.test(text);
@@ -280,7 +289,7 @@ export const databaseCustomerRecords = (purpose: DatabasePurpose): CustomerRecor
             quotes: quoteRows.map((r) => ({ id: r.id, slug: r.shortSlug, status: statusOfRow(r, now), summary: text(r.jobDescription), createdAt: iso(r.createdAt) })),
             jobs: jobRows.map((r) => {
                 const d = bookingRowToDiary(r);
-                return { id: d.id, quoteRef: d.quoteRef, status: d.status, dayOfStatus: d.dayOfStatus, scheduledDays: d.scheduledDays, completedAt: d.completedAt, summary: text(r.description) };
+                return { id: d.id, quoteRef: d.quoteRef, status: d.status, assignmentStatus: d.assignmentStatus, dayOfStatus: d.dayOfStatus, scheduledDays: d.scheduledDays, completedAt: d.completedAt, summary: text(r.description) };
             }),
             invoices: invoiceRows.map((r) => ({ id: r.id, number: r.number, status: r.status, totalPence: pence(r.totalAmount), depositPaidPence: pence(r.depositPaid), balanceDuePence: pence(r.balanceDue), lines: invoiceLinesOf(r.lineItems), sentAt: iso(r.sentAt), dueAt: iso(r.dueDate), paidAt: iso(r.paidAt) })),
         };

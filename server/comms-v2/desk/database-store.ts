@@ -208,8 +208,8 @@ export function identityFromCaseFiles(files: CaseFile[], opts: IdentityOptions =
             const keys = [party.canonical, ...party.channels.map((c) => canonical(c.address))].filter((k): k is CanonicalKey => !!k);
             const known = people.get(party.personId);
             people.set(party.personId, known
-                ? { ...known, name: known.name ?? party.name, customerId: known.customerId ?? party.customerId ?? null, keys: Array.from(new Set([...known.keys, ...keys])) }
-                : { id: party.personId, role: party.role, customerId: party.customerId ?? null, name: party.name, keys: Array.from(new Set(keys)), propertyId: null, landlordId: null });
+                ? { ...known, name: known.name ?? party.name, keys: Array.from(new Set([...known.keys, ...keys])) }
+                : { id: party.personId, role: party.role, customerId: null, name: party.name, keys: Array.from(new Set(keys)), propertyId: null, landlordId: null });
         }
     }
     const identity = new Identity(opts);

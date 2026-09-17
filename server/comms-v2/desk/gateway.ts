@@ -104,7 +104,7 @@ export class Gateway {
         }
         if (resolved.role === 'internal') return { kind: 'refused', reason: 'an internal number is not a customer; nothing to scope' };
         const address = e164Of(resolved.canonical) ?? turn.address;
-        const turnBody = { at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...failedMediaFields(turn.mediaFailures) };
+        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...failedMediaFields(turn.mediaFailures) };
         let file = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {
@@ -117,7 +117,6 @@ export class Gateway {
         } else {
             const party = partyOf(file, resolved.personId)!;
             if (!party.name && resolved.name) party.name = resolved.name;
-            if (!party.customerId && resolved.customerId) party.customerId = resolved.customerId;
             const appended = appendTurn(file, { ...turnBody, partyId: resolved.personId, direction: 'inbound', runId: null, approver: null }, this.fileDeps());
             if (!appended.ok) return { kind: 'refused', reason: appended.reason };
             landed = appended.value;

@@ -37,5 +37,7 @@ export function customerTurnOf(turns: Turn[]): Turn {
     if (turns.length === 1) return turns[0];
     const last = turns[turns.length - 1];
     const media = turns.flatMap((t) => t.media);
-    return { ...last, kind: media.length ? 'media' : 'text', body: turns.map((t) => t.body.trim()).filter(Boolean).join('\n'), media, burst: turns.map((t) => t.id) };
+    // The burst reads the record only when every message in it proved the same client.
+    const customerId = turns.every((t) => t.customerId && t.customerId === last.customerId) ? last.customerId : null;
+    return { ...last, customerId, kind: media.length ? 'media' : 'text', body: turns.map((t) => t.body.trim()).filter(Boolean).join('\n'), media, burst: turns.map((t) => t.id) };
 }

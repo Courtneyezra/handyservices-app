@@ -105,7 +105,7 @@ export class ChannelGateway extends Gateway {
 
         const address = env.channel === 'email' ? resolved.canonical.replace(/^email:/, '') : (e164Of(resolved.canonical) ?? env.address);
         const kind: Turn['kind'] = env.kind ?? (env.media.length ? 'media' : 'text');
-        const turnBody = { at: env.at, channel: env.channel, kind, body: env.text, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(callId ? { callId } : {}), ...(opts.deliveryId ? { deliveryId: opts.deliveryId } : {}), ...failedMediaFields(env.mediaFailures) };
+        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: env.at, channel: env.channel, kind, body: env.text, media: env.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(callId ? { callId } : {}), ...(opts.deliveryId ? { deliveryId: opts.deliveryId } : {}), ...failedMediaFields(env.mediaFailures) };
         let file: CaseFile | null = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {
@@ -118,7 +118,6 @@ export class ChannelGateway extends Gateway {
         } else {
             const party = partyOf(file, resolved.personId)!;
             if (!party.name && resolved.name) party.name = resolved.name;
-            if (!party.customerId && resolved.customerId) party.customerId = resolved.customerId;
             await this.reach(file, resolved, env, address, seed);
             const appended = appendTurn(file, { ...turnBody, partyId: resolved.personId, direction: 'inbound', runId: null, approver: null }, this.fileDeps());
             if (!appended.ok) return { kind: 'refused', reason: appended.reason };

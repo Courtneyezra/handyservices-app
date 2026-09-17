@@ -59,11 +59,6 @@ export interface Party {
     role: Role;
     name: string | null;
     canonical: CanonicalKey;
-    /**
-     * The CRM client this party is (service_clients.id), when identity recognised them
-     * (identity.ts `resolveKnown`). Absent on a file written before the record read landed.
-     */
-    customerId?: string | null;
     channels: PartyChannel[];
     /** The party has said text only; the desk never offers a call again. */
     prefersText: boolean;
@@ -127,6 +122,13 @@ export interface Turn {
      * delivery a file already holds is never landed again (channels/channel-gateway.ts).
      */
     deliveryId?: string;
+    /**
+     * Inbound only: the CRM client (service_clients.id) this turn's own address proved on a proven
+     * channel (desk/identity.ts `resolveKnown`, answer 126). The customer's record is read for this
+     * turn only when it carries one; a web-form or call turn, or one from a key linked only through a
+     * form, never does, whatever an earlier turn of the same person proved.
+     */
+    customerId?: string | null;
     /**
      * A delivery's turn only: the desk run that returned a result on it, whatever it decided (a
      * reply, a hold, nothing). A delivery handed over again whose turn has neither this nor a reply
@@ -386,7 +388,7 @@ export function open(input: OpenInput, deps: CaseFileDeps = {}): Outcome<CaseFil
     const id = input.identity;
     const at = now().toISOString();
     const party: Party = {
-        personId: id.personId, role: id.role, name: id.name, canonical: id.canonical, customerId: id.customerId,
+        personId: id.personId, role: id.role, name: id.name, canonical: id.canonical,
         channels: [{ kind: input.channel, address: input.address, lastInboundAt: WRITTEN_ON_CHANNELS.has(input.channel) ? input.firstTurn.at : null }],
         prefersText: false, alreadyRung: input.channel === 'call', callOffered: false,
     };

@@ -27,10 +27,12 @@ evidence for `link`, never for `resolve`, because a shared household address or 
 otherwise append a stranger's enquiry to someone else's file and let a reply written from that whole
 thread be addressed to the stranger. Role resolution runs in a fixed order, internal, contractor,
 tenant, landlord, known customer, new customer, and stops at the first match. A known customer is
-one the CRM already holds: a homeowner with no client yet is looked up by the key the turn arrived on
-(`service_clients` by dedupe key, primary phone or email) and bound, as `customerId` on the person
-and on the file's party, only when exactly one client answers; two answers bind nobody, and a failed
-lookup leaves the person a new customer. For Goal 1 only `homeowner` and `internal` are live; the
+one the CRM already holds, recognised only on a proven channel (answer 126): a WhatsApp or SMS turn
+from the number, or an email from an address the CRM record itself holds. The key that turn arrived
+on is looked up (`service_clients` by dedupe key, primary phone or email) and bound only when exactly
+one client answers; two answers bind nobody, and a failed lookup leaves the turn unbound. The binding
+belongs to that key and rides on the turn (`customerId`): a web-form or call turn, and a key linked
+only through a form, never carries one and is treated as a new enquiry. For Goal 1 only `homeowner` and `internal` are live; the
 tenant and landlord roles exist in the type and return nothing until the landlord service attaches.
 
 ## Contract 2 - Case file
@@ -425,7 +427,7 @@ model when the router sends the turn to `service`, or when the customer's own wo
 detail on their record or whether we cover their area (`asksAboutOurArea`), whatever the router
 read, or, for a customer the CRM knows, when the turn asks about an invoice, a receipt or a payment.
 A money question of that shape that asks nothing an invoice cannot settle (a discount, a refund, a
-dispute, a quote) is handed to Service instead of held for Ben, the way a live quote's line is
+dispute, a quote, a price for work) is handed to Service instead of held for Ben, the way a live quote's line is
 handed to Quoting; Service answers it from the invoice row or holds it as money. A coverage question also offers `kb_lookup` the areas-covered row whatever words the customer
 used, raises no hold of its own and leaves Scoping to run on a mixed turn's job half.
 
@@ -433,7 +435,7 @@ used, raises no hold of its own and leaves Scoping to run on a mixed turn's job 
 |---|---|---|---|
 | `kb_lookup` | the customer's question | reviewed knowledge-base rows selected by question, best first, by id with the body verbatim | read-only; an unreviewed, retired or blank row is invisible; may return nothing |
 | `customer_record` | the case file and the party | the party's own details: name, the phone and email addresses on the file, and facts whose source is the customer record; the specialist's model sees the email and address only as held, never their values | another party's record is never read |
-| `customer_history` | the party's bound client id | read-only: the client's leads, quotes (status and date, never a figure), jobs with their visit days, and invoices once sent (status, total, deposit paid, balance due unless paid, sent, due and paid dates, lines), as items by ref; never an email, address or postcode column, never a property-header invoice line, free text masked for the model | a party with no bound client; a draft or void invoice; a draft quote; the database any purpose but the one it was built for allows |
+| `customer_history` | the client id the turn's own proven key bound | read-only: the client's leads, quotes (status and date, never a figure), jobs with their visit days (only once a contractor has taken the job on, or it is done), and invoices once sent (status, total, deposit paid, balance due unless paid, sent, due and paid dates, lines), as items by ref; never an email, address or postcode column, never a property-header invoice line, free text masked for the model | a turn with no bound client (a web form, a call, a key linked only through a form); a draft or void invoice; a draft quote; the database any purpose but the one it was built for allows |
 | `change_of_details` | a field, the new value, the turn | a fact `change_of_details` with the turn as its source, and a hold for Ben; for the email or address the fact names only the field and the value rides on the hold alone | a field not on the record; an empty value; a figure; a value the record already holds. The record itself is never written here. |
 | `convergence` | the case file | converging, or not with why | not converging when the job has been asked JOB_ASKS_MAX times with no job type, or SCOPING_REPLIES_MAX replies have gone since the last release and since the job began being scoped (the turn routed to the Scoper, the job asked, or a job detail on the file; the file's `scopingFrom` records when) and the file is not ready; a ready file, or one past scoping, always converges |
 

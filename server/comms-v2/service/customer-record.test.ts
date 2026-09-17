@@ -16,6 +16,8 @@ import { identityFromCaseFiles } from '../desk/database-store';
 import type { DeskLike, DeskResult } from '../desk/desk-types';
 import { ChannelGateway } from '../channels/channel-gateway';
 import { fromDoorSms } from '../channels/sms-adapter';
+import { fromWebForm } from '../channels/form-adapter';
+import { fromDoorEmail } from '../channels/email-adapter';
 import { runGuards } from '../desk/guards';
 import { Identity } from '../desk/identity';
 import { FakeModelClient } from '../desk/models';
@@ -44,12 +46,16 @@ function knownFile(text: string, customerId: string | null = 'client-1'): CaseFi
     const r = open({
         identity: { ok: true, personId: 'p1', customerId, role: 'homeowner', isNew: false, canonical: PHONE, propertyId: null, landlordId: null, name: 'Sam' },
         channel: 'whatsapp', address: '+447700900942',
-        firstTurn: { at: '2026-09-11T10:00:00.000Z', channel: 'whatsapp', kind: 'text', body: text, media: [] },
+        firstTurn: { at: '2026-09-11T10:00:00.000Z', channel: 'whatsapp', kind: 'text', body: text, media: [], ...(customerId ? { customerId } : {}) },
     });
     if (!r.ok) throw new Error(r.reason);
     return r.value;
 }
 
+const quietDesk: DeskLike = {
+    async handleTurn(file) { return { runId: 'run_x', decision: 'none', partyId: file.parties[0].personId, channel: null, windowState: 'open', templateId: null, bubbles: [], factIds: [], kbIds: [], guards: {} as any, approver: null, hold: null, delivered: false, stageAfter: file.stage, calls: [], note: null, summary: null, error: null, landedTurnId: null, composerCalls: 0 } as DeskResult; },
+    async clockPass(file) { return this.handleTurn(file, file.turns[0]); },
+};
 const serviceOut = (over: Record<string, unknown> = {}) => ({ answers: [], changeOfDetails: null, holdReason: null, ...over });
 const now = () => new Date('2026-09-11T10:00:00.000Z');
 
@@ -80,12 +86,21 @@ describe('the customer record as items', () => {
     });
     it('a job carries its visit days; a cancelled one carries none', () => {
         const items = recordItems(baseRecord({ jobs: [
-            { id: 'b1', quoteRef: 'q2', status: 'accepted', dayOfStatus: 'scheduled', scheduledDays: ['2026-09-22', '2026-09-23'], completedAt: null, summary: 'fit a door' },
-            { id: 'b2', quoteRef: null, status: 'cancelled', dayOfStatus: null, scheduledDays: ['2026-09-30'], completedAt: null, summary: 'shelves' },
+            { id: 'b1', quoteRef: 'q2', status: 'accepted', assignmentStatus: 'accepted', dayOfStatus: 'scheduled', scheduledDays: ['2026-09-22', '2026-09-23'], completedAt: null, summary: 'fit a door' },
+            { id: 'b2', quoteRef: null, status: 'cancelled', assignmentStatus: 'assigned', dayOfStatus: null, scheduledDays: ['2026-09-30'], completedAt: null, summary: 'shelves' },
         ] }), '2026-09-11');
         expect(items[0].facts).toContainEqual({ attr: 'visit', label: 'visit days', value: '22 September 2026, 23 September 2026' });
         expect(items[1].facts.map((f) => f.attr)).toEqual(['status']);
         expect(items[1].facts[0].value).toBe('cancelled');
+    });
+    it('a booking no contractor has taken on carries no visit day, as the diary never confirms one; a visit done still carries its day', () => {
+        const items = recordItems(baseRecord({ jobs: [
+            { id: 'b3', quoteRef: null, status: 'pending', assignmentStatus: 'unassigned', dayOfStatus: 'scheduled', scheduledDays: ['2026-09-15'], completedAt: null, summary: 'a gate' },
+            { id: 'b4', quoteRef: null, status: 'completed', assignmentStatus: 'completed', dayOfStatus: 'completed', scheduledDays: ['2026-09-01'], completedAt: '2026-09-01T16:00:00.000Z', summary: 'a tap' },
+        ] }), '2026-09-11');
+        expect(items[0].facts.map((f) => f.attr)).toEqual(['status']);
+        expect(items[0].facts[0].value).toBe('booked, waiting for a tradesperson to take it on');
+        expect(items[1].facts).toContainEqual({ attr: 'visit', label: 'visit day', value: '1 September 2026' });
     });
     it('a stored invoice line that is a property header (it names the address) is never read', () => {
         expect(invoiceLinesOf([
@@ -106,6 +121,10 @@ describe('the invoice question', () => {
         expect(invoiceMoneyQuestion('I think my invoice is wrong')).toBe(false);
         expect(invoiceMoneyQuestion('How much was the quote? I paid the deposit')).toBe(false);
         expect(invoiceMoneyQuestion('How much for a new shelf?')).toBe(false);
+        // An invoice question that also asks a new price stays Ben's: answering the invoice half must not clear the hold on the rest.
+        expect(invoiceMoneyQuestion('how much do I still owe on my invoice, and how much would it cost to paint the fence too?')).toBe(false);
+        expect(invoiceMoneyQuestion('what do I owe on the invoice and what is your price for a gate')).toBe(false);
+        expect(invoiceMoneyQuestion('how much do I still owe on my invoice?')).toBe(true);
     });
 });
 
@@ -139,6 +158,44 @@ describe('identity recognises a customer the CRM holds', () => {
         expect(await identity.resolveKnown('whatsapp', '+447700900942')).toMatchObject({ ok: true, customerId: null });
         expect(logs.join('\n')).toMatch(/could not be read.*database down/);
     });
+    it('answer 126: the F3 example, a web form typed with a real customer\'s phone and the visitor\'s own email, never binds, and neither does a later email from that address', async () => {
+        const recs = records();
+        const g = new ChannelGateway({ desk: quietDesk, identity: new Identity({ known: (k) => recs.knownCustomer(k) }), now: () => new Date('2026-09-11T10:00:00.000Z') });
+        const form = await fromWebForm({ customerName: 'Visitor', phone: '07700 900942', email: 'visitor@example.invalid', jobDescription: 'what do I owe on my invoice?', postcode: null, source: 'web_quote' }, { now: () => new Date('2026-09-11T09:59:00.000Z') });
+        const a = await g.inbound(form, { whatsapp: false });
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.turn.customerId).toBeUndefined();
+        const b = await g.inbound(fromDoorEmail({ address: 'visitor@example.invalid', text: 'so how much is left on my invoice?', at: '2026-09-11T10:02:00.000Z' }));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.file.id).toBe(a.file.id);
+        expect(b.turn.customerId).toBeUndefined();
+        expect(recs.reads).toEqual(['known email:visitor@example.invalid']);
+    });
+    it('a real WhatsApp or SMS turn from the number binds, and an email linked only through a form still never does after it', async () => {
+        const recs = records();
+        const g = new ChannelGateway({ desk: quietDesk, identity: new Identity({ known: (k) => recs.knownCustomer(k) }), now: () => new Date('2026-09-11T10:00:00.000Z') });
+        const form = await fromWebForm({ customerName: 'Visitor', phone: '07700 900942', email: 'visitor@example.invalid', jobDescription: 'a gate', postcode: null, source: 'web_quote' }, { now: () => new Date('2026-09-11T09:59:00.000Z') });
+        await g.inbound(form, { whatsapp: false });
+        const sms = await g.inbound(fromDoorSms({ address: '+447700900942', text: 'did my payment go through?', name: null, at: '2026-09-11T10:01:00.000Z' }));
+        if (sms.kind !== 'handled') throw new Error(sms.kind);
+        expect(sms.turn.customerId).toBe('client-1');
+        const wa = await g.inbound({ channel: 'whatsapp', address: '+447700900942', name: null, text: 'and the invoice?', media: [], at: '2026-09-11T10:02:00.000Z', providerMessageId: null, via: 'meta', mediaFailures: [] });
+        if (wa.kind !== 'handled') throw new Error(wa.kind);
+        expect(wa.turn.customerId).toBe('client-1');
+        const email = await g.inbound(fromDoorEmail({ address: 'visitor@example.invalid', text: 'what is on my invoice?', at: '2026-09-11T10:03:00.000Z' }));
+        if (email.kind !== 'handled') throw new Error(email.kind);
+        expect(email.file.id).toBe(sms.file.id);
+        expect(email.turn.customerId).toBeUndefined();
+    });
+    it('an email binds when the CRM record itself holds the address; a call from the number never binds', async () => {
+        const recs = new MemoryCustomerRecords();
+        recs.add({ customerId: 'client-1', name: 'Sam Returning', keys: [PHONE, 'email:sam.onfile@example.invalid'] });
+        const identity = new Identity({ known: (k) => recs.knownCustomer(k) });
+        expect(await identity.resolveKnown('email', 'sam.onfile@example.invalid')).toMatchObject({ ok: true, customerId: 'client-1' });
+        const other = new Identity({ known: (k) => recs.knownCustomer(k) });
+        expect(await other.resolveKnown('call', '+447700900942')).toMatchObject({ ok: true, customerId: null });
+        expect(await other.resolveKnown('form', '+447700900942')).toMatchObject({ ok: true, customerId: null });
+    });
     it('with no lookup configured, resolves synchronously as before', () => {
         expect(new Identity().resolveKnown('whatsapp', '+447700900942')).toMatchObject({ ok: true, customerId: null, isNew: true });
     });
@@ -159,34 +216,31 @@ describe('identity recognises a customer the CRM holds', () => {
     });
 });
 
-describe('the binding travels with the file', () => {
-    const quietDesk: DeskLike = {
-        async handleTurn(file) { return { runId: 'run_x', decision: 'none', partyId: file.parties[0].personId, channel: null, windowState: 'open', templateId: null, bubbles: [], factIds: [], kbIds: [], guards: {} as any, approver: null, hold: null, delivered: false, stageAfter: file.stage, calls: [], note: null, summary: null, error: null, landedTurnId: null, composerCalls: 0 } as DeskResult; },
-        async clockPass(file) { return this.handleTurn(file, file.turns[0]); },
-    };
-    it('an SMS from a known customer opens a file whose party names the client; a restart rebuilds the person already bound, and nothing is looked up again', async () => {
+describe('the binding belongs to the turn', () => {
+    it('an SMS from a known customer carries the client on its turn, not on the file; a restart looks the key up again', async () => {
         const recs = records();
         const g = new ChannelGateway({ desk: quietDesk, identity: new Identity({ known: (k) => recs.knownCustomer(k) }), now: () => new Date('2026-09-11T10:00:00.000Z') });
         const out = await g.inbound(fromDoorSms({ address: '+447700900942', text: 'did my payment go through?', name: null, at: '2026-09-11T10:00:00.000Z' }));
         if (out.kind !== 'handled') throw new Error(out.kind);
-        expect(out.file.parties[0]).toMatchObject({ customerId: 'client-1', name: 'Sam Returning' });
+        expect(out.turn.customerId).toBe('client-1');
+        expect(out.file.parties[0]).toMatchObject({ name: 'Sam Returning' });
+        expect(out.file.parties[0]).not.toHaveProperty('customerId');
         const rebuilt = identityFromCaseFiles([out.file], { known: (k) => recs.knownCustomer(k) });
-        const again = rebuilt.resolveKnown('sms', '+447700900942');
-        expect(again).toMatchObject({ ok: true, customerId: 'client-1', personId: out.file.parties[0].personId });
-        expect(recs.reads).toEqual([`known ${PHONE}`]);
+        expect(await rebuilt.resolveKnown('sms', '+447700900942')).toMatchObject({ ok: true, customerId: 'client-1', personId: out.file.parties[0].personId });
+        expect(recs.reads).toEqual([`known ${PHONE}`, `known ${PHONE}`]);
     });
-    it('a file opened before the customer was bound takes the client id on their next turn', async () => {
+    it('a turn whose lookup failed stays unbound; the next turn is looked up again and binds', async () => {
         let online = false;
         const recs = records();
         const g = new ChannelGateway({ desk: quietDesk, identity: new Identity({ known: async (k) => { if (!online) throw new Error('down'); return recs.knownCustomer(k); } }), now: () => new Date('2026-09-11T10:00:00.000Z') });
         const first = await g.inbound(fromDoorSms({ address: '+447700900942', text: 'hi', name: null, at: '2026-09-11T10:00:00.000Z' }));
         if (first.kind !== 'handled') throw new Error(first.kind);
-        expect(first.file.parties[0].customerId).toBeNull();
+        expect(first.turn.customerId).toBeUndefined();
         online = true;
         const second = await g.inbound(fromDoorSms({ address: '+447700900942', text: 'any news?', name: null, at: '2026-09-11T10:01:00.000Z' }));
         if (second.kind !== 'handled') throw new Error(second.kind);
         expect(second.file.id).toBe(first.file.id);
-        expect(second.file.parties[0].customerId).toBe('client-1');
+        expect(second.turn.customerId).toBe('client-1');
     });
 });
 
@@ -328,7 +382,7 @@ describe('a returning customer on the desk', () => {
         });
         const out = await gateway.inbound(turn('Hi, how much is left to pay on my invoice?', '2026-09-11T10:00:00.000Z'));
         if (out.kind !== 'handled') throw new Error(out.kind);
-        expect(out.file.parties[0].customerId).toBe('client-1');
+        expect(out.turn.customerId).toBe('client-1');
         expect(out.result.decision).toBe('send');
         expect(Object.values(out.result.guards).every((g) => g.result === 'pass')).toBe(true);
         expect(out.file.hold).toBeNull();

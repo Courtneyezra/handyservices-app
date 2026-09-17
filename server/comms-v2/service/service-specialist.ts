@@ -154,8 +154,8 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
 
     const rows: KbRowVerbatim[] = await kbLookup(asksAboutOurArea(turn.body) ? `${turn.body}\n${AREA_QUERY}` : turn.body, deps.kb ?? reviewedKb);
     const record: RecordEntry[] = customerRecord(file, party);
-    // Their CRM record, read-only, for a customer identity recognised. A read that fails is said to the model, never guessed at.
-    const customerId = party.customerId ?? null;
+    // Their CRM record, read-only, only for a turn whose own address proved the client (answer 126). A read that fails is said to the model, never guessed at.
+    const customerId = turn.customerId ?? null;
     let history: RecordItem[] | null = null;
     let historyError: string | null = null;
     if (customerId && deps.records) {

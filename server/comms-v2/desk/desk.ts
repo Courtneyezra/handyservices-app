@@ -432,7 +432,7 @@ export class Desk implements DeskLike {
             scoping = scopingRan ? await scope(file, turn, party, client, { ...this.deps.scoping, now: this.now }) : null;
             if (scoping) { calls.push(...scoping.calls); specialists.push(scoping); if (scoping.error) log(`scoping: ${scoping.error}`); }
             // An invoice or receipt question from a customer the CRM knows is Service's whatever the router read, and money the router handed it is its to answer or hold.
-            const invoiceQuestion = !!party.customerId && asksAboutInvoice(turn.body);
+            const invoiceQuestion = !!turn.customerId && asksAboutInvoice(turn.body);
             const service = await serve(file, turn, party, client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service') || asksToChangeDetails(turn.body) || asksAboutOurArea(turn.body) || invoiceQuestion || !!route.moneyToService, scopingRan, invoiceMoney: !!route.moneyToService });
             calls.push(...service.calls);
             serviceRead = service.calls.length > 0;
