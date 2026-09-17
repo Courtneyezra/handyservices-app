@@ -21,7 +21,7 @@ export function regulatedMatch(text: string): string | null {
 export const RE_FIGURE = /(?:£\s*\d[\d,]*(?:\.\d+)?)|(?:\b\d[\d,]*(?:\.\d+)?\s*(?:pounds?|quid|gbp)\b)|(?:\b\d+p\b)/i;
 
 /**
- * Haggling in everyday words: "is that the best you can do?", "any wiggle room?", "bit steep", "would you take 120?",
+ * Haggling in everyday words: "is that the best you can do?", "any wiggle room?", "that's a bit steep", "would you take 120?",
  * "someone else quoted me 80", "mates rates". Written narrow, so "lower the shelf", "match the paint" and
  * "do any better than a patch" stay job talk.
  */
