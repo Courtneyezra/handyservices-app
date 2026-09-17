@@ -133,7 +133,7 @@ describe('lexicon', () => {
         for (const body of [
             'Is that the best you can do?', 'Any wiggle room on that?', "That's a bit steep isn't it", 'Can you do it for less than that?', 'Would you do it for less than 150?', "That's a bit dear", "That's over my budget", 'My budget is 200', "I'm on a tight budget", 'Can you do it for £100?', 'You quoted me £150, any cheaper?',
             'Someone else quoted me 80 for it', 'Can you match 90?', 'Could you do mates rates?', 'Can I pay cash for less?', 'Can you do any better on that?',
-            'Could you go any lower on the price?', 'Can you go lower than 150?', 'Is there any room to move on that?', 'That seems a lot for a tap', 'Any chance of a deal if I book two jobs?',
+            'Can you go any lower?', 'Could you go any lower on the price?', 'Can you go lower than 150?', 'Is there any room to move on that?', 'That seems a lot for a tap', 'Any chance of a deal if I book two jobs?',
             'Do you do a pensioner rate?', 'Can you do it for 100?', 'Would you take 120?', 'Can you accept 90?', 'Would u take 80 cash?', 'Can you knock a tenner off?', 'Would you do 150 cash?',
             'Too pricey for me', 'Can you meet me halfway?', 'That is a bit steep for a tap', 'Too dear for me', 'Can you do it for less money?', 'Is that negotiable?', 'Can I pay in instalments?', 'Could you knock some off?',
         ]) {
@@ -163,6 +163,9 @@ describe('lexicon', () => {
         expect(offersCall('We tried to call you back but no luck.')).toBeNull();
         expect(scopingQuestionCount('As we discussed on the phone, could you send a photo?')).toBe(1);
         expect(offersCall('Happy to give you a quick call this morning if easier?')).toBeTruthy();
+        expect(offersCall("We're trying to fit you in Thursday so Ben will call you tomorrow to confirm.")).toBeTruthy();
+        expect(offersCall('I tried to find a slot and can give you a ring later if easier?')).toBeTruthy();
+        expect(scopingQuestionCount('I tried to find a slot and can give you a ring later if easier?')).toBe(0);
         expect(offersCall('As I said I can give you a ring tomorrow.')).toBeTruthy();
         expect(scopingQuestionCount('Happy to give you a quick call this morning if easier?')).toBe(0);
         for (const past of [
