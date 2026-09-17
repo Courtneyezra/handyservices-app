@@ -10,6 +10,8 @@
  *                                    commsV2DatabaseCheck) - false on production, so the board page
  *                                    hides its sandbox-only controls and mode badges there without a
  *                                    hostname check, failing towards hidden on any refusal reason
+ * GET  /queue                     - Handy Desk's "Needs you" list (queue.ts): every held file, with
+ *                                    its held draft and its office working-hours wait, longest first
  * GET  /case-files/:id            - one file's turns and facts, read-only
  * POST /case-files/:id/release    - releases a hold as the signed-in user; the case file's own
  *                                    `release` enforces the approver-and-words invariant, this
@@ -49,6 +51,7 @@
 import { Router, type Response } from 'express';
 import { readApproverAssignments, readStaffNames, slotOf, type ReadApproverAssignments, type ReadStaffNames } from './approvers';
 import { boardOf, cardOf, detailOf, type BoardMode } from './board';
+import { queueOf } from './queue';
 import { boardSourceFor, commsV2BoardDoor, type BoardSource, type BoardSourceFor } from './store';
 import { release } from '../desk/case-file';
 import { humanReply, sendHeldDraft, sendWindowTemplate } from '../desk/human-reply';
@@ -82,6 +85,13 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const src = await source(res);
         if (!src) return;
         res.json({ ...boardOf(src.store.all(), { held, mode }, await approvers()), sandboxAvailable: sandboxAvailable() });
+    });
+
+    router.get('/queue', async (req, res) => {
+        const mode = req.query.mode === 'sandbox' || req.query.mode === 'live' ? (req.query.mode as BoardMode) : undefined;
+        const src = await source(res);
+        if (!src) return;
+        res.json({ ...queueOf(src.store.all(), { mode }, await approvers()), sandboxAvailable: sandboxAvailable() });
     });
 
     router.get('/case-files/:id', async (req, res) => {
