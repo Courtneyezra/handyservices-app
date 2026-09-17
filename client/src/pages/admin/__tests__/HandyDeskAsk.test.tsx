@@ -4,12 +4,13 @@
  * card as this session's ops_* events stream (ignoring another session's), then the answer, and
  * shows a refused ask as the desk said it.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch } from '@test-utils';
 import { MockEventSource } from '../../../../test-setup';
 import HandyDesk from '@/pages/admin/HandyDesk';
+import { RUN_STALE_MS } from '@/lib/handy-desk-ask';
 import type { AskMessageDTO } from '@shared/ops-types';
 import type { QueueItem } from '@/lib/handy-desk-queue';
 
@@ -39,6 +40,8 @@ function setup(opts: { messageReply?: () => { status?: number; json?: unknown } 
 const emit = (evt: unknown) => act(() => { MockEventSource.last!.emit(evt); });
 
 describe('HandyDesk ask bar', () => {
+    afterEach(() => { vi.useRealTimers(); });
+
     it('asks about the selected card, shows the thinking card live, then the answer', async () => {
         const { calls, setMessages } = setup();
         renderWithQuery(<HandyDesk />);
@@ -106,7 +109,7 @@ describe('HandyDesk ask bar', () => {
         expect(await screen.findByTestId('handy-desk-thinking')).toBeInTheDocument();
         expect(screen.getByRole('button', { name: 'What needs me?' })).toBeDisabled();
 
-        // The server restarted mid-run: the answer row landed but no ops_* event ever will.
+        // The stream dropped as the run finished: the answer row landed but its ops_* events never will.
         setMessages([
             { id: 'u1', sessionId: 'sess_1', role: 'user', content: 'Show me the floor', via: 'tap', createdAt: AT } as AskMessageDTO,
             { id: 'a1', sessionId: 'sess_1', role: 'assistant', content: 'Two files need you.', runId: 'run_1', createdAt: AT } as AskMessageDTO,
@@ -117,6 +120,28 @@ describe('HandyDesk ask bar', () => {
         expect(screen.getByRole('button', { name: 'What needs me?' })).toBeEnabled();
         expect(screen.getByRole('button', { name: 'Back to the conversation' })).toBeInTheDocument();
     }, 15_000);
+
+    it('fails a run that goes silent with no answer row, and unlocks the bar', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+        setup();
+        renderWithQuery(<HandyDesk />);
+        await screen.findByTestId('queue-card-case_rob');
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Show me the floor' })).toBeEnabled());
+        await user.click(screen.getByRole('button', { name: 'Show me the floor' }));
+        expect(await screen.findByTestId('handy-desk-thinking')).toBeInTheDocument();
+        emit({ type: 'ops_run_started', sessionId: 'sess_1', runId: 'run_1', at: AT });
+
+        // The server restarted mid-run: no answer row and no further event will ever come.
+        await act(async () => { await vi.advanceTimersByTimeAsync(RUN_STALE_MS - 1_000); });
+        expect(screen.getByTestId('handy-desk-thinking')).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'What needs me?' })).toBeDisabled();
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('The desk stopped without an answer.');
+        expect(screen.queryByTestId('handy-desk-thinking')).toBeNull();
+        expect(screen.getByRole('button', { name: 'What needs me?' })).toBeEnabled();
+    });
 
     it('a chip asks as a tap with no context when nothing is selected', async () => {
         const { calls } = setup();

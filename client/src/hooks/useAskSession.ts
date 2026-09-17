@@ -13,7 +13,7 @@ import { useCommsEvents, type CommsEvent } from '@/hooks/useCommsEvents';
 import type { AskMessageDTO, AskVia, OpsSessionDTO } from '@shared/ops-types';
 import type { DeskSelection } from '@/lib/handy-desk-queue';
 import {
-    ASK_BASE, LIVE_RUN_POLL_MS, applyAskEvent, askBody, askRefusal, currentExchange, settleRun,
+    ASK_BASE, LIVE_RUN_POLL_MS, RUN_STALE_MS, applyAskEvent, askBody, askRefusal, currentExchange, openRun, settleRun,
     type AskRun, type PendingAsk,
 } from '@/lib/handy-desk-ask';
 
@@ -48,6 +48,7 @@ export function useAskSession() {
     const [pending, setPending] = useState<PendingAsk | null>(null);
     const [sending, setSending] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [staleCheck, setStaleCheck] = useState(0);
 
     const today = useQuery({
         queryKey: ['comms-v2-ask-today'],
@@ -74,16 +75,22 @@ export function useAskSession() {
     }, [queryClient]);
 
     useEffect(() => {
-        const settled = settleRun(run, detail.data?.messages ?? []);
-        if (settled === run) return;
-        setRun(settled);
-        invalidateHeldDrafts();
-    }, [run, detail.data, invalidateHeldDrafts]);
+        const settled = settleRun(run, detail.data?.messages ?? [], Date.now());
+        if (settled !== run) {
+            setRun(settled);
+            invalidateHeldDrafts();
+            return;
+        }
+        if (!run || run.finished) return;
+        const timer = setTimeout(() => setStaleCheck((n) => n + 1), run.heardAt + RUN_STALE_MS - Date.now());
+        return () => clearTimeout(timer);
+    }, [run, detail.data, staleCheck, invalidateHeldDrafts]);
 
     useCommsEvents(useCallback((evt: CommsEvent) => {
         if (!sessionId) return;
-        setRun((prev) => applyAskEvent(prev, evt, sessionId).run);
-        if (applyAskEvent(null, evt, sessionId).effect === 'refetch') {
+        const now = Date.now();
+        setRun((prev) => applyAskEvent(prev, evt, sessionId, now).run);
+        if (applyAskEvent(null, evt, sessionId, now).effect === 'refetch') {
             queryClient.invalidateQueries({ queryKey: ['comms-v2-ask-session', sessionId] });
         }
         if (evt.type === 'ops_run_finished' && evt.sessionId === sessionId) invalidateHeldDrafts();
@@ -98,7 +105,7 @@ export function useAskSession() {
         try {
             const { runId } = await askFetch<{ runId: string }>('POST', `/sessions/${sessionId}/messages`, body);
             // Open the run on the 202, so the thinking card shows before the first event arrives.
-            setRun((prev) => (prev && prev.runId === runId ? prev : { runId, steps: [], finished: null }));
+            setRun((prev) => (prev && prev.runId === runId ? prev : openRun(runId, Date.now())));
             setPending({ text: body.text, via, runId });
             return true;
         } catch (e: any) {

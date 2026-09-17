@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AskMessageDTO, LeanRunStep } from '@shared/ops-types';
 import {
-    applyAskEvent, askBody, askRefusal, currentExchange, settleRun, suggestions, thinkingLines, type AskRun,
+    RUN_STALE_MS, applyAskEvent, askBody, askRefusal, currentExchange, settleRun, suggestions, thinkingLines, type AskRun,
 } from '@/lib/handy-desk-ask';
 
 const AT = '2026-09-17T09:00:00.000Z';
@@ -41,40 +41,47 @@ describe('applyAskEvent', () => {
     const step: LeanRunStep = { at: AT, type: 'tool_call', tool: 'get_board' };
 
     it('ignores other sessions and non-ops events', () => {
-        expect(applyAskEvent(null, { type: 'ops_run_started', sessionId: 'other', runId: 'r1', at: AT }, 's1')).toEqual({ run: null, effect: 'none' });
-        expect(applyAskEvent(null, { type: 'board_delta' }, 's1')).toEqual({ run: null, effect: 'none' });
+        expect(applyAskEvent(null, { type: 'ops_run_started', sessionId: 'other', runId: 'r1', at: AT }, 's1', 0)).toEqual({ run: null, effect: 'none' });
+        expect(applyAskEvent(null, { type: 'board_delta' }, 's1', 0)).toEqual({ run: null, effect: 'none' });
     });
 
     it('opens, fills and finishes a run, keeping steps gathered before run_started', () => {
-        let run: AskRun | null = { runId: 'r1', steps: [], finished: null };
-        run = applyAskEvent(run, { type: 'ops_run_event', sessionId: 's1', runId: 'r1', step, at: AT }, 's1').run;
-        run = applyAskEvent(run, { type: 'ops_run_started', sessionId: 's1', runId: 'r1', at: AT }, 's1').run;
+        let run: AskRun | null = { runId: 'r1', steps: [], finished: null, heardAt: 0 };
+        run = applyAskEvent(run, { type: 'ops_run_event', sessionId: 's1', runId: 'r1', step, at: AT }, 's1', 0).run;
+        run = applyAskEvent(run, { type: 'ops_run_started', sessionId: 's1', runId: 'r1', at: AT }, 's1', 0).run;
         expect(run?.steps).toEqual([step]);
-        const finished = applyAskEvent(run, { type: 'ops_run_finished', sessionId: 's1', runId: 'r1', ok: true, at: AT }, 's1');
+        const finished = applyAskEvent(run, { type: 'ops_run_finished', sessionId: 's1', runId: 'r1', ok: true, at: AT }, 's1', 0);
         expect(finished.run?.finished).toEqual({ ok: true });
         expect(finished.effect).toBe('refetch');
     });
 
     it('joins a run it did not start, and marks the detail stale on a message', () => {
-        const joined = applyAskEvent(null, { type: 'ops_run_event', sessionId: 's1', runId: 'r2', step, at: AT }, 's1').run;
-        expect(joined).toEqual({ runId: 'r2', steps: [step], finished: null });
-        expect(applyAskEvent(joined, { type: 'ops_message', sessionId: 's1', message: msg({}), at: AT }, 's1')).toEqual({ run: joined, effect: 'refetch' });
+        const joined = applyAskEvent(null, { type: 'ops_run_event', sessionId: 's1', runId: 'r2', step, at: AT }, 's1', 0).run;
+        expect(joined).toEqual({ runId: 'r2', steps: [step], finished: null, heardAt: 0 });
+        expect(applyAskEvent(joined, { type: 'ops_message', sessionId: 's1', message: msg({}), at: AT }, 's1', 0)).toEqual({ run: joined, effect: 'refetch' });
     });
 });
 
 describe('settleRun', () => {
-    const live: AskRun = { runId: 'run_1', steps: [], finished: null };
+    const live: AskRun = { runId: 'run_1', steps: [], finished: null, heardAt: 0 };
 
     it('finishes a live run once its answer row is in the session, with no finish event', () => {
         const messages = [msg({ role: 'user' }), msg({ role: 'assistant', runId: 'run_1' })];
-        expect(settleRun(live, messages)).toEqual({ ...live, finished: { ok: true } });
+        expect(settleRun(live, messages, 0)).toEqual({ ...live, finished: { ok: true }, heardAt: 0 });
     });
 
     it('leaves a run alone with no answer row for it, or once already finished', () => {
-        expect(settleRun(live, [msg({ role: 'assistant', runId: 'run_0' })])).toBe(live);
+        expect(settleRun(live, [msg({ role: 'assistant', runId: 'run_0' })], RUN_STALE_MS - 1)).toBe(live);
         const failed: AskRun = { ...live, finished: { ok: false } };
-        expect(settleRun(failed, [msg({ role: 'assistant', runId: 'run_1' })])).toBe(failed);
-        expect(settleRun(null, [])).toBeNull();
+        expect(settleRun(failed, [msg({ role: 'assistant', runId: 'run_1' })], 0)).toBe(failed);
+        expect(settleRun(null, [], 0)).toBeNull();
+    });
+
+    it('fails a run silent for the stale limit with no answer row, counting from its newest event', () => {
+        expect(settleRun(live, [], RUN_STALE_MS)).toEqual({ ...live, finished: { ok: false } });
+        const heard = applyAskEvent(live, { type: 'ops_run_event', sessionId: 's1', runId: 'run_1', step: { at: AT, type: 'route' }, at: AT }, 's1', 60_000).run;
+        expect(settleRun(heard, [], RUN_STALE_MS)).toBe(heard);
+        expect(settleRun(heard, [], 60_000 + RUN_STALE_MS)?.finished).toEqual({ ok: false });
     });
 });
 
@@ -119,14 +126,14 @@ describe('currentExchange', () => {
     });
 
     it('shows the pending ask with the live run before any row lands', () => {
-        const run: AskRun = { runId: 'r1', steps: [{ at: AT, type: 'route' }], finished: null };
+        const run: AskRun = { runId: 'r1', steps: [{ at: AT, type: 'route' }], finished: null, heardAt: 0 };
         expect(currentExchange([], run, { text: 'Draft a reply', via: 'tap', runId: 'r1' })).toEqual({
             ask: { text: 'Draft a reply', via: 'tap' }, answer: null, steps: run.steps, live: true, failed: false,
         });
     });
 
     it('pairs the run with the answer carrying its id, and lists the stored transcript once finished', () => {
-        const run: AskRun = { runId: 'r1', steps: [], finished: { ok: true } };
+        const run: AskRun = { runId: 'r1', steps: [], finished: { ok: true }, heardAt: 0 };
         const ex = currentExchange([ask, answer], run, { text: 'What did Rob say?', via: 'typed', runId: 'r1' });
         expect(ex?.answer?.id).toBe('b1');
         expect(ex?.live).toBe(false);
@@ -134,14 +141,14 @@ describe('currentExchange', () => {
     });
 
     it('does not pair a new run with the previous run\'s answer', () => {
-        const run: AskRun = { runId: 'r2', steps: [], finished: null };
+        const run: AskRun = { runId: 'r2', steps: [], finished: null, heardAt: 0 };
         const ex = currentExchange([ask, answer], run, { text: 'Show me the floor', via: 'tap', runId: 'r2' });
         expect(ex?.ask.text).toBe('Show me the floor');
         expect(ex?.answer).toBeNull();
     });
 
     it('says a finished run failed only when no answer came back for it', () => {
-        const run: AskRun = { runId: 'r3', steps: [], finished: { ok: false } };
+        const run: AskRun = { runId: 'r3', steps: [], finished: { ok: false }, heardAt: 0 };
         expect(currentExchange([ask, answer], run, { text: 'x', via: 'typed', runId: 'r3' })?.failed).toBe(true);
     });
 

@@ -44,6 +44,8 @@ export interface AskRun {
     runId: string;
     steps: LeanRunStep[];
     finished: null | { ok: boolean };
+    /** When the client last heard of this run: the 202 or its newest ops_* event (epoch ms). */
+    heardAt: number;
 }
 
 export type AskEventEffect = 'none' | 'refetch';
@@ -51,14 +53,22 @@ export type AskEventEffect = 'none' | 'refetch';
 /** How often the session detail is re-read while a run is live, so a missed finish event cannot hold the bar. */
 export const LIVE_RUN_POLL_MS = 5_000;
 
+/** A live run silent this long with no answer row has died (a server restart mid-run). */
+export const RUN_STALE_MS = 3 * 60_000;
+
+export function openRun(runId: string, now: number): AskRun {
+    return { runId, steps: [], finished: null, heardAt: now };
+}
+
 /**
  * A live run whose answer row is already in the session detail has finished, whether or not its
- * ops_run_finished event arrived (a dropped stream, or a server restart mid-run).
+ * ops_run_finished event arrived (a dropped stream). One silent for RUN_STALE_MS with no answer row
+ * never will (a server restart mid-run), so it settles as failed and the bar unlocks.
  */
-export function settleRun(run: AskRun | null, messages: AskMessageDTO[]): AskRun | null {
+export function settleRun(run: AskRun | null, messages: AskMessageDTO[], now: number): AskRun | null {
     if (!run || run.finished) return run;
-    const answered = messages.some((m) => m.role === 'assistant' && m.runId === run.runId);
-    return answered ? { ...run, finished: { ok: true } } : run;
+    if (messages.some((m) => m.role === 'assistant' && m.runId === run.runId)) return { ...run, finished: { ok: true } };
+    return now - run.heardAt >= RUN_STALE_MS ? { ...run, finished: { ok: false } } : run;
 }
 
 /**
@@ -66,7 +76,7 @@ export function settleRun(run: AskRun | null, messages: AskMessageDTO[]): AskRun
  * or the old Ops Manager's dock) are ignored. `refetch` means a message row landed and the session
  * detail is stale.
  */
-export function applyAskEvent(run: AskRun | null, evt: { type: string }, sessionId: string): { run: AskRun | null; effect: AskEventEffect } {
+export function applyAskEvent(run: AskRun | null, evt: { type: string }, sessionId: string, now: number): { run: AskRun | null; effect: AskEventEffect } {
     const e = evt as OpsCommsEvent;
     if (e.type !== 'ops_message' && e.type !== 'ops_run_started' && e.type !== 'ops_run_event' && e.type !== 'ops_run_finished') {
         return { run, effect: 'none' };
@@ -75,9 +85,9 @@ export function applyAskEvent(run: AskRun | null, evt: { type: string }, session
     if (e.type === 'ops_message') return { run, effect: 'refetch' };
     if (e.type === 'ops_run_started') {
         // The 202 may already have opened this run; keep any steps it gathered.
-        return { run: run && run.runId === e.runId ? run : { runId: e.runId, steps: [], finished: null }, effect: 'none' };
+        return { run: run && run.runId === e.runId ? { ...run, heardAt: now } : openRun(e.runId, now), effect: 'none' };
     }
-    const current = run && run.runId === e.runId ? run : { runId: e.runId, steps: [], finished: null };
+    const current = run && run.runId === e.runId ? { ...run, heardAt: now } : openRun(e.runId, now);
     if (e.type === 'ops_run_finished') return { run: { ...current, finished: { ok: e.ok !== false } }, effect: 'refetch' };
     if (!e.step || typeof e.step !== 'object') return { run, effect: 'none' };
     return { run: { ...current, steps: [...current.steps, e.step] }, effect: 'none' };
