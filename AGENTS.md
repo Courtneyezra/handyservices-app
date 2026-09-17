@@ -49,6 +49,7 @@ when asked whether some data is safe to publish.
 - `/api/spine/*` — comms desk config, tiers, go-live check, vision health (admin)
 - `/api/comms-sandbox/*` — dry-run harness (admin; see the `comms-sandbox` skill)
 - `/api/comms-v2/*` — the new desk's board, release, its own sandbox door, and the Handy Desk ask agent under `/ask`, whose only write is a draft on a case file's hold that a person sends with send-held-draft (admin; `server/comms-v2/README.md`)
+- `/api/admin/contractor-desk/*` — Ben's Contractors page, reached from the Handy Desk (admin, VAs included; `server/contractor-desk/`). Every read names its fields and never returns a login secret or password field; it replaces the old `/api/admin/contractors` reads, which stay for the old pages until the new page lands
 - `/api/health/comms-worker` — worker heartbeat, `status: 'ok' | 'stale'` as 200 / 503
 
 ## Invariants and gotchas

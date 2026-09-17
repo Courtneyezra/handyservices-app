@@ -6,6 +6,17 @@ import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
+// GET / and GET /:id answer with no login, so they name what they send. The login secrets
+// (users.password, users.widget_token, handyman_profiles.app_token, access_code,
+// calendar_sync_token) are never read here.
+const PUBLIC_PROFILE_COLUMNS = {
+    id: true, userId: true, businessName: true, bio: true, address: true, city: true,
+    postcode: true, latitude: true, longitude: true, radiusMiles: true, hourlyRate: true,
+    availabilityStatus: true, verificationStatus: true, deliveryTier: true, vertical: true,
+    profileImageUrl: true, createdAt: true, updatedAt: true,
+} as const;
+const PUBLIC_USER_COLUMNS = { id: true, firstName: true, lastName: true, email: true } as const;
+
 // Helper to calculate distance in miles
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
     const R = 3958.8; // Earth's radius in miles
@@ -25,8 +36,9 @@ router.get('/', async (req, res) => {
         const { lat, lng, radius } = req.query;
 
         const allProfiles = await db.query.handymanProfiles.findMany({
+            columns: PUBLIC_PROFILE_COLUMNS,
             with: {
-                user: true,
+                user: { columns: PUBLIC_USER_COLUMNS },
                 skills: {
                     with: {
                         service: true
@@ -124,8 +136,9 @@ router.get('/:id', async (req, res) => {
         const { id } = req.params;
         const profile = await db.query.handymanProfiles.findFirst({
             where: eq(handymanProfiles.id, id),
+            columns: PUBLIC_PROFILE_COLUMNS,
             with: {
-                user: true,
+                user: { columns: PUBLIC_USER_COLUMNS },
                 skills: {
                     with: {
                         service: true
