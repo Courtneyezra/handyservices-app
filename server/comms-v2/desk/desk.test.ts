@@ -375,6 +375,108 @@ describe('the desk', () => {
         expect(r.note).toMatch(/asked us to stop \("stop", marketing\)/);
     });
 
+    const followUp = (file: CaseFile, channel: 'sms' | 'whatsapp' | 'email' | 'call', body: string, at: string) => {
+        const t = appendTurn(file, { at, channel, kind: 'text', body, media: [], partyId: 'p1', direction: 'inbound', runId: null, approver: null });
+        if (!t.ok) throw new Error(t.reason);
+        return t.value;
+    };
+
+    it('while an opt-out hold stands, the next ordinary message is not scoped, composed or sent, and the card says why', async () => {
+        for (const [channel, optOut, where] of [['email', 'STOP', 'by email'], ['call', callOptOut, 'on a call']] as const) {
+            const { client, desk: d } = noModel();
+            const file = fileOn(channel, optOut);
+            const held = await d.handleTurn(file, file.turns[0]);
+            expect(held.decision, channel).toBe('hold');
+            const raised = file.hold!.reason;
+            expect(raised, channel).toContain(`customer may have asked to stop ${where}`);
+
+            // The proven sequence: an ordinary follow-up on the same thread, the hold still standing.
+            const next = await d.handleTurn(file, followUp(file, channel, 'Did you get my email?', '2026-09-11T10:20:00.000Z'));
+            expect(next.decision, channel).toBe('hold');
+            expectSilent(next, file, client.calls, `follow-up after an opt-out ${where}`);
+            expect(next.note, channel).toMatch(/the opt-out hold stands: no specialist read this turn/);
+            expect(file.hold!.reason, channel).toContain(raised);
+            expect(file.hold!.reason, channel).toMatch(/nothing was sent, until Ben releases it/);
+            // The desk's own note, not a customer's question added to the card.
+            expect(file.hold!.notedOn, channel).toBe(false);
+
+            // A second follow-up says the same thing: nothing goes, and the card does not grow.
+            const reason = file.hold!.reason;
+            const again = await d.handleTurn(file, followUp(file, channel, 'Hello? Are you there?', '2026-09-11T11:20:00.000Z'));
+            expect(again.decision, channel).toBe('hold');
+            expectSilent(again, file, client.calls, `second follow-up after an opt-out ${where}`);
+            expect(file.hold!.reason, channel).toBe(reason);
+        }
+    });
+
+    it('an opt-out on a thread already held on an exception silences the later turns too: the acknowledgement stops', async () => {
+        const { client, desk: d } = desk({
+            router: ({ n }) => { if (n > 1) throw new Error('the router must not be called on a held thread'); return routeScoping({ exception: 'complaint', turnKind: 'other' }); },
+            specialist: () => { throw new Error('the specialist must not be called'); },
+            composer: () => { throw new Error('the composer must not be called'); },
+        });
+        const file = fileOn('email', 'Your last job was rubbish, I want it redone');
+        const a = await d.handleTurn(file, file.turns[0]);
+        expect(a.delivered).toBe(true);
+        expect(a.bubbles.map((b) => b.text).join('\n\n')).toContain(DEFAULT_FIXED_LINES.complaint.split('\n')[0]);
+        expect(file.hold?.exception).toBe('complaint');
+
+        // The opt-out lands on the thread Ben already has: the complaint's hold stands and the card carries both reasons.
+        const stop = await d.handleTurn(file, followUp(file, 'email', 'STOP', '2026-09-11T10:05:00.000Z'));
+        expect(stop.decision).toBe('hold');
+        expect(stop.delivered).toBe(false);
+        expect(file.hold?.exception).toBe('complaint');
+        expect(file.hold?.reason).toContain('customer may have asked to stop by email');
+
+        // From here the thread is silent: the exception's acknowledgement does not go either.
+        const outboundBefore = file.turns.filter((t) => t.direction === 'outbound').length;
+        const next = await d.handleTurn(file, followUp(file, 'email', 'So what happens now?', '2026-09-11T10:10:00.000Z'));
+        expect(next.decision).toBe('hold');
+        expect(next.delivered).toBe(false);
+        expect(next.bubbles).toEqual([]);
+        expect(file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(outboundBefore);
+        expect(client.calls.filter((c) => c.role === 'router')).toHaveLength(1);
+    });
+
+    it('a held thread that is not an opt-out is unaffected: an exception hold still acknowledges each later turn', async () => {
+        const { client, gateway } = desk({
+            router: ({ n }) => { if (n > 1) throw new Error('the router must not be called on a held thread'); return routeScoping({ exception: 'complaint', turnKind: 'other' }); },
+            specialist: () => { throw new Error('the specialist must not be called'); },
+            composer: () => { throw new Error('the composer must not be called'); },
+        });
+        const a = await gateway.inbound(turn('Your last job was rubbish, I want it redone', '2026-09-11T10:00:00.000Z'));
+        if (a.kind !== 'handled') throw new Error(a.kind);
+        expect(a.file.hold?.exception).toBe('complaint');
+        const b = await gateway.inbound(turn('So what happens now?', '2026-09-11T10:05:00.000Z'));
+        if (b.kind !== 'handled') throw new Error(b.kind);
+        expect(b.result.decision).toBe('hold');
+        expect(b.result.delivered).toBe(true);
+        expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(b.file.hold?.reason).not.toMatch(/asked us to stop|may have asked to stop/);
+        expect(client.calls).toHaveLength(1);
+    });
+
+    it('a held thread that is not an opt-out is unaffected: a money hold still routes, gathers and answers the next turn', async () => {
+        const { client, gateway } = desk({
+            router: ({ n }) => n === 2 ? routeScoping({ exception: 'money', turnKind: 'question' }) : routeScoping(),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'sticking back door' }]),
+            composer: ({ n }) => ({ reply: n === 2 ? `${DEFAULT_FIXED_LINES.money_to_ben}\n\nIs the door still closing?` : 'Hi Sam, a sticking back door, no problem.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
+        });
+        const first = await gateway.inbound(turn('Hi, my back door sticks', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        const money = await gateway.inbound(turn('How much roughly?', '2026-09-11T10:05:00.000Z'));
+        if (money.kind !== 'handled') throw new Error(money.kind);
+        expect(money.file.hold?.exception).toBe('money');
+        const composedBefore = client.calls.filter((c) => c.role === 'composer').length;
+        const after = await gateway.inbound(turn('It catches at the top', '2026-09-11T10:10:00.000Z'));
+        if (after.kind !== 'handled') throw new Error(after.kind);
+        // The money card still stands, so the run is a hold; the difference from an opt-out is that the turn was read and answered.
+        expect(after.result.delivered).toBe(true);
+        expect(after.result.bubbles.length).toBeGreaterThan(0);
+        expect(after.result.calls.map((c) => c.role)).toContain('router');
+        expect(client.calls.filter((c) => c.role === 'composer').length).toBeGreaterThan(composedBefore);
+    });
+
     it('a call with no opt-out in it is scoped as before: routed, gathered and composed, with no opt-out hold', async () => {
         const { client, desk: d } = desk({
             router: () => routeScoping(),

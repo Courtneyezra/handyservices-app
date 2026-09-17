@@ -13,7 +13,10 @@
  * Complaints, refunds, trust doubts, gas and scoping that is not converging: one fixed line in
  * Ben's words, no composer, and while the hold stands no specialist either: each later turn gets
  * the short acknowledgement that Ben will come back. The vocabulary is server/comms-v2/service/
- * hold-reasons.ts. A router that fails to read the turn holds for Ben with the fixed acknowledgement,
+ * hold-reasons.ts. A thread held because the customer asked us to stop gets not even that
+ * acknowledgement: no specialist, no composer and nothing sent on any later turn while the hold
+ * stands (`optOutHeld`), because someone who asked us to stop is not written to again whatever the
+ * opt-out ledger says yet. A router that fails to read the turn holds for Ben with the fixed acknowledgement,
  * since nothing then rules out a complaint or a refund. The acknowledgement names a photo or video the turn
  * carried. A photo or video that arrived well before the turn and is still unthanked is thanked for in
  * a line that says so, after the reply to what the customer has just said. A guard failure goes back to the composer once, then holds with the fixed
@@ -92,6 +95,9 @@ export interface DeskDeps extends CaseFileDeps {
  */
 const OPT_OUT_RECORDED_ON: ReadonlySet<Turn['channel']> = new Set<Turn['channel']>(['sms', 'whatsapp']);
 
+/** The opening of the hold the desk raises for an opt-out the old inbound path does not record, and the words `optOutHeld` reads back. */
+const OPT_OUT_HOLD = 'customer may have asked to stop';
+
 function optOutPlace(channel: Turn['channel']): string {
     switch (channel) {
         case 'call': return 'on a call';
@@ -158,8 +164,27 @@ export function optOutOnTurn(file: CaseFile, turn: Turn): { note: string; holdRe
     const asked = `the customer asked us to stop ("${optOut.keyword}", ${optOut.scope})`;
     if (OPT_OUT_RECORDED_ON.has(turn.channel)) return { note: `${asked}: no reply, no model call`, holdReason: null };
     const where = optOutPlace(turn.channel);
-    return { note: `${asked} ${where}: no reply, no model call, held for Ben to record the opt-out`, holdReason: `customer may have asked to stop ${where}; check and record the opt-out: ${asked}` };
+    return { note: `${asked} ${where}: no reply, no model call, held for Ben to record the opt-out`, holdReason: `${OPT_OUT_HOLD} ${where}; check and record the opt-out: ${asked}` };
 }
+
+/**
+ * Whether the thread is held because the customer asked us to stop. The hold's reason is the one
+ * record of what a thread is held on (case-file.ts `hold`, `noteOnHold`, `supersede`), so the
+ * opt-out is read back from it wherever it sits on that record: the reason the hold was raised
+ * for, a reason added to a card Ben already had, or one a graver reason took over.
+ */
+export function optOutHeld(file: CaseFile): boolean {
+    const hold = file.hold;
+    if (!hold) return false;
+    return [hold.reason, ...hold.superseded.flatMap((s) => [s.from.reason, s.to.reason])].some((reason) => reason.includes(OPT_OUT_HOLD));
+}
+
+/**
+ * What the desk records on Ben's card, and returns as the run's note, for each later turn it
+ * answers with nothing while the opt-out hold stands. Written once: the same words are already on
+ * the card by the second follow-up (case-file.ts `noteOnHold`).
+ */
+const OPT_OUT_HELD = 'the opt-out hold stands: no specialist read this turn, no reply was composed and nothing was sent, until Ben releases it';
 
 /** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
 const DRAFT_FAILED_HOLD = 'the quote draft failed';
@@ -373,7 +398,15 @@ export class Desk implements DeskLike {
         // Ben's note of what the draft is missing, true as of this turn: a photo that has just landed is no longer his to request.
         refreshBenToRequest(file, this.fileDeps());
 
-        // 0. A thread held on a fixed line stays with Ben: no specialist, one acknowledgement per turn.
+        // 0. A thread held on a fixed line stays with Ben: no specialist, one acknowledgement per
+        // turn - and where it is held because the customer asked us to stop, not even that: they
+        // hear nothing while the hold stands, exactly as on the turn they asked (`optOutOnTurn`),
+        // whatever the opt-out ledger says yet. Read first, because that silence is graver than any
+        // exception's acknowledgement.
+        if (optOutHeld(file)) {
+            this.holdFor(file, null, OPT_OUT_HELD, null, DESK_RUN_NOTE);
+            return this.nothing(file, party.personId, runId, calls, OPT_OUT_HELD, 'hold');
+        }
         if (file.hold?.exception && FIXED_LINE_ONLY.has(file.hold.exception)) {
             return this.heldAck(file, party.personId, turn, runId, calls, `held for Ben on ${file.hold.exception}: the desk does not scope this thread until he releases it`, null, 0, []);
         }
