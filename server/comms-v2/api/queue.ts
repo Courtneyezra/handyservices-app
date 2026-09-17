@@ -10,7 +10,7 @@
  * same ones the board shows.
  */
 import type { CaseFile } from '../desk/case-file';
-import { ukParts, workingHoursBetween } from '../../working-hours';
+import { ukParts } from '../../working-hours';
 import type { ApproverAssignments } from './approvers';
 import { cardOf, type BoardCard, type BoardMode } from './board';
 
@@ -37,17 +37,13 @@ export function queueOf(files: CaseFile[], filter: { mode?: BoardMode } = {}, as
     const today = ukDay(now);
     const handledRuns = new Set<string>();
     for (const file of files) {
-        const card = cardOf(file, assignments);
+        const card = cardOf(file, assignments, now);
         if (filter.mode && card.mode !== filter.mode) continue;
         for (const t of file.turns) {
             if (t.direction === 'outbound' && t.runId && ukDay(new Date(t.at)) === today) handledRuns.add(`${file.id}:${t.runId}`);
         }
         if (!file.hold) continue;
-        items.push({
-            ...card,
-            draft: file.hold.draft,
-            waitingWorkingHours: workingHoursBetween(new Date(file.hold.since), now),
-        });
+        items.push({ ...card, draft: file.hold.draft, waitingWorkingHours: card.waitingWorkingHours ?? 0 });
     }
     // Longest working-hours wait first; two equal waits (both raised out of hours) fall back to the older hold.
     items.sort((a, b) => b.waitingWorkingHours - a.waitingWorkingHours || Date.parse(a.holdSince!) - Date.parse(b.holdSince!));

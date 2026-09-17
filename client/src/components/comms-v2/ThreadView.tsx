@@ -1,6 +1,8 @@
 /**
- * Handy Desk B4 - one customer's thread on the new desk, opened by tapping a card: the comms board's
- * docked panel (≥1024px) or bottom sheet, and a Handy Desk queue card. A recreation of section 3 of
+ * Handy Desk B4 - one customer's thread on the new desk, opened by tapping a card: a panel over the
+ * comms board (≥1024px) or a full-screen sheet, and a Handy Desk queue card. Its header carries View
+ * customer, Latest quote (when a quote is on file), Call, and a disabled Keep with Ben for the
+ * keep-with-a-person switch still to come. A recreation of section 3 of
  * the Claude Design export's `Comms Board.dc.html`, in Handy Desk's slate and amber, with a held
  * hold in amber.
  *
@@ -18,14 +20,15 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronLeft, Loader2, Phone, Send, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, FileText, Loader2, Lock, Phone, Send, UserRound, X } from 'lucide-react';
+import { Link } from 'wouter';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { refusalMessage } from '@/lib/handy-desk-queue';
 import { HELD_DRAFT_CHANGED } from '@shared/ops-types';
 import {
-    channelLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, slotLabel, threadRows,
-    type Refusal, type SentReply, type TemplateOffer, type ThreadRow,
+    channelLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, slotLabel, threadLinks, threadRows,
+    type Refusal, type SentReply, type TemplateOffer, type ThreadLinks, type ThreadRow,
 } from '@/lib/comms-v2-thread';
 import { STAGE_LABELS, type CaseFileDetail, type TurnMedia } from '@/pages/admin/CommsV2BoardPage';
 
@@ -435,7 +438,7 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
     const pills = [data.party?.role ?? null, STAGE_LABELS[data.stage] ?? data.stage, showMode ? data.mode : null].filter(Boolean) as string[];
 
     return (
-        <ThreadFrame layout={layout} backTo={backTo} onClose={onClose} title={name} pills={pills} line={headerLine(data)}>
+        <ThreadFrame layout={layout} backTo={backTo} onClose={onClose} title={name} pills={pills} line={headerLine(data)} links={threadLinks(data)}>
             <div data-testid="thread-turns" className="flex min-h-[120px] flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3.5">
                 {rows.map((row) => <Row key={row.id} row={row} />)}
                 {pending && (
@@ -558,6 +561,7 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
                                 Release hold only
                             </button>
                         )}
+                        {data.stage !== 'done' && <CloseFileForm key={data.id} fileId={fileId} held={!!hold} onClosed={refresh} layout={layout} />}
                     </>
                 )}
             </div>
@@ -565,13 +569,111 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
     );
 }
 
-function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, children }: {
+const CTA = 'inline-flex min-h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 text-xs font-semibold transition-colors duration-150';
+const CTA_LINK = cn(CTA, 'border-slate-200 text-slate-900 hover:border-amber-400 hover:bg-amber-50');
+
+/**
+ * The thread header's buttons: the customer's record, the quote on file (hidden when there is none),
+ * a call, and the keep-with-a-person switch's place, disabled until that switch lands.
+ */
+function ThreadActions({ links }: { links: ThreadLinks }) {
+    return (
+        <div data-testid="thread-actions" className="flex gap-1.5 overflow-x-auto">
+            {links.customer && (
+                <Link href={links.customer} data-testid="thread-view-customer" className={CTA_LINK}>
+                    <UserRound aria-hidden className="h-3.5 w-3.5" />View customer
+                </Link>
+            )}
+            {links.quote && (
+                <Link href={links.quote} data-testid="thread-latest-quote" className={CTA_LINK}>
+                    <FileText aria-hidden className="h-3.5 w-3.5" />Latest quote
+                </Link>
+            )}
+            {links.call && (
+                <a href={links.call} data-testid="thread-call" className={CTA_LINK}>
+                    <Phone aria-hidden className="h-3.5 w-3.5" />Call
+                </a>
+            )}
+            <button
+                type="button"
+                disabled
+                data-testid="thread-keep-with-ben"
+                title="Coming soon"
+                className={cn(CTA, 'cursor-not-allowed border-dashed border-slate-200 text-slate-400')}
+            >
+                <Lock aria-hidden className="h-3.5 w-3.5" />Keep with Ben
+                <span className="rounded-full bg-slate-100 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide">Soon</span>
+            </button>
+        </div>
+    );
+}
+
+/**
+ * Close file (POST /case-files/:id/close): Ben closes a file by hand, with optional words for the
+ * file, after a second tap to confirm. The file moves to Done under his name, a hold on it is
+ * released by the same rule as the release form, and the customer's next message opens a new file.
+ */
+function CloseFileForm({ fileId, held, onClosed, layout }: { fileId: string; held: boolean; onClosed: () => void; layout: 'panel' | 'sheet' }) {
+    const [confirming, setConfirming] = useState(false);
+    const [words, setWords] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const close = async () => {
+        setBusy(true);
+        setError(null);
+        const result = await postTo(fileId, 'close', { words });
+        setBusy(false);
+        if (!result.ok) { setError(refusalMessage(result.status, result.error)); return; }
+        setConfirming(false);
+        onClosed();
+    };
+
+    if (!confirming) {
+        return (
+            <button type="button" data-testid="close-file" className={cn(BTN_OUTLINE, layout === 'sheet' ? 'h-11 text-sm' : 'h-9 self-start px-3 text-[13px]')} onClick={() => setConfirming(true)}>
+                Close file
+            </button>
+        );
+    }
+    return (
+        <div data-testid="close-file-confirm" className="rounded-lg border border-slate-200 p-3">
+            <p className="text-[13px] font-semibold text-slate-900">Close this file as done?</p>
+            <p className="mt-1 text-[11px] leading-normal text-slate-500">
+                The desk takes no more turns on it. The customer&apos;s next message opens a new file.{held ? ' The file is held: your words release the hold.' : ''}
+            </p>
+            <label className="mt-3 block text-[11px] font-medium text-slate-500" htmlFor={`close-words-${fileId}`}>
+                {held ? 'Your words, for the file (required to release the hold)' : 'Your words, for the file (optional)'}
+            </label>
+            <textarea
+                id={`close-words-${fileId}`}
+                value={words}
+                onChange={(e) => setWords(e.target.value)}
+                rows={2}
+                placeholder="Why it is closed"
+                className="mt-1 w-full resize-y rounded-md border border-slate-200 px-3 py-2 text-[13px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/25"
+            />
+            {error && <p data-testid="close-file-error" className="mt-2 text-[11px] text-red-600">{error}</p>}
+            <div className="mt-3 flex gap-2">
+                <button type="button" data-testid="close-file-yes" className={cn(BTN_DARK, 'h-9 px-3.5 text-[13px]')} disabled={busy} onClick={close}>
+                    {busy && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+                    Close file
+                </button>
+                <button type="button" className={cn(BTN, 'h-9 px-3 text-[13px] text-slate-600 hover:bg-slate-100')} disabled={busy} onClick={() => { setConfirming(false); setError(null); }}>Cancel</button>
+            </div>
+        </div>
+    );
+}
+
+function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, links, children }: {
     layout: 'panel' | 'sheet';
     backTo: string;
     onClose: () => void;
     title: string;
     pills?: string[];
     line: string;
+    /** Set once the file has loaded: the header's buttons. */
+    links?: ThreadLinks;
     children: React.ReactNode;
 }) {
     return (
@@ -584,14 +686,14 @@ function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, childre
                             {pills.map((p) => <span key={p} className={PILL}>{p}</span>)}
                         </div>
                         {line && <p data-testid="thread-line" className="mt-0.5 text-[11px] text-slate-500">{line}</p>}
+                        {links && <div className="mt-2"><ThreadActions links={links} /></div>}
                     </div>
                     <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100">
                         <X aria-hidden className="h-[18px] w-[18px]" />
                     </button>
                 </div>
             ) : (
-                <div className="flex shrink-0 flex-col gap-2 border-b border-slate-200 px-3.5 pb-2.5 pt-2">
-                    <span aria-hidden className="mx-auto h-1 w-10 rounded-sm bg-slate-300" />
+                <div className="flex shrink-0 flex-col gap-2 border-b border-slate-200 px-3.5 pb-2.5 pt-[max(0.5rem,env(safe-area-inset-top))]">
                     <div className="flex items-center gap-2">
                         <button type="button" onClick={onClose} className="flex h-11 shrink-0 items-center gap-1 pl-1 pr-2 text-sm font-semibold text-slate-900">
                             <ChevronLeft aria-hidden className="h-[18px] w-[18px]" />{backTo}
@@ -601,6 +703,7 @@ function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, childre
                             {(pills.length > 1 || line) && <p data-testid="thread-line" className="truncate text-[11px] text-slate-500">{[...pills.slice(1), line].filter(Boolean).join(' · ')}</p>}
                         </div>
                     </div>
+                    {links && <ThreadActions links={links} />}
                 </div>
             )}
             {children}
@@ -608,11 +711,11 @@ function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, childre
     );
 }
 
-/** The thread as a bottom sheet below 1024px: the board or queue stays behind it, and closing returns to it. */
+/** The thread as a full-screen sheet below 1024px, chat first: the board or queue stays behind it, and closing returns to it. */
 export function ThreadSheet({ fileId, onClose, ...rest }: Omit<ThreadViewProps, 'fileId' | 'layout'> & { fileId: string | null }) {
     return (
         <Sheet open={!!fileId} onOpenChange={(open) => !open && onClose()}>
-            <SheetContent side="bottom" onEscapeKeyDown={(e) => { if (typingInThread()) e.preventDefault(); }} className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-xl border-0 p-0 [&>button:last-child]:hidden">
+            <SheetContent side="bottom" onEscapeKeyDown={(e) => { if (typingInThread()) e.preventDefault(); }} className="flex h-dvh flex-col gap-0 overflow-hidden border-0 p-0 [&>button:last-child]:hidden">
                 <SheetTitle className="sr-only">Conversation</SheetTitle>
                 <SheetDescription className="sr-only">The conversation, with the held draft and your reply beneath it.</SheetDescription>
                 {fileId && <ThreadView key={fileId} fileId={fileId} layout="sheet" onClose={onClose} {...rest} />}

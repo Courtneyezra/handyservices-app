@@ -20,6 +20,32 @@ export function addressLabel(address: string | null | undefined): string {
     return (address ?? '').replace(/^[a-z]+:/, '');
 }
 
+export interface ThreadLinks {
+    /** The admin client page (`/admin/clients/:clientKey`), keyed by the party's canonical key. */
+    customer: string | null;
+    /** The price screen for the quote on file. */
+    quote: string | null;
+    /** A tel: link to the party's phone. */
+    call: string | null;
+}
+
+/**
+ * Where the thread header's buttons go. The client page's key is `phone:<digits>` or
+ * `email:<lowercase>` (server/client-aggregation.ts), the same form as the desk's canonical party key
+ * (server/comms-v2/desk/identity.ts), so the party's key opens that customer's record as it stands.
+ */
+export function threadLinks(detail: Pick<CaseFileDetail, 'party' | 'job'>): ThreadLinks {
+    const key = detail.party?.address ?? '';
+    const known = /^(phone|email):./.test(key);
+    const national = key.startsWith('phone:') ? key.slice('phone:'.length).replace(/\D/g, '') : '';
+    const e164 = !national ? null : national.startsWith('0') ? `+44${national.slice(1)}` : `+${national}`;
+    return {
+        customer: known ? `/admin/clients/${encodeURIComponent(key)}` : null,
+        quote: detail.job.quoteRef ? `/admin/price/${encodeURIComponent(detail.job.quoteRef)}` : null,
+        call: e164 ? `tel:${e164}` : null,
+    };
+}
+
 /** An approver slot id as a name: `ben` reads as `Ben`. */
 export function slotLabel(id: string | null | undefined): string {
     if (!id) return 'approval';

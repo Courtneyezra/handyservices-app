@@ -15,6 +15,7 @@ import { CALL_SUMMARY_KEY, callOutcomeOnFile, type CallOutcome } from '../channe
 import { reissueNotes, type ReissueNote } from '../quoting/quote-record';
 import type { HoldException } from '../desk/router';
 import { replyRouteOf } from '../desk/human-reply';
+import { workingHoursBetween } from '../../working-hours';
 
 export type BoardMode = 'sandbox' | 'live';
 
@@ -31,6 +32,8 @@ export interface BoardCard {
     holdException: HoldException | null;
     /** Whether the hold carries a draft the desk held back, for the "Draft ready" pill. */
     hasDraft: boolean;
+    /** Office working hours (server/working-hours.ts) since the hold was raised, as the queue counts them; null when nothing is held. */
+    waitingWorkingHours: number | null;
     customerName: string | null;
     customerAddress: string;
     role: string;
@@ -103,7 +106,7 @@ export function lastCustomerTurn(file: CaseFile): Turn | null {
     return null;
 }
 
-export function cardOf(file: CaseFile, assignments: ApproverAssignments = {}): BoardCard {
+export function cardOf(file: CaseFile, assignments: ApproverAssignments = {}, now: Date = new Date()): BoardCard {
     const party = file.parties[0] ?? null;
     const last = lastCustomerTurn(file);
     return {
@@ -117,6 +120,7 @@ export function cardOf(file: CaseFile, assignments: ApproverAssignments = {}): B
         holdSince: file.hold?.since ?? null,
         holdException: file.hold?.exception ?? null,
         hasDraft: !!file.hold?.draft,
+        waitingWorkingHours: file.hold ? workingHoursBetween(new Date(file.hold.since), now) : null,
         customerName: party?.name ?? null,
         customerAddress: party?.canonical ?? '',
         role: party?.role ?? 'homeowner',
@@ -148,10 +152,10 @@ export interface Board {
 }
 
 /** One column per Contract 2 stage. Held cards float to the top of their column. */
-export function boardOf(files: CaseFile[], filter: BoardFilter = {}, assignments: ApproverAssignments = {}): Board {
+export function boardOf(files: CaseFile[], filter: BoardFilter = {}, assignments: ApproverAssignments = {}, now: Date = new Date()): Board {
     const columns = Object.fromEntries(STAGES.map((s) => [s, [] as BoardCard[]])) as Record<Stage, BoardCard[]>;
     for (const file of files) {
-        const card = cardOf(file, assignments);
+        const card = cardOf(file, assignments, now);
         if (filter.held && !card.held) continue;
         if (filter.mode && card.mode !== filter.mode) continue;
         columns[card.stage].push(card);

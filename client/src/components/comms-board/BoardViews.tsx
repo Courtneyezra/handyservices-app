@@ -3,13 +3,14 @@
  * for the structure, card anatomy and states; `Handy Desk.dc.html`'s board for the slate and amber
  * palette, captain's answers 94 and 95). Kanban and Floor are two renders of the same GET
  * /api/comms-v2/board response; the phone gets one column at a time and no Floor (answer 97).
- * Every card and Floor token opens the file (`onOpen`); the page decides where it opens.
+ * Cards and Floor tokens carry scanning information only; every one opens the file (`onOpen`), and
+ * the page decides where it opens.
  */
-import { AlertTriangle, MessageSquare } from 'lucide-react';
+import { AlertTriangle, Mail, MessageCircle, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { initialsOf, displayName } from '@/lib/handy-desk-queue';
 import {
-    ACCENT_STAGES, boardCounts, heldLabel, holdAge, jobLine, phoneCards, relativeTime, shortName, STAGE_LABELS, STAGES,
+    ACCENT_STAGES, boardCounts, cardWait, holdChip, phoneCards, relativeTime, shortName, STAGE_LABELS, STAGES,
     type PhoneTab, type Stage,
 } from '@/lib/comms-board';
 import type { Board, BoardCard, BoardMode } from '@/pages/admin/CommsV2BoardPage';
@@ -92,17 +93,29 @@ export function HeldOnlyButton({ on, onToggle }: { on: boolean; onToggle: () => 
 
 // ---------------------------------------------------------------- card
 
-function HeldPill({ card, nowMs }: { card: BoardCard; nowMs?: number }) {
-    const label = heldLabel(card, nowMs);
-    if (!label) return null;
+const CHANNEL_ICON: Record<string, typeof MessageSquare> = { whatsapp: MessageCircle, sms: MessageSquare, email: Mail };
+
+/** The channel a reply would go on, as an icon that names itself. */
+function ChannelIcon({ channel, className }: { channel: BoardCard['replyChannel']; className?: string }) {
+    const label = channel ? CHANNEL_LABEL[channel] ?? channel : 'No reply channel';
+    const Icon = (channel && CHANNEL_ICON[channel]) || MessageSquare;
     return (
-        <span data-testid={`board-card-held-pill-${card.id}`} className="inline-flex items-center gap-1 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-slate-900">
-            <AlertTriangle aria-hidden className="h-2.5 w-2.5" /> {label}
+        <span role="img" aria-label={label} title={label} className={cn('inline-flex shrink-0', !channel && 'opacity-40', className)}>
+            <Icon aria-hidden className="h-3.5 w-3.5" />
         </span>
     );
 }
 
-/** One file on the Kanban, and on the phone with its stage named. Held reads in amber, ring and border. */
+/** The amber dot a held card wears when the desk held a draft back. */
+function DraftDot({ id }: { id: string }) {
+    return <span data-testid={`board-card-draft-${id}`} role="img" aria-label="Draft ready" title="Draft ready" className="h-2 w-2 shrink-0 rounded-full bg-amber-400" />;
+}
+
+/**
+ * One file on the Kanban, and on the phone with its stage named where the column does not name it.
+ * Scanning information only (captain, 17 Sep 2026): the name and channel, the hold's short amber
+ * chip, the wait and a Draft ready dot. Everything else is one tap away, in the thread.
+ */
 export function BoardCardView({ card, onOpen, showMode = false, showStage = false, nowMs }: {
     card: BoardCard;
     onOpen: () => void;
@@ -111,7 +124,7 @@ export function BoardCardView({ card, onOpen, showMode = false, showStage = fals
     nowMs?: number;
 }) {
     const name = displayName(card);
-    const sandbox = showMode && card.mode === 'sandbox';
+    const chip = holdChip(card);
     return (
         <button
             type="button"
@@ -119,18 +132,35 @@ export function BoardCardView({ card, onOpen, showMode = false, showStage = fals
             data-testid={`board-card-${card.id}`}
             data-held={card.held ? 'true' : undefined}
             className={cn(
-                'flex w-full min-w-0 select-none flex-col gap-1.5 rounded-[18px] border p-3 text-left', EASE,
+                'flex w-full min-w-0 select-none flex-col gap-1.5 rounded-2xl border px-3 py-2.5 text-left', EASE,
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400',
-                card.held ? 'border-amber-400 bg-amber-400/10 ring-1 ring-amber-400' : 'border-slate-800 bg-[#111c33] hover:border-amber-400',
+                card.held ? 'border-amber-400 bg-amber-400/10' : 'border-slate-800 bg-[#111c33] hover:border-amber-400',
             )}
         >
-            {(card.held || sandbox || showStage || (showMode && card.mode === 'live')) && (
-                <span className="flex flex-wrap items-center gap-1.5">
-                    <HeldPill card={card} nowMs={nowMs} />
-                    {card.held && card.hasDraft && (
-                        <span data-testid={`board-card-draft-${card.id}`} className="rounded-full border border-amber-400/60 px-2 py-0.5 text-[10px] font-semibold text-amber-300">Draft ready</span>
+            <span className="flex min-w-0 items-center gap-1.5">
+                <ChannelIcon channel={card.replyChannel} className={card.held ? 'text-amber-300' : 'text-slate-400'} />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-white">{name}</span>
+                {card.held && card.hasDraft && <DraftDot id={card.id} />}
+                <span
+                    data-testid={`board-card-wait-${card.id}`}
+                    title={card.held ? 'Waiting on you, in office working hours' : 'Customer last wrote'}
+                    className={cn('shrink-0 text-[10px] font-semibold tabular-nums', card.held ? 'text-amber-300' : 'text-slate-500')}
+                >
+                    {cardWait(card, nowMs)}
+                </span>
+            </span>
+            {(chip || showStage || showMode) && (
+                <span className="flex min-w-0 flex-wrap items-center gap-1">
+                    {chip && (
+                        <span
+                            data-testid={`board-card-hold-${card.id}`}
+                            title={card.holdReason ?? undefined}
+                            className="max-w-full truncate rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-slate-900"
+                        >
+                            {chip}
+                        </span>
                     )}
-                    {showStage && <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-300">{STAGE_LABELS[card.stage]}</span>}
+                    {showStage && <span data-testid={`board-card-stage-${card.id}`} className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-300">{STAGE_LABELS[card.stage]}</span>}
                     {showMode && (
                         <span
                             data-testid={`board-card-mode-${card.id}`}
@@ -139,46 +169,6 @@ export function BoardCardView({ card, onOpen, showMode = false, showStage = fals
                             {card.mode}
                         </span>
                     )}
-                </span>
-            )}
-            <span className="flex min-w-0 items-center gap-2">
-                <span aria-hidden className={cn('flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full text-[9px] font-extrabold text-slate-900', card.held ? 'bg-amber-400' : 'bg-slate-400')}>
-                    {initialsOf(name)}
-                </span>
-                <span className="truncate text-[13px] font-bold text-white">{name}</span>
-            </span>
-            <span className="truncate text-[11px] text-slate-400">{jobLine(card)}</span>
-            {card.held && card.holdReason && (
-                <span data-testid={`board-card-hold-${card.id}`} className="border-l-2 border-amber-400/70 py-0.5 pl-2 text-[11px] leading-snug text-amber-200">
-                    {card.holdReason}
-                </span>
-            )}
-            {card.lastCustomerMessage && (
-                <span className="line-clamp-2 text-xs leading-snug text-slate-300">&ldquo;{card.lastCustomerMessage}&rdquo;</span>
-            )}
-            {card.benToRequest.length > 0 && (
-                <span data-testid={`board-card-ben-to-request-${card.id}`} className="flex flex-wrap gap-1">
-                    {card.benToRequest.map((b) => (
-                        <span key={b} className="rounded-full bg-slate-800 px-1.5 py-px text-[10px] text-slate-300">need {b}</span>
-                    ))}
-                </span>
-            )}
-            {card.quoteReissue && (
-                <span data-testid={`board-card-reissue-${card.id}`} className="rounded-lg bg-white/5 px-2 py-1 text-[11px] text-slate-300">
-                    <span className="font-semibold text-white">Quote reissued automatically:</span> {card.quoteReissue.amount} (was {card.quoteReissue.previous}),{' '}
-                    {card.quoteReissue.sentAt ? `sent ${relativeTime(card.quoteReissue.sentAt, nowMs)}` : `not sent: ${card.quoteReissue.notSent ?? 'unknown'}`}
-                </span>
-            )}
-            <span className="flex items-center justify-between gap-1.5 pt-0.5 text-[10px] font-semibold text-slate-500">
-                <span className="flex items-center gap-1">
-                    <MessageSquare aria-hidden className="h-3 w-3" />
-                    {card.replyChannel ? CHANNEL_LABEL[card.replyChannel] ?? card.replyChannel : 'no channel'}
-                </span>
-                <span>{relativeTime(card.lastCustomerMessageAt ?? card.openedAt, nowMs)}</span>
-            </span>
-            {card.held && !card.holdApproverAssigned && (
-                <span data-testid={`board-card-no-slot-${card.id}`} className="rounded-md bg-amber-400/10 px-1.5 py-1 text-[10px] text-amber-300">
-                    Approver {card.holdApprover ?? 'unknown'} has no session slot
                 </span>
             )}
         </button>
@@ -257,7 +247,7 @@ export function BoardFloor({ board, onOpenCard, nowMs }: { board: Board; onOpenC
                                     type="button"
                                     data-testid={`floor-token-${card.id}`}
                                     data-held={card.held ? 'true' : undefined}
-                                    title={`${displayName(card)} · ${jobLine(card)}`}
+                                    title={displayName(card)}
                                     onClick={() => onOpenCard(card.id)}
                                     className="group flex w-16 flex-col items-center gap-1 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                                 >
@@ -271,9 +261,13 @@ export function BoardFloor({ board, onOpenCard, nowMs }: { board: Board; onOpenC
                                         {initialsOf(displayName(card))}
                                     </span>
                                     <span aria-hidden className="h-1 w-[22px] rounded-sm bg-slate-700" />
-                                    <span className="max-w-16 truncate text-center text-[10px] font-semibold leading-tight text-slate-200">{shortName(card)}</span>
-                                    <span className={cn('text-center text-[9px] font-bold', card.held ? 'text-amber-400' : 'text-slate-500')}>
-                                        {card.held ? `held ${holdAge(card.holdSince, nowMs)}` : relativeTime(card.lastCustomerMessageAt ?? card.openedAt, nowMs)}
+                                    <span className="flex max-w-16 items-center gap-1 text-[10px] font-semibold leading-tight text-slate-200">
+                                        <ChannelIcon channel={card.replyChannel} className="text-slate-400 [&>svg]:h-2.5 [&>svg]:w-2.5" />
+                                        <span className="truncate">{shortName(card)}</span>
+                                    </span>
+                                    <span className={cn('flex items-center gap-1 text-center text-[9px] font-bold', card.held ? 'text-amber-400' : 'text-slate-500')}>
+                                        {card.held && card.hasDraft && <DraftDot id={card.id} />}
+                                        {card.held ? `held ${cardWait(card, nowMs)}` : cardWait(card, nowMs)}
                                     </span>
                                 </button>
                             ))}

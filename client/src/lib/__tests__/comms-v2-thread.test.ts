@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    addressLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, replyLine, slotLabel, threadRows, turnTime,
+    addressLabel, hasCustomerTurn, headerLine, heldFor, holdDetailLine, refusalOf, replyLine, slotLabel, threadLinks, threadRows, turnTime,
 } from '@/lib/comms-v2-thread';
 import type { CaseFileDetail, Turn } from '@/pages/admin/CommsV2BoardPage';
 
@@ -20,6 +20,23 @@ describe('comms-v2-thread', () => {
         expect(heldFor('2026-09-17T10:40:00.000Z', ms)).toBe('1h 20m');
         expect(heldFor('2026-09-17T10:00:00.000Z', ms)).toBe('2h');
         expect(heldFor('2026-09-15T09:00:00.000Z', ms)).toBe('2d 3h');
+    });
+
+    it("links the header's buttons to the customer's record, the quote on file and their phone", () => {
+        const job = { type: null, location: null, quoteRef: null, bookingRef: null };
+        expect(threadLinks({ party: { name: 'Sam', role: 'homeowner', address: 'phone:07700900123' }, job: { ...job, quoteRef: 'q-ab12' } })).toEqual({
+            customer: '/admin/clients/phone%3A07700900123',
+            quote: '/admin/price/q-ab12',
+            call: 'tel:+447700900123',
+        });
+        expect(threadLinks({ party: { name: null, role: 'homeowner', address: 'phone:447700900123' }, job }).call).toBe('tel:+447700900123');
+        // An email customer has a record but no number to ring, and no quote hides the quote button.
+        expect(threadLinks({ party: { name: null, role: 'homeowner', address: 'email:sam@example.com' }, job })).toEqual({
+            customer: '/admin/clients/email%3Asam%40example.com',
+            quote: null,
+            call: null,
+        });
+        expect(threadLinks({ party: null, job })).toEqual({ customer: null, quote: null, call: null });
     });
 
     it('names a slot and strips an address kind', () => {

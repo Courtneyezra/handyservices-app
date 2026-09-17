@@ -196,6 +196,16 @@ describe('cardOf draft and exception', () => {
         expect(cardOf(file)).toMatchObject({ held: true, hasDraft: false, holdException: null });
     });
 
+    it('a held card carries its office working-hours wait, as the queue counts it; an unheld card carries none', () => {
+        const file = openFile();
+        hold(file, { approver: { kind: 'human', id: 'ben' }, reason: 'a complaint' }, { now });
+        const bare = openFile();
+        // Friday 11 September 2026: held just after 11:00 in London, read at 14:00.
+        const board = boardOf([file, bare], {}, {}, new Date('2026-09-11T13:00:00.000Z'));
+        const cards = board.columns.first_contact;
+        expect(cards.map((c) => [c.id, c.waitingWorkingHours])).toEqual([[file.id, 3], [bare.id, null]]);
+    });
+
     it('the floor surface reads the same flag off the card', async () => {
         const { floorSurface } = await import('../ask/surface');
         const drafted = openFile();

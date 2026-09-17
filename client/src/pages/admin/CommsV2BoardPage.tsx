@@ -1,11 +1,12 @@
 /**
  * Ben's comms board (Goal 2 of the clean-sheet comms desk rebuild), recreated from the Handy Desk
  * mock-up with a Kanban / Floor toggle (the views are `@/components/comms-board/BoardViews`). One
- * column per Contract 2 stage, read from GET /api/comms-v2/board. Held cards float to the top of
- * their column with the hold reason and approver visible. A tap opens the customer's thread
- * (client/src/components/comms-v2/ThreadView.tsx, Handy Desk B4): docked beside the board at 1024px
- * and up, a bottom sheet below, with the held draft, Ben's own reply, release and the shut-window
- * template send. A session the server says holds no approver slot (`viewer.canAct`) sees the thread
+ * column per Contract 2 stage, read from GET /api/comms-v2/board. It renders full screen, outside
+ * the admin shell, under the same slim header as the Handy Desk. Cards carry scanning information
+ * only, held ones floating to the top of their column in amber. A tap opens the customer's thread
+ * (client/src/components/comms-v2/ThreadView.tsx, Handy Desk B4), WhatsApp style: a panel over the
+ * board's right edge at 1024px and up, a full-screen sheet below, with the customer's links, the
+ * held draft, Ben's own reply, release and the shut-window template send. A session the server says holds no approver slot (`viewer.canAct`) sees the thread
  * without its actions.
  *
  * Below both, Close file (POST /case-files/:id/close): Ben closes a file by hand, with optional words
@@ -18,9 +19,10 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, MessageSquare } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { ThreadSheet, ThreadView } from '@/components/comms-v2/ThreadView';
 import { cn } from '@/lib/utils';
+import { FullScreenHeader } from '@/components/layout/FullScreenHeader';
 import { boardCounts, defaultPhoneTab, type HoldException, type PhoneTab, type Stage } from '@/lib/comms-board';
 import {
     BoardEmpty, BoardError, BoardFloor, BoardKanban, BoardPhone, BoardSkeleton, HeldOnlyButton, ModeSwitch,
@@ -28,10 +30,9 @@ import {
 } from '@/components/comms-board/BoardViews';
 
 /**
- * Kanban + docked conversation panel (hsa-comms-v2-ben-board-layouts-s33, option 01): at this width
- * and up the board and the open case file sit side by side, permanent rather than an overlay sheet.
- * Below it, a bottom sheet (`ThreadSheet`), chat-first, with a way back to the board. jsdom has no matchMedia:
- * defaults to narrow, which is the existing sheet behaviour every current test exercises.
+ * At this width and up the open file shows as a panel over the board, only while one is open. Below
+ * it, a full-screen sheet (`ThreadSheet`), chat-first, with a way back to the board. jsdom has no
+ * matchMedia: defaults to narrow, which is the sheet behaviour most tests exercise.
  */
 const WIDE_BOARD_QUERY = '(min-width: 1024px)';
 
@@ -72,8 +73,10 @@ export interface BoardCard {
     holdSince: string | null;
     /** The router exception that raised the hold, when one did; null otherwise (server/comms-v2/api/board.ts, always sent). */
     holdException?: HoldException | null;
-    /** The hold carries a draft the desk held back: the "Draft ready" pill (always sent). */
+    /** The hold carries a draft the desk held back: the card's "Draft ready" dot (always sent). */
     hasDraft?: boolean;
+    /** Office working hours since the hold was raised; null when nothing is held (always sent). */
+    waitingWorkingHours?: number | null;
     customerName: string | null;
     customerAddress: string;
     role: string;
@@ -256,7 +259,7 @@ export function SandboxThreadControl({ onChanged }: { onChanged: () => void }) {
 /**
  * The comms board (B3): header controls, then Kanban or Floor on a laptop and one column at a time
  * on a phone, over GET /api/comms-v2/board polled every fifteen seconds. A card or token opens the
- * file beside the board at 1024px and up, in a sheet below.
+ * file in a panel over the board at 1024px and up, in a full-screen sheet below.
  */
 export default function CommsV2BoardPage() {
     const queryClient = useQueryClient();
@@ -309,15 +312,12 @@ export default function CommsV2BoardPage() {
         body = <BoardKanban board={data} onOpenCard={setOpenCardId} showMode={sandboxAvailable} />;
     }
 
-    // Height leaves out the layout's 64px header and its scroll container's p-4 / lg:p-8 padding,
-    // as the Handy Desk page does.
+    // The board is the whole screen (no admin shell around it, client/src/App.tsx), like the Handy Desk.
     return (
-        <div data-testid="comms-board" className="flex h-[calc(100vh-6rem)] flex-col overflow-hidden bg-slate-900 font-sans lg:h-[calc(100vh-8rem)]">
-            <header className="flex h-16 shrink-0 items-center gap-3 border-b border-slate-800 px-4 sm:px-6">
-                <h1 className="text-lg font-extrabold tracking-[-0.02em] text-white">Comms board</h1>
-                <p className="hidden truncate text-xs text-slate-400 lg:block">Every open file · tap a card to open its thread</p>
+        <div data-testid="comms-board" className="flex h-dvh flex-col overflow-hidden bg-slate-900 font-sans">
+            <FullScreenHeader title="Comms board" logoTestId="comms-board-logo">
                 <div className="ml-auto">{wide && <ViewToggle view={view} onChange={setView} />}</div>
-            </header>
+            </FullScreenHeader>
             <div className="flex shrink-0 flex-wrap items-center gap-2.5 border-b border-slate-800 px-4 py-3 sm:px-6">
                 {wide && <HeldOnlyButton on={filters.heldOnly} onToggle={() => setFilters({ ...filters, heldOnly: !filters.heldOnly })} />}
                 {sandboxAvailable && <ModeSwitch mode={filters.mode} onChange={(mode) => setFilters({ ...filters, mode })} />}
@@ -333,7 +333,7 @@ export default function CommsV2BoardPage() {
             {!canAct && <ReadOnlyNotice />}
             {error && <BoardError lastGoodAt={data ? dataUpdatedAt : null} onRetry={() => { void refetch(); }} retrying={isFetching} />}
 
-            <div className="flex min-h-0 flex-1">
+            <div className="relative flex min-h-0 flex-1">
                 <div
                     data-testid="board-body"
                     aria-busy={isPlaceholderData || undefined}
@@ -341,17 +341,15 @@ export default function CommsV2BoardPage() {
                 >
                     {body}
                 </div>
-                {wide && (
-                    <aside data-testid="docked-case-file-panel" className="flex w-[420px] shrink-0 flex-col overflow-hidden border-l border-slate-800 bg-white">
-                        {openCardId ? (
-                            // Keyed by the open file so a cached conversation never inherits the last one's typed words or send state.
-                            <ThreadView key={openCardId} fileId={openCardId} layout="panel" onClose={closeThread} onChanged={refresh} canAct={canAct} viewerApprover={viewerApprover} showMode={sandboxAvailable} />
-                        ) : (
-                            <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center text-sm text-slate-500">
-                                <MessageSquare className="h-5 w-5 opacity-60" />
-                                <p>Select a card to open its thread.</p>
-                            </div>
-                        )}
+                {wide && openCardId && (
+                    // Over the board's right edge, only while a file is open; the cards it leaves uncovered still open theirs.
+                    <aside
+                        data-testid="thread-panel"
+                        aria-label="Conversation"
+                        className="absolute inset-y-0 right-0 flex w-[440px] max-w-full flex-col overflow-hidden border-l border-slate-800 bg-white shadow-[-12px_0_32px_rgba(2,6,23,0.45)] motion-safe:animate-in motion-safe:slide-in-from-right-4 motion-safe:fade-in-0 motion-safe:duration-200"
+                    >
+                        {/* Keyed by the open file so a cached conversation never inherits the last one's typed words or send state. */}
+                        <ThreadView key={openCardId} fileId={openCardId} layout="panel" onClose={closeThread} onChanged={refresh} canAct={canAct} viewerApprover={viewerApprover} showMode={sandboxAvailable} />
                     </aside>
                 )}
             </div>

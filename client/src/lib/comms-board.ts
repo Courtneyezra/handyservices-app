@@ -4,7 +4,7 @@
  * page. Every value comes from the `/board` response; the Floor is the same response re-rendered.
  */
 import type { Board, BoardCard } from '@/pages/admin/CommsV2BoardPage';
-import { displayName } from '@/lib/handy-desk-queue';
+import { displayName, formatWait } from '@/lib/handy-desk-queue';
 
 /** Contract 2's stages, in the board's column order (server/comms-v2/desk/case-file.ts). */
 export const STAGES = ['first_contact', 'scoping', 'ready', 'quoted', 'accepted', 'booked', 'done'] as const;
@@ -64,17 +64,21 @@ export function holdAge(since: string | null, nowMs: number = Date.now()): strin
     return `${Math.floor(hours / 24)}d`;
 }
 
-/** The held pill: its age, then the router exception that raised it when one did. */
-export function heldLabel(card: Pick<BoardCard, 'held' | 'holdSince' | 'holdException'>, nowMs: number = Date.now()): string | null {
+/** The held card's short amber chip: the router exception that raised the hold, else the hold reason as worded. */
+export function holdChip(card: Pick<BoardCard, 'held' | 'holdReason' | 'holdException'>): string | null {
     if (!card.held) return null;
-    const age = holdAge(card.holdSince, nowMs);
-    const exception = card.holdException ? EXCEPTION_LABELS[card.holdException] ?? card.holdException.replace(/_/g, ' ') : null;
-    return [`Held${age ? ` ${age}` : ''}`, exception].filter(Boolean).join(' · ');
+    if (card.holdException) return EXCEPTION_LABELS[card.holdException] ?? card.holdException.replace(/_/g, ' ');
+    return card.holdReason || 'held';
 }
 
-/** `jobType · location · role`, the job not yet known until the desk has read one. */
-export function jobLine(card: Pick<BoardCard, 'jobType' | 'location' | 'role'>): string {
-    return [card.jobType ?? 'job not yet known', card.location, card.role].filter(Boolean).join(' · ');
+/**
+ * The card's wait: a held file's office working-hours wait, as the Handy Desk queue counts it (the
+ * hold's plain age from a server that does not send it); otherwise when the customer last wrote.
+ */
+export function cardWait(card: Pick<BoardCard, 'held' | 'holdSince' | 'waitingWorkingHours' | 'lastCustomerMessageAt' | 'openedAt'>, nowMs: number = Date.now()): string {
+    if (!card.held) return relativeTime(card.lastCustomerMessageAt ?? card.openedAt, nowMs);
+    if (typeof card.waitingWorkingHours === 'number') return formatWait(card.waitingWorkingHours);
+    return holdAge(card.holdSince, nowMs);
 }
 
 /** A Floor token's caption: first name and last initial, else the name or address as the card has it. */

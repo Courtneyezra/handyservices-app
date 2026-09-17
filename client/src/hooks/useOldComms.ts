@@ -11,10 +11,11 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { adminAuthHeaders } from './usePriceQueue';
+import { COMMS_BOARD_PATH } from '@/lib/handy-desk-path';
 
 export const OLD_COMMS_KEY = ['comms-v2-old-comms'] as const;
 export const OLD_COMMS_URL = '/api/comms-v2/old-comms';
-export const NEW_BOARD_PATH = '/admin/comms-v2';
+export const NEW_BOARD_PATH = COMMS_BOARD_PATH;
 export const CONTRACTOR_LANE_PATH = '/admin/comms?lane=contractor';
 
 export interface OldCommsPayload {

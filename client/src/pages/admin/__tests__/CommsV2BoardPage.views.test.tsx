@@ -1,6 +1,7 @@
 /**
  * B3 - the comms board recreated from the design export: the Kanban / Floor toggle over one /board
- * response, the held card's amber anatomy and "Draft ready" pill, the header controls, every board
+ * response, the stripped-back card (scanning information only) with its amber hold chip, wait and
+ * "Draft ready" dot, the header controls, every board
  * state (first-fetch skeleton, empty, empty held filter, failed fetch keeping the last good copy,
  * read-only for a session with no approver slot), and the phone's one column at a time with no Floor.
  */
@@ -40,7 +41,7 @@ function boardOf(cards: BoardCard[], over: Partial<Board> = {}): Board {
 const GEMMA = card({
     id: 'case_gemma', stage: 'scoping', customerName: 'Gemma Hallam', jobType: 'Bath reseal', location: 'NG2',
     held: true, holdReason: 'Asked for a discount', holdApprover: 'ben', holdApproverAssigned: true,
-    holdSince: minsAgo(12), holdException: 'money', hasDraft: true, benToRequest: ['photo'],
+    holdSince: minsAgo(12), holdException: 'money', hasDraft: true, waitingWorkingHours: 2, benToRequest: ['photo'],
 });
 const ROB = card({
     id: 'case_rob', stage: 'scoping', customerName: 'Rob Farooq', held: true, holdReason: 'Guard: a duration',
@@ -61,33 +62,64 @@ function detail(id: string, name: string, held: boolean): CaseFileDetail {
 }
 
 describe('comms board views (B3)', () => {
-    it('draws a held card in amber with its age, exception, Draft ready pill and needs; a plain card has none of them', async () => {
+    it('strips a card to its name, channel, hold chip, wait and Draft ready dot: no message, job line, needs or reissue', async () => {
         stubViewport(true);
-        mockFetch([{ url: '/api/comms-v2/board', reply: () => ({ json: boardOf([GEMMA, ROB, TOM]) }) }]);
+        const reissued = card({
+            id: 'case_reissued', stage: 'quoted', customerName: 'Priya Shah', replyChannel: 'email',
+            quoteReissue: { amount: '£105.00', previous: '£100.00', automatic: true, sentAt: minsAgo(5), notSent: null, at: minsAgo(5) },
+        });
+        mockFetch([{ url: '/api/comms-v2/board', reply: () => ({ json: boardOf([GEMMA, ROB, TOM, reissued]) }) }]);
         renderWithQuery(<CommsV2BoardPage />);
 
         const gemma = await screen.findByTestId('board-card-case_gemma');
         expect(gemma.getAttribute('data-held')).toBe('true');
         expect(gemma.className.split(' ')).toContain('border-amber-400');
-        expect(screen.getByTestId('board-card-held-pill-case_gemma').textContent).toContain('Held 12m · money');
-        expect(screen.getByTestId('board-card-draft-case_gemma').textContent).toBe('Draft ready');
-        expect(screen.getByTestId('board-card-hold-case_gemma').textContent).toBe('Asked for a discount');
-        expect(within(gemma).getByText('Bath reseal · NG2 · homeowner')).toBeTruthy();
-        expect(screen.getByTestId('board-card-ben-to-request-case_gemma').textContent).toBe('need photo');
-        expect(within(gemma).getByText('WhatsApp')).toBeTruthy();
+        expect(within(gemma).getByText('Gemma Hallam')).toBeTruthy();
+        expect(within(gemma).getByRole('img', { name: 'WhatsApp' })).toBeTruthy();
+        expect(screen.getByTestId('board-card-hold-case_gemma').textContent).toBe('money');
+        expect(screen.getByTestId('board-card-hold-case_gemma').getAttribute('title')).toBe('Asked for a discount');
+        expect(screen.getByTestId('board-card-wait-case_gemma').textContent).toBe('2 h');
+        expect(within(gemma).getByRole('img', { name: 'Draft ready' })).toBe(screen.getByTestId('board-card-draft-case_gemma'));
+        expect(gemma.textContent).toBe('Gemma Hallam2 hmoney');
 
-        expect(screen.getByTestId('board-card-held-pill-case_rob').textContent).toContain('Held 1h 20m');
+        // A hold no exception raised shows its reason as worded; no working-hours wait from the server falls back to the hold's age.
+        expect(screen.getByTestId('board-card-hold-case_rob').textContent).toBe('Guard: a duration');
+        expect(screen.getByTestId('board-card-wait-case_rob').textContent).toBe('1h 20m');
         expect(screen.queryByTestId('board-card-draft-case_rob')).toBeNull();
 
         const tom = screen.getByTestId('board-card-case_tom');
         expect(tom.getAttribute('data-held')).toBeNull();
         expect(tom.className.split(' ')).not.toContain('border-amber-400');
-        expect(screen.queryByTestId('board-card-held-pill-case_tom')).toBeNull();
-        expect(within(tom).getByText('SMS')).toBeTruthy();
+        expect(screen.queryByTestId('board-card-hold-case_tom')).toBeNull();
+        expect(within(tom).getByRole('img', { name: 'SMS' })).toBeTruthy();
+        expect(tom.textContent).toBe('Tom Ashworth3m ago');
 
-        expect(screen.getByTestId('board-counts').textContent).toBe('3 open files · 2 held');
-        expect(screen.getByTestId('board-column-quoted').textContent).toContain('Quoted1');
+        const priya = screen.getByTestId('board-card-case_reissued');
+        expect(within(priya).getByRole('img', { name: 'Email' })).toBeTruthy();
+        expect(priya.textContent).toBe('Priya Shah3m ago');
+
+        const board = screen.getByTestId('board-kanban').textContent ?? '';
+        for (const hidden of ['Hi, can I get a quote?', 'Bath reseal', 'NG2', 'need photo', 'reissued', 'no session slot']) expect(board).not.toContain(hidden);
+
+        expect(screen.getByTestId('board-counts').textContent).toBe('4 open files · 2 held');
+        expect(screen.getByTestId('board-column-quoted').textContent).toContain('Quoted2');
         expect(screen.getByTestId('board-column-done').textContent).toContain('Nothing in Done');
+    });
+
+    it('renders full screen under the slim header: the logo, the quick links and the view toggle', async () => {
+        stubViewport(true);
+        mockFetch([{ url: '/api/comms-v2/board', reply: () => ({ json: boardOf([TOM]) }) }]);
+        renderWithQuery(<CommsV2BoardPage />);
+        await screen.findByTestId('board-card-case_tom');
+
+        expect(screen.getByTestId('comms-board').className.split(' ')).toContain('h-dvh');
+        const header = within(screen.getByRole('banner'));
+        expect(header.getByTestId('comms-board-logo')).toHaveAttribute('alt', 'Handy Services');
+        expect(header.getByRole('heading', { name: 'Comms board' })).toBeTruthy();
+        expect(header.getByTestId('topbar-link-handy-desk-desk')).toHaveAttribute('href', '/admin/handy-desk');
+        expect(header.getByTestId('topbar-link-diary-desk')).toHaveAttribute('aria-disabled', 'true');
+        expect(header.getByTestId('topbar-link-comms-board-desk')).toHaveAttribute('href', '/admin/comms-v2');
+        expect(header.getByTestId('board-view-toggle')).toBeTruthy();
     });
 
     it('toggles Kanban to Floor over the same response: one token per file in seven bays, held ones ringed with their age, a token opening the thread', async () => {
@@ -111,14 +143,16 @@ describe('comms board views (B3)', () => {
         const gemmaToken = screen.getByTestId('floor-token-case_gemma');
         expect(gemmaToken.getAttribute('data-held')).toBe('true');
         expect(gemmaToken.textContent).toContain('GH');
-        expect(gemmaToken.textContent).toContain('held 12m');
+        expect(gemmaToken.textContent).toContain('held 2 h');
+        expect(within(gemmaToken).getByRole('img', { name: 'Draft ready' })).toBeTruthy();
+        expect(gemmaToken.getAttribute('title')).toBe('Gemma Hallam');
         expect(screen.getByTestId('floor-token-case_tom').getAttribute('data-held')).toBeNull();
         // The Floor is a re-render, not a second read.
         expect(fetchMock.of('GET', '/api/comms-v2/board').length).toBe(boardReads);
 
         await user.click(gemmaToken);
         await screen.findByText('Gemma Hallam wrote in');
-        expect(within(screen.getByTestId('docked-case-file-panel')).getByLabelText('Your reply to the customer')).toBeTruthy();
+        expect(within(screen.getByTestId('thread-panel')).getByLabelText('Your reply to the customer')).toBeTruthy();
 
         await user.click(within(screen.getByTestId('board-view-toggle')).getByRole('button', { name: 'Kanban' }));
         expect(screen.getByTestId('board-kanban')).toBeTruthy();
@@ -291,8 +325,9 @@ describe('comms board views (B3)', () => {
             expect(chips).toEqual(['phone-chip-held', ...STAGES.map((s) => `phone-chip-${s}`)]);
 
             const heldColumn = screen.getByTestId('phone-column-held');
-            expect(within(heldColumn).getByTestId('board-card-case_gemma').textContent).toContain('Scoping');
-            expect(within(heldColumn).getByTestId('board-card-case_done').textContent).toContain('Booked');
+            expect(screen.getByTestId('board-card-stage-case_gemma').textContent).toBe('Scoping');
+            expect(screen.getByTestId('board-card-stage-case_done').textContent).toBe('Booked');
+            expect(within(heldColumn).getByTestId('board-card-case_gemma').textContent).not.toContain('Hi, can I get a quote?');
             expect(within(heldColumn).queryByTestId('board-card-case_tom')).toBeNull();
 
             await user.click(screen.getByTestId('phone-chip-quoted'));
@@ -305,10 +340,12 @@ describe('comms board views (B3)', () => {
 
             await user.click(screen.getByTestId('phone-chip-quoted'));
             await user.click(screen.getByTestId('board-card-case_tom'));
-            // The sheet, not a docked panel, below 1024px.
-            expect(await screen.findByRole('dialog')).toBeTruthy();
+            // A full-screen sheet, not a panel, below 1024px.
+            const sheet = await screen.findByRole('dialog');
+            expect(sheet.className.split(' ')).toContain('h-dvh');
             await screen.findByText('Tom Ashworth wrote in');
-            expect(screen.queryByTestId('docked-case-file-panel')).toBeNull();
+            expect(within(sheet).getByTestId('thread-view-customer')).toHaveAttribute('href', '/admin/clients/phone%3A07700900942');
+            expect(screen.queryByTestId('thread-panel')).toBeNull();
 
             expect(fetchMock.calls.every((c) => !c.url.includes('held=true'))).toBe(true);
         });

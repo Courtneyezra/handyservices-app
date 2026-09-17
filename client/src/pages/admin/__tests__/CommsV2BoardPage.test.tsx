@@ -3,8 +3,8 @@
  * one, plus a held card floated with its reason and approver, releases that hold with the words
  * only (the approver is the session, server side), and starts a sandbox thread through the board.
  *
- * A card tap opens that customer's thread (B4): a bottom sheet below 1024px, a docked panel above
- * it, closed with ‹ Board, × or Esc; a send from it refreshes the board, and a session with no
+ * A card tap opens that customer's thread (B4): a full-screen sheet below 1024px, a panel over the
+ * board above it, only while a file is open, closed with ‹ Board, × or Esc; a send from it refreshes the board, and a session with no
  * approver slot sees it without actions. What the thread itself does is tested in
  * client/src/components/comms-v2/__tests__/ThreadView.test.tsx.
  */
@@ -14,7 +14,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch } from '@test-utils';
 import CommsV2BoardPage, { type Board, type BoardCard, type CaseFileDetail, STAGES } from '@/pages/admin/CommsV2BoardPage';
 
-/** jsdom has no matchMedia; the docked-panel tests stub it wide, others leave it absent (narrow). */
+/** jsdom has no matchMedia; the panel tests stub it wide, others leave it absent (narrow). */
 function stubViewport(wide: boolean) {
     const mq = (query: string) => ({ matches: wide && query.includes('min-width'), media: query, onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false });
     Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: vi.fn(mq) });
@@ -78,22 +78,7 @@ function boardWithOneCardPerStage(): Board {
 }
 
 describe('<CommsV2BoardPage>', () => {
-    it('shows an automatic quote reissue on the card: the new figure, the old one, and when it went or why not', async () => {
-        const board = boardWithOneCardPerStage();
-        board.columns.quoted = [
-            card({ stage: 'quoted', id: 'case_reissued', customerName: 'Reissued Customer', quoteReissue: { amount: '£105.00', previous: '£100.00', automatic: true, sentAt: new Date(Date.now() - 5 * 60_000).toISOString(), notSent: null, at: new Date().toISOString() } }),
-            card({ stage: 'quoted', id: 'case_not_told', customerName: 'Untold Customer', quoteReissue: { amount: '£126.00', previous: '£120.00', automatic: true, sentAt: null, notSent: 'send refused', at: new Date().toISOString() } }),
-        ];
-        mockFetch([{ url: '/api/comms-v2/board', reply: () => ({ json: board }) }]);
-        stubViewport(true);
-        renderWithQuery(<CommsV2BoardPage />);
-        await waitFor(() => expect(screen.getByTestId('board-card-reissue-case_reissued')).toBeTruthy());
-        expect(screen.getByTestId('board-card-reissue-case_reissued').textContent).toBe('Quote reissued automatically: £105.00 (was £100.00), sent 5m ago');
-        expect(screen.getByTestId('board-card-reissue-case_not_told').textContent).toBe('Quote reissued automatically: £126.00 (was £120.00), not sent: send refused');
-        expect(screen.queryByTestId('board-card-reissue-case_held')).toBeNull();
-    });
-
-    it('renders one column per Contract 2 stage with its case file, and floats the held card with reason and approver', async () => {
+    it('renders one column per Contract 2 stage with its case file, and floats the held card with its reason', async () => {
         const board = boardWithOneCardPerStage();
         mockFetch([
             { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
@@ -106,17 +91,15 @@ describe('<CommsV2BoardPage>', () => {
             await waitFor(() => expect(screen.getByTestId(`board-column-${stage}`)).toBeTruthy());
         }
         expect(screen.getByText('Held Customer')).toBeTruthy();
-        expect(screen.getByTestId('board-card-held-pill-case_held').textContent).toContain('Held');
         expect(screen.getByTestId('board-card-hold-case_held').textContent).toBe('a complaint');
-        expect(screen.getByTestId('board-card-no-slot-case_unassigned').textContent).toBe('Approver ben has no session slot');
-        expect(screen.queryByTestId('board-card-no-slot-case_held')).toBeNull();
+        expect(screen.getByTestId('board-card-hold-case_unassigned').textContent).toBe('a refund');
         // Held cards float first in their column, as the API sorted them.
         expect(screen.getByTestId('board-column-first_contact').querySelectorAll('[data-testid^="board-card-case"]')[0].getAttribute('data-testid')).toBe('board-card-case_held');
         expect(screen.getByText('Customer scoping')).toBeTruthy();
         expect(screen.getByText('Customer done')).toBeTruthy();
     });
 
-    it('tapping a held card opens that customer\'s thread as a bottom sheet with the held draft; ‹ Board closes it', async () => {
+    it('tapping a held card opens that customer\'s thread as a full-screen sheet with the held draft; ‹ Board closes it', async () => {
         const user = userEvent.setup();
         mockFetch([
             { url: '/api/comms-v2/board', reply: () => ({ json: boardWithOneCardPerStage() }) },
@@ -202,7 +185,7 @@ describe('<CommsV2BoardPage>', () => {
         // The file is read again and is done, so neither the confirm nor the button comes back.
         await waitFor(() => expect(screen.queryByTestId('close-file')).toBeNull());
         expect(screen.queryByTestId('close-file-confirm')).toBeNull();
-        expect(screen.getAllByText(/^Done · sandbox$/)).toHaveLength(1);
+        expect(screen.getByTestId('thread-line').textContent).toContain('Done · sandbox');
         const close = calls.find((c) => c.method === 'POST' && c.url.endsWith('/close'));
         expect(close?.body).toEqual({ words: 'Customer sorted it themselves' });
     });
@@ -304,7 +287,7 @@ describe('<CommsV2BoardPage>', () => {
         await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/comms-v2/board')).length).toBeGreaterThanOrEqual(3));
     });
 
-    it('on a wide screen the thread docks in a permanent panel beside the board, and × or Esc closes it', async () => {
+    it('on a wide screen the thread opens in a panel over the board only once a card is tapped, and × or Esc closes it', async () => {
         stubViewport(true);
         const user = userEvent.setup();
         mockFetch([
@@ -315,24 +298,24 @@ describe('<CommsV2BoardPage>', () => {
         renderWithQuery(<CommsV2BoardPage />);
         await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
 
-        // Before a card is opened, the docked panel is already there with a placeholder.
-        expect(screen.getByTestId('docked-case-file-panel')).toBeTruthy();
-        expect(screen.getByText(/Select a card to open its thread/)).toBeTruthy();
+        // No fixed pane: the board has the whole width until a card is opened.
+        expect(screen.queryByTestId('thread-panel')).toBeNull();
 
         await user.click(screen.getByTestId('board-card-case_held'));
         await waitFor(() => expect(screen.getByText('Can you do it for less?')).toBeTruthy());
 
-        // It docked, not overlaid: no sheet role, and the board columns are still in the document.
+        // A panel, not a modal sheet: no dialog, and the board columns are still there to tap.
         expect(screen.queryByRole('dialog')).toBeNull();
+        expect(within(screen.getByTestId('thread-panel')).getByTestId('thread-actions')).toBeTruthy();
         expect(screen.getByTestId('board-column-first_contact')).toBeTruthy();
 
-        await user.click(within(screen.getByTestId('docked-case-file-panel')).getByRole('button', { name: 'Close' }));
-        expect(screen.getByText(/Select a card to open its thread/)).toBeTruthy();
+        await user.click(within(screen.getByTestId('thread-panel')).getByRole('button', { name: 'Close' }));
+        expect(screen.queryByTestId('thread-panel')).toBeNull();
 
         await user.click(screen.getByTestId('board-card-case_held'));
         await screen.findByText('Can you do it for less?');
         await user.keyboard('{Escape}');
-        await waitFor(() => expect(screen.getByText(/Select a card to open its thread/)).toBeTruthy());
+        await waitFor(() => expect(screen.queryByTestId('thread-panel')).toBeNull());
     });
 
     it('in production (the server reports the sandbox door cannot write here) hides every sandbox-only control and mode badge, and no visible text says "case file" or "sandbox"', async () => {

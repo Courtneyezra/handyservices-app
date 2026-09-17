@@ -111,6 +111,40 @@ describe('<ThreadView>', () => {
         expect(screen.getByTestId('thread-line')).toHaveTextContent('Scoping · Kitchen tap · NG2');
     });
 
+    it("carries View customer, Call and the keep-with-Ben slot; Latest quote only with a quote on file", async () => {
+        mount([fileRoute(detail({ job: { type: 'Kitchen tap', location: 'NG2', quoteRef: 'q-9f3a', bookingRef: null } }))]);
+        await ready();
+        const actions = within(screen.getByTestId('thread-actions'));
+        expect(actions.getByRole('link', { name: 'View customer' })).toHaveAttribute('href', '/admin/clients/phone%3A07700900123');
+        expect(actions.getByRole('link', { name: 'Latest quote' })).toHaveAttribute('href', '/admin/price/q-9f3a');
+        expect(actions.getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:+447700900123');
+        // The keep-with-a-person switch is its own task: the slot is there, and does nothing yet.
+        const keep = actions.getByRole('button', { name: /Keep with Ben/ });
+        expect(keep).toBeDisabled();
+        expect(keep).toHaveAttribute('title', 'Coming soon');
+    });
+
+    it('hides Latest quote with no quote on file, and Call for a customer known only by email', async () => {
+        mount([fileRoute(detail({ party: { name: 'Priya Raval', role: 'homeowner', address: 'email:priya@example.com' } }))]);
+        await ready();
+        const actions = within(screen.getByTestId('thread-actions'));
+        expect(actions.queryByRole('link', { name: 'Latest quote' })).toBeNull();
+        expect(actions.queryByRole('link', { name: 'Call' })).toBeNull();
+        expect(actions.getByRole('link', { name: 'View customer' })).toHaveAttribute('href', '/admin/clients/email%3Apriya%40example.com');
+    });
+
+    it('carries the same buttons on the sheet, and none of them while the file is still loading', async () => {
+        mount([fileRoute(detail())], { layout: 'sheet' });
+        await ready();
+        expect(within(screen.getByTestId('thread-actions')).getByRole('link', { name: 'View customer' })).toBeInTheDocument();
+    });
+
+    it('shows no buttons while the file is still loading', async () => {
+        mount([{ url: FILE_ONLY, reply: () => new Promise(() => undefined) as never }]);
+        await screen.findByTestId('thread-loading');
+        expect(screen.queryByTestId('thread-actions')).toBeNull();
+    });
+
     it('names each speaker without a raw approver, and shows media descriptions, system rules and call rows', async () => {
         mount([fileRoute(detail({
             hold: null,
