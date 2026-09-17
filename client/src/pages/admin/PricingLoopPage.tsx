@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, TrendingUp, Users, Star, ShieldCheck } from 'lucide-react';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 interface Review {
   windowDays: number;
@@ -43,7 +44,7 @@ export default function PricingLoopPage() {
   const { data, isLoading } = useQuery<Review>({
     queryKey: ['pricing-loop', days],
     queryFn: async () => {
-      const r = await fetch(`/api/admin/pricing-loop?days=${days}`);
+      const r = await fetch(`/api/admin/pricing-loop?days=${days}`, { headers: adminAuthHeaders() });
       if (!r.ok) throw new Error('Failed to load review');
       return r.json();
     },

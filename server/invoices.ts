@@ -10,6 +10,7 @@ import { eq, and, sql, inArray } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { sendInvoiceEmail } from './email-service';
 import { getInvoiceUpsells, getWhatsAppNumber, type InvoiceUpsell } from './invoice-upsells';
+import { requireAdmin } from './auth';
 
 // Helper to get Stripe instance lazily
 const getStripe = () => {
@@ -126,10 +127,15 @@ View & pay all: ${link}
 Thank you for choosing Handy Services 👍`;
 }
 
+// Mounted bare in server/index.ts, so each route carries its own guard. Every route needs an
+// admin session (requireAdmin, which admits VAs) except the customer's own reads and payment,
+// where the unguessable invoice or quote UUID is the token: GET /:id/html, GET /:id/pdf,
+// GET /by-quote/:quoteId (PersonalizedQuotePage), POST /:id/pay and GET /public/:invoiceId
+// (InvoiceView).
 export const invoiceRouter = Router();
 
 // B2: Generate Invoice from Job/Quote
-invoiceRouter.post('/api/invoices/generate', async (req, res) => {
+invoiceRouter.post('/api/invoices/generate', requireAdmin, async (req, res) => {
     try {
         const { jobId, quoteId } = req.body;
 
@@ -295,7 +301,7 @@ invoiceRouter.post('/api/invoices/generate', async (req, res) => {
 });
 
 // C1: Create Manual Invoice (Contractor)
-invoiceRouter.post('/api/invoices', async (req, res) => {
+invoiceRouter.post('/api/invoices', requireAdmin, async (req, res) => {
     try {
         const {
             contractorId,
@@ -402,7 +408,7 @@ invoiceRouter.get('/api/invoices/:id/pdf', async (req, res) => {
 });
 
 // Get branded job-sheet PDF for a job (server-side render — Track A).
-invoiceRouter.get('/api/jobs/:id/job-sheet.pdf', async (req, res) => {
+invoiceRouter.get('/api/jobs/:id/job-sheet.pdf', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -445,7 +451,7 @@ invoiceRouter.get('/api/jobs/:id/job-sheet.pdf', async (req, res) => {
 });
 
 // Get invoice by ID
-invoiceRouter.get('/api/invoices/:id', async (req, res) => {
+invoiceRouter.get('/api/invoices/:id', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -487,7 +493,7 @@ invoiceRouter.get('/api/invoices/by-quote/:quoteId', async (req, res) => {
 });
 
 // List invoices with filters
-invoiceRouter.get('/api/invoices', async (req, res) => {
+invoiceRouter.get('/api/invoices', requireAdmin, async (req, res) => {
     try {
         const { status, customerId, contractorId } = req.query;
 
@@ -507,7 +513,7 @@ invoiceRouter.get('/api/invoices', async (req, res) => {
 });
 
 // Mark invoice as paid (manual)
-invoiceRouter.post('/api/invoices/:id/mark-paid', async (req, res) => {
+invoiceRouter.post('/api/invoices/:id/mark-paid', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { paymentMethod = 'other' } = req.body;
@@ -558,7 +564,7 @@ invoiceRouter.post('/api/invoices/:id/mark-paid', async (req, res) => {
 });
 
 // Send invoice to customer via WhatsApp (and mark as sent)
-invoiceRouter.post('/api/invoices/:id/send', async (req, res) => {
+invoiceRouter.post('/api/invoices/:id/send', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -846,7 +852,7 @@ invoiceRouter.get('/api/invoices/public/:invoiceId', async (req, res) => {
 // Record the reward-wheel prize a customer won on the paid invoice screen, so
 // ops can honour it. Best-effort, idempotent; stored on the invoice notes (no
 // redemption engine yet — a manual note until the quote engine reads credits).
-invoiceRouter.post('/api/invoices/:id/prize', async (req, res) => {
+invoiceRouter.post('/api/invoices/:id/prize', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const prize = typeof req.body?.prize === 'string' ? req.body.prize.slice(0, 120).trim() : '';
@@ -868,7 +874,7 @@ invoiceRouter.post('/api/invoices/:id/prize', async (req, res) => {
 // MANUAL INVOICE GENERATION (for Panda / ad-hoc jobs)
 // ==========================================
 
-invoiceRouter.post('/api/invoices/generate-manual', async (req, res) => {
+invoiceRouter.post('/api/invoices/generate-manual', requireAdmin, async (req, res) => {
     try {
         const {
             customerName,
@@ -942,7 +948,7 @@ invoiceRouter.post('/api/invoices/generate-manual', async (req, res) => {
 // MARK QUOTES AS COMPLETED
 // ==========================================
 
-invoiceRouter.post('/api/quotes/mark-complete', async (req, res) => {
+invoiceRouter.post('/api/quotes/mark-complete', requireAdmin, async (req, res) => {
     try {
         const { quoteIds } = req.body;
 
@@ -1023,7 +1029,7 @@ function buildQuoteLineItems(quote: typeof personalizedQuotes.$inferSelect) {
     return { lineItems, quoteTotal, deposit, quoteBalance: quoteTotal - deposit, address };
 }
 
-invoiceRouter.post('/api/invoices/consolidated', async (req, res) => {
+invoiceRouter.post('/api/invoices/consolidated', requireAdmin, async (req, res) => {
     try {
         const { quoteIds, customerName, customerEmail, customerPhone } = req.body;
 

@@ -13,6 +13,7 @@ import { Link, useLocation } from "wouter";
 import { useLiveCall } from "@/contexts/LiveCallContext";
 import { cn } from "@/lib/utils";
 import handyLogo from "@/assets/handy-logo.webp";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 interface SidebarLayoutProps {
     children: React.ReactNode;
@@ -145,7 +146,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const { data: followUpItems } = useQuery<any[]>({
         queryKey: ['/api/contractor/inbox'],
         queryFn: async () => {
-            const res = await fetch('/api/contractor/inbox');
+            const res = await fetch('/api/contractor/inbox', { headers: adminAuthHeaders() });
             if (!res.ok) return [];
             return res.json();
         },

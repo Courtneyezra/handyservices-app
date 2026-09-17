@@ -3,6 +3,7 @@ import { db } from './db';
 import { handymanProfiles, handymanSkills, handymanAvailability, users } from '../shared/schema';
 import { eq } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { requireAdmin } from './auth';
 
 const router = Router();
 
@@ -144,8 +145,9 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// Create/Update profile
-router.post('/profile', async (req, res) => {
+// Create/Update profile. Admin only: the body is written to the profile as given, so it can set
+// verificationStatus, subscriptionTier and partnerStatus, which only the admin team may change.
+router.post('/profile', requireAdmin, async (req, res) => {
     try {
         const { userId, ...data } = req.body;
         if (!userId) return res.status(400).json({ error: "Missing userId" });
@@ -218,8 +220,8 @@ router.post('/:id/availability', async (req, res) => {
     }
 });
 
-// Verify Contractor
-router.post('/:id/verify', async (req, res) => {
+// Verify Contractor (admin only)
+router.post('/:id/verify', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body; // 'verified' | 'rejected' | 'pending' | 'unverified'

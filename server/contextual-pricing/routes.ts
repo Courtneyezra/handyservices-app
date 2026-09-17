@@ -1430,7 +1430,7 @@ router.get('/api/pricing/multi-scenarios', (_req, res) => {
 // GET /api/pricing/contractors — Lightweight list for quote builder dropdown
 // ---------------------------------------------------------------------------
 
-router.get('/api/pricing/contractors', async (_req, res) => {
+router.get('/api/pricing/contractors', requireAdmin, async (_req, res) => {
   try {
     const contractors = await db.select({
       id: handymanProfiles.id,
@@ -1482,7 +1482,7 @@ router.get('/api/pricing/contractors', async (_req, res) => {
 // minimal create endpoint so teams can be set up without a dedicated admin UI.
 // ---------------------------------------------------------------------------
 
-router.get('/api/pricing/contractor-teams', async (_req, res) => {
+router.get('/api/pricing/contractor-teams', requireAdmin, async (_req, res) => {
   try {
     const teams = await db.select().from(contractorTeams)
       .where(eq(contractorTeams.isActive, true))

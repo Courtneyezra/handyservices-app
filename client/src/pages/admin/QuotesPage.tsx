@@ -18,6 +18,7 @@ import { QuotesList } from './components/QuotesList';
 import { EditQuoteDialog } from './components/EditQuoteDialog';
 import { QuotePreviewModal } from '@/components/quote/QuotePreviewModal';
 import type { PreviewQuote } from '@/components/quote/QuotePreviewModal';
+import { adminAuthHeaders } from '@/lib/admin-auth';
 
 // Define Interface locally or import if centralized. 
 export interface PersonalizedQuote {
@@ -86,7 +87,7 @@ export default function QuotesPage() {
         mutationFn: async (quoteId: string) => {
             const res = await fetch('/api/quotes/mark-complete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ quoteIds: [quoteId] }),
             });
             if (!res.ok) throw new Error('Failed to mark complete');
@@ -107,7 +108,7 @@ export default function QuotesPage() {
         mutationFn: async (quoteId: string) => {
             const res = await fetch('/api/invoices/consolidated', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ quoteIds: [quoteId] }),
             });
             if (!res.ok) throw new Error('Failed to generate invoice');

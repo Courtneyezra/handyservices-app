@@ -9,6 +9,8 @@
  *   GET  /api/admin/wtbp-rate-card/history/:categorySlug — Rate change history
  *   POST /api/admin/wtbp-rate-card/seed       — Seed initial rates for all categories
  *   GET  /api/wtbp-rate-card/current          — Public endpoint: current rate per category
+ *
+ * Every /api/admin/* route here needs an admin session (requireAdmin, which admits VAs).
  */
 
 import { Router } from 'express';
@@ -18,6 +20,7 @@ import { wtbpRateCard } from '../shared/schema';
 import { CATEGORY_RATE_RANGES, CATEGORY_LABELS } from '../shared/categories';
 import type { JobCategory } from '../shared/categories';
 import { getProposedWTBPRates } from './contractor-value-score';
+import { requireAdmin } from './auth';
 
 const router = Router();
 
@@ -25,7 +28,7 @@ const router = Router();
 // GET /api/admin/wtbp-rate-card — list all current rates
 // ---------------------------------------------------------------------------
 
-router.get('/api/admin/wtbp-rate-card', async (_req, res) => {
+router.get('/api/admin/wtbp-rate-card', requireAdmin, async (_req, res) => {
   try {
     const rates = await db
       .select()
@@ -49,7 +52,7 @@ router.get('/api/admin/wtbp-rate-card', async (_req, res) => {
 // POST /api/admin/wtbp-rate-card — create/update a rate for a category
 // ---------------------------------------------------------------------------
 
-router.post('/api/admin/wtbp-rate-card', async (req, res) => {
+router.post('/api/admin/wtbp-rate-card', requireAdmin, async (req, res) => {
   try {
     const { categorySlug, ratePence, rateType, notes } = req.body;
 
@@ -96,7 +99,7 @@ router.post('/api/admin/wtbp-rate-card', async (req, res) => {
 // GET /api/admin/wtbp-rate-card/history/:categorySlug — rate change history
 // ---------------------------------------------------------------------------
 
-router.get('/api/admin/wtbp-rate-card/history/:categorySlug', async (req, res) => {
+router.get('/api/admin/wtbp-rate-card/history/:categorySlug', requireAdmin, async (req, res) => {
   try {
     const { categorySlug } = req.params;
 
@@ -134,7 +137,7 @@ export function getSeedRates(): Array<{ categorySlug: string; ratePence: number;
   );
 }
 
-router.post('/api/admin/wtbp-rate-card/seed', async (_req, res) => {
+router.post('/api/admin/wtbp-rate-card/seed', requireAdmin, async (_req, res) => {
   try {
     const now = new Date();
 
@@ -205,7 +208,7 @@ router.get('/api/wtbp-rate-card/current', async (_req, res) => {
 // (observe + suggest only; see docs/TWO-SIDED-PRICING-LOOP-2026-07.md)
 // ---------------------------------------------------------------------------
 
-router.get('/api/admin/pricing-loop', async (req, res) => {
+router.get('/api/admin/pricing-loop', requireAdmin, async (req, res) => {
   try {
     const days = Math.min(365, Math.max(7, Number(req.query.days) || 60));
     const { buildPricingLoopReview } = await import('./pricing-loop');

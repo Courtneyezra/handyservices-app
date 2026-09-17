@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import HandymanMap from "./HandymanMap";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 // Reuse types from HandymanMap/Schema
 interface Handyman {
@@ -75,7 +76,7 @@ export default function ContractorFleetDashboard() {
         try {
             await fetch(`/api/handymen/${id}/verify`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status: 'verified' })
             });
             refetch(); // Refresh list
