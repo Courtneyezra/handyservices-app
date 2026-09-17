@@ -63,6 +63,12 @@ async function readFile(fileId: string): Promise<CaseFileDetail> {
     return res.json();
 }
 
+/** Whether the focus is in a thread's reply box that holds words, which Esc must not throw away. */
+function typingInThread(): boolean {
+    const el = document.activeElement;
+    return el instanceof HTMLTextAreaElement && el.id.startsWith('thread-words-') && el.value !== '';
+}
+
 const PILL = 'rounded-full bg-slate-100 px-[7px] py-0.5 text-[10px] font-semibold text-slate-500';
 const BTN = 'inline-flex items-center justify-center gap-1.5 rounded-md font-semibold transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50';
 const BTN_AMBER = cn(BTN, 'bg-amber-400 text-slate-900 hover:bg-amber-300');
@@ -266,15 +272,9 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
     const [factsOpen, setFactsOpen] = useState(false);
 
     // Esc closes the docked panel, unless it would throw away words being typed; a sheet's own dialog handles Esc.
-    const wordsRef = useRef<HTMLTextAreaElement>(null);
     useEffect(() => {
         if (layout !== 'panel') return;
-        const onKey = (e: KeyboardEvent) => {
-            if (e.key !== 'Escape') return;
-            const box = wordsRef.current;
-            if (box && document.activeElement === box && box.value !== '') return;
-            onClose();
-        };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !typingInThread()) onClose(); };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [layout, onClose]);
@@ -528,7 +528,6 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
                             <label htmlFor={`thread-words-${fileId}`} className="sr-only">Your reply to the customer</label>
                             <textarea
                                 id={`thread-words-${fileId}`}
-                                ref={wordsRef}
                                 value={words}
                                 onChange={(e) => setWords(e.target.value)}
                                 disabled={(noCustomer && !hold) || busy === 'answer'}
@@ -619,7 +618,7 @@ function ThreadFrame({ layout, backTo, onClose, title, pills = [], line, childre
 export function ThreadSheet({ fileId, onClose, ...rest }: Omit<ThreadViewProps, 'fileId' | 'layout'> & { fileId: string | null }) {
     return (
         <Sheet open={!!fileId} onOpenChange={(open) => !open && onClose()}>
-            <SheetContent side="bottom" className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-xl border-0 p-0 [&>button:last-child]:hidden">
+            <SheetContent side="bottom" onEscapeKeyDown={(e) => { if (typingInThread()) e.preventDefault(); }} className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-xl border-0 p-0 [&>button:last-child]:hidden">
                 <SheetTitle className="sr-only">Conversation</SheetTitle>
                 <SheetDescription className="sr-only">The conversation, with the held draft and your reply beneath it.</SheetDescription>
                 {fileId && <ThreadView key={fileId} fileId={fileId} layout="sheet" onClose={onClose} {...rest} />}
