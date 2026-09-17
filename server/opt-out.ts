@@ -44,7 +44,7 @@
  */
 import { db } from './db';
 import { commsOptOuts, conversations } from '@shared/schema';
-import { eq, and, or, isNull, isNotNull, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, isNull, desc, sql, inArray } from 'drizzle-orm';
 import { commsPhoneKey, e164FromCommsKey } from './phone-utils';
 import { OPT_OUT_SCOPES, detectOptOut, type OptOutMatch, type OptOutScope } from './opt-out-detect';
 
@@ -171,12 +171,12 @@ export interface OptOutStore {
     onFile(keys: OptOutKeys, conversationId: string | null): Promise<OptOutKeys>;
     /** Insert one row. With a message id a second row for the same message is skipped and returns false. */
     insert(row: NewOptOutRow): Promise<boolean>;
-    /**
-     * Stamp as revoked every live row carrying any of the keys, and every live row recorded from
-     * the same conversation as one of those, which is where recordOptOut's further addresses sit.
-     */
-    revoke(keys: OptOutKeys, revokedBy: string, note: string | null): Promise<number>;
+    /** Stamp as revoked the live rows with these ids and the further-address rows recordOptOut wrote for them. */
+    revoke(ids: string[], revokedBy: string, note: string | null): Promise<number>;
 }
+
+/** recordOptOut ids a further-address row `<primary id><COMPANION_MARK><n>`, which is how a lift finds it. */
+export const COMPANION_MARK = ':also:';
 
 /** The digit strings a stored phone column can hold for a key (commsPhoneKey folds them all to it). */
 function phoneDigitForms(key: string): string[] {
@@ -229,13 +229,17 @@ export const dbOptOutStore: OptOutStore = {
         await db.insert(commsOptOuts).values(row);
         return true;
     },
-    async revoke(keys, revokedBy, note) {
-        if (!hasKeys(keys)) return 0;
-        const sameConversation = db.select({ id: commsOptOuts.conversationId }).from(commsOptOuts)
-            .where(and(keysWhere(keys), isNull(commsOptOuts.revokedAt), isNotNull(commsOptOuts.conversationId)));
+    async revoke(ids, revokedBy, note) {
+        if (!ids.length) return 0;
         const rows = await db.update(commsOptOuts)
             .set({ revokedAt: new Date(), revokedBy, note })
-            .where(and(or(keysWhere(keys), inArray(commsOptOuts.conversationId, sameConversation)), isNull(commsOptOuts.revokedAt)))
+            .where(and(
+                or(
+                    inArray(commsOptOuts.id, ids),
+                    sql`split_part(${commsOptOuts.id}, ${COMPANION_MARK}, 1) = ANY(${sql.param(ids)}::text[])`,
+                ),
+                isNull(commsOptOuts.revokedAt),
+            ))
             .returning({ id: commsOptOuts.id });
         return rows.length;
     },
@@ -369,7 +373,8 @@ export async function recordOptOut(
     // A redelivered message wrote its rows the first time round.
     if (created) {
         const also = `covers another address on file for the party in ${primary.id}`;
-        const extras = [...morePhones.map((k) => rowFor(k, null)), ...moreEmails.map((k) => rowFor(null, k))];
+        const extras = [...morePhones.map((k) => rowFor(k, null)), ...moreEmails.map((k) => rowFor(null, k))]
+            .map((extra, i) => ({ ...extra, id: `${primary.id}${COMPANION_MARK}${i + 1}` }));
         for (const extra of extras) {
             try {
                 await store.insert({ ...extra, messageId: null, note: also });
@@ -381,16 +386,47 @@ export async function recordOptOut(
     return { created, id: created ? primary.id : null, key: phoneKey ?? emailKey, keys };
 }
 
+function keysOfRecord(r: OptOutRecord): OptOutKeys {
+    return { phoneKeys: uniq([r.phoneKey]), emailKeys: uniq([r.emailKey]) };
+}
+
+function carriesAny(r: OptOutRecord, keys: OptOutKeys): boolean {
+    return (r.phoneKey !== null && keys.phoneKeys.includes(r.phoneKey)) ||
+        (r.emailKey !== null && keys.emailKeys.includes(r.emailKey));
+}
+
 /**
- * Lift a suppression. Never deletes: the original rows stay, stamped with who lifted them. Lifts
- * it for the party, on every address on file and every row recorded from the same conversation,
- * as recordOptOut wrote it.
+ * Lift a suppression. Never deletes: the original rows stay, stamped with who lifted them.
+ *
+ * A lift must never make a different party reachable, so it covers only the live rows carrying an
+ * address given here, and the further-address rows recordOptOut wrote for those same rows. It never
+ * widens to what is on file. A row is left alone when an address it shares with the lift also sits
+ * on another live row carrying an address neither of them names: that address may be another
+ * party's, as a family or agent email can be. Naming every address of the party lifts it. Every
+ * row still live on an address the lift touched comes back in `leftAlone`.
  */
-export async function revokeOptOut(who: OptOutAddress, revokedBy: string, note?: string, store: OptOutStore = dbOptOutStore): Promise<number> {
+export async function revokeOptOut(
+    who: OptOutAddress,
+    revokedBy: string,
+    note?: string,
+    store: OptOutStore = dbOptOutStore,
+): Promise<{ revoked: number; leftAlone: OptOutRecord[] }> {
     const given = optOutKeysOf(who);
-    if (!hasKeys(given)) return 0;
-    const keys = await withOnFile(given, null, store, 'lifting an opt-out');
-    return store.revoke(keys, revokedBy, note ?? null);
+    if (!hasKeys(given)) return { revoked: 0, leftAlone: [] };
+    const matched = await store.liveRows(given);
+    const lift = matched.filter((r) => {
+        const shared = { phoneKeys: given.phoneKeys.filter((k) => k === r.phoneKey), emailKeys: given.emailKeys.filter((k) => k === r.emailKey) };
+        const known = mergeKeys(given, keysOfRecord(r));
+        return !matched.some((s) => s.id !== r.id && carriesAny(s, shared) &&
+            ((s.phoneKey !== null && !known.phoneKeys.includes(s.phoneKey)) || (s.emailKey !== null && !known.emailKeys.includes(s.emailKey))));
+    });
+    const revoked = await store.revoke(lift.map((r) => r.id), revokedBy, note ?? null);
+    const touched = lift.reduce((keys, r) => mergeKeys(keys, keysOfRecord(r)), given);
+    const leftAlone = await store.liveRows(touched);
+    if (leftAlone.length) {
+        console.warn(`[OptOut] Lift by ${revokedBy} left ${leftAlone.length} live row(s) on a shared address alone: ${leftAlone.map((r) => r.id).join(', ')}`);
+    }
+    return { revoked, leftAlone };
 }
 
 // ---------------------------------------------------------------- the inbound hook

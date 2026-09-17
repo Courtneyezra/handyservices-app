@@ -65,8 +65,9 @@ async function main() {
         }
         case 'revoke': {
             if (!target) throw new Error('revoke needs a phone number');
-            const n = await revokeOptOut(target, flag('by') ?? 'ops', flag('note'));
-            console.log(n ? `Lifted ${n} suppression row(s) for ${target}.` : `Nothing live to lift for ${target}.`);
+            const { revoked, leftAlone } = await revokeOptOut(target, flag('by') ?? 'ops', flag('note'));
+            console.log(revoked ? `Lifted ${revoked} suppression row(s) for ${target}.` : `Nothing lifted for ${target}.`);
+            for (const r of leftAlone) console.log(`  Left live on a shared address: ${r.id} (${r.scope}, ${r.phoneKey ?? '-'} / ${r.emailKey ?? '-'})`);
             break;
         }
         default:
