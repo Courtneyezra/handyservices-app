@@ -4,7 +4,7 @@
  * address in it must be synthetic: numbers from the Ofcom drama range, example.com mail.
  */
 import type { OptOutKeys, OptOutRecord, OptOutStore } from '../opt-out';
-import { COMPANION_MARK, optOutEmailKey } from '../opt-out';
+import { optOutEmailKey } from '../opt-out';
 import { commsPhoneKey } from '../phone-utils';
 
 export interface MemoryLead { id: string; phone: string; email: string | null }
@@ -55,7 +55,7 @@ export function memoryOptOutStore(leads: MemoryLead[] = [], conversationLeads: R
         async revoke(ids, _by, note) {
             let n = 0;
             for (const r of store.rows) {
-                if (r.revokedAt || !(ids.includes(r.id) || ids.includes(r.id.split(COMPANION_MARK)[0]))) continue;
+                if (r.revokedAt || !ids.includes(r.id)) continue;
                 r.revokedAt = new Date(); r.note = note; n++;
             }
             return n;

@@ -12,7 +12,7 @@
  *   npx tsx scripts/_opt-out.ts revoke "+447700900123" "sam@example.com" --by ben --note "asked to be put back on"
  *
  * A lift takes every address of the party, phones and emails alike: a row that also carries an
- * address not named is left live, in case that address is another party's.
+ * address not named is never lifted, in case that address is another party's.
  *
  * Adds default to scope 'marketing', matching a plain STOP. Use --scope all only for an explicit
  * "do not contact me at all", because that blocks service messages too.
@@ -71,11 +71,11 @@ async function main() {
         case 'revoke': {
             if (!targets.length) throw new Error('revoke needs one or more phone numbers or email addresses');
             const who = targets.join(', ');
-            const { revoked, leftShared, stillLive } = await revokeOptOut(liftAddressOf(targets), flag('by') ?? 'ops', flag('note'));
+            const { revoked, notLifted } = await revokeOptOut(liftAddressOf(targets), flag('by') ?? 'ops', flag('note'));
             console.log(revoked ? `Lifted ${revoked} suppression row(s) for ${who}.` : `Nothing lifted for ${who}.`);
-            const line = (r: { id: string; scope: string; phoneKey: string | null; emailKey: string | null }) => `${r.id} (${r.scope}, ${r.phoneKey ?? '-'} / ${r.emailKey ?? '-'})`;
-            for (const r of leftShared) console.log(`  Left live on a shared address: ${line(r)}`);
-            for (const r of stillLive) console.log(`  Still live: ${line(r)}; run the lift again to lift it`);
+            for (const { record, alsoCarries } of notLifted) {
+                console.log(`  ${record.id} (${record.scope}) not lifted: also carries ${alsoCarries.join(', ')}; name it to lift`);
+            }
             break;
         }
         default:
