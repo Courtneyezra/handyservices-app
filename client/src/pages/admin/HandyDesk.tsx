@@ -21,7 +21,7 @@
  * the ask agent's newest OpsAnswer on the person's session, until a card is selected, which shows
  * that card's thread through the same `thread` renderer (client/src/lib/handy-desk-answer.ts).
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2 } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
@@ -285,6 +285,8 @@ function useLatestAnswer() {
 
 // ---------------------------------------------------------------- page
 
+const FIRST_LOAD = Symbol('first answer load');
+
 export default function HandyDesk() {
     const queryClient = useQueryClient();
     const [selection, setSelection] = useState<DeskSelection | null>(null);
@@ -293,8 +295,8 @@ export default function HandyDesk() {
     const [showAnswer, setShowAnswer] = useState(false);
     const askSession = useAskSession();
     const exchange = askSession.exchange;
-    // When a card was last selected: an answer given before then stays put away, only a newer one takes over.
-    const [selectedAt, setSelectedAt] = useState<number | null>(null);
+    // The answer a selected card put away; `FIRST_LOAD` when the card was selected before any answer loaded.
+    const [dismissedAnswer, setDismissedAnswer] = useState<string | typeof FIRST_LOAD | null>(null);
 
     const { data, isLoading, error } = useQuery<DeskQueue>({
         queryKey: ['comms-v2-queue'],
@@ -307,7 +309,10 @@ export default function HandyDesk() {
     });
     const { data: oldComms } = useOldComms();
     const { data: latest } = useLatestAnswer();
-    const answered = latest && (selectedAt === null || Date.parse(latest.at) > selectedAt) ? latest : null;
+    useEffect(() => {
+        if (dismissedAnswer === FIRST_LOAD && latest !== undefined) setDismissedAnswer(latest?.id ?? null);
+    }, [dismissedAnswer, latest]);
+    const answered = latest && dismissedAnswer !== FIRST_LOAD && latest.id !== dismissedAnswer ? latest : null;
 
     const items = data?.items ?? [];
     const sandbox = data?.sandboxAvailable === true;
@@ -326,7 +331,7 @@ export default function HandyDesk() {
 
     const select = (item: QueueItem) => {
         setSelection(selectionOf(item));
-        setSelectedAt(Date.now());
+        setDismissedAnswer(latest === undefined ? FIRST_LOAD : latest?.id ?? null);
     };
 
     // Height leaves out the layout's 64px header and its scroll container's p-4 / lg:p-8

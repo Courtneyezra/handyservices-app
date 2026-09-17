@@ -65,13 +65,13 @@ const ANSWER: OpsAnswer = {
     confirm: { label: 'Send as is', action: { kind: 'draft.release', args: { caseFileId: 'case_rob' } } },
 };
 
-function askRoutes(gate?: Promise<void>): Parameters<typeof mockFetch>[0] {
+function askRoutes(gate?: Promise<void>, answerId: () => string = () => 'a1'): Parameters<typeof mockFetch>[0] {
     const at = new Date(Date.now() - 60_000).toISOString();
     return [
         { url: '/api/comms-v2/ask/sessions?limit=1', reply: async () => { await gate; return { json: [{ id: 'sess_1', title: 'Today', createdBy: 'ben', status: 'active', createdAt: at, updatedAt: at }] }; } },
         { url: '/api/comms-v2/ask/sessions/sess_1', reply: () => ({ json: { session: { id: 'sess_1' }, messages: [
             { id: 'u1', sessionId: 'sess_1', role: 'user', content: 'Draft Rob a reply', via: 'typed', createdAt: at },
-            { id: 'a1', sessionId: 'sess_1', role: 'assistant', content: ANSWER.finalText, answer: ANSWER, createdAt: at },
+            { id: answerId(), sessionId: 'sess_1', role: 'assistant', content: ANSWER.finalText, answer: ANSWER, createdAt: at },
         ] } }) },
     ];
 }
@@ -242,11 +242,12 @@ describe('HandyDesk', () => {
         expect(screen.queryByTestId('answer-surface')).toBeNull();
     });
 
-    it('a card selected before the ask answer loads is not replaced by that older answer', async () => {
+    it('a card selected before the ask answer loads is not replaced by that answer, only by a different one', async () => {
         let open!: () => void;
         const gate = new Promise<void>((r) => { open = r; });
-        const { calls } = routes(askRoutes(gate));
-        renderWithQuery(<HandyDesk />);
+        let answerId = 'a1';
+        const { calls } = routes(askRoutes(gate, () => answerId));
+        const { client } = renderWithQuery(<HandyDesk />);
         await screen.findByTestId('queue-card-case_gemma');
         expect(screen.queryByTestId('answer-surface')).toBeNull();
 
@@ -257,6 +258,13 @@ describe('HandyDesk', () => {
         await new Promise((r) => setTimeout(r, 20));
         expect(screen.queryByTestId('answer-surface')).toBeNull();
         expect(screen.getByTestId('handy-desk-thread')).toHaveTextContent('Gemma Patel asks a thing');
+
+        await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+        expect(screen.queryByTestId('answer-surface')).toBeNull();
+
+        answerId = 'a2';
+        await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+        expect(await screen.findByTestId('answer-surface')).toHaveTextContent('I drafted a reply to Rob.');
     });
 
     it('with no ask session, the right side waits for a card', async () => {
