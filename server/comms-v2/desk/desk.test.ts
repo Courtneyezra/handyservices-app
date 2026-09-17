@@ -17,6 +17,8 @@ import { recordingNotifier } from '../quoting/ben-notifier';
 import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore, type QuoteStore } from '../quoting/quote-store';
 import { markQuoteSent, priceQuote } from '../quoting/quoting-tools';
+import { detectOptOut } from '../../opt-out-detect';
+import { optOutWords } from '../../__tests__/opt-out-words';
 
 const routeScoping = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry', ...over });
 const specialistFacts = (facts: Array<{ key: string; value: string }>, answered: string[] = []) => ({ facts, jobUnknowns: [], answeredSubjects: answered });
@@ -170,6 +172,67 @@ describe('the desk', () => {
         expect(clock?.delivered).toBe(false);
         expect(clock?.decision).toBe('none');
         expect(out.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
+    });
+
+    it('a customer who writes STOP gets no reply at all, mid-thread or as a first message, and no model is asked (server/opt-out.ts)', async () => {
+        const { client, gateway } = desk({
+            router: () => routeScoping(),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'dripping tap' }]),
+            composer: () => ({ reply: 'Hi Sam, a dripping tap, no problem. Whereabouts are you?', factIds: [], kbIds: [] }),
+        });
+        const first = await gateway.inbound(turn('Hi, my tap will not stop dripping, can you help?', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.result.decision).toBe('send');
+        const before = client.calls.length;
+        const stop = await gateway.inbound(turn('STOP', '2026-09-11T10:05:00.000Z'));
+        if (stop.kind !== 'handled') throw new Error(stop.kind);
+        expect(stop.result.decision).toBe('none');
+        expect(stop.result.delivered).toBe(false);
+        expect(stop.result.bubbles).toEqual([]);
+        expect(stop.result.note).toMatch(/asked us to stop/);
+        expect(client.calls.length).toBe(before);
+        expect(stop.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
+
+        const fresh = desk({ router: () => { throw new Error('the router must not be called'); }, specialist: () => { throw new Error('no specialist'); }, composer: () => { throw new Error('no composer'); } });
+        const leave = await fresh.gateway.inbound({ ...turn('Please do not contact me again', '2026-09-11T11:00:00.000Z'), address: '+447700900943' });
+        if (leave.kind !== 'handled') throw new Error(leave.kind);
+        expect(leave.result.decision).toBe('none');
+        expect(leave.result.delivered).toBe(false);
+        expect(fresh.client.calls).toHaveLength(0);
+        expect(leave.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+    });
+
+    it('every word today\'s detector takes as an opt-out gets no reply, no model call and no hold on the new desk', async () => {
+        const words = [...optOutWords('EXACT_MARKETING'), ...optOutWords('EXACT_ALL'), ...optOutWords('PHRASE_ALL'), ...optOutWords('PHRASE_MARKETING')];
+        expect(words).toHaveLength(99);
+        for (const [i, text] of [...words, 'STOP', 'Stop.', 'please stop, thanks', 'S T O P'].entries()) {
+            expect(detectOptOut(text), text).not.toBeNull();
+            const fresh = desk({ router: () => { throw new Error('no router'); }, specialist: () => { throw new Error('no specialist'); }, composer: () => { throw new Error('no composer'); } });
+            const out = await fresh.gateway.inbound({ ...turn(text, '2026-09-11T11:00:00.000Z'), address: `+4477009${String(10000 + i).slice(-5)}` });
+            if (out.kind !== 'handled') throw new Error(`${text}: ${out.kind}`);
+            expect(out.result.decision, text).toBe('none');
+            expect(out.result.delivered, text).toBe(false);
+            expect(out.result.bubbles, text).toEqual([]);
+            expect(fresh.client.calls, text).toHaveLength(0);
+            expect(out.file.hold, text).toBeNull();
+            expect(out.file.turns.filter((t) => t.direction === 'outbound'), text).toHaveLength(0);
+        }
+    });
+
+    it('a message today\'s detector does not take as an opt-out is handled as before: routed, composed and sent', async () => {
+        for (const text of ['cancel', 'Can you stop the leak under my sink?', "The tap won't stop dripping", 'no more']) {
+            expect(detectOptOut(text), text).toBeNull();
+            const { client, gateway } = desk({
+                router: () => routeScoping(),
+                specialist: () => specialistFacts([{ key: 'job_type', value: 'dripping tap' }]),
+                composer: () => ({ reply: 'Hi Sam, a dripping tap, no problem. Whereabouts are you?', factIds: [], kbIds: [] }),
+            });
+            const out = await gateway.inbound(turn(text, '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.result.decision, text).toBe('send');
+            expect(out.result.delivered, text).toBe(true);
+            expect(client.calls.map((c) => c.role), text).toEqual(['router', 'specialist', 'composer']);
+        }
     });
 
     it('a complaint holds the thread on its fixed line: the next turn gets the acknowledgement, no router, no specialist, no composer', async () => {

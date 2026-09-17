@@ -48,6 +48,7 @@ import { liveFigureQuotes } from '../quoting/quoting-tools';
 import { refreshBenToRequest } from '../quoting/ben-to-request';
 import { draftToRecover, markDraftFailed, type BackgroundDraftHooks } from '../quoting/background-draft';
 import { repeatedSentences, saidSinceLastQuestion, withoutSentences } from './repeat';
+import { detectOptOut } from '../../opt-out-detect';
 
 export interface DeskDeps extends CaseFileDeps {
     client?: ModelClient;
@@ -198,6 +199,10 @@ export class Desk implements DeskLike {
         const party = partyOf(file, turn.partyId);
         if (!party) return this.nothing(file, file.parties[0].personId, runId, calls, 'the turn\'s party is not on the file');
         if (turn.direction !== 'inbound') return this.nothing(file, party.personId, runId, calls, 'not a customer turn');
+        // A customer who has just asked us to stop hears nothing back, not even an acknowledgement: the
+        // ledger is written by the old inbound path, and the provider sends its own STOP reply (server/opt-out.ts).
+        const optOut = detectOptOut(turn.body);
+        if (optOut) return this.nothing(file, party.personId, runId, calls, `the customer asked us to stop ("${optOut.keyword}", ${optOut.scope}): no reply, no model call`);
         const log = this.deps.log ?? (() => undefined);
         // Ben's note of what the draft is missing, true as of this turn: a photo that has just landed is no longer his to request.
         refreshBenToRequest(file, this.fileDeps());
