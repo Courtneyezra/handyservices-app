@@ -167,6 +167,18 @@ describe('the channel desk on a call', () => {
         if (c.kind !== 'handled') throw new Error(c.kind);
         expect(c.file.sends).toHaveLength(1);
     });
+    it('a caller who asks us to stop gets nothing: Ben rang or they rang, no follow-up, no model reads the transcript, and the call holds for Ben to record the opt-out', async () => {
+        for (const outcome of ['ben_rang', 'answered_inbound'] as const) {
+            const { gateway, client } = rig({ specialist: () => read(), router: () => routeScoping(), composer: () => ({ reply: 'unused', factIds: [], kbIds: [] }) }, approvedAll);
+            const a = await gateway.inbound(call(outcome, '2026-09-11T10:00:00.000Z', 'unsubscribe me'));
+            if (a.kind !== 'handled') throw new Error(a.kind);
+            expect(a.result).toMatchObject({ decision: 'hold', delivered: false, bubbles: [], templateId: null });
+            expect(a.file.sends).toHaveLength(0);
+            expect(a.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+            expect(client.calls).toHaveLength(0);
+            expect(a.file.hold?.reason).toContain('customer may have asked to stop on a call; check and record the opt-out');
+        }
+    });
     it('an answered inbound call gets no acknowledgement; the transcript is read for facts and the caller is never offered a call again', async () => {
         const { gateway, client } = rig({
             specialist: () => read({ location: 'NG9 2AB' }),

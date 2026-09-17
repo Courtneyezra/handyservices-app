@@ -97,6 +97,21 @@ function optOutIn(file: CaseFile, turn: Turn): ReturnType<typeof detectOptOut> {
     return null;
 }
 
+/**
+ * A customer who has just asked us to stop, in any message of the turn, hears nothing back, not even an
+ * acknowledgement, and no model reads the turn. On SMS and WhatsApp (`OPT_OUT_RECORDED_ON`) the old inbound
+ * path writes the ledger, so `holdReason` is null; anywhere else (a call too, which the channel desk
+ * checks before reading the transcript) the thread holds for Ben to check and record it.
+ */
+export function optOutOnTurn(file: CaseFile, turn: Turn): { note: string; holdReason: string | null } | null {
+    const optOut = optOutIn(file, turn);
+    if (!optOut) return null;
+    const asked = `the customer asked us to stop ("${optOut.keyword}", ${optOut.scope})`;
+    if (OPT_OUT_RECORDED_ON.has(turn.channel)) return { note: `${asked}: no reply, no model call`, holdReason: null };
+    const where = optOutPlace(turn.channel);
+    return { note: `${asked} ${where}: no reply, no model call, held for Ben to record the opt-out`, holdReason: `customer may have asked to stop ${where}; check and record the opt-out: ${asked}` };
+}
+
 /** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
 const DRAFT_FAILED_HOLD = 'the quote draft failed';
 
@@ -224,16 +239,12 @@ export class Desk implements DeskLike {
         const party = partyOf(file, turn.partyId);
         if (!party) return this.nothing(file, file.parties[0].personId, runId, calls, 'the turn\'s party is not on the file');
         if (turn.direction !== 'inbound') return this.nothing(file, party.personId, runId, calls, 'not a customer turn');
-        // A customer who has just asked us to stop, in any message of the turn, hears nothing back, not even an
-        // acknowledgement. On SMS and WhatsApp (`OPT_OUT_RECORDED_ON`) the old inbound path writes the ledger, so
-        // that is all; anywhere else the thread holds for Ben to check and record it.
-        const optOut = optOutIn(file, turn);
+        // An opt-out: no reply and no model call; held for Ben where the old inbound path does not record it.
+        const optOut = optOutOnTurn(file, turn);
         if (optOut) {
-            const asked = `the customer asked us to stop ("${optOut.keyword}", ${optOut.scope})`;
-            if (OPT_OUT_RECORDED_ON.has(turn.channel)) return this.nothing(file, party.personId, runId, calls, `${asked}: no reply, no model call`);
-            const where = optOutPlace(turn.channel);
-            this.holdFor(file, null, `customer may have asked to stop ${where}; check and record the opt-out: ${asked}`);
-            return this.nothing(file, party.personId, runId, calls, `${asked} ${where}: no reply, no model call, held for Ben to record the opt-out`, 'hold');
+            if (!optOut.holdReason) return this.nothing(file, party.personId, runId, calls, optOut.note);
+            this.holdFor(file, null, optOut.holdReason);
+            return this.nothing(file, party.personId, runId, calls, optOut.note, 'hold');
         }
         const log = this.deps.log ?? (() => undefined);
         // Ben's note of what the draft is missing, true as of this turn: a photo that has just landed is no longer his to request.
