@@ -11,8 +11,9 @@
  * the board offers.
  *
  * A quote waiting to be priced (answer Q12) is a card in the same list, in the server's order. It is
- * not a hold: its one action, "Open & price", goes to the price screen (/admin/price/:slug), and
- * selecting it puts no conversation on the right.
+ * not a hold, so it puts no conversation on the right: tapping the card - anywhere on it, or its one
+ * "Open & price" pill - opens Price and Send for that quote (/admin/price/:slug, PriceAndSendPage in
+ * client/src/App.tsx), which this page neither replaces nor changes.
  *
  * Selecting a card sets the selected conversation (`DeskSelection`): the answer surface shows its
  * thread while idle, and the ask bar takes it as context. The mapping from a held file to the
@@ -292,22 +293,28 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
 
 export function ReadyToPriceCard({ item }: { item: ReadyToPriceItem }) {
     const copy = readyToPriceCardCopy(item);
+    const [, navigate] = useLocation();
+    // A held card's tap selects the conversation; this card has none, so the whole card goes where Ben
+    // can act on it - Price and Send for this quote (/admin/price/:slug). The pill is the same
+    // destination as a real link, so it keeps its own click from firing the card's.
+    const open = () => navigate(copy.primary.href);
     return (
         <article
             data-testid={`queue-card-${item.id}`}
             data-kind="ready_to_price"
-            className="rounded-3xl border border-slate-800 bg-[#111c33] p-4 transition-colors duration-200 ease-[var(--ease-out)] hover:border-amber-400 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-[240ms]"
+            onClick={open}
+            className="cursor-pointer rounded-3xl border border-slate-800 bg-[#111c33] p-4 transition-colors duration-200 ease-[var(--ease-out)] hover:border-amber-400 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-[240ms]"
         >
-            <div className="flex items-center gap-3">
+            <button type="button" onClick={(e) => { e.stopPropagation(); open(); }} className="flex w-full items-center gap-3 text-left">
                 <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-700 text-sm font-bold text-white">{copy.initials}</span>
                 <span className="min-w-0 flex-1">
                     <span className="block truncate text-[15px] font-bold text-white">{copy.name}</span>
                     {copy.sub && <span className="block truncate text-xs text-slate-400">{copy.sub}</span>}
                 </span>
-            </div>
+            </button>
             <p data-testid={`queue-card-badge-${item.id}`} className={cn(EYEBROW, 'mt-3 text-slate-300')}>{copy.badge}</p>
             <p data-testid={`queue-card-body-${item.id}`} className="mt-2 text-[13px] text-slate-300">{copy.body}</p>
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
                 <Link href={copy.primary.href} className={PILL_PRIMARY}>{copy.primary.label}</Link>
             </div>
         </article>

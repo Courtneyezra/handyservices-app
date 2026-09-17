@@ -2,7 +2,9 @@
  * Handy Desk T1 - the page reads the new desk's queue (never /api/desk), shows the held cards in the
  * server's order with their badge, sends a held draft with one tap through send-held-draft, sends
  * Ben's own words through answer, shows a refusal as the desk said it (with the template offer on a
- * shut window), and selecting a card puts that conversation on the right and in the ask context.
+ * shut window), and selecting a card puts that conversation on the right and in the ask context. A
+ * ready-to-price card (answer Q12) has no conversation: tapping it opens Price and Send for that
+ * quote instead.
  */
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
@@ -315,12 +317,38 @@ describe('HandyDesk', () => {
         expect(open).toHaveAttribute('href', '/admin/price/sam123');
 
         // Opening it is navigation, not a send: no case-file write and no conversation selected.
-        await userEvent.click(card);
-        expect(screen.queryByTestId('handy-desk-thread')).toBeNull();
         await userEvent.click(open);
+        await waitFor(() => expect(window.location.pathname).toBe('/admin/price/sam123'));
+        expect(screen.queryByTestId('handy-desk-thread')).toBeNull();
+        expect(casePosts(calls)).toEqual([]);
+        window.history.replaceState(null, '', '/');
+    });
+
+    it('tapping a ready-to-price card anywhere opens Price and Send for that quote', async () => {
+        const SAM: ReadyToPriceItem = {
+            kind: 'ready_to_price', id: 'price:sam123', slug: 'sam123', quoteId: 'q1', customerName: 'Sam Reid',
+            job: 'valves and a tap', postcode: 'NG3 3EG', createdAt: new Date().toISOString(), waitingWorkingHours: 3, waitingMs: 3 * 3600_000,
+            pricePath: '/admin/price/sam123', signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
+        };
+        const { calls } = routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [SAM, { ...ROB, kind: 'held' }], sandboxAvailable: true } }) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+        const card = await screen.findByTestId('queue-card-price:sam123');
+
+        // The card body, not the pill: the whole card is the way in to the price screen.
+        await userEvent.click(within(card).getByText('Sam Reid'));
         await waitFor(() => expect(window.location.pathname).toBe('/admin/price/sam123'));
         expect(casePosts(calls)).toEqual([]);
         window.history.replaceState(null, '', '/');
+
+        // Its wait and badge still read off this quote, so Ben knows which one he opened.
+        expect(screen.getByTestId('queue-card-badge-price:sam123')).toHaveTextContent('Ready to price · 3 h');
+
+        // A held card next to it still selects its conversation rather than navigating.
+        await userEvent.click(within(screen.getByTestId('queue-card-case_rob')).getByText('Rob Hale'));
+        expect(await screen.findByTestId('handy-desk-thread')).toBeInTheDocument();
+        expect(window.location.pathname).toBe('/');
     });
 
     it('still lists the holds when the quotes to price could not be read, and says so', async () => {
