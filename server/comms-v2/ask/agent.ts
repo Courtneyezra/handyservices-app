@@ -190,8 +190,12 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
         const chosen = state.answer;
         const files = src.store.all();
         const selectedNow = selected ? files.find((f) => f.id === selected.id) ?? null : null;
+        // The reasoner often closes without give_answer: fall back to what it drafted, then the
+        // router's floor, then the selected card.
         const choice = chosen?.surface
-            ?? (state.drafted.length ? { type: 'thread' as const, caseFileId: state.drafted[state.drafted.length - 1] } : selectedNow ? { type: 'thread' as const, caseFileId: selectedNow.id } : { type: 'words' as const });
+            ?? (state.drafted.length ? { type: 'thread' as const, caseFileId: state.drafted[state.drafted.length - 1] }
+                : routed.route?.surface === 'floor' ? { type: 'floor' as const }
+                : selectedNow ? { type: 'thread' as const, caseFileId: selectedNow.id } : { type: 'words' as const });
         const drafted = Array.from(new Set(state.drafted));
         const notes = [chosen?.note ?? null, drafted.length > 1 ? `${drafted.length} drafts are held; send each from its own card.` : null].filter(Boolean).join(' ');
         return buildAnswer({ finalText: chosen?.finalText ?? fallbackText, choice, files, assignments, drafted, note: notes || null });

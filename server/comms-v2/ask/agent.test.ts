@@ -149,6 +149,17 @@ describe('one turn', () => {
         expect(out.answer.confirm).toBeUndefined();
     });
 
+    it('shows the floor the router asked for when the reasoner never answers', async () => {
+        const file = whatsappFile();
+        const { source } = memorySource([file]);
+        const client = new FakeModelClient({ router: () => route({ surface: 'floor' }) });
+        const out = await runAskTurn(ask({ userMessage: 'What is waiting for me on the desk right now?' }), { source, assignments: async () => ({}), client, now: now(), loop: scriptedLoop([]) });
+        expect(out.answer.finalText).toBe('Done.');
+        expect(out.answer.surface.type).toBe('floor');
+        if (out.answer.surface.type !== 'floor') return;
+        expect(out.answer.surface.bays.flatMap((b) => b.cards).map((c) => c.id)).toEqual([file.id]);
+    });
+
     it('falls back to words, with the reason, when the thread it names is not on the desk; and to the selected card when it never answers', async () => {
         const file = whatsappFile();
         const { source } = memorySource([file]);
