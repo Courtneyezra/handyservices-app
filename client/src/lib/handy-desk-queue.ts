@@ -4,8 +4,10 @@
  * board's own human-send routes its buttons call. Pure, so the mapping is tested apart from the page.
  *
  * The queue also carries the quotes waiting to be priced (`kind: 'ready_to_price'`, answer Q12),
- * whose only action is opening the price screen; `readyToPriceCardCopy` maps those.
+ * whose only action is opening the price screen; `readyToPriceCardCopy` maps those. They cost a
+ * database read, so only a caller that passes `readyToPrice` gets them (`queueQuery`).
  */
+import { ageLabel } from '@/hooks/usePriceQueue';
 import type { BoardCard } from '@/pages/admin/CommsV2BoardPage';
 
 export interface QueueItem extends BoardCard {
@@ -27,7 +29,7 @@ export interface ReadyToPriceItem {
     job: string;
     postcode: string | null;
     createdAt: string | null;
-    waitingWorkingHours: number;
+    /** The true wall-clock wait, the only one this card carries; the office clock saturates. */
     waitingMs: number;
     /** The price screen, /admin/price/:slug. */
     pricePath: string;
@@ -46,7 +48,7 @@ export function heldCountOf(queue: Pick<DeskQueue, 'items'>): number {
 }
 
 export interface DeskQueue {
-    /** Held files and quotes to price in one list, longest working-hours wait first (the server's order). */
+    /** The held files, longest working-hours wait first, then the quotes to price, oldest first (the server's order). */
     items: DeskQueueItem[];
     /** Turns the new desk or a person answered since local midnight in London. */
     handledToday?: number;
@@ -165,7 +167,7 @@ export function readyToPriceCardCopy(item: ReadyToPriceItem): ReadyToPriceCardCo
         initials: initialsOf(name),
         name,
         sub: item.postcode ?? '',
-        badge: `Ready to price · ${formatWait(item.waitingWorkingHours)}`,
+        badge: `Ready to price · ${ageLabel(item.waitingMs)}`,
         body: `${job}.${asks.length ? ` ${asks.join(', ')}.` : ''} Nothing sent.`,
         primary: { label: 'Open & price', href: item.pricePath },
     };
@@ -197,8 +199,25 @@ export function selectionOf(item: QueueItem): DeskSelection {
     return { caseFileId: item.id, address: item.customerAddress, name: displayName(item) };
 }
 
-export function queueQuery(mode: 'all' | 'sandbox' | 'live' = 'all'): string {
-    return mode === 'all' ? '/api/comms-v2/queue' : `/api/comms-v2/queue?mode=${mode}`;
+/**
+ * The queue's URL. `readyToPrice` is the opt-in for the quotes waiting to be priced, which cost the
+ * server a database read: only the Handy Desk's own queue asks for them, never the held-count badge
+ * that every admin page polls every 15s (QuickLinks.tsx `useHeldCount`).
+ */
+export function queueQuery(mode: 'all' | 'sandbox' | 'live' = 'all', readyToPrice = false): string {
+    const params = new URLSearchParams();
+    if (mode !== 'all') params.set('mode', mode);
+    if (readyToPrice) params.set('readyToPrice', '1');
+    const query = params.toString();
+    return query ? `/api/comms-v2/queue?${query}` : '/api/comms-v2/queue';
+}
+
+/**
+ * The two shapes are two different reads, so they are two cache entries; both sit under the one
+ * `comms-v2-queue` prefix, so invalidating that key still moves every consumer together.
+ */
+export function queueQueryKey(readyToPrice = false): string[] {
+    return readyToPrice ? ['comms-v2-queue', 'ready-to-price'] : ['comms-v2-queue'];
 }
 
 /** "Updated 8s ago" for the top bar (B1), from the queue query's own `dataUpdatedAt`. */

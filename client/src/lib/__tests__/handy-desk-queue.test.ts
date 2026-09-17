@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     ACTION_ROUTE, displayName, formatWait, initialsOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy,
-    queueQuery, readyToPriceCardCopy, refusalMessage, selectionOf, updatedAgoLabel, type QueueItem, type ReadyToPriceItem,
+    queueQuery, queueQueryKey, readyToPriceCardCopy, refusalMessage, selectionOf, updatedAgoLabel, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
 
 function item(over: Partial<QueueItem> = {}): QueueItem {
@@ -121,6 +121,14 @@ describe('selectionOf and queueQuery', () => {
         expect(queueQuery()).toBe('/api/comms-v2/queue');
         expect(queueQuery('live')).toBe('/api/comms-v2/queue?mode=live');
     });
+    it('asks for the quotes to price only when a caller opts in, and caches the two shapes apart', () => {
+        expect(queueQuery('all', true)).toBe('/api/comms-v2/queue?readyToPrice=1');
+        expect(queueQuery('live', true)).toBe('/api/comms-v2/queue?mode=live&readyToPrice=1');
+        expect(queueQuery('all', false)).toBe('/api/comms-v2/queue');
+        expect(queueQueryKey()).not.toEqual(queueQueryKey(true));
+        // Both sit under the one prefix, so invalidating ['comms-v2-queue'] still moves both.
+        expect(queueQueryKey(true).slice(0, 1)).toEqual(queueQueryKey());
+    });
 });
 
 describe('updatedAgoLabel (B1 top bar)', () => {
@@ -138,7 +146,7 @@ function priceItem(over: Partial<ReadyToPriceItem> = {}): ReadyToPriceItem {
     return {
         kind: 'ready_to_price', id: 'price:sam123', slug: 'sam123', quoteId: 'q1', customerName: 'Sam Reid',
         job: 'isolation valves and a new tap', postcode: 'NG3 3EG', createdAt: '2026-09-11T10:00:00.000Z',
-        waitingWorkingHours: 0.2, waitingMs: 12 * 60_000, pricePath: '/admin/price/sam123',
+        waitingMs: 12 * 60_000, pricePath: '/admin/price/sam123',
         signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
         ...over,
     };
@@ -162,6 +170,16 @@ describe('readyToPriceCardCopy (Q12)', () => {
         const clean = readyToPriceCardCopy(priceItem({ postcode: null, signals: { checkThis: 0, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: null } }));
         expect(clean.body).toBe('Isolation valves and a new tap. Nothing sent.');
         expect(clean.sub).toBe('');
+    });
+
+    it('badges the true wall-clock age, so two drafts past the office clock\'s fortnight cap read apart', () => {
+        const DAY = 24 * 3600_000;
+        const twentyDays = readyToPriceCardCopy(priceItem({ waitingMs: 20 * DAY }));
+        const sixMonths = readyToPriceCardCopy(priceItem({ waitingMs: 183 * DAY }));
+        expect(twentyDays.badge).toBe('Ready to price · 20 days');
+        expect(sixMonths.badge).toBe('Ready to price · 183 days');
+        expect(sixMonths.badge).not.toBe(twentyDays.badge);
+        expect([twentyDays.badge, sixMonths.badge]).not.toContain('Ready to price · 100 h');
     });
 
     it('tells the two kinds apart, reading an item with no kind as held', () => {

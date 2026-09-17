@@ -5,9 +5,9 @@
  * card can offer "Send as is", and the hold's age on the office clock (server/working-hours.ts, the
  * same clock the old desk's `waitingWorkingHours` used), so the order and the badge agree.
  *
- * The quotes waiting to be priced (server/spine/price-queue.ts) join the same list as
- * `ready_to_price` items (withReadyToPrice), measured on the same office clock, so one list reads
- * longest wait first whatever the kind.
+ * The quotes waiting to be priced (server/spine/price-queue.ts) follow as `ready_to_price` items
+ * (withReadyToPrice), oldest draft first. They are a second group below the holds, never mixed into
+ * them: a customer waiting on a reply is never pushed below a draft nobody has priced.
  *
  * Read only. Every action a held card takes goes through the board's own routes (routes.ts:
  * send-held-draft, answer, release), so the approver-slot check and the sender's refusals are the
@@ -45,9 +45,10 @@ export interface ReadyToPriceItem {
     postcode: string | null;
     /** When the draft was created (the Route A Pushover); null when the row has none. */
     createdAt: string | null;
-    /** Office working hours since the draft was created: the clock held items use. */
-    waitingWorkingHours: number;
-    /** Wall-clock wait in ms, as the price queue measured it. */
+    /**
+     * Wall-clock wait in ms, as the price queue measured it, and the only wait this card carries:
+     * the office clock stops scanning after a fortnight, so every older draft would read alike.
+     */
     waitingMs: number;
     /** The price screen for this quote. */
     pricePath: string;
@@ -90,24 +91,21 @@ export function queueOf(files: CaseFile[], filter: { mode?: BoardMode } = {}, as
     return { items, handledToday: handledRuns.size };
 }
 
-/** When an item started waiting: the hold for a held file, the draft's creation for a quote. */
-function waitingSince(item: DeskQueueItem): number {
-    const iso = item.kind === 'held' ? item.holdSince : item.createdAt;
+/** A start time as a sortable number; an item with none sorts last. */
+function startedAt(iso: string | null): number {
     const ms = iso ? Date.parse(iso) : NaN;
     return Number.isFinite(ms) ? ms : Number.POSITIVE_INFINITY;
 }
 
 /**
  * Longest working-hours wait first; two equal waits (both raised out of hours) fall back to the
- * older start. Held and ready-to-price items share this one rule, so merging quotes in never
- * reorders the held items among themselves.
+ * older hold. Held items only: a quote to price is never ranked against a customer's hold.
  */
-function byWait(a: DeskQueueItem, b: DeskQueueItem): number {
-    return b.waitingWorkingHours - a.waitingWorkingHours || waitingSince(a) - waitingSince(b);
+function byWait(a: QueueItem, b: QueueItem): number {
+    return b.waitingWorkingHours - a.waitingWorkingHours || startedAt(a.holdSince) - startedAt(b.holdSince);
 }
 
-export function readyToPriceOf(item: PriceQueueItem, now: Date): ReadyToPriceItem {
-    const created = item.createdAt ? new Date(item.createdAt) : null;
+export function readyToPriceOf(item: PriceQueueItem): ReadyToPriceItem {
     return {
         kind: 'ready_to_price',
         id: `price:${item.slug}`,
@@ -117,7 +115,6 @@ export function readyToPriceOf(item: PriceQueueItem, now: Date): ReadyToPriceIte
         job: item.job,
         postcode: item.postcode,
         createdAt: item.createdAt,
-        waitingWorkingHours: created && Number.isFinite(created.getTime()) ? workingHoursBetween(created, now) : 0,
         waitingMs: item.waitingMs,
         pricePath: `/admin/price/${encodeURIComponent(item.slug)}`,
         signals: item.signals,
@@ -125,12 +122,14 @@ export function readyToPriceOf(item: PriceQueueItem, now: Date): ReadyToPriceIte
 }
 
 /**
- * The Needs you list with the quotes waiting to be priced merged in (Q12). A mode filter names a
- * case file's mode, which a quote draft does not have, so a filtered queue carries no quotes.
+ * The Needs you list with the quotes waiting to be priced appended (Q12), oldest draft first. The
+ * holds keep the top of the list in their own order: a person waiting on a reply always outranks an
+ * unpriced draft, whatever the draft's age. Whether a mode filter allows quotes at all is the
+ * route's call (routes.ts), since a quote draft has no case-file mode to filter on.
  */
-export function withReadyToPrice(queue: DeskQueue, prices: PriceQueuePayload, filter: { mode?: BoardMode } = {}, now: Date = new Date()): DeskQueue {
-    if (filter.mode) return queue;
-    const items = [...queue.items, ...prices.items.map((p) => readyToPriceOf(p, now))];
-    items.sort(byWait);
-    return { ...queue, items };
+export function withReadyToPrice(queue: DeskQueue, prices: PriceQueuePayload): DeskQueue {
+    const quotes = prices.items
+        .map(readyToPriceOf)
+        .sort((a, b) => startedAt(a.createdAt) - startedAt(b.createdAt));
+    return { ...queue, items: [...queue.items, ...quotes] };
 }

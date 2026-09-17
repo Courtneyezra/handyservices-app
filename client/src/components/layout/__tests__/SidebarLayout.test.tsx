@@ -51,13 +51,16 @@ describe('SidebarLayout top bar (B1)', () => {
     it('badges the held count from GET /api/comms-v2/queue, leaving out quotes to price, and labels how long ago it loaded', async () => {
         localStorage.setItem('adminToken', 'test-token');
         vi.useFakeTimers({ shouldAdvanceTime: true });
-        mockFetch([
+        const { calls } = mockFetch([
             { url: '/api/contractor/inbox', reply: () => ({ json: [] }) },
             { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ id: 'a' }, { id: 'price:q1', kind: 'ready_to_price' }, { id: 'b', kind: 'held' }, { id: 'c' }], handledToday: 0 } }) },
         ], { fallback: 'notFound' });
         renderWithQuery(withLayout(<div>content</div>));
 
         await waitFor(() => expect(screen.getByTestId('topbar-held-badge-desktop')).toHaveTextContent('3'));
+        // This poll runs every 15s on every admin page, so it never asks the server for the quote read.
+        expect(calls.filter((c) => c.url.startsWith('/api/comms-v2/queue'))).not.toHaveLength(0);
+        expect(calls.every((c) => !c.url.includes('readyToPrice'))).toBe(true);
         expect(screen.getByTestId('topbar-held-badge-mobile')).toHaveTextContent('3');
         expect(screen.getByTestId('topbar-updated-desktop')).toHaveTextContent(/Updated (just now|\d+s ago)/);
 

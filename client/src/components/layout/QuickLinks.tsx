@@ -13,20 +13,20 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { hasAdminToken, adminAuthHeaders } from "@/hooks/usePriceQueue";
 import { NEW_BOARD_PATH } from "@/hooks/useOldComms";
-import { heldCountOf, queueQuery, updatedAgoLabel, type DeskQueue } from "@/lib/handy-desk-queue";
+import { heldCountOf, queueQuery, queueQueryKey, updatedAgoLabel, type DeskQueue } from "@/lib/handy-desk-queue";
 import { cn } from "@/lib/utils";
 import { HANDY_DESK_PATH } from "@/lib/handy-desk-path";
 
 /**
- * The held-count badge's query. Same query key and interval as Handy Desk's own queue
- * (client/src/lib/handy-desk-queue.ts), so the header and the page share one cached fetch. The queue
- * also lists the quotes waiting to be priced, which are not held files, so the badge counts only the
- * held items (heldCountOf; server/comms-v2/api/queue.ts). The shell passes enabled=false for VAs,
- * who get no quick links.
+ * The held-count badge's query. Every admin page polls this every 15s, so it asks for the cheap
+ * shape: no `readyToPrice`, so the server does no quote read for a badge that would discard it
+ * (client/src/lib/handy-desk-queue.ts `queueQuery`; server/comms-v2/api/queue.ts). A server that
+ * lists quotes anyway is belted by `heldCountOf`, which counts held items only. The shell passes
+ * enabled=false for VAs, who get no quick links.
  */
 export function useHeldCount(enabled: boolean): { heldCount: number | null; updatedAt: number } {
     const { data, dataUpdatedAt } = useQuery<DeskQueue>({
-        queryKey: ['comms-v2-queue'],
+        queryKey: queueQueryKey(),
         queryFn: async () => {
             const res = await fetch(queueQuery(), { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error(`Failed to load the queue (${res.status})`);

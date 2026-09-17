@@ -298,18 +298,21 @@ describe('HandyDesk', () => {
     it('shows a quote waiting to be priced as a Needs you card in the server\'s order, whose one action opens the price screen', async () => {
         const SAM: ReadyToPriceItem = {
             kind: 'ready_to_price', id: 'price:sam123', slug: 'sam123', quoteId: 'q1', customerName: 'Sam Reid',
-            job: 'valves and a tap', postcode: 'NG3 3EG', createdAt: new Date().toISOString(), waitingWorkingHours: 3, waitingMs: 3 * 3600_000,
+            job: 'valves and a tap', postcode: 'NG3 3EG', createdAt: new Date().toISOString(), waitingMs: 3 * 3600_000,
             pricePath: '/admin/price/sam123', signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
         };
         const { calls } = routes([
-            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ ...ROB, kind: 'held' }, SAM, GEMMA], sandboxAvailable: true } }) },
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ ...ROB, kind: 'held' }, GEMMA, SAM], sandboxAvailable: true } }) },
         ]);
         renderWithQuery(<HandyDesk />);
 
         const card = await screen.findByTestId('queue-card-price:sam123');
         expect(screen.getByTestId('handy-desk-count')).toHaveTextContent('3 things');
+        // The holds keep the top; the quote follows, exactly as the server ordered them.
         expect(screen.getAllByTestId(/^queue-card-(case_[a-z]+|price:[a-z0-9]+)$/).map((el) => el.dataset.testid))
-            .toEqual(['queue-card-case_rob', 'queue-card-price:sam123', 'queue-card-case_gemma']);
+            .toEqual(['queue-card-case_rob', 'queue-card-case_gemma', 'queue-card-price:sam123']);
+        // This page is the one caller that wants the quotes, so it is the one that asks for them.
+        expect(calls.filter((c) => c.url.startsWith('/api/comms-v2/queue?readyToPrice=1'))).not.toHaveLength(0);
         expect(screen.getByTestId('queue-card-badge-price:sam123')).toHaveTextContent('Ready to price · 3 h');
         expect(screen.getByTestId('queue-card-body-price:sam123')).toHaveTextContent('Valves and a tap. 2 lines to check. Nothing sent.');
         expect(within(card).queryByRole('button', { name: /Send|Answer|Release/ })).toBeNull();
@@ -327,7 +330,7 @@ describe('HandyDesk', () => {
     it('tapping a ready-to-price card anywhere opens Price and Send for that quote', async () => {
         const SAM: ReadyToPriceItem = {
             kind: 'ready_to_price', id: 'price:sam123', slug: 'sam123', quoteId: 'q1', customerName: 'Sam Reid',
-            job: 'valves and a tap', postcode: 'NG3 3EG', createdAt: new Date().toISOString(), waitingWorkingHours: 3, waitingMs: 3 * 3600_000,
+            job: 'valves and a tap', postcode: 'NG3 3EG', createdAt: new Date().toISOString(), waitingMs: 3 * 3600_000,
             pricePath: '/admin/price/sam123', signals: { checkThis: 2, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: 'complete' },
         };
         const { calls } = routes([

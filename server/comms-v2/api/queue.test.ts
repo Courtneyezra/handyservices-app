@@ -2,6 +2,7 @@
  * Handy Desk T1 - the queue read over in-memory case files built with Contract 2's own calls, the
  * same fixture style board.test.ts uses: only held files, the held draft carried through, and the
  * order is the office working-hours wait, so a hold raised at the weekend waits behind a weekday one.
+ * The quotes waiting to be priced are a second group below every hold, oldest draft first.
  */
 import { describe, expect, it } from 'vitest';
 import { queueOf, withReadyToPrice } from './queue';
@@ -124,29 +125,45 @@ function priceItem(slug: string, name: string, createdAt: string | null): PriceQ
 const prices = (...items: PriceQueueItem[]) => ({ count: items.length, items, oldestWaitingMs: null, at: NOW.toISOString() });
 
 describe('withReadyToPrice', () => {
-    it('merges quotes by the same working-hours wait, and leaves the held items in their own order', () => {
+    it('keeps the holds at the top in their own order and appends the quotes oldest first', () => {
         const heldOld = heldFile('HeldOld', '2026-09-11T09:00:00.000Z');   // Fri 10:00 -> 7h
         const heldNew = heldFile('HeldNew', '2026-09-11T14:00:00.000Z');   // Fri 15:00 -> 2h
         const held = queueOf([heldNew, heldOld], {}, {}, NOW);
         const merged = withReadyToPrice(held, prices(
-            priceItem('sam', 'Sam', '2026-09-11T11:00:00.000Z'),              // Fri 12:00 -> 5h
-            priceItem('weekend', 'Wes', '2026-09-06T10:00:00.000Z'),          // Sun -> all of Mon-Thu and Fri to 17:00
+            priceItem('sam', 'Sam', '2026-09-11T11:00:00.000Z'),
+            priceItem('weekend', 'Wes', '2026-09-06T10:00:00.000Z'),
             priceItem('undated', 'Una', null),
-        ), {}, NOW);
-        expect(merged.items.map((i) => i.id)).toEqual(['price:weekend', heldOld.id, 'price:sam', heldNew.id, 'price:undated']);
+        ));
+        // Every hold first, in the order queueOf put them; the quotes follow, oldest draft first.
+        expect(merged.items.map((i) => i.id)).toEqual([heldOld.id, heldNew.id, 'price:weekend', 'price:sam', 'price:undated']);
+        expect(merged.items.map((i) => i.kind)).toEqual(['held', 'held', 'ready_to_price', 'ready_to_price', 'ready_to_price']);
         expect(merged.items.filter((i) => i.kind === 'held').map((i) => i.id)).toEqual(held.items.map((i) => i.id));
         expect(merged.handledToday).toBe(held.handledToday);
-        expect(merged.items[2]).toEqual({
+        expect(merged.items[3]).toEqual({
             kind: 'ready_to_price', id: 'price:sam', slug: 'sam', quoteId: 'q_sam', customerName: 'Sam', job: 'guttering', postcode: 'NG1',
-            createdAt: '2026-09-11T11:00:00.000Z', waitingWorkingHours: 5, waitingMs: 5 * 3600_000, pricePath: '/admin/price/sam',
+            createdAt: '2026-09-11T11:00:00.000Z', waitingMs: 5 * 3600_000, pricePath: '/admin/price/sam',
             signals: { checkThis: 1, unpriced: 0, contradictions: 0, lowConfidence: 0, estimateStatus: null },
         });
-        expect(merged.items[4]).toMatchObject({ waitingWorkingHours: 0, createdAt: null });
     });
 
-    it('carries no quotes into a mode-filtered queue, since a quote draft has no case-file mode', () => {
-        const queue = queueOf([heldFile('Held', '2026-09-11T09:00:00.000Z')], { mode: 'sandbox' }, {}, NOW);
-        expect(withReadyToPrice(queue, prices(priceItem('sam', 'Sam', '2026-09-11T11:00:00.000Z')), { mode: 'sandbox' }, NOW)).toEqual(queue);
+    it('never lets a long-abandoned draft outrank a hold raised minutes ago', () => {
+        const fresh = heldFile('Fresh', '2026-09-11T15:50:00.000Z');
+        const merged = withReadyToPrice(queueOf([fresh], {}, {}, NOW), prices(
+            priceItem('ancient', 'Anna', '2026-03-01T09:00:00.000Z'),
+            priceItem('old', 'Otto', '2026-08-20T09:00:00.000Z'),
+        ));
+        expect(merged.items.map((i) => i.id)).toEqual([fresh.id, 'price:ancient', 'price:old']);
+    });
+
+    it('carries the true wall-clock wait, so two drafts past the office clock\'s fortnight cap still differ', () => {
+        const merged = withReadyToPrice(queueOf([], {}, {}, NOW), prices(
+            priceItem('sixmonths', 'Sam', '2026-03-13T16:00:00.000Z'),
+            priceItem('twentydays', 'Tom', '2026-08-22T16:00:00.000Z'),
+        ));
+        const waits = merged.items.map((i) => (i as { waitingMs: number }).waitingMs);
+        expect(waits[0]).toBeGreaterThan(waits[1]);
+        expect(waits[1]).toBe(20 * 24 * 3600_000);
+        expect(merged.items.some((i) => 'waitingWorkingHours' in i)).toBe(false);
     });
 
     it('gives held items the held kind', () => {

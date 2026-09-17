@@ -12,7 +12,7 @@
  * it as they gate release.
  */
 import express from 'express';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { open, hold as setHold, type CaseFile } from '../desk/case-file';
 import { noFixedLineSource } from '../desk/fixed-lines';
 import { BEN } from '../desk/guards';
@@ -568,32 +568,60 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         };
     }
 
-    it('/queue merges the quotes waiting to be priced as ready_to_price items, on the same longest-wait-first clock', async () => {
+    it('/queue merges the quotes waiting to be priced as ready_to_price items, below every hold, when asked for them', async () => {
         const payload: PriceQueuePayload = {
             count: 2,
             items: [priceItem('oldquote', 'Sam Old', '2019-06-03T09:00:00.000Z'), priceItem('newquote', 'Nia New', new Date().toISOString())],
             oldestWaitingMs: 1, at: new Date().toISOString(),
         };
-        const { store, call, close } = await harness(undefined, undefined, async () => payload);
+        const read = vi.fn(async () => payload);
+        const { store, call, close } = await harness(undefined, undefined, read);
         try {
             const recent = fileWithDraftHold();
             const stale = fileWithShutWindow();
             store.put(recent);
             store.put(stale);
-            const queue = await call('GET', '/queue', 'Ben.Real@handyservices.app');
+            const queue = await call('GET', '/queue?readyToPrice=1', 'Ben.Real@handyservices.app');
             expect(queue.status).toBe(200);
-            // The 2019 quote and the 2020 hold both sit at the office clock's ceiling, so the older start leads; the two fresh ones follow by start time.
-            expect(queue.json.items.map((i: any) => i.id)).toEqual(['price:oldquote', stale.id, recent.id, 'price:newquote']);
-            expect(queue.json.items.map((i: any) => i.kind)).toEqual(['ready_to_price', 'held', 'held', 'ready_to_price']);
-            expect(queue.json.items[0]).toMatchObject({
+            // Both holds first, on their own office clock; then the quotes, the 2019 draft before today's.
+            expect(queue.json.items.map((i: any) => i.id)).toEqual([stale.id, recent.id, 'price:oldquote', 'price:newquote']);
+            expect(queue.json.items.map((i: any) => i.kind)).toEqual(['held', 'held', 'ready_to_price', 'ready_to_price']);
+            expect(queue.json.items[2]).toMatchObject({
                 kind: 'ready_to_price', slug: 'oldquote', customerName: 'Sam Old', job: 'a new tap', pricePath: '/admin/price/oldquote',
                 createdAt: '2019-06-03T09:00:00.000Z',
             });
             expect(queue.json).not.toHaveProperty('priceQueueError');
 
-            // A mode filter names a case file's mode, which a quote draft has not got.
-            const filtered = await call('GET', '/queue?mode=sandbox', 'Ben.Real@handyservices.app');
+            // A mode filter names a case file's mode, which a quote draft has not got, so it reads none.
+            read.mockClear();
+            const filtered = await call('GET', '/queue?mode=sandbox&readyToPrice=1', 'Ben.Real@handyservices.app');
             expect(filtered.json.items.map((i: any) => i.kind)).toEqual(['held', 'held']);
+            expect(read).not.toHaveBeenCalled();
+        } finally {
+            await close();
+        }
+    });
+
+    it('/queue reads no quotes at all unless the caller asks for them: the held-count badge poll must cost nothing', async () => {
+        const read = vi.fn(async (): Promise<PriceQueuePayload> => ({
+            count: 1, items: [priceItem('oldquote', 'Sam Old', '2019-06-03T09:00:00.000Z')], oldestWaitingMs: 1, at: new Date().toISOString(),
+        }));
+        const { store, call, close } = await harness(undefined, undefined, read);
+        try {
+            const held = fileWithDraftHold();
+            store.put(held);
+            const queue = await call('GET', '/queue', 'Ben.Real@handyservices.app');
+            expect(queue.status).toBe(200);
+            expect(read).not.toHaveBeenCalled();
+            expect(queue.json.items.map((i: any) => i.id)).toEqual([held.id]);
+            expect(queue.json).not.toHaveProperty('priceQueueError');
+
+            // Anything but the opt-in's own value leaves the route on its cheap in-memory read.
+            for (const q of ['?readyToPrice=0', '?readyToPrice=true', '?readyToPrice=']) {
+                const other = await call('GET', `/queue${q}`, 'Ben.Real@handyservices.app');
+                expect(other.json.items.map((i: any) => i.id)).toEqual([held.id]);
+            }
+            expect(read).not.toHaveBeenCalled();
         } finally {
             await close();
         }
@@ -607,7 +635,7 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         try {
             const held = fileWithDraftHold();
             store.put(held);
-            const queue = await call('GET', '/queue', 'Ben.Real@handyservices.app');
+            const queue = await call('GET', '/queue?readyToPrice=1', 'Ben.Real@handyservices.app');
             expect(queue.status).toBe(200);
             expect(queue.json.items.map((i: any) => i.id)).toEqual([held.id]);
             expect(queue.json.priceQueueError).toBe('Could not load the quotes waiting to be priced');

@@ -10,8 +10,9 @@
  * refuses is shown on the card as it said it, and a shut WhatsApp window offers the template reply
  * the board offers.
  *
- * A quote waiting to be priced (answer Q12) is a card in the same list, in the server's order. It is
- * not a hold, so it puts no conversation on the right: tapping the card - anywhere on it, or its one
+ * A quote waiting to be priced (answer Q12) is a card below the holds, in the server's order - a
+ * person waiting on a reply is never pushed down the list by a draft nobody has priced. It is not a
+ * hold, so it puts no conversation on the right: tapping the card - anywhere on it, or its one
  * "Open & price" pill - opens Price and Send for that quote (/admin/price/:slug, PriceAndSendPage in
  * client/src/App.tsx), which this page neither replaces nor changes.
  *
@@ -40,7 +41,7 @@ import { SurfaceBody } from '@/components/handy-desk/AnswerSurface';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import { exchangeOfAnswered, latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
-    ACTION_ROUTE, isReadyToPrice, isShutWindow, needsWords, queueCardCopy, queueQuery, readyToPriceCardCopy, refusalMessage, selectionOf,
+    ACTION_ROUTE, isReadyToPrice, isShutWindow, needsWords, queueCardCopy, queueQuery, queueQueryKey, readyToPriceCardCopy, refusalMessage, selectionOf,
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
 import { Link, useLocation } from 'wouter';
@@ -385,9 +386,10 @@ export default function HandyDesk() {
     const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
 
     const { data, isLoading, error } = useQuery<DeskQueue>({
-        queryKey: ['comms-v2-queue'],
+        // This page is the one caller that wants the quotes to price, so it is the one that asks.
+        queryKey: queueQueryKey(true),
         queryFn: async () => {
-            const res = await fetch(queueQuery(), { headers: getAuthHeaders() });
+            const res = await fetch(queueQuery('all', true), { headers: getAuthHeaders() });
             if (!res.ok) throw new Error(`Failed to load the queue (${res.status})`);
             return res.json();
         },
@@ -443,7 +445,7 @@ export default function HandyDesk() {
                     <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
                         {isLoading ? '…' : `${items.length} ${items.length === 1 ? 'thing' : 'things'}`}
                     </p>
-                    <p className="mt-1 text-[13px] text-slate-400">Held replies and quotes to price, longest wait in working hours first.</p>
+                    <p className="mt-1 text-[13px] text-slate-400">Held replies first, longest wait in working hours; then the quotes to price, oldest first.</p>
                     {data?.priceQueueError && (
                         <p role="alert" data-testid="handy-desk-price-error" className="mt-2 text-xs text-red-300">{data.priceQueueError}. Held replies are still listed.</p>
                     )}

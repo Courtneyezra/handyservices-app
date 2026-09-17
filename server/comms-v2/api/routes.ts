@@ -130,13 +130,17 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const src = await source(res);
         if (!src) return;
         const assignments = await approvers();
+        // The quotes to price are a database read, so a caller asks for them by name: without
+        // `?readyToPrice=1` this route stays the in-memory read the 15s held-count badge poll wants.
+        // A mode filter names a case file's mode, which a quote draft has not got, so it carries none.
+        const wantsPrices = req.query.readyToPrice === '1' && !mode;
         const now = new Date();
         let queue = queueOf(src.store.all(), { mode }, assignments, now);
         let priceQueueError: string | undefined;
-        if (!mode) {
+        if (wantsPrices) {
             // A failed quote read must not hide the holds; it is logged at error level and named in the payload.
             try {
-                queue = withReadyToPrice(queue, await priceQueue(), {}, now);
+                queue = withReadyToPrice(queue, await priceQueue());
             } catch (error: any) {
                 console.error('[comms-v2] queue: the price queue read failed:', error?.message ?? error);
                 priceQueueError = 'Could not load the quotes waiting to be priced';
