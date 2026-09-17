@@ -4,6 +4,19 @@ One line per round: the scenario, what happened, and the fix (or "no issue").
 An `ESCALATE:` line at the top of this file is a live compliance or money finding, added on the
 round it was found.
 
+ESCALATE: (round 5, 17 Sep 2026) — **an inbound email's opt-out was not honoured at all.** The
+email adapter puts `Subject: <subject>` in front of what the person wrote, and the opt-out detector
+reads the turn's body, so the whole-message rule could never fire on email: an email whose entire
+message was "STOP", under the ordinary subject "Re: Your quote for the kitchen tap at 14 Elm Road",
+was routed, composed and answered ("I won't send anything further about the kitchen tap..."), a
+quote was drafted for Ben to price, nothing was held and no suppression was recorded anywhere — the
+old inbound path's ledger covers SMS and WhatsApp only, so on email the desk's own check is the only
+one there is. A longer but still plain "Please unsubscribe me from this, I do not want any more
+emails about the quote." was missed the same way, the subject's words pushing it past the
+short-message threshold. Live, inbound email reaches this desk whenever `COMMS_V2_EMAIL_INBOUND` is
+on, so a customer who writes STOP by email stays unsuppressed and keeps being messaged. Fixed on the
+round (below).
+
 - Round 1 (17 Sep 2026) — the reopen template on a hold that is not a question, WhatsApp, driven on
   the app's own comms-v2 sandbox door as Ben. A complaint ("Nobody turned up for the bathroom job
   yesterday... What is going on?") held on `complaint` with the complaint fixed line sent; window
@@ -82,3 +95,23 @@ round it was found.
   customer id, read no record and held for Ben with no figure (answer 126), and a haggle on the same
   invoice ("any chance of knocking something off that invoice?") held for Ben on `refund` with the
   fixed line, no figure, no quote and no reissue.
+- Round 5 (17 Sep 2026) — opt-outs and STOP, driven on the app's own comms-v2 sandbox door as Ben
+  across SMS, a call and email. SMS is right: a job enquiry answered, then "STOP" mid-thread got no
+  reply and no model call ("the customer asked us to stop (\"stop\", marketing): no reply, no model
+  call"), no new hold, and Ben's card shows the STOP as the last customer message. A call where the
+  caller said "...I sorted it at the weekend so please stop contacting me about it" was read by no
+  model and held for Ben to record the opt-out, naming the channel. Email was broken (the ESCALATE
+  above): the subject line the adapter carries in front of the message meant a bare "STOP" email was
+  answered and a "Please unsubscribe me..." email was answered, with no hold and nothing recorded.
+  Fix: the opt-out check reads an email both whole and as the message on its own, without the
+  `Subject:` line (`withoutEmailSubject` in `channels/email-adapter.ts`, beside the one place that
+  writes that line; `emailTexts` in `desk/desk.ts` `optOutIn`, the same shape as the call
+  transcript's sentences), with a desk regression test (a bare STOP under a real subject holds for
+  Ben; it fails without the fix), a negative control (an email that only mentions a tap that will
+  not stop dripping is still routed, composed and sent) and an adapter test for the helper.
+  Re-driven live: both emails now get no reply, no model call and a hold for Ben naming the channel,
+  and the tap email still gets its normal reply. One thing for the captain rather than a guess,
+  written to OVERNIGHT-QUESTIONS.md: while that opt-out hold stands, the person's next message ("Did
+  you get my email?") drew a full composed reply asking for the postcode and a photo, offering a
+  call and offering WhatsApp — the desk treats an opt-out hold as an ordinary hold, and behaviour.md
+  records nothing about what a thread should do between the stop request and Ben recording it.

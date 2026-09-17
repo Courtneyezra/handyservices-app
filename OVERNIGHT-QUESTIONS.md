@@ -65,3 +65,35 @@ is it deliberately open to anyone the approvers row lists, so a VA can tidy the 
 former, the fix is one `sameApprover(fileOwner(file), input.approver)` check in `closeByHand` and a
 route test beside the existing wrong-slot one; if the latter, it wants a line in the file's header
 saying so.
+
+## 3. What a thread does between a stop request and Ben recording it
+
+Found: round 5 (17 Sep 2026), driving opt-outs across SMS, a call and email on the sandbox door.
+
+On the channels the old inbound path does not record — a call, an email, a web form — an opt-out
+holds the file for Ben with "customer may have asked to stop <where>; check and record the opt-out"
+(`optOutOnTurn`, `server/comms-v2/desk/desk.ts`), and nothing goes back on that turn. That is the
+recorded behaviour and it works.
+
+What is not recorded is what the thread does on the NEXT turn, while that hold still stands and
+before Ben has written the ledger row. Driven: after an email whose whole message was "STOP", the
+same person's next message ("Did you get my email?") was routed, scoped and composed as usual and
+the reply was delivered —
+
+    "Hi Dara, I'll check on your email and come back to you. For the kitchen tap at 14 Elm Road,
+     what's the postcode? A photo of the tap would help if easy, no pressure. Happy to give you a
+     quick call, or if it's easier you can message us on WhatsApp on this same number."
+
+— asking for a postcode and a photo, offering a call and offering another channel, to someone who
+had asked us in writing to stop. An opt-out hold is not one of the exception holds (complaint,
+refund, trust, gas), so the desk does not treat it as a thread gone quiet: the specialists run and
+the composer writes. The suppression row does not exist yet either, so the live opt-out gate in
+`server/outbound.ts` would not stop the send (and on a thread whose reply channel is SMS or
+WhatsApp, unlike email, that send is a real one).
+
+**The decision needed:** while an opt-out hold stands, should the thread (a) stay silent, as it is
+on the opt-out turn itself, (b) send the held acknowledgement only, as an exception hold does, or
+(c) carry on as now because a person who writes again is asking us something? If (a) or (b), the fix
+is one line in the desk's held-thread branch that reads an opt-out hold like an exception hold, plus
+a test; either way it should be written down, because today it is the one hold whose standing
+changes nothing about what the desk says next.
