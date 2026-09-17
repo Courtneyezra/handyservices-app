@@ -86,7 +86,8 @@ Also known before the flip, and landing as their own changes:
 - A live email reply is refused: there is no outbound email path. The opt-out ledger already
   matches on the email address as a second key (`migrations/20260916_comms_opt_outs_email_key.sql`,
   applied to production before the code that writes it), and the live deliverer asks it about
-  every address the party is known by, so an opt-out holds on email once email sends.
+  every address the party has written to us on (never one merely typed into the web form, which
+  proves nothing, answer 126), so an opt-out holds on email once email sends.
 
 ## The flip
 

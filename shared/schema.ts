@@ -2350,9 +2350,14 @@ export type AgentOutcome = typeof agentOutcomes.$inferSelect;
  * followed by "do not contact me") are two rows and the strongest one wins; `revoked_at` is how an
  * opt-out is lifted, so even un-suppressing leaves a trace.
  *
- * KEYED ON `phone_key` — the normalised identity from commsPhoneKey(), NOT the raw string. The same
- * human appears as "+44 7938 658185", "07938 658185" and "447938658185@c.us" across this database,
- * and suppression that only holds for the format the STOP arrived in is not suppression.
+ * KEYED ON TWO COLUMNS, never a raw string: `phone_key`, the normalised identity from
+ * commsPhoneKey(), and `email_key`, the normalised address from optOutEmailKey() (server/opt-out.ts).
+ * The same human appears as "+44 7938 658185", "07938 658185" and "447938658185@c.us" across this
+ * database, and suppression that only holds for the format the STOP arrived in is not suppression;
+ * an opt-out that arrived by email has no phone to key on at all. A row carries at least one of the
+ * two keys and may carry either alone, so a read asks about both — through `getOptOut` /
+ * `blockedByOptOut`, which take a party's phones and emails together. A query on `phone_key` alone
+ * silently misses every email-keyed row.
  *
  * SCOPE is the judgement call this table exists to encode:
  *
