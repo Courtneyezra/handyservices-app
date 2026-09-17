@@ -7,6 +7,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { Desk, type DeskDeps } from './desk';
+import type { DeskResult } from './desk-types';
+import { ChannelGateway } from '../channels/channel-gateway';
+import { transcriptBody } from '../channels/call-adapter';
+import { fromWebForm } from '../channels/form-adapter';
+import { appendTurn, open, type CaseFile } from './case-file';
+import { customerTurnOf } from './turn-window';
 import { noFixedLineSource, DEFAULT_FIXED_LINES, type FixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
 import { FakeModelClient } from './models';
@@ -17,6 +23,8 @@ import { recordingNotifier } from '../quoting/ben-notifier';
 import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore, type QuoteStore } from '../quoting/quote-store';
 import { markQuoteSent, priceQuote } from '../quoting/quoting-tools';
+import { detectOptOut } from '../../opt-out-detect';
+import { ALL_OPT_OUT_WORDS } from '../../__tests__/opt-out-words';
 
 const routeScoping = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry', ...over });
 const specialistFacts = (facts: Array<{ key: string; value: string }>, answered: string[] = []) => ({ facts, jobUnknowns: [], answeredSubjects: answered });
@@ -30,7 +38,7 @@ function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], clock 
     const now = () => new Date(clock.t += 1000);
     const store = new MemoryQuoteStore();
     const d = new Desk({ client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, now, scoping: { describe: async () => ({ ok: false, reason: 'no vision in tests' }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier }, ...extra });
-    return { client, gateway: new Gateway({ desk: d, now }), now };
+    return { client, gateway: new Gateway({ desk: d, now }), now, desk: d };
 }
 
 describe('the desk', () => {
@@ -170,6 +178,155 @@ describe('the desk', () => {
         expect(clock?.delivered).toBe(false);
         expect(clock?.decision).toBe('none');
         expect(out.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
+    });
+
+    it('a customer who writes STOP gets no reply at all, mid-thread or as a first message, and no model is asked (server/opt-out.ts)', async () => {
+        const { client, gateway } = desk({
+            router: () => routeScoping(),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'dripping tap' }]),
+            composer: () => ({ reply: 'Hi Sam, a dripping tap, no problem. Whereabouts are you?', factIds: [], kbIds: [] }),
+        });
+        const first = await gateway.inbound(turn('Hi, my tap will not stop dripping, can you help?', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        expect(first.result.decision).toBe('send');
+        const before = client.calls.length;
+        const stop = await gateway.inbound(turn('STOP', '2026-09-11T10:05:00.000Z'));
+        if (stop.kind !== 'handled') throw new Error(stop.kind);
+        expect(stop.result.decision).toBe('none');
+        expect(stop.result.delivered).toBe(false);
+        expect(stop.result.bubbles).toEqual([]);
+        expect(stop.result.note).toMatch(/asked us to stop/);
+        expect(client.calls.length).toBe(before);
+        expect(stop.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
+
+        const fresh = desk({ router: () => { throw new Error('the router must not be called'); }, specialist: () => { throw new Error('no specialist'); }, composer: () => { throw new Error('no composer'); } });
+        const leave = await fresh.gateway.inbound({ ...turn('Please do not contact me again', '2026-09-11T11:00:00.000Z'), address: '+447700900943' });
+        if (leave.kind !== 'handled') throw new Error(leave.kind);
+        expect(leave.result.decision).toBe('none');
+        expect(leave.result.delivered).toBe(false);
+        expect(fresh.client.calls).toHaveLength(0);
+        expect(leave.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+    });
+
+    it('every word today\'s detector takes as an opt-out gets no reply, no model call and no hold on the new desk', async () => {
+        const words = ALL_OPT_OUT_WORDS;
+        expect(words).toHaveLength(99);
+        for (const [i, text] of [...words, 'STOP', 'Stop.', 'please stop, thanks', 'S T O P'].entries()) {
+            expect(detectOptOut(text), text).not.toBeNull();
+            const fresh = desk({ router: () => { throw new Error('no router'); }, specialist: () => { throw new Error('no specialist'); }, composer: () => { throw new Error('no composer'); } });
+            const out = await fresh.gateway.inbound({ ...turn(text, '2026-09-11T11:00:00.000Z'), address: `+4477009${String(10000 + i).slice(-5)}` });
+            if (out.kind !== 'handled') throw new Error(`${text}: ${out.kind}`);
+            expect(out.result.decision, text).toBe('none');
+            expect(out.result.delivered, text).toBe(false);
+            expect(out.result.bubbles, text).toEqual([]);
+            expect(fresh.client.calls, text).toHaveLength(0);
+            expect(out.file.hold, text).toBeNull();
+            expect(out.file.turns.filter((t) => t.direction === 'outbound'), text).toHaveLength(0);
+        }
+    });
+
+    const noModel = () => desk({ router: () => { throw new Error('no router'); }, specialist: () => { throw new Error('no specialist'); }, composer: () => { throw new Error('no composer'); } });
+    const fileOn = (channel: 'sms' | 'whatsapp' | 'email' | 'call', body: string): CaseFile => {
+        const address = channel === 'email' ? 'sam@example.invalid' : '+447700900944';
+        const r = open({
+            identity: { ok: true, personId: 'p1', customerId: null, role: 'homeowner', isNew: true, canonical: channel === 'email' ? `email:${address}` : 'phone:07700900944', propertyId: null, landlordId: null, name: 'Sam' },
+            channel, address,
+            firstTurn: { at: '2026-09-11T10:00:00.000Z', channel, kind: channel === 'call' ? 'call_transcript' : 'text', body, media: [] },
+        });
+        if (!r.ok) throw new Error(r.reason);
+        return r.value;
+    };
+    const expectSilent = (r: DeskResult, file: CaseFile, calls: unknown[], label: string) => {
+        expect(r.delivered, label).toBe(false);
+        expect(r.bubbles, label).toEqual([]);
+        expect(r.approver, label).toBeNull();
+        expect(calls, label).toHaveLength(0);
+        expect(file.sends, label).toHaveLength(0);
+        expect(file.turns.filter((t) => t.direction === 'outbound'), label).toHaveLength(0);
+    };
+    const callOptOut = transcriptBody('answered_inbound', 'Take me off your list.');
+
+    it('an opt-out by SMS or WhatsApp, which the old inbound path records, gets no reply, no model call and no hold', async () => {
+        for (const channel of ['sms', 'whatsapp'] as const) {
+            const { client, desk: d } = noModel();
+            const file = fileOn(channel, 'STOP');
+            const r = await d.handleTurn(file, file.turns[0]);
+            expect(r.decision, channel).toBe('none');
+            expectSilent(r, file, client.calls, channel);
+            expect(file.hold, channel).toBeNull();
+        }
+    });
+
+    it('an opt-out on a call or by email, which nothing records, sends nothing and calls no model, but holds for Ben naming the channel', async () => {
+        expect(detectOptOut(callOptOut)).not.toBeNull();
+        for (const [channel, body, where] of [['call', callOptOut, 'on a call'], ['email', 'Subject: Unsubscribe\n\nPlease unsubscribe me', 'by email']] as const) {
+            const { client, desk: d } = noModel();
+            const file = fileOn(channel, body);
+            const r = await d.handleTurn(file, file.turns[0]);
+            expect(r.decision, channel).toBe('hold');
+            expectSilent(r, file, client.calls, channel);
+            expect(file.hold?.reason, channel).toMatch(new RegExp(`^customer may have asked to stop ${where}; check and record the opt-out: `));
+            expect(r.hold, channel).toBe(file.hold);
+        }
+    });
+
+    it('a web form opt-out, with or without a phone, sends nothing, calls no model and holds for Ben', async () => {
+        for (const phone of ['07700 900945', null]) {
+            const { client, desk: d } = noModel();
+            const g = new ChannelGateway({ desk: d, now: () => new Date('2026-09-11T10:00:00.000Z') });
+            const env = await fromWebForm({ customerName: 'Priya K', phone, email: 'priya@example.com', jobDescription: 'unsubscribe me', postcode: 'NG9 2AB', source: 'web_quote' }, { now: () => new Date('2026-09-11T09:59:00.000Z') });
+            const out = await g.inbound(env, { whatsapp: false });
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            const label = phone ? 'form with a phone' : 'email-only form';
+            expect(out.result.decision, label).toBe('hold');
+            expectSilent(out.result, out.file, client.calls, label);
+            expect(out.file.hold?.reason, label).toMatch(/^customer may have asked to stop on a web form; check and record the opt-out: /);
+        }
+    });
+
+    it('a STOP inside a burst is an opt-out: "No thanks" then "STOP" in one quiet window gets no reply and no model call', async () => {
+        const { client, desk: d } = noModel();
+        const file = fileOn('sms', 'No thanks');
+        const stop = appendTurn(file, { at: '2026-09-11T10:00:03.000Z', channel: 'sms', kind: 'text', body: 'STOP', media: [], partyId: 'p1', direction: 'inbound', runId: null, approver: null });
+        if (!stop.ok) throw new Error(stop.reason);
+        const burst = customerTurnOf([file.turns[0], stop.value]);
+        expect(detectOptOut(burst.body)).toBeNull();
+        const r = await d.handleTurn(file, burst);
+        expect(r.decision).toBe('none');
+        expectSilent(r, file, client.calls, 'burst');
+        expect(file.hold).toBeNull();
+        expect(r.note).toMatch(/asked us to stop \("stop", marketing\)/);
+    });
+
+    it('a call with no opt-out in it is scoped as before: routed, gathered and composed, with no opt-out hold', async () => {
+        const { client, desk: d } = desk({
+            router: () => routeScoping(),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'dripping tap' }]),
+            composer: () => ({ reply: 'Hi Sam, a dripping tap, no problem. Whereabouts are you?', factIds: [], kbIds: [] }),
+        });
+        const body = transcriptBody('answered_inbound', 'My kitchen tap will not stop dripping, can someone come and look at it?', 40);
+        expect(detectOptOut(body)).toBeNull();
+        const file = fileOn('call', body);
+        const r = await d.handleTurn(file, file.turns[0]);
+        expect(client.calls.map((c) => c.role)).toEqual(['router', 'specialist', 'composer']);
+        expect(file.hold?.reason ?? '').not.toMatch(/asked to stop/);
+        expect(r.note ?? '').not.toMatch(/asked us to stop/);
+    });
+
+    it('a message today\'s detector does not take as an opt-out is handled as before: routed, composed and sent', async () => {
+        for (const text of ['cancel', 'Can you stop the leak under my sink?', "The tap won't stop dripping", 'no more']) {
+            expect(detectOptOut(text), text).toBeNull();
+            const { client, gateway } = desk({
+                router: () => routeScoping(),
+                specialist: () => specialistFacts([{ key: 'job_type', value: 'dripping tap' }]),
+                composer: () => ({ reply: 'Hi Sam, a dripping tap, no problem. Whereabouts are you?', factIds: [], kbIds: [] }),
+            });
+            const out = await gateway.inbound(turn(text, '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.result.decision, text).toBe('send');
+            expect(out.result.delivered, text).toBe(true);
+            expect(client.calls.map((c) => c.role), text).toEqual(['router', 'specialist', 'composer']);
+        }
     });
 
     it('a complaint holds the thread on its fixed line: the next turn gets the acknowledgement, no router, no specialist, no composer', async () => {

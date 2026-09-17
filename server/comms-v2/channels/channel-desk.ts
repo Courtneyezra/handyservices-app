@@ -30,9 +30,10 @@
  * own shut-window path. Facts from the call carry the call turn as their source.
  */
 import { randomUUID } from 'node:crypto';
-import { ask as ledgerAsk, everAsked, hold as setHold, isReady, messagesOf, partyOf, setStage, type CaseFile, type CaseFileDeps, type ModelCallRecord, type Turn } from '../desk/case-file';
+import { ask as ledgerAsk, everAsked, hold as setHold, isReady, messagesOf, noteOnHold, partyOf, setStage, type CaseFile, type CaseFileDeps, type ModelCallRecord, type Turn } from '../desk/case-file';
 import type { DeskLike, DeskResult, GuardName, GuardVerdict } from '../desk/desk-types';
-import { BEN } from '../desk/guards';
+import { optOutOnTurn } from '../desk/desk';
+import { BEN, approverFor } from '../desk/guards';
 import { AnthropicModelClient, type ModelClient } from '../desk/models';
 import { DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, templateBodyFor, windowOf, type ReplyPurpose, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from '../desk/sender';
 import { callOutcomeOnFile, type CallOutcome } from './call-adapter';
@@ -90,6 +91,15 @@ export class ChannelDesk implements DeskLike {
         const party = partyOf(file, turn.partyId);
         if (!party) return this.result(file, file.parties[0].personId, runId, calls, { decision: 'none', note: 'the call\'s party is not on the file' });
         const deps = this.fileDeps();
+        // A caller who asked us to stop gets no follow-up and no model reads the transcript; the call is Ben's to check and record.
+        const optOut = optOutOnTurn(file, turn);
+        if (optOut) {
+            if (optOut.holdReason) {
+                if (file.hold) noteOnHold(file, { reason: optOut.holdReason });
+                else setHold(file, { approver: approverFor(file, null), reason: optOut.holdReason }, deps);
+            }
+            return this.result(file, party.personId, runId, calls, { decision: optOut.holdReason ? 'hold' : 'none', note: optOut.note });
+        }
         if (file.stage === 'first_contact') setStage(file, 'scoping', 'first customer turn: a call', deps);
 
         // They rang us, or Ben rang them: a call is never offered again on this file.
