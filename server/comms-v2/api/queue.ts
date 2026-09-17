@@ -122,14 +122,12 @@ export function readyToPriceOf(item: PriceQueueItem): ReadyToPriceItem {
 }
 
 /**
- * The Needs you list with the quotes waiting to be priced appended (Q12), oldest draft first. The
+ * The Needs you list with the quotes waiting to be priced appended (Q12), in the price queue's own
+ * order - oldest draft first, which `PriceQueuePayload.items` guarantees (spine/price-queue.ts). The
  * holds keep the top of the list in their own order: a person waiting on a reply always outranks an
  * unpriced draft, whatever the draft's age. Whether a mode filter allows quotes at all is the
  * route's call (routes.ts), since a quote draft has no case-file mode to filter on.
  */
 export function withReadyToPrice(queue: DeskQueue, prices: PriceQueuePayload): DeskQueue {
-    const quotes = prices.items
-        .map(readyToPriceOf)
-        .sort((a, b) => startedAt(a.createdAt) - startedAt(b.createdAt));
-    return { ...queue, items: [...queue.items, ...quotes] };
+    return { ...queue, items: [...queue.items, ...prices.items.map(readyToPriceOf)] };
 }

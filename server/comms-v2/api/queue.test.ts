@@ -125,16 +125,17 @@ function priceItem(slug: string, name: string, createdAt: string | null): PriceQ
 const prices = (...items: PriceQueueItem[]) => ({ count: items.length, items, oldestWaitingMs: null, at: NOW.toISOString() });
 
 describe('withReadyToPrice', () => {
-    it('keeps the holds at the top in their own order and appends the quotes oldest first', () => {
+    it('keeps the holds at the top in their own order and appends the quotes in the price queue\'s order', () => {
         const heldOld = heldFile('HeldOld', '2026-09-11T09:00:00.000Z');   // Fri 10:00 -> 7h
         const heldNew = heldFile('HeldNew', '2026-09-11T14:00:00.000Z');   // Fri 15:00 -> 2h
         const held = queueOf([heldNew, heldOld], {}, {}, NOW);
+        // As buildPriceQueue emits them: oldest draft first, a row with no created_at last.
         const merged = withReadyToPrice(held, prices(
-            priceItem('sam', 'Sam', '2026-09-11T11:00:00.000Z'),
             priceItem('weekend', 'Wes', '2026-09-06T10:00:00.000Z'),
+            priceItem('sam', 'Sam', '2026-09-11T11:00:00.000Z'),
             priceItem('undated', 'Una', null),
         ));
-        // Every hold first, in the order queueOf put them; the quotes follow, oldest draft first.
+        // Every hold first, in the order queueOf put them; the quotes follow, untouched.
         expect(merged.items.map((i) => i.id)).toEqual([heldOld.id, heldNew.id, 'price:weekend', 'price:sam', 'price:undated']);
         expect(merged.items.map((i) => i.kind)).toEqual(['held', 'held', 'ready_to_price', 'ready_to_price', 'ready_to_price']);
         expect(merged.items.filter((i) => i.kind === 'held').map((i) => i.id)).toEqual(held.items.map((i) => i.id));
@@ -153,6 +154,16 @@ describe('withReadyToPrice', () => {
             priceItem('old', 'Otto', '2026-08-20T09:00:00.000Z'),
         ));
         expect(merged.items.map((i) => i.id)).toEqual([fresh.id, 'price:ancient', 'price:old']);
+    });
+
+    it('does not re-rank the quotes: they keep the order the price queue handed over', () => {
+        // The producer owns "oldest first" (buildPriceQueue). Whatever order it gives, the desk keeps,
+        // so the two can never quietly disagree about the rule.
+        const merged = withReadyToPrice(queueOf([], {}, {}, NOW), prices(
+            priceItem('second', 'Sid', '2026-09-10T09:00:00.000Z'),
+            priceItem('first', 'Fay', '2026-09-01T09:00:00.000Z'),
+        ));
+        expect(merged.items.map((i) => i.id)).toEqual(['price:second', 'price:first']);
     });
 
     it('carries the true wall-clock wait, so two drafts past the office clock\'s fortnight cap still differ', () => {

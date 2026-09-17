@@ -41,11 +41,11 @@ import { SurfaceBody } from '@/components/handy-desk/AnswerSurface';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import { exchangeOfAnswered, latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
-    ACTION_ROUTE, isReadyToPrice, isShutWindow, needsWords, queueCardCopy, queueQuery, queueQueryKey, readyToPriceCardCopy, refusalMessage, selectionOf,
+    ACTION_ROUTE, heldCountOf, isReadyToPrice, isShutWindow, needsWords, queueCardCopy, queueQuery, queueQueryKey, readyToPriceCardCopy, refusalMessage, selectionOf,
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
 import { Link, useLocation } from 'wouter';
-import { QuickLinks, useHeldCount } from '@/components/layout/QuickLinks';
+import { QuickLinks } from '@/components/layout/QuickLinks';
 import handyLogo from '@/assets/handy-logo.webp';
 
 const QUEUE_REFETCH_MS = 15_000;
@@ -115,10 +115,16 @@ function DeskMoreMenu() {
 
 // The desk renders full screen outside the admin shell (client/src/App.tsx), so this header carries
 // the Handy Services logo, the shell's quick links with their held-count badge, and a More menu of the
-// sidebar's destinations and Log out, itself.
-function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled: number | null; deskLive: boolean | null }) {
+// sidebar's destinations and Log out, itself. The badge is counted off the page's own queue read, not
+// a second one: `useHeldCount` is for the admin shell, which has no queue data of its own.
+function DeskHeader({ sandbox, handled, deskLive, heldCount, updatedAt }: {
+    sandbox: boolean;
+    handled: number | null;
+    deskLive: boolean | null;
+    heldCount: number | null;
+    updatedAt: number;
+}) {
     const [location] = useLocation();
-    const { heldCount, updatedAt } = useHeldCount(true);
     return (
         <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-800 px-4 py-2 sm:px-6">
             <img data-testid="handy-desk-logo" src={handyLogo} alt="Handy Services" width={32} height={32} className="h-8 w-8 shrink-0 rounded-full object-cover" />
@@ -386,7 +392,7 @@ export default function HandyDesk() {
     const [dismissed, setDismissed] = useState<ReadonlySet<string | typeof FIRST_LOAD>>(() => new Set());
     const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
 
-    const { data, isLoading, error } = useQuery<DeskQueue>({
+    const { data, isLoading, error, dataUpdatedAt } = useQuery<DeskQueue>({
         // This page is the one caller that wants the quotes to price, so it is the one that asks.
         queryKey: queueQueryKey(true),
         queryFn: async () => {
@@ -438,7 +444,13 @@ export default function HandyDesk() {
     // The desk is the whole screen (no admin shell around it), so the ask bar stays in view without scrolling.
     return (
         <div data-testid="handy-desk" className="flex h-dvh flex-col overflow-hidden bg-slate-900 font-sans">
-            <DeskHeader sandbox={sandbox} handled={data?.handledToday ?? null} deskLive={oldComms ? oldComms.retired : null} />
+            <DeskHeader
+                sandbox={sandbox}
+                handled={data?.handledToday ?? null}
+                deskLive={oldComms ? oldComms.retired : null}
+                heldCount={data ? heldCountOf(data) : null}
+                updatedAt={dataUpdatedAt}
+            />
 
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
@@ -457,7 +469,9 @@ export default function HandyDesk() {
                         ) : isLoading ? (
                             <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
                         ) : items.length === 0 ? (
-                            <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">Nothing needs you.</p>
+                            <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">
+                                {data?.priceQueueError ? 'No held replies. The quotes to price could not be read.' : 'Nothing needs you.'}
+                            </p>
                         ) : (
                             items.map((item) => isReadyToPrice(item) ? (
                                 <ReadyToPriceCard key={item.id} item={item} />

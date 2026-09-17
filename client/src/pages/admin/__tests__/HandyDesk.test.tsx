@@ -364,4 +364,37 @@ describe('HandyDesk', () => {
         expect(await screen.findByTestId('queue-card-case_rob')).toBeInTheDocument();
         expect(screen.getByTestId('handy-desk-price-error')).toHaveTextContent('Could not load the quotes waiting to be priced. Held replies are still listed.');
     });
+
+    it('never says the desk is clear while the quotes to price could not be read', async () => {
+        routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [], priceQueueError: 'Could not load the quotes waiting to be priced', sandboxAvailable: true } }) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+
+        const empty = await screen.findByTestId('handy-desk-empty');
+        expect(empty).toHaveTextContent('No held replies. The quotes to price could not be read.');
+        expect(screen.queryByText(/Nothing needs you/)).toBeNull();
+        expect(screen.getByTestId('handy-desk-price-error')).toBeInTheDocument();
+    });
+
+    it('says the desk is clear when there is nothing waiting and the quotes read fine', async () => {
+        routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [], sandboxAvailable: true } }) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+        expect(await screen.findByTestId('handy-desk-empty')).toHaveTextContent('Nothing needs you.');
+    });
+
+    it('reads the queue once per poll for both the list and its header badge', async () => {
+        localStorage.setItem('adminToken', 'test-token');
+        const { calls } = routes();
+        renderWithQuery(<HandyDesk />);
+
+        await screen.findByTestId('queue-card-case_rob');
+        await waitFor(() => expect(screen.getByTestId('topbar-held-badge-desk')).toHaveTextContent('2'));
+        const reads = calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/comms-v2/queue'));
+        expect(reads).toHaveLength(1);
+        expect(reads[0].url).toBe('/api/comms-v2/queue?readyToPrice=1');
+        localStorage.clear();
+    });
 });
