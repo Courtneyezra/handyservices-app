@@ -33,10 +33,10 @@ const RE_QUOTE_PROMISE = new RegExp([
     String.raw`(?:to|will|['’]ll|shall|should)\s+follow`,
     String.raw`follow(?:ing)?\s+up`,
     String.raw`expect\s+(?:the|a|your|it)`,
-    String.raw`let\s+you\s+know`,
+    String.raw`let\s+you\s+know\s+(?:the|your|what\s+the)\s+(?:quote|price|pricing|estimate|costs?|figure)`,
     String.raw`(?:['’]ll|will|shall)\s+have\s+(?:the|a|your|it)\s+(?:quote|price|estimate|figure|over|ready|with)`,
     String.raw`(?:['’]s|is|['’]m|am|['’]re|are)\s+on\s+(?:it|(?:the|your)\s+(?:quote|price|estimate))`,
-    String.raw`with you`,
+    String.raw`(?:quote|price|estimate|figure|it)(?:['’]ll|\s+will|\s+should)\s+be\s+with\s+you`,
     String.raw`on (?:its|the) way`,
     String.raw`(?:be|come|coming|get|getting)\s+back\s+(?:to\s+you|with)`,
     String.raw`you(?:['’]ll|\s+will)\s+have(?!\s+to\b)`,
@@ -49,6 +49,8 @@ const RE_CLOSING_OFFER = new RegExp(`^(?:(?:and|also|oh|but),?\\s+)?(?:${[
     String.raw`(?:is\s+there\s+)?anything\s+else\s+you\s+need\s+(?:from\s+(?:me|us)|to\s+know)`,
     String.raw`(?:can|could)\s+(?:I|we)\s+help\s+(?:you\s+)?with\s+anything\s+else`,
 ].join('|')})\\b`, 'i');
+// A sentence that adds to the quote says something new, however it pairs the promise words.
+const RE_NEW_ITEM = /\b(?:add(?:s|ed|ing)?|also|too|extra|as well|stays?)\b/i;
 const RE_ALL_I_NEED = /\b(?:everything|all)\s+(?:I|we)\s+need\b/i;
 
 export function sentencesOf(text: string): string[] {
@@ -58,7 +60,7 @@ export function sentencesOf(text: string): string[] {
 /** The sentence wraps up: says that is everything needed, or promises the quote in any wording. A question never does. */
 export function isWrapUp(sentence: string): boolean {
     if (sentence.trimEnd().endsWith('?')) return false;
-    return RE_ALL_I_NEED.test(sentence) || (RE_QUOTE.test(sentence) && RE_QUOTE_PROMISE.test(sentence));
+    return RE_ALL_I_NEED.test(sentence) || (RE_QUOTE.test(sentence) && RE_QUOTE_PROMISE.test(sentence) && !RE_NEW_ITEM.test(sentence));
 }
 
 /** Every wrap-up sentence of `reply`, when one of the `previous` messages already wrapped up. */

@@ -30,16 +30,16 @@ const HAGGLE = [
     '(?:any|some) room (?:to move|for (?:movement|manoeuvre))(?! (?:the|a|it|them|my|our|your)\\b)',
     '(?:any|do) (?:better|movement) on (?:the |that |this |your )?(?:quote|figure|total|that|this|it)',
     'meet (?:me|us) (?:in the middle|half ?way)',
-    '(?:bit|too|very|quite|rather|little) (?:steep|dear|pricey|pricy)', 'pric(?:e)?y',
+    '(?:bit|little) (?:steep|dear)', '(?:too|very|quite|rather) dear', 'pric(?:e)?y',
     "(?:that's|thats|that is|seems|sounds) (?:like )?(?:a lot|a bit much|too much)(?! (?:of|like|better|worse|easier|harder|clearer|quicker|nicer|more|less)\\b)",
     "(?:within|over|under|above|outside|beyond|on|stretch|exceeds?|out of) (?:my |our |your |the |a )?(?:tight |small |limited )?budget",
     "(?:my|our) budget (?:is|was|isn['’]?t|wasn['’]?t|won['’]?t|doesn['’]?t|can['’]?t|only|max|of|for|would|will)", 'tight budget',
-    'quoted (?:me|us) (?:£ ?\\d|\\d{2,})', '(?:you|it) go (?:any )?lower',
+    'quoted (?:me|us) (?:£ ?\\d|\\d{2,})', 'you go (?:any )?lower',
     '(?:match|beat) (?:(?:that|their|his|her|this|the other|another) )?(?:quote|figure|£ ?\\d+|\\d+)',
     "mates?'?s? rates?", '(?:pensioner|oap|student|nhs|forces|cash) (?:rate|price|discount|deal)',
     '(?:any|special|better|cash) deal', 'chance of a deal', 'do (?:me|us) a deal',
     '(?:do (?:it )?for|(?:you|u) (?:take|accept)) (?:£ ?\\d+(?:\\.\\d+)?|\\d{2,}(?:\\.\\d+)?(?= ?(?:cash|quid|pounds?)?\\s*(?:[?.!,;]|$)))',
-    '\\d+ (?:quid|cash)', 'for (?:a (?:bit|little|touch) )?less',
+    '\\d+ (?:quid|cash)', 'for (?:a (?:bit|little|touch) )?less(?= (?:money|cash)\\b|\\s*(?:[?.!,;]|$))',
     'knock (?:a |an )?(?:bit|some|anything|tenner|fiver|few quid|little|£ ?\\d+|\\d+) off',
     'instal(?:l)?ments?', 'payment plan', 'pay (?:it )?(?:monthly|in (?:parts|stages|bits))',
 ].join('|');
@@ -281,13 +281,14 @@ export function asksForCall(text: string): boolean {
 }
 
 // A call that already happened or was already tried ("as we discussed on the phone", "great speaking to
-// you on the phone earlier", "we tried to call you back") is not an offer of one.
-const RE_CALL_PAST = /\b(?:discussed|said|mentioned|spoke|spoken|speaking|talked|talking|chatted|chatting|tried|missed|earlier|just now|yesterday|this morning)\b/i;
+// you on the phone earlier", "we tried to call you back") is not an offer of one. The past words must lead
+// straight into the call: "as I said, I can give you a ring tomorrow" still offers one.
+const RE_CALL_PAST = /\b(?:(?:discussed|mentioned|said|spoke|spoken|speaking|talked|talking|chatted|chatting)(?:\s+(?:to|with)\s+(?:you|u))?|(?:tried|trying)\s+to)\s*$/i;
 
 /** The offer of a call a clause makes, if it makes one. */
 function callOfferIn(clause: string): string | null {
     const m = RE_CALL_OFFER.exec(clause);
-    return m && !RE_CALL_NEGATION.test(clause.slice(0, m.index)) && !RE_CALL_PAST.test(clause) ? m[0] : null;
+    return m && !RE_CALL_NEGATION.test(clause.slice(0, m.index)) && !RE_CALL_PAST.test(clause.slice(0, m.index)) ? m[0] : null;
 }
 
 /** Questions about the job: every question except an offer of a call, which is not a scoping question. */
