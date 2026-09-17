@@ -23,6 +23,50 @@ export function moneyQuestionMatch(text: string): string | null {
     return m ? m[0] : null;
 }
 
+/** Haggling, a discount or terms of payment: money that is Ben's whatever the quote says, never a plain ask of its own price. */
+export const RE_HAGGLE = /\b(?:discount(?:s|ed)?|cheap(?:er|est)?|(?:for|any) less\b|knock(?:ed)?\s+\w+(?:\s+\w+)?\s+off|best (?:price|deal|offer|you can do|you could do)|better (?:price|deal|offer)|lower|reduc(?:e|ed|tion)|negotiat\w*|mates'? rates|cash (?:price|in hand)|price match|match (?:it|that|the|their)|beat (?:it|that|the|their)|too (?:expensive|much|dear|pricey|steep)|expensive|pricey|instal(?:l)?ments?|payment plan|pay (?:monthly|later|in parts|in stages|weekly))\b/i;
+
+export function haggleMatch(text: string): string | null {
+    const m = RE_HAGGLE.exec(text);
+    return m ? m[0] : null;
+}
+
+const PLAIN_THING = `(?:(?:that|the|this|your|my|our)\\s+)?(?:(?:quoted?|total|original|old)\\s+)?(?:price|quote|cost|total|figure|amount|£x)`;
+const PLAIN_TAIL = '(?:\\s+(?:now|again|then|please|still|today|at the moment))*';
+const PLAIN_ASKS = [
+    `(?:is|are)\\s+${PLAIN_THING}(?:\\s+still)?\\s+(?:ok|okay|right|valid|good|correct|current|the same|standing|available|on)`,
+    `(?:does|will|would)\\s+${PLAIN_THING}\\s+still\\s+(?:stand|apply|be (?:ok|okay|right|valid|the same))`,
+    `(?:is|has)\\s+${PLAIN_THING}\\s+(?:changed|gone up|different)`,
+    `(?:and\\s+)?how much\\s+(?:is|was|would|will)\\s+(?:it|that|this|the (?:quote|job|work|total|price))(?:\\s+be)?`,
+    `(?:and\\s+)?what(?:'s|\\s+is|\\s+was|\\s+would be|\\s+will be)\\s+(?:the|my|your)\\s+(?:total|price|cost|quote)`,
+    `what does (?:it|that|the job) cost`,
+    `(?:can|could) you (?:confirm|remind me of) ${PLAIN_THING}`,
+];
+const RE_PLAIN_CLAUSE = new RegExp(`^(?:${PLAIN_ASKS.join('|')})${PLAIN_TAIL}$`, 'i');
+const RE_PLEASANTRY = /^(?:hi|hiya|hello|hey|morning|afternoon|evening|ok|okay|thanks|thank you|cheers|sorry|quick question|just checking|just wondering)(?:\s+(?:there|again|mate|ben))?$/i;
+const RE_ANY_FIGURE = /£\s*(\d[\d,]*(?:\.\d{1,2})?)/g;
+
+const toPence = (amount: string): number => Math.round(Number(amount.replace(/,/g, '')) * 100);
+
+/**
+ * Whether a whole message is nothing but a plain ask of a quote's own price or whether it still
+ * stands ("is that price still ok?", "how much is it now?", "is the £120 still right?"), with at most
+ * a greeting or a thanks beside it. Fails closed: every clause must be one of those asks or a
+ * pleasantry, every figure it names must be one of `quotedPence`, and anything haggling
+ * (`haggleMatch`) is never plain.
+ */
+export function plainPriceAsk(text: string, quotedPence: readonly number[]): boolean {
+    if (haggleMatch(text)) return false;
+    for (const m of Array.from(text.matchAll(RE_ANY_FIGURE))) if (!quotedPence.includes(toPence(m[1]))) return false;
+    const clauses = text.replace(RE_ANY_FIGURE, '£x').toLowerCase().replace(/[’`]/g, "'").split(/[?!.,;:\n]+|\s+-\s+/).map((c) => c.trim().replace(/\s+/g, ' ')).filter(Boolean);
+    let asked = false;
+    for (const c of clauses) {
+        if (RE_PLAIN_CLAUSE.test(c)) asked = true;
+        else if (!RE_PLEASANTRY.test(c)) return false;
+    }
+    return asked;
+}
+
 const MONTH = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 const WEEKDAY = '(?:mon|tues|wednes|thurs|fri|satur|sun)day';
 const WEEKDAY_ABBR = '(?:mon|tues?|weds?|thur?s?|fri|sat|sun)';

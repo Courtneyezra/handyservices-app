@@ -63,6 +63,20 @@ function boardWithOneCardPerStage(): Board {
 }
 
 describe('<CommsV2BoardPage>', () => {
+    it('shows an automatic quote reissue on the card: the new figure, the old one, and when it went or why not', async () => {
+        const board = boardWithOneCardPerStage();
+        board.columns.quoted = [
+            card({ stage: 'quoted', id: 'case_reissued', customerName: 'Reissued Customer', quoteReissue: { amount: '£105.00', previous: '£100.00', automatic: true, sentAt: new Date(Date.now() - 5 * 60_000).toISOString(), notSent: null, at: new Date().toISOString() } }),
+            card({ stage: 'quoted', id: 'case_not_told', customerName: 'Untold Customer', quoteReissue: { amount: '£126.00', previous: '£120.00', automatic: true, sentAt: null, notSent: 'send refused', at: new Date().toISOString() } }),
+        ];
+        mockFetch([{ url: '/api/comms-v2/board', reply: () => ({ json: board }) }]);
+        renderWithQuery(<CommsV2BoardPage />);
+        await waitFor(() => expect(screen.getByTestId('board-card-reissue-case_reissued')).toBeTruthy());
+        expect(screen.getByTestId('board-card-reissue-case_reissued').textContent).toBe('Quote reissued automatically: £105.00 (was £100.00), sent 5m ago');
+        expect(screen.getByTestId('board-card-reissue-case_not_told').textContent).toBe('Quote reissued automatically: £126.00 (was £120.00), not sent: send refused');
+        expect(screen.queryByTestId('board-card-reissue-case_held')).toBeNull();
+    });
+
     it('renders one column per Contract 2 stage with its case file, and floats the held card with reason and approver', async () => {
         const board = boardWithOneCardPerStage();
         mockFetch([

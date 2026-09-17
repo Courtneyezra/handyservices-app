@@ -12,6 +12,9 @@
  *                 payment paths are not validated live, so the sandbox records the event itself)
  *   addPhotos     a photo that arrives after the draft joins it, so Ben's screen shows it
  *   findDraft     the desk's own draft for a contact written since a moment, for a draft a restart lost
+ *   reissue       the desk's own reissue of an expired quote (reissue.ts), behind a compare-and-set
+ *                 so one lapse is reissued by one run only
+ *   optedOut      whether the contact has a standing opt-out (server/opt-out.ts), read before a reissue
  *   deleteSandbox the sandbox's own rows on the reserved contacts, for /reset
  *
  * The live store imports the database on first use, so a test with a memory store opens nothing -
@@ -20,6 +23,7 @@
  */
 import { assertCommsV2DatabaseFor, commsV2Db, type DatabasePurpose } from '../live-database';
 import { statusOfRow, type QuoteRowLike } from './quote-record';
+import { planReissue, type ReissueIssue, type ReissueRowLike } from './reissue';
 
 export interface DraftInsert {
     id: string;
@@ -40,6 +44,14 @@ export type PriceOutcome =
 
 export type AcceptOutcome = { ok: true; depositPence: number } | { ok: false; status: number; reason: string };
 export type MarkSentOutcome = { ok: true } | { ok: false; status: number; reason: string };
+/**
+ * `raced`: the row moved between the read and the write (another run reissued it, the customer
+ * refreshed it, Ben renewed or edited it), so this run claimed nothing and may tell the customer nothing.
+ */
+export type ReissueOutcome =
+    | { ok: true; issue: ReissueIssue; previousTotalPence: number }
+    | { ok: false; status: number; reason: string; raced?: boolean };
+export type OptOutScope = 'marketing' | 'all';
 
 export interface QuoteStore {
     read(slug: string): Promise<QuoteRowLike | null>;
@@ -51,6 +63,21 @@ export interface QuoteStore {
     addPhotos(slug: string, urls: string[]): Promise<void>;
     /** The newest draft the desk itself wrote for any of these contacts at or after `since`: its slug, or null. */
     findDraft(contacts: string[], since: Date): Promise<string | null>;
+    /**
+     * Puts an expired quote back live at its original price plus the uplift (reissue.ts), claimed by
+     * `runId`. The write is a compare-and-set on what the plan was made from, so of two runs that
+     * read the same lapse exactly one claims it. Optional: a store without it never reissues, and the
+     * thread goes to Ben as an expired quote always has.
+     */
+    reissue?(slug: string, input: { now: Date; runId: string }): Promise<ReissueOutcome>;
+    /**
+     * The sandbox's own clock for a quote: puts a sent quote the sandbox created past its price lock at
+     * `at`, so the door can drive an expired quote without touching any other row. Refuses a row the
+     * sandbox did not create on one of `contacts`.
+     */
+    lapseSandbox?(slug: string, contacts: string[], at: Date): Promise<{ ok: true } | { ok: false; status: number; reason: string }>;
+    /** The strongest standing opt-out for a contact, or null. Optional: a store without it is read as unknown, and nothing is reissued. */
+    optedOut?(contact: string): Promise<OptOutScope | null>;
     /** Every contact the sandbox customer is reachable on: the row's `phone` column holds whichever one the thread ran on, so an email thread writes its address there. */
     deleteSandbox(contacts: string[]): Promise<{ quotes: number; estimates: number; verdicts: number; runs: number }>;
 }
@@ -195,6 +222,56 @@ export const databaseQuoteStore = (purpose: DatabasePurpose): QuoteStore => ({
         return rows[0]?.short_slug ?? null;
     },
 
+    async reissue(slug, input) {
+        const db = await commsV2Db(READER, purpose);
+        const { personalizedQuotes } = await import('@shared/schema');
+        const { and, eq, isNull, lt, sql } = await import('drizzle-orm');
+        const [row] = await db.select().from(personalizedQuotes).where(eq(personalizedQuotes.shortSlug, slug)).limit(1);
+        if (!row) return { ok: false, status: 404, reason: `no quote ${slug}` };
+        let depositPercent = 25;
+        try { const { getPricingSettings } = await import('../../pricing-settings'); depositPercent = Number((await getPricingSettings() as any).depositPercent ?? depositPercent); } catch { /* the shared default */ }
+        const { quoteValidityMs } = await import('../../quotes');
+        const planned = planReissue(row as ReissueRowLike, { now: input.now, runId: input.runId, depositPercent, validityMs: quoteValidityMs });
+        if (!planned.ok) return { ok: false, status: 409, reason: planned.reason };
+        // Claimed only if the row is still exactly what the plan was made from: still sent and still
+        // lapsed, the same total, and neither counter moved (a refresh on the page bumps both, Ben's
+        // renew bumps the regeneration count, and so does another run's reissue).
+        const p = personalizedQuotes;
+        const updated = await db.update(p).set(planned.plan.patch as any).where(and(
+            eq(p.id, row.id), eq(p.isDraft, false), isNull(p.revokedAt), isNull(p.supersededAt), isNull(p.depositPaidAt),
+            lt(p.expiresAt, input.now),
+            sql`${p.basePrice} = ${row.basePrice}`,
+            sql`coalesce(${p.regenerationCount}, 0) = ${row.regenerationCount ?? 0}`,
+            sql`coalesce(${p.extensionCount}, 0) = ${row.extensionCount ?? 0}`,
+        )).returning({ id: p.id });
+        if (!updated.length) return { ok: false, status: 409, reason: `quote ${slug} changed while the reissue was being written; another run or a person has it`, raced: true };
+        return { ok: true, issue: planned.plan.issue, previousTotalPence: planned.plan.previousTotalPence };
+    },
+
+    async lapseSandbox(slug, contacts, at) {
+        const db = await commsV2Db(READER, 'sandbox');
+        const { personalizedQuotes: p } = await import('@shared/schema');
+        const { and, eq, isNull } = await import('drizzle-orm');
+        const [row] = await db.select({ id: p.id, phone: p.phone, createdBy: p.createdBy, isDraft: p.isDraft }).from(p).where(eq(p.shortSlug, slug)).limit(1);
+        if (!row) return { ok: false, status: 404, reason: `no quote ${slug}` };
+        const wanted = new Set(contacts.map(contactKey));
+        if (row.createdBy !== CREATED_BY || !wanted.has(contactKey(String(row.phone ?? '')))) return { ok: false, status: 403, reason: `quote ${slug} is not the sandbox's own` };
+        if (row.isDraft !== false) return { ok: false, status: 409, reason: `quote ${slug} is still a draft; price and send it first` };
+        await db.update(p).set({ expiresAt: new Date(at.getTime() - 60_000) } as any).where(and(eq(p.id, row.id), isNull(p.depositPaidAt), isNull(p.revokedAt)));
+        return { ok: true };
+    },
+
+    async optedOut(contact) {
+        const db = await commsV2Db(READER, purpose);
+        const { commsOptOuts } = await import('@shared/schema');
+        const { and, eq, isNull } = await import('drizzle-orm');
+        const { commsPhoneKey } = await import('../../phone-utils');
+        const key = commsPhoneKey(contact);
+        if (!key) return null;
+        const rows = await db.select({ scope: commsOptOuts.scope }).from(commsOptOuts).where(and(eq(commsOptOuts.phoneKey, key), isNull(commsOptOuts.revokedAt)));
+        return rows.some((r: { scope: string }) => r.scope === 'all') ? 'all' : rows.length ? 'marketing' : null;
+    },
+
     async deleteSandbox(contacts) {
         const db = await commsV2Db(READER, purpose);
         const { sql } = await import('drizzle-orm');
@@ -229,6 +306,10 @@ export const liveQuoteStore: QuoteStore = databaseQuoteStore('sandbox');
 
 export class MemoryQuoteStore implements QuoteStore {
     readonly rows = new Map<string, QuoteRowLike & Record<string, unknown>>();
+    /** Contacts with a standing opt-out, by the digits of the number (or the lowercase address). */
+    readonly optOuts = new Map<string, OptOutScope>();
+    /** Runs a reissue claim runs before its write, so a test can move the row under it. */
+    beforeReissueWrite: ((slug: string) => void) | null = null;
     constructor(private readonly opts: { depositPercent?: number; baseUrl?: string } = {}) {}
 
     async read(slug: string) { return this.rows.get(slug) ?? null; }
@@ -302,6 +383,36 @@ export class MemoryQuoteStore implements QuoteStore {
             if (!newest || at >= newest.at) newest = { slug, at };
         }
         return newest?.slug ?? null;
+    }
+
+    async reissue(slug: string, input: { now: Date; runId: string }): Promise<ReissueOutcome> {
+        const row = this.rows.get(slug);
+        if (!row) return { ok: false, status: 404, reason: `no quote ${slug}` };
+        const planned = planReissue(row as ReissueRowLike, { now: input.now, runId: input.runId, depositPercent: this.opts.depositPercent ?? 25, validityMs: () => 48 * 3_600_000 });
+        if (!planned.ok) return { ok: false, status: 409, reason: planned.reason };
+        const seen = { basePrice: row.basePrice, regenerationCount: row.regenerationCount ?? 0, extensionCount: row.extensionCount ?? 0, expiresAt: row.expiresAt };
+        this.beforeReissueWrite?.(slug);
+        const now = this.rows.get(slug);
+        if (!now || now.basePrice !== seen.basePrice || (now.regenerationCount ?? 0) !== seen.regenerationCount || (now.extensionCount ?? 0) !== seen.extensionCount || now.expiresAt !== seen.expiresAt || statusOfRow(now, input.now) !== 'expired') {
+            return { ok: false, status: 409, reason: `quote ${slug} changed while the reissue was being written; another run or a person has it`, raced: true };
+        }
+        const patch = planned.plan.patch as Record<string, unknown>;
+        Object.assign(now, { ...patch, expiresAt: (patch.expiresAt as Date).toISOString() });
+        return { ok: true, issue: planned.plan.issue, previousTotalPence: planned.plan.previousTotalPence };
+    }
+
+    async lapseSandbox(slug: string, contacts: string[], at: Date): Promise<{ ok: true } | { ok: false; status: number; reason: string }> {
+        const row = this.rows.get(slug);
+        if (!row) return { ok: false, status: 404, reason: `no quote ${slug}` };
+        const wanted = new Set(contacts.map(contactKey));
+        if (!wanted.has(contactKey(String(row.phone ?? '')))) return { ok: false, status: 403, reason: `quote ${slug} is not the sandbox's own` };
+        if (row.isDraft !== false) return { ok: false, status: 409, reason: `quote ${slug} is still a draft; price and send it first` };
+        if (!row.depositPaidAt && !row.revokedAt) row.expiresAt = new Date(at.getTime() - 60_000).toISOString();
+        return { ok: true };
+    }
+
+    async optedOut(contact: string): Promise<OptOutScope | null> {
+        return this.optOuts.get(contactKey(contact)) ?? null;
     }
 
     async deleteSandbox(contacts: string[]) {

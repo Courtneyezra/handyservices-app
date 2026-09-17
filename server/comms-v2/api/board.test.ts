@@ -66,6 +66,22 @@ describe('cardOf', () => {
     });
 });
 
+describe('cardOf quoteReissue', () => {
+    it('carries the newest automatic reissue of the quote the file names: the figure, the one before, and when it went or why not', () => {
+        const file = openFile();
+        file.job.quoteRef = 'abcd1234';
+        expect(cardOf(file).quoteReissue).toBeNull();
+        const src = (runId: string, slug = 'abcd1234') => ({ kind: 'quote_line' as const, quoteRef: slug, line: `reissue:${runId}` });
+        recordFact(file, { key: QUOTE_FACT.reissued, value: '£105.00 | was £100.00 | automatic | sent 2026-09-14T10:00:00.000Z', source: src('run_1'), by: 'quoting' }, { now, newId });
+        expect(cardOf(file).quoteReissue).toMatchObject({ amount: '£105.00', previous: '£100.00', automatic: true, sentAt: '2026-09-14T10:00:00.000Z', notSent: null, runId: 'run_1' });
+        recordFact(file, { key: QUOTE_FACT.reissued, value: '£105.00 | was £105.00 | automatic | not sent: send refused: a | b', source: src('run_2'), by: 'quoting' }, { now, newId });
+        expect(cardOf(file).quoteReissue).toMatchObject({ runId: 'run_2', sentAt: null, notSent: 'send refused: a | b' });
+        // Another quote's reissue is not this card's.
+        recordFact(file, { key: QUOTE_FACT.reissued, value: '£50.00 | was £40.00 | automatic | sent 2026-09-15T10:00:00.000Z', source: src('run_3', 'other'), by: 'quoting' }, { now, newId });
+        expect(cardOf(file).quoteReissue?.runId).toBe('run_2');
+    });
+});
+
 describe('cardOf benToRequest', () => {
     it('shows a stored ben_to_request entry still missing from the file today', () => {
         const file = openFile();

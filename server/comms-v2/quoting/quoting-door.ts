@@ -17,6 +17,9 @@
  *                 (answer 42: the payment path is not validated live, so the door records what the
  *                 Stripe webhook writes). The stage flips to accepted, Ben's push is recorded, and
  *                 the acceptance enters the desk as the customer's turn for one acknowledgement.
+ *   POST /lapse   The sandbox quote's price lock passes now, so the next customer message meets an
+ *                 expired quote (the desk then reissues it, reissue.ts). Only the sandbox's own sent
+ *                 quote, on the branch database. Response: the quote's record.
  *   GET  /quote   The quote as the file records it and as the row holds it: status, lines to the
  *                 penny, Ben's recorded notifications.
  *
@@ -93,6 +96,21 @@ export function createQuotingDoor(opts: QuotingDoorOptions): { router: Router; r
             respond(res, file, out.result, out.sent ? { ...common, status: out.record.status, lines: out.record.lines.map((l) => ({ label: l.label, pricePence: l.pricePence })) } : common);
         } catch (error: any) {
             res.status(500).json({ error: error?.message ?? 'sandbox price failed' });
+        }
+    });
+
+    router.post('/lapse', async (_req, res) => {
+        try {
+            const file = opts.current();
+            if (!file?.job.quoteRef) { res.status(409).json({ error: 'no quote on the sandbox thread' }); return; }
+            const d = resolveQuotingDeps(quotingDeps());
+            if (!d.store.lapseSandbox) { res.status(501).json({ error: 'this quote store cannot lapse a quote' }); return; }
+            const out = await d.store.lapseSandbox(file.job.quoteRef, opts.sandboxContacts, opts.now());
+            if (!out.ok) { res.status(out.status).json({ error: out.reason }); return; }
+            const row = await d.store.read(file.job.quoteRef);
+            res.json({ ok: true, slug: file.job.quoteRef, record: row ? quoteRecordOf(row, opts.now()) : null, state: opts.state() });
+        } catch (error: any) {
+            res.status(500).json({ error: error?.message ?? 'sandbox lapse failed' });
         }
     });
 

@@ -400,12 +400,13 @@ describe('after the quote', () => {
         expect(ret?.calls).toHaveLength(0);
     });
 
-    it('an expired quote gives no figure: the status fact only, and Ben comes back', async () => {
+    it('an expired quote gives no figure: the status fact only, a stale hold, and a reissue offered to the desk when nothing is Ben\'s', async () => {
         const { file, d, store } = await sentQuote();
         const row = store.rows.get(file.job.quoteRef!)!;
         row.expiresAt = '2026-09-01T00:00:00.000Z';
         const before = file.facts.filter((f) => f.key.startsWith('quote_line:')).length;
-        const client = new FakeModelClient({ specialist: () => { throw new Error('no model call on a stale quote'); } });
+        // The turn is read as it would be on the quote live again, and never with a figure in front of the model.
+        const client = new FakeModelClient({ specialist: ({ user }) => { expect(user).not.toContain('£'); expect(user).toContain('status sent'); return { concerns: [{ kind: 'total', label: null }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }; } });
         const ret = await quote(file, later(file, 'How much was the total again?'), file.parties[0], routeOf(), client, d);
         expect(ret?.brief?.[0]).toMatch(/is expired/);
         expect(ret?.proposal.hold).toMatchObject({ reason: 'stale_quote', match: `${file.job.quoteRef} is expired` });
@@ -414,20 +415,45 @@ describe('after the quote', () => {
         expect(file.facts.find((f) => f.key === QUOTE_FACT.status && /expired/.test(f.value))).toBeTruthy();
         // The status is the only fact this turn records: no figure, and no fresh link either.
         expect(ret?.factIds).toEqual([file.facts.find((f) => f.key === QUOTE_FACT.status && /expired/.test(f.value))!.id]);
+        expect(ret?.reissue).toEqual({ slug: file.job.quoteRef, blockers: [], concerns: [{ kind: 'total', label: 'Total' }], notReady: false });
+        // The specialist offers; only the desk claims. The row is untouched.
+        expect(row.basePrice).toBe(12000);
     });
 
-    it('a revoked or superseded quote holds for Ben exactly as an expired one does', async () => {
+    it('an expired quote with money beyond a line, a yes in chat or an unreadable turn offers the reissue with that named as a blocker', async () => {
+        const cases: Array<[unknown, string]> = [
+            [{ concerns: [], beyondQuoteLine: true, acceptanceInChat: false, notReady: false }, 'money beyond a quote line'],
+            [{ concerns: [{ kind: 'line_amount', label: 'Labour' }], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }, 'money beyond a quote line'],
+            [{ concerns: [], beyondQuoteLine: false, acceptanceInChat: true, notReady: false }, 'acceptance in chat'],
+            [{ error: 'overloaded' }, 'the turn could not be read (overloaded)'],
+        ];
+        for (const [reading, blocker] of cases) {
+            const { file, d, store } = await sentQuote();
+            store.rows.get(file.job.quoteRef!)!.expiresAt = '2026-09-01T00:00:00.000Z';
+            const ret = await quote(file, later(file, 'hmm'), file.parties[0], routeOf(), new FakeModelClient({ specialist: () => reading }), d);
+            expect(ret?.proposal.hold?.reason).toBe('stale_quote');
+            expect(ret?.reissue?.blockers).toContain(blocker);
+        }
+        const { file, d, store } = await sentQuote();
+        store.rows.get(file.job.quoteRef!)!.expiresAt = '2026-09-01T00:00:00.000Z';
+        const belt = await quote(file, later(file, 'any discount?'), file.parties[0], routeOf({ belts: { regulated: null, money: 'discount' } }), new FakeModelClient({ specialist: () => ({ concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }) }), d);
+        expect(belt?.reissue?.blockers).toContain('a money question');
+    });
+
+    it('a revoked or superseded quote holds for Ben, with no model call and no reissue offered', async () => {
         const client = new FakeModelClient({ specialist: () => { throw new Error('no model call on a stale quote'); } });
         const gone = await sentQuote();
         gone.store.rows.get(gone.file.job.quoteRef!)!.revokedAt = '2026-09-11T12:00:00.000Z';
         const revoked = await quote(gone.file, later(gone.file, 'is that still ok?'), gone.file.parties[0], routeOf(), client, gone.d);
         expect(revoked?.proposal.hold).toMatchObject({ reason: 'stale_quote', match: `${gone.file.job.quoteRef} is revoked` });
         expect(revoked?.brief?.join('\n')).toMatch(/say you will come back to them on the quote/);
+        expect(revoked?.reissue).toBeUndefined();
 
         const old = await sentQuote();
         old.store.rows.get(old.file.job.quoteRef!)!.supersededAt = '2026-09-11T12:00:00.000Z';
         const superseded = await quote(old.file, later(old.file, 'is that still ok?'), old.file.parties[0], routeOf(), client, old.d);
         expect(superseded?.proposal.hold).toMatchObject({ reason: 'stale_quote', match: `${old.file.job.quoteRef} is superseded` });
+        expect(superseded?.reissue).toBeUndefined();
     });
 
     it('money beyond a line while the quote is still with Ben holds for him too, with no fixed line claimed that is not there', async () => {

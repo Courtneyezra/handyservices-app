@@ -103,6 +103,8 @@ export interface BoardCard {
     replyChannel: 'whatsapp' | 'sms' | 'email' | null;
     openedAt: string;
     benToRequest: string[];
+    /** The desk's newest automatic reissue of an expired quote (server/comms-v2/api/board.ts). */
+    quoteReissue?: { amount: string; previous: string; automatic: true; sentAt: string | null; notSent: string | null; at: string } | null;
 }
 
 export interface Board {
@@ -281,6 +283,12 @@ export function BoardCardView({ card, onOpen, showMode = false }: { card: BoardC
             {card.benToRequest.length > 0 && (
                 <div data-testid={`board-card-ben-to-request-${card.id}`} className="mt-2 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-700">
                     <span className="font-semibold">Ask for:</span> {card.benToRequest.join(', ')}
+                </div>
+            )}
+            {card.quoteReissue && (
+                <div data-testid={`board-card-reissue-${card.id}`} className="mt-2 rounded bg-sky-500/10 px-2 py-1 text-xs text-sky-700">
+                    <span className="font-semibold">Quote reissued automatically:</span> {card.quoteReissue.amount} (was {card.quoteReissue.previous}),{' '}
+                    {card.quoteReissue.sentAt ? `sent ${relativeTime(card.quoteReissue.sentAt)}` : `not sent: ${card.quoteReissue.notSent ?? 'unknown'}`}
                 </div>
             )}
             <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
