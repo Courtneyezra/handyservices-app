@@ -209,8 +209,14 @@ describe('the channel desk on a call', () => {
         }
     });
     it('a caller who asks us to stop in the middle of a real call transcript gets nothing and holds for Ben, while Ben saying the words does not', async () => {
-        const stop = 'Ben: Hi, its Ben from Handy Services, calling about the door handle. Customer: Oh right, look, I have sorted it now, please stop contacting me. Ben: No problem at all, sorry to bother you. Customer: Thanks, bye.';
-        for (const outcome of ['ben_rang', 'answered_inbound'] as const) {
+        const stops = [
+            'Ben: Hi, its Ben from Handy Services, calling about the door handle. Customer: Oh right, look, I have sorted it now, please stop contacting me. Ben: No problem at all, sorry to bother you. Customer: Thanks, bye.',
+            // One run-on spoken sentence, too long to be read whole as an opt-out.
+            'Ben: Hi, its Ben from Handy Services. Customer: Oh hi Ben, to be honest my brother in law sorted it at the weekend so please stop contacting me about it. Ben: No problem.',
+            // Unlabelled.
+            'Hello, is that the handyman. Yes. I rang last week about the shed roof but I have had it done by someone else now so do not contact me again. OK, sorry about that. Bye.',
+        ];
+        for (const stop of stops) for (const outcome of ['ben_rang', 'answered_inbound'] as const) {
             const { gateway, client } = rig({ specialist: () => read(), router: () => routeScoping(), composer: () => ({ reply: 'unused', factIds: [], kbIds: [] }) }, approvedAll);
             const a = await gateway.inbound(call(outcome, '2026-09-11T10:00:00.000Z', stop));
             if (a.kind !== 'handled') throw new Error(a.kind);

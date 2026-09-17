@@ -106,13 +106,15 @@ const RE_OUR_SPEAKER = /^(?:agent|ben|va)$/i;
 /**
  * A call transcript as the short messages the opt-out check reads: each sentence the caller said, on
  * its own, so "please stop contacting me" inside a long call is read as the terse instruction it is.
+ * Speech runs on, so a sentence is also cut at commas and at "so", "but", "and": "...sorted it at the
+ * weekend so please stop contacting me about it" reads its last clause on its own.
  * Our side of the call, where it is labelled, is left out.
  */
 function transcriptSentences(body: string): string[] {
     const parts = transcriptOf({ body } as Turn).split(RE_SPEAKER);
     const said: string[] = [parts[0]];
     for (let i = 1; i + 1 < parts.length; i += 2) if (!RE_OUR_SPEAKER.test(parts[i])) said.push(parts[i + 1]);
-    return said.flatMap((s) => s.split(/[.?!\n]+/)).map((s) => s.trim()).filter(Boolean);
+    return said.flatMap((s) => s.split(/[.?!\n,;:]+|\b(?:so|but|and)\b/i)).map((s) => s.trim()).filter(Boolean);
 }
 
 /** An opt-out in any one message the turn carries, each read on its own as the old inbound path reads it; a call transcript sentence by sentence. */
