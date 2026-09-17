@@ -127,6 +127,57 @@ export function ordinalDays(text: string): string[] {
 export const RE_BEN_COMES_BACK = /\b(?:ben|he|she|i|someone|one of (?:us|the team)|the team|we)\b[^.?!\n]{0,40}\b(?:will|['’]ll|can|is going to)\b[^.?!\n]{0,40}\b(?:be in touch|come back|get back|let you know|confirm|call|ring|phone)\b|\blet me\b[^.?!\n]{0,40}\b(?:come (?:straight )?back|get back|confirm)\b/i;
 
 /**
+ * A reply that puts off a question: "I'll check and come back to you on that", "let me find out".
+ * Narrower than RE_BEN_COMES_BACK: an offer to call, a confirmation and the wrap-up's "I'll put the
+ * quote together and send it over" are not a question left open, so they are not read as one.
+ */
+export const RE_DEFERS = /\b(?:i|we)\b[^.?!\n]{0,40}\b(?:will|['’]ll|am going to|['’]m going to)\b[^.?!\n]{0,40}\b(?:check|find out|come (?:straight )?back|get back|be in touch|let you know)\b|\blet me\b[^.?!\n]{0,40}\b(?:check|find out|come (?:straight )?back|get back)\b/i;
+
+/**
+ * Words that tie a put-off to a question rather than to the job: "on that", "on the Checkatrade
+ * question", "find out", "check whether". "I'll have a look and get back to you" and "I'll let you
+ * know once I've seen the photos" are the job being scoped, not a question left open.
+ */
+const RE_ABOUT_A_QUESTION = /\b(?:on|about) (?:that|this)\b|\bquestion\b|\bfind out\b|\bcheck (?:on|whether)\b/i;
+
+/**
+ * A customer's ask that is the job itself: "can you fix it?", "could you put up these shelves",
+ * "how long will it take". Scoping answers it, so a put-off on it is not a question for Ben.
+ */
+const RE_JOB_ASK = /\b(?:can|could|would|will) (?:you|someone|ben)\b[^.?!\n]{0,20}\b(?:fix|repair|replace|do|sort|put|hang|mount|install|fit|come|pop|look|help|paint|build|change|remove|unblock|assemble|take a look)\b|\bhow (?:long|soon|quickly)\b/i;
+
+/**
+ * Where a question starts: an auxiliary and its subject ("do you", "is there"), a wh-word and an
+ * auxiliary ("when do", "what is"), "what's", "any chance", or "what" or "which" and a noun
+ * ("what insurance", "which areas").
+ */
+const QUESTION_START = "(?:(?:do|does|did|are|is|can|could|will|would|have|has) (?:you|they|he|she|ben|it|there)|(?:what|when|where|which|who|why|how) (?:do|does|did|are|is|can|could|will|would|have|has)|what['’]s|any chance|(?:what|which) (?!(?:you|i|we|they|he|she|it|if|a|an|the)\\b)[a-z]+)\\b";
+const RE_QUESTION_START = new RegExp(`^${QUESTION_START}`, 'i');
+/**
+ * A second question joined on by a dash, or by a comma, "and" or "but" where a question starts:
+ * "can you fix my tap and do you work weekends?". "When you get a chance, could you..." stays one ask.
+ */
+const RE_JOINED_QUESTION = new RegExp(`\\s+[-–]\\s+|(?:\\s*[,;:]\\s*|\\s+(?:and|but)\\s+)(?=${QUESTION_START})`, 'i');
+
+/**
+ * The words of a reply that put off a question the customer asked on this turn, or null. A clause
+ * of the customer's words, split where a second question starts, must be a question (opening as one or
+ * carrying its question mark) that asks something (RE_ASKING) that is not the job itself, and the reply's sentence must say it will
+ * check or come back on that question. A sentence about the quote is the wrap-up or its delivery
+ * ("I'll get the quote over to you"), not a question left open, so it is skipped.
+ */
+export function deferralMatch(reply: string, asked: string): string | null {
+    const clauses = sentencesOf(asked).flatMap((s) => s.split(RE_JOINED_QUESTION));
+    if (!clauses.some((c) => (RE_QUESTION_START.test(c) || c.includes('?')) && RE_ASKING.test(c) && !RE_JOB_ASK.test(c))) return null;
+    for (const sentence of sentencesOf(reply)) {
+        if (/\bquote\b/i.test(sentence) || !RE_ABOUT_A_QUESTION.test(sentence)) continue;
+        const m = RE_DEFERS.exec(sentence);
+        if (m) return m[0];
+    }
+    return null;
+}
+
+/**
  * A promise to do, fix or guarantee something, a claim that a change to the customer's details is
  * already made (a change of details is Ben's to make; the desk only passes it on), or an admission
  * of fault. Fails closed: broad on purpose.

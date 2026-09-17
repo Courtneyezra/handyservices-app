@@ -446,7 +446,12 @@ in the reply: money, a date change, a customer asking for a call (`callback`, th
 reading: "call round", "call in" and "call out" ask for a visit in this trade, which no matcher
 separated reliably from a phone call), no source, a change of details. A turn can raise more than
 one exception: each carries its own fixed line into the reply, and the hold records the gravest. Every later turn on a held thread is
-acknowledged (checklist 7.3).
+acknowledged (checklist 7.3). A question the customer asked and the reply puts off still reaches Ben when
+Service's model did not read the turn: where the customer's words ask something and a composed sentence
+says it will check or come back on that question ("I'll check and come back to you on that",
+`deferralMatch`, desk/lexicon.ts), the turn holds as `no_source`, unless it raised or noted a hold of its
+own. A job being scoped ("I'll have a look and get back to you") and a sentence about the quote are not a
+question put off. When Service read the turn, its own answers decide; a template send raises nothing.
 
 **Return to automation (7.4).** Any human's reply, from Ben's board or the door's "Ben replies",
 goes through the one human-reply path (`desk/human-reply.ts`, Contract 5): it is sent on the
