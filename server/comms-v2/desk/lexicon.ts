@@ -334,25 +334,26 @@ export function asksForCall(text: string): boolean {
 // A call that already happened or was already tried ("as we discussed on the phone", "great speaking to
 // you on the phone earlier", "we tried to call you back") is not an offer of one. A call still to come is always
 // an offer, whatever was said before it: "I spoke to Ben and he will call you tomorrow", "as I said, I can give you
-// a ring tomorrow". Otherwise a call that happened may be named anywhere before the call words; the rest lead
+// a ring tomorrow", "happy chatting on the phone if easier?". Every call in the clause is read. Otherwise a call that happened may be named anywhere before the call words; the rest lead
 // straight into them.
 const RE_CALL_PAST_ANYWHERE = /\b(?:spoke|talked|chatted|earlier)\b/i;
 const RE_CALL_PAST_BEFORE = /\b(?:(?:discussed|mentioned|spoken|speaking|talking|chatting)(?:\s+(?:to|with)\s+(?:you|u|me))?(?:\s+(?:yesterday|before|earlier|already))*|(?:tried|trying)\s+to)\s*$/i;
 const RE_CALL_FUTURE_OFFER = /^(?:give|happy|can|could|shall|should|may|jump|hop|call (?:would|might))\b/i;
 const RE_CALL_FUTURE_BEFORE = /\b(?:will|['’]ll|can|could|shall|may|might|going to|happy to|glad to|want to|like to|able to)(?:\s+\S+){0,2}\s*$/i;
+const RE_CALL_FUTURE_AFTER = /\b(?:if (?:(?:it|that)(?:['’]?s| is| would be) )?(?:easier|quicker|simpler|you(?:['’]d)? (?:prefer|like|want))|(?:might|would|could) (?:help|be (?:easier|quicker|best)))\b|\?\s*$/i;
 
-function callIsPast(offer: string, before: string): boolean {
-    if (RE_CALL_PAST_BEFORE.test(before)) return true;
-    if (RE_CALL_FUTURE_OFFER.test(offer) || RE_CALL_FUTURE_BEFORE.test(before)) return false;
-    return RE_CALL_PAST_ANYWHERE.test(before);
+function callIsPast(offer: string, before: string, after: string): boolean {
+    if (RE_CALL_FUTURE_OFFER.test(offer) || RE_CALL_FUTURE_BEFORE.test(before) || RE_CALL_FUTURE_AFTER.test(after)) return false;
+    return RE_CALL_PAST_BEFORE.test(before) || RE_CALL_PAST_ANYWHERE.test(before);
 }
 
-/** The offer of a call a clause makes, if it makes one. */
+/** The offer of a call a clause makes, if it makes one: the first call in it that is neither turned down nor past. */
 function callOfferIn(clause: string): string | null {
-    const m = RE_CALL_OFFER.exec(clause);
-    if (!m) return null;
-    const before = clause.slice(0, m.index);
-    return !RE_CALL_NEGATION.test(before) && !callIsPast(m[0], before) ? m[0] : null;
+    for (const m of clause.matchAll(new RegExp(RE_CALL_OFFER.source, 'gi'))) {
+        const before = clause.slice(0, m.index);
+        if (!RE_CALL_NEGATION.test(before) && !callIsPast(m[0], before, clause.slice(m.index + m[0].length))) return m[0];
+    }
+    return null;
 }
 
 /** Questions about the job: every question except an offer of a call, which is not a scoping question. */
