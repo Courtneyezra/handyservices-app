@@ -193,6 +193,12 @@ describe('lexicon', () => {
         expect(scopingQuestionCount('Would a quick call help?')).toBe(0);
         expect(textAsks('If it is easy, could you send a photo?', 'media')).toBe(true);
         expect(textAsks('No worries about photos, what size is the tile?', 'media')).toBe(false);
+        // Thanks for media in one clause and a job question in another is no ask for media.
+        expect(textAsks('Thanks for sending the video, what size is the gap?', 'media')).toBe(false);
+        expect(textAsks('Cheers for the photos, which wall is it going on?', 'media')).toBe(false);
+        expect(textAsks('Thanks for the photo, could you send one of the whole door too?', 'media')).toBe(true);
+        expect(textAsks('Thanks for the pics, could you pop another over of the hinge?', 'media')).toBe(true);
+        expect(textAsks('Thanks for the photo. Could you send a video of it running?', 'media')).toBe(true);
         expect(textAsks('Whereabouts are you?', 'postcode')).toBe(true);
         expect(textAsks('Whereabouts does it catch when it sticks?', 'postcode')).toBe(false);
         expect(textAsks('Where is it sticking, top or side?', 'postcode')).toBe(false);

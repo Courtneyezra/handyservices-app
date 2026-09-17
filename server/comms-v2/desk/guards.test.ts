@@ -186,6 +186,13 @@ describe('guards', () => {
         thanked(f.file, 'media');
         expect(runGuards({ ...base, reply: 'Thanks for the photo!' }).guards.ask_ledger.result).toBe('fail');
     });
+    it('ask ledger: thanking for a video while asking about the job is not asking for a photo again (live sweep)', () => {
+        const f = fixture();
+        ask(f.file, 'media');
+        const base = { file: f.file, party: f.party, turn: f.turn, factIds: [], kbIds: [], kbRows: [], fixedLines: [], proposedSubject: null };
+        expect(runGuards({ ...base, reply: 'Thanks for sending the video, what size is the gap?' }).guards.ask_ledger.result).toBe('pass');
+        expect(runGuards({ ...base, reply: 'Thanks for the photo, could you send one of the whole door too?' }).guards.ask_ledger.result).toBe('fail');
+    });
     it('ask ledger: reciting a quote assumption about access is not asking about it', () => {
         const f = fixture();
         ask(f.file, 'access');

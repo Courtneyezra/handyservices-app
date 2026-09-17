@@ -261,11 +261,21 @@ export function clausesOf(sentence: string): string[] {
     return sentence.split(/[,;:]|\s+-\s+/).map((c) => c.trim()).filter(Boolean);
 }
 
-/** Whether a sentence asks for a subject: subject word plus an asking phrase, outside a dismissive clause. */
+/** A clause asking to be sent something more, whatever it names: "could you send one of the whole door". */
+const RE_ASKS_TO_BE_SENT = /\b(?:send|share|pop|drop|attach|forward)\b|\b(?:another|one more)\b/i;
+
+/**
+ * Whether a sentence asks for a subject: subject word plus an asking phrase, outside a dismissive
+ * clause. Thanks for media is no ask of it ("Thanks for sending the video, what size is the gap?"),
+ * unless another clause asks to be sent more ("Thanks for the photo, could you send one of the door?").
+ */
 export function sentenceAsks(sentence: string, subject: string): boolean {
     const words = SUBJECT_WORDS[subject];
     if (!words || !words.test(sentence) || !RE_ASKING.test(sentence)) return false;
-    return clausesOf(sentence).filter((c) => words.test(c)).some((c) => !RE_DISMISSIVE.test(c));
+    const clauses = clausesOf(sentence);
+    const thanks = (c: string) => subject === 'media' && RE_THANKS_MEDIA.test(c);
+    return clauses.filter((c) => words.test(c)).some((c) => !RE_DISMISSIVE.test(c)
+        && (!thanks(c) || clauses.some((o) => o !== c && RE_ASKS_TO_BE_SENT.test(o))));
 }
 
 export function textAsks(text: string, subject: string): boolean {
