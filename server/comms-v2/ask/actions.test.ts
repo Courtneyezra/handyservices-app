@@ -4,7 +4,7 @@
  * was shown. A held draft goes out through the board's human send path; a change that sends nothing
  * leaves a system line on the case file carrying the action id.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CONFIRM_KINDS } from '@shared/ops-types';
 import { appendTurn, recordSend, hold as setHold, type ApproverSlot } from '../desk/case-file';
 import { BEN } from '../desk/guards';
@@ -285,7 +285,9 @@ describe('confirming draft.release', () => {
     });
 
     describe('live, through a fake outbound sender', () => {
-        afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.resetModules(); });
+        // The deliverer's own ledger read finds nobody, as the fake outbound send does.
+        beforeEach(() => { vi.doMock('../../opt-out', () => ({ blockedByOptOut: async () => null, optOutRefusalMessage: () => '' })); });
+        afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.doUnmock('../../opt-out'); vi.resetModules(); });
 
         it('delivers the confirmed words once, and a second confirm delivers nothing', async () => {
             const outbox: string[] = [];
