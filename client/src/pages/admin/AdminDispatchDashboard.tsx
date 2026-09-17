@@ -10,6 +10,7 @@ import {
     Hammer, Clock, CheckCircle2, XCircle, MessageCircle, Lock, ExternalLink,
     AlertTriangle, Camera, FileText, Copy, ShieldCheck, Banknote, Undo2,
 } from "lucide-react";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 interface Bond {
     id: string;
@@ -124,7 +125,7 @@ export default function AdminDispatchDashboard() {
     const queryClient = useQueryClient();
     const { data, isLoading, refetch } = useQuery<{ dispatches: Dispatch[] }>({
         queryKey: ["admin-dispatches"],
-        queryFn: () => fetch("/api/admin/dispatch").then((r) => r.json()),
+        queryFn: () => fetch("/api/admin/dispatch", { headers: adminAuthHeaders() }).then((r) => r.json()),
         refetchInterval: 15000,
     });
 
@@ -135,7 +136,7 @@ export default function AdminDispatchDashboard() {
         mutationFn: async (args: { dispatchId: string; linkId: string; reason: string }) => {
             const r = await fetch(`/api/admin/dispatch/${args.dispatchId}/bond/forfeit`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { ...adminAuthHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify({ linkId: args.linkId, reason: args.reason }),
             });
             if (!r.ok) throw new Error((await r.json()).error || "forfeit failed");
@@ -148,7 +149,7 @@ export default function AdminDispatchDashboard() {
         mutationFn: async (args: { dispatchId: string; linkId: string; reason: string }) => {
             const r = await fetch(`/api/admin/dispatch/${args.dispatchId}/bond/refund`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { ...adminAuthHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify({ linkId: args.linkId, reason: args.reason }),
             });
             if (!r.ok) throw new Error((await r.json()).error || "refund failed");

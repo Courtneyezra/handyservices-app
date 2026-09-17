@@ -4,7 +4,10 @@ import { partnerApplications, clientReferences, trainingProgress, trainingModule
 import { eq, desc, and } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import { requireAdmin } from './auth';
 
+// Mounted bare in server/index.ts. Only the admin team verifies or activates a partner: every
+// /admin/ route here needs an admin session (requireAdmin, which admits VAs).
 export const partnerApplicationRouter = Router();
 
 function generateToken(): string {
@@ -319,7 +322,7 @@ partnerApplicationRouter.post('/api/partner-application/contractor/:contractorId
 });
 
 // Admin: Verify insurance
-partnerApplicationRouter.post('/api/partner-application/admin/:id/verify-insurance', async (req, res) => {
+partnerApplicationRouter.post('/api/partner-application/admin/:id/verify-insurance', requireAdmin, async (req, res) => {
     try {
         const { approved } = req.body;
 
@@ -340,7 +343,7 @@ partnerApplicationRouter.post('/api/partner-application/admin/:id/verify-insuran
 });
 
 // Admin: Verify identity
-partnerApplicationRouter.post('/api/partner-application/admin/:id/verify-identity', async (req, res) => {
+partnerApplicationRouter.post('/api/partner-application/admin/:id/verify-identity', requireAdmin, async (req, res) => {
     try {
         const { approved } = req.body;
 
@@ -361,7 +364,7 @@ partnerApplicationRouter.post('/api/partner-application/admin/:id/verify-identit
 });
 
 // Admin: Activate partner
-partnerApplicationRouter.post('/api/partner-application/admin/:id/activate', async (req, res) => {
+partnerApplicationRouter.post('/api/partner-application/admin/:id/activate', requireAdmin, async (req, res) => {
     try {
         const apps = await db.select()
             .from(partnerApplications)
@@ -416,7 +419,7 @@ partnerApplicationRouter.post('/api/partner-application/admin/:id/activate', asy
 });
 
 // Admin: Get all applications
-partnerApplicationRouter.get('/api/partner-application/admin/applications', async (req, res) => {
+partnerApplicationRouter.get('/api/partner-application/admin/applications', requireAdmin, async (req, res) => {
     try {
         const apps = await db.select()
             .from(partnerApplications)

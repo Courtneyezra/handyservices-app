@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 // The quote editor is the full generator in edit mode — opened here as a
 // modal so Ben stays on the Pipeline (close returns to the list). Lazy so it
@@ -360,7 +361,7 @@ function InvoicesTab() {
     const { data: invoices = [], isLoading } = useQuery<InvoiceRow[]>({
         queryKey: ["invoices"],
         queryFn: async () => {
-            const res = await fetch("/api/invoices");
+            const res = await fetch("/api/invoices", { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch invoices");
             return res.json();
         },

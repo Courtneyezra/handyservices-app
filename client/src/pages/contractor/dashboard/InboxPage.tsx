@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { openWhatsApp, getWhatsAppErrorMessage } from "@/lib/whatsapp-helper";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 // Types
 interface InboxItem {
@@ -162,7 +163,7 @@ export default function InboxPage() {
     const { data: inboxItems = [], isLoading } = useQuery<InboxItem[]>({
         queryKey: ['/api/contractor/inbox'],
         queryFn: async () => {
-            const res = await fetch('/api/contractor/inbox');
+            const res = await fetch('/api/contractor/inbox', { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch inbox");
             return res.json();
         },
@@ -225,7 +226,7 @@ export default function InboxPage() {
         try {
             const res = await fetch(`/api/contractor/inbox/${id}`, {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { ...adminAuthHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ actionStatus: 'resolved' })
             });
             if (!res.ok) throw new Error('Failed to resolve');

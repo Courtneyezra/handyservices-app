@@ -145,7 +145,7 @@ export default function SidebarLayout({ children }: SidebarLayoutProps) {
     const { data: followUpItems } = useQuery<any[]>({
         queryKey: ['/api/contractor/inbox'],
         queryFn: async () => {
-            const res = await fetch('/api/contractor/inbox');
+            const res = await fetch('/api/contractor/inbox', { headers: adminAuthHeaders() });
             if (!res.ok) return [];
             return res.json();
         },

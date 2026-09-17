@@ -14,6 +14,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 interface Invoice {
     id: string;
@@ -35,7 +36,7 @@ export default function InvoicesPage() {
     const { data: invoices, isLoading } = useQuery<Invoice[]>({
         queryKey: ["invoices"],
         queryFn: async () => {
-            const res = await fetch("/api/invoices");
+            const res = await fetch("/api/invoices", { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch invoices");
             return res.json();
         },
@@ -45,6 +46,7 @@ export default function InvoicesPage() {
         mutationFn: async (id: string) => {
             const res = await fetch(`/api/invoices/${id}/mark-paid`, {
                 method: "POST",
+                headers: adminAuthHeaders(),
             });
             if (!res.ok) throw new Error("Failed to mark as paid");
             return res.json();
@@ -69,6 +71,7 @@ export default function InvoicesPage() {
         mutationFn: async (id: string) => {
             const res = await fetch(`/api/invoices/${id}/send`, {
                 method: "POST",
+                headers: adminAuthHeaders(),
             });
             if (!res.ok) throw new Error("Failed to send invoice");
             return res.json();

@@ -19,6 +19,7 @@ import {
     Paperclip, MessageSquare, Copy as CopyIcon,
 } from "lucide-react";
 import { buildDispatchWhatsAppMessage } from "@/lib/whatsapp-dispatch-message";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Types — mirror the backend draft response
@@ -373,7 +374,7 @@ export default function AdminGenerateDispatch() {
     const { data, isLoading, isError, error } = useQuery<DraftResponse>({
         queryKey: ["dispatch-draft", quoteId, leadUplift],
         queryFn: async () => {
-            const r = await fetch(`/api/admin/dispatch/draft-from-quote/${quoteId}${leadUplift ? '?leadUplift=1' : ''}`);
+            const r = await fetch(`/api/admin/dispatch/draft-from-quote/${quoteId}${leadUplift ? '?leadUplift=1' : ''}`, { headers: adminAuthHeaders() });
             if (!r.ok) {
                 const body = await r.json().catch(() => ({}));
                 throw new Error(body.error || `Draft fetch failed (${r.status})`);
@@ -514,7 +515,7 @@ export default function AdminGenerateDispatch() {
         mutationFn: async (body: any) => {
             const r = await fetch("/api/admin/dispatch", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { ...adminAuthHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify(body),
             });
             const payload = await r.json().catch(() => ({}));
@@ -544,7 +545,7 @@ export default function AdminGenerateDispatch() {
         onPhase(`Requesting upload URLs…`);
         const presignResp = await fetch(`/api/admin/dispatch/${dispatchId}/media/presign`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { ...adminAuthHeaders(), "Content-Type": "application/json" },
             body: JSON.stringify({
                 files: items.map((m) => ({
                     contentType: m.file.type || "application/octet-stream",
@@ -600,7 +601,7 @@ export default function AdminGenerateDispatch() {
 
         const regResp = await fetch(`/api/admin/dispatch/${dispatchId}/media/register`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { ...adminAuthHeaders(), "Content-Type": "application/json" },
             body: JSON.stringify({ overviewUrls, taskMedia }),
         });
         if (!regResp.ok) {

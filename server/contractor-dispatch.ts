@@ -25,6 +25,7 @@ import {
   users,
   personalizedQuotes,
 } from '../shared/schema';
+import { requireAdmin } from './auth';
 import { eq, desc, and } from 'drizzle-orm';
 import crypto from 'crypto';
 import Stripe from 'stripe';
@@ -48,6 +49,11 @@ function getStripe(): Stripe | null {
 }
 
 export const contractorDispatchRouter = Router();
+
+// Every /api/admin/dispatch* route needs an admin session (requireAdmin, which admits VAs). The
+// router is mounted bare in server/index.ts because its tokenised contractor and visitor routes
+// are public, so the guard sits here, ahead of every admin route below.
+contractorDispatchRouter.use('/api/admin/dispatch', requireAdmin);
 
 // Diagnostic: returns which S3-related env vars are present in the running
 // process (booleans only — no secret values exposed). Visit this on prod to
@@ -1370,8 +1376,7 @@ contractorDispatchRouter.post('/api/admin/dispatch/:id/bond/refund', async (req,
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ADMIN ENDPOINTS — internal use only (no auth wired here for v1; assume
-// reverse-proxy / session middleware gates /api/admin/*)
+// ADMIN ENDPOINTS — admin session required (the requireAdmin guard at the top of this file)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**

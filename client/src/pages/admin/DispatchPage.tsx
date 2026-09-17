@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { adminAuthHeaders } from "@/lib/admin-auth";
 
 interface Job {
     id: number;
@@ -64,7 +65,7 @@ export default function DispatchPage() {
         mutationFn: async (jobId: number) => {
             const res = await fetch("/api/invoices/generate", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { ...adminAuthHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify({ jobId }),
             });
             if (!res.ok) throw new Error("Failed to generate invoice");
@@ -90,7 +91,7 @@ export default function DispatchPage() {
     const { data: contractors, isLoading: contractorsLoading } = useQuery<Contractor[]>({
         queryKey: ["handymen"],
         queryFn: async () => {
-            const res = await fetch("/api/handymen");
+            const res = await fetch("/api/handymen", { headers: adminAuthHeaders() });
             if (!res.ok) throw new Error("Failed to fetch contractors");
             return res.json();
         },

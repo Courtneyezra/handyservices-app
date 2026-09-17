@@ -3,6 +3,7 @@ import { db } from './db';
 import { handymanProfiles, handymanSkills, handymanAvailability, users } from '../shared/schema';
 import { eq } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { requireAdmin } from './auth';
 
 const router = Router();
 
@@ -31,7 +32,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 // Get all handymen (with optional radius filter)
-router.get('/', async (req, res) => {
+router.get('/', requireAdmin, async (req, res) => {
     try {
         const { lat, lng, radius } = req.query;
 
@@ -77,7 +78,7 @@ router.get('/', async (req, res) => {
 
 // GET /api/handymen/availability
 // Returns aggregate availability (days of week and typical slots) for pros in an area
-router.get('/availability', async (req, res) => {
+router.get('/availability', requireAdmin, async (req, res) => {
     try {
         const { lat, lng, radius = '10' } = req.query;
 
@@ -131,7 +132,7 @@ router.get('/availability', async (req, res) => {
 });
 
 // Get profile for a specific handyman
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const profile = await db.query.handymanProfiles.findFirst({
@@ -157,8 +158,9 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// Create/Update profile
-router.post('/profile', async (req, res) => {
+// Create/Update profile. Admin only: the body is written to the profile as given, so it can set
+// verificationStatus, subscriptionTier and partnerStatus, which only the admin team may change.
+router.post('/profile', requireAdmin, async (req, res) => {
     try {
         const { userId, ...data } = req.body;
         if (!userId) return res.status(400).json({ error: "Missing userId" });
@@ -183,7 +185,7 @@ router.post('/profile', async (req, res) => {
 });
 
 // Manage Skills
-router.post('/:id/skills', async (req, res) => {
+router.post('/:id/skills', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { serviceIds } = req.body; // Array of SKU IDs
@@ -208,7 +210,7 @@ router.post('/:id/skills', async (req, res) => {
 });
 
 // Manage Availability
-router.post('/:id/availability', async (req, res) => {
+router.post('/:id/availability', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { availability } = req.body; // Array of { dayOfWeek, startTime, endTime }
@@ -231,8 +233,8 @@ router.post('/:id/availability', async (req, res) => {
     }
 });
 
-// Verify Contractor
-router.post('/:id/verify', async (req, res) => {
+// Verify Contractor (admin only)
+router.post('/:id/verify', requireAdmin, async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body; // 'verified' | 'rejected' | 'pending' | 'unverified'

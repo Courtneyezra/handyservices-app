@@ -579,6 +579,31 @@ router.get('/me', requireContractorAuth, async (req: Request, res: Response) => 
     }
 });
 
+/**
+ * Verification and activation belong to the admin team. On their own profile a contractor may
+ * only submit their documents for review (unverified to pending, which onboarding sends) or repeat
+ * the verificationStatus they already have, and a contractor the admin team deactivated
+ * (availabilityStatus 'inactive') cannot make themselves available again. Returns the refusal
+ * message, or null when the update may go ahead.
+ */
+export function selfProfileRefusal(
+    current: { verificationStatus: string | null; availabilityStatus: string | null },
+    requested: { verificationStatus?: unknown; availabilityStatus?: unknown },
+): string | null {
+    const { verificationStatus, availabilityStatus } = requested;
+    if (verificationStatus !== undefined) {
+        const now = current.verificationStatus ?? 'unverified';
+        const submitsForReview = now === 'unverified' && verificationStatus === 'pending';
+        if (verificationStatus !== now && !submitsForReview) {
+            return 'Verification status is set by the admin team';
+        }
+    }
+    if (availabilityStatus !== undefined && current.availabilityStatus === 'inactive' && availabilityStatus !== 'inactive') {
+        return 'This account was deactivated by the admin team';
+    }
+    return null;
+}
+
 // PUT /api/contractor/profile - Update contractor profile
 router.put('/profile', requireContractorAuth, async (req: Request, res: Response) => {
     try {
@@ -586,6 +611,20 @@ router.put('/profile', requireContractorAuth, async (req: Request, res: Response
         const { firstName, lastName, phone, bio, address, city, postcode, radiusMiles, hourlyRate, slug, publicProfileEnabled, heroImageUrl, socialLinks, skills,
             trustBadges, availabilityStatus, introVideoUrl, aiRules, mediaGallery, beforeAfterGallery,
             dbsCertificateUrl, identityDocumentUrl, publicLiabilityInsuranceUrl, publicLiabilityExpiryDate, verificationStatus } = req.body;
+
+        // Refuse before any write, so a refused request changes nothing.
+        if (verificationStatus !== undefined || availabilityStatus !== undefined) {
+            const current = await db.query.handymanProfiles.findFirst({
+                where: eq(handymanProfiles.userId, contractor.id),
+            });
+            if (!current) {
+                return res.status(404).json({ error: 'Contractor profile not found' });
+            }
+            const refusal = selfProfileRefusal(current, { verificationStatus, availabilityStatus });
+            if (refusal) {
+                return res.status(403).json({ error: refusal });
+            }
+        }
 
         // Update user info
         if (firstName || lastName || phone) {

@@ -3,7 +3,10 @@ import { db } from './db';
 import { trainingModules, trainingProgress, partnerApplications } from '../shared/schema';
 import { eq, asc, and } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
+import { requireAdmin } from './auth';
 
+// Mounted bare in server/index.ts. Every /api/training/admin/* route needs an admin session
+// (requireAdmin, which admits VAs).
 export const trainingRouter = Router();
 
 // Get all active training modules
@@ -255,7 +258,7 @@ async function updateOverallTrainingStatus(contractorId: string) {
 }
 
 // Admin: Create module
-trainingRouter.post('/api/training/admin/modules', async (req, res) => {
+trainingRouter.post('/api/training/admin/modules', requireAdmin, async (req, res) => {
     try {
         const { slug, title, description, durationMinutes, videoUrl, thumbnailUrl, quizQuestions, passThreshold, orderIndex, isRequired } = req.body;
 
@@ -287,7 +290,7 @@ trainingRouter.post('/api/training/admin/modules', async (req, res) => {
 });
 
 // Admin: Update module
-trainingRouter.put('/api/training/admin/modules/:id', async (req, res) => {
+trainingRouter.put('/api/training/admin/modules/:id', requireAdmin, async (req, res) => {
     try {
         const updates = req.body;
         delete updates.id;
@@ -304,7 +307,7 @@ trainingRouter.put('/api/training/admin/modules/:id', async (req, res) => {
 });
 
 // Seed default modules if none exist
-trainingRouter.post('/api/training/admin/seed', async (req, res) => {
+trainingRouter.post('/api/training/admin/seed', requireAdmin, async (req, res) => {
     try {
         const existing = await db.select().from(trainingModules).limit(1);
         if (existing.length > 0) {
