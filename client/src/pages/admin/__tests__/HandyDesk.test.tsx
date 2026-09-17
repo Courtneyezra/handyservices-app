@@ -6,7 +6,7 @@
  * ready-to-price card (answer Q12) is merged in from /api/spine/price-queue and has no conversation:
  * tapping it opens Price and Send for that quote instead.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch, type RecordedCall } from '@test-utils';
@@ -14,6 +14,16 @@ import HandyDesk from '@/pages/admin/HandyDesk';
 import type { QueueItem } from '@/lib/handy-desk-queue';
 import type { PriceQueueItem } from '@/hooks/usePriceQueue';
 import type { OpsAnswer } from '@shared/ops-types';
+
+/** jsdom has no matchMedia: without a stub the page is narrow and the thread opens as a sheet. */
+function stubWide() {
+    const mq = (query: string) => ({ matches: query.includes('min-width'), media: query, onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false });
+    Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: vi.fn(mq) });
+}
+
+afterEach(() => {
+    delete (window as any).matchMedia;
+});
 
 function item(over: Partial<QueueItem>): QueueItem {
     return {
@@ -38,7 +48,9 @@ function detail(id: string, name: string) {
             { id: 't1', at: '2026-09-11T10:00:00.000Z', channel: 'whatsapp', direction: 'inbound', kind: 'text', body: `${name} asks a thing`, media: [] },
             { id: 't2', at: '2026-09-11T10:01:00.000Z', channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'The desk answers', media: [], approver: 'agent.comms_v2' },
         ],
-        facts: [], hold: null, holdApproverAssigned: true, speakerNames: {},
+        facts: [], holdApproverAssigned: true, speakerNames: {},
+        hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money question', since: '2026-09-11T10:02:00.000Z', draft: null, exception: 'money', failures: [], notedOn: false },
+        replyChannel: 'whatsapp', replyWindow: { state: 'open', reason: 'the customer wrote', closesAt: null }, replyRefusal: null,
     };
 }
 
@@ -218,8 +230,11 @@ describe('HandyDesk', () => {
         expect(within(card).getByRole('button', { name: 'More' })).toBeDisabled();
     });
 
-    it('selecting a card makes it the active one, shows its thread and sets the ask context', async () => {
-        routes();
+    it('selecting a card makes it the active one, opens its thread with manual chat and sets the ask context', async () => {
+        stubWide();
+        const { calls } = routes([
+            { method: 'POST', url: '/api/comms-v2/case-files/case_gemma/answer', reply: () => ({ json: { ok: true, sent: { bubbles: ['Sorry Gemma, I will call you now.'], turnId: 't9' } } }) },
+        ]);
         renderWithQuery(<HandyDesk />);
         await screen.findByTestId('queue-card-case_gemma');
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
@@ -232,9 +247,34 @@ describe('HandyDesk', () => {
         expect(thread).toHaveTextContent('Gemma Patel asks a thing');
         expect(thread).toHaveTextContent('The desk answers');
 
+        const queueLoads = calls.filter((c) => c.url === '/api/comms-v2/queue').length;
+        await userEvent.type(within(thread).getByLabelText('Your reply to the customer'), 'Sorry Gemma, I will call you now.');
+        await userEvent.click(within(thread).getByRole('button', { name: 'Send reply' }));
+        await waitFor(() => expect(within(thread).getByTestId('thread-pending')).toHaveTextContent('✓ Sent'));
+        expect(calls.find((c) => c.method === 'POST' && c.url === '/api/comms-v2/case-files/case_gemma/answer')?.body).toEqual({ words: 'Sorry Gemma, I will call you now.' });
+        await waitFor(() => expect(calls.filter((c) => c.url === '/api/comms-v2/queue').length).toBeGreaterThan(queueLoads));
+
         await userEvent.click(within(screen.getByTestId('queue-card-case_rob')).getByText('Rob Hale'));
         expect(await screen.findByText('Rob Hale asks a thing')).toBeInTheDocument();
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Rob Hale');
+
+        await userEvent.click(within(screen.getByTestId('handy-desk-thread')).getByRole('button', { name: 'Close' }));
+        expect(screen.queryByTestId('handy-desk-thread')).toBeNull();
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
+    });
+
+    it('on a phone a card tap opens the thread as a sheet, and ‹ Queue returns to the queue', async () => {
+        routes();
+        renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const sheet = await screen.findByRole('dialog');
+        expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+        expect(within(sheet).getByLabelText('Your reply to the customer')).toBeInTheDocument();
+        expect(screen.queryByTestId('handy-desk-thread')).toBeNull();
+
+        await userEvent.click(within(sheet).getByRole('button', { name: 'Queue' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.getByTestId('queue-card-case_gemma')).toBeInTheDocument();
     });
     it('shows the newest ask answer on the right, confirms it through send-held-draft, and a selected card puts it away', async () => {
         const { calls } = routes([

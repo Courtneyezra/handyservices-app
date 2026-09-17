@@ -10,7 +10,7 @@
  * below the holds, leaving the 15-second queue poll a pure in-memory read.
  */
 import { ageLabel, type PriceQueueItem, type PriceQueuePayload } from '@/hooks/usePriceQueue';
-import type { BoardCard } from '@/pages/admin/CommsV2BoardPage';
+import type { BoardCard, BoardViewer } from '@/pages/admin/CommsV2BoardPage';
 
 /** A held case file exactly as GET /api/comms-v2/queue sends it. The wire carries no kind tag. */
 export interface QueueItem extends BoardCard {
@@ -184,6 +184,8 @@ export interface DeskQueue {
     /** Turns the new desk or a person answered since local midnight in London. */
     handledToday?: number;
     sandboxAvailable?: boolean;
+    /** The approver slot this session occupies, as on /board. */
+    viewer?: BoardViewer;
 }
 
 /** What a card button does. Every one lands on a /api/comms-v2/case-files/:id route. */
