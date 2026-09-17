@@ -251,6 +251,15 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('handy-desk-idle')).toBeInTheDocument();
     });
 
+    it('Change something on the newest answer puts its sentence back in the ask bar', async () => {
+        routes(askRoutes());
+        renderWithQuery(<HandyDesk />);
+        const surface = await screen.findByTestId('handy-desk-answer');
+        expect(screen.getByTestId('handy-desk-ask-input')).toHaveValue('');
+        await userEvent.click(within(surface).getByRole('button', { name: 'Change something' }));
+        expect(screen.getByTestId('handy-desk-ask-input')).toHaveValue('Draft Rob a reply');
+    });
+
     it('a card selected before the ask answer loads is not replaced by that answer, only by a different one', async () => {
         let open!: () => void;
         const gate = new Promise<void>((r) => { open = r; });

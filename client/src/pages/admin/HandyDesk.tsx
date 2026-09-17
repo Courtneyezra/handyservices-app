@@ -329,11 +329,11 @@ export default function HandyDesk() {
         return ok;
     };
 
-    // Closing the asked answer puts the newest answer away too, so the same answer does not reappear under it.
+    // Closing the asked answer puts that answer away, so a later read of the newest answer does not bring it back.
     const closeAsked = () => {
         setShowAnswer(false);
         const shown = exchange?.answer?.id;
-        if (shown && latest?.id === shown) setDismissedAnswer(shown);
+        if (shown) setDismissedAnswer(shown);
     };
 
     const select = (item: QueueItem) => {
@@ -385,9 +385,15 @@ export default function HandyDesk() {
                 <section aria-label="Answer" className="flex min-h-[50vh] flex-col bg-slate-50 lg:min-h-0">
                     <div className="flex-1 px-4 py-6 sm:px-8 lg:overflow-y-auto">
                         {exchange && (showAnswer || exchange.live) ? (
-                            <AnswerCard exchange={exchange} onClose={closeAsked} onConfirmed={handleHandled} />
+                            <AnswerCard exchange={exchange} onClose={closeAsked} onChange={setAskText} onConfirmed={handleHandled} />
                         ) : answered ? (
-                            <AnswerCard key={answered.id} exchange={exchangeOfAnswered(answered)} onClose={() => setDismissedAnswer(answered.id)} onConfirmed={handleHandled} />
+                            <AnswerCard
+                                key={answered.id}
+                                exchange={exchangeOfAnswered(answered)}
+                                onClose={() => setDismissedAnswer(answered.id)}
+                                onChange={answered.ask?.text ? setAskText : undefined}
+                                onConfirmed={handleHandled}
+                            />
                         ) : selection ? (
                             <SelectedThread key={selection.caseFileId} selection={selection} />
                         ) : (

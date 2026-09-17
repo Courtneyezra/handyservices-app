@@ -24,9 +24,10 @@ const ROB: QueueItem = {
 };
 const SESSION = { id: 'sess_1', title: 'Handy Desk, Thu 17 Sep', createdBy: 'ben@example.test', status: 'active', createdAt: AT, updatedAt: AT };
 
-function setup(opts: { messageReply?: () => { status?: number; json?: unknown } } = {}) {
+function setup(opts: { messageReply?: () => { status?: number; json?: unknown }; listed?: boolean } = {}) {
     let messages: AskMessageDTO[] = [];
     const fetch = mockFetch([
+        ...(opts.listed ? [{ url: '/api/comms-v2/ask/sessions?limit=1', reply: () => ({ json: [SESSION] }) }] : []),
         { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB] } }) },
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
         { url: /\/api\/comms-v2\/case-files\/case_rob$/, reply: () => ({ json: { id: 'case_rob', turns: [], speakerNames: {} } }) },
@@ -99,6 +100,51 @@ describe('HandyDesk ask bar', () => {
 
         await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));
         expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+    });
+
+    it('a closed asked answer stays closed when the newest-answer read catches up to it', async () => {
+        const { setMessages } = setup({ listed: true });
+        const { client } = renderWithQuery(<HandyDesk />);
+        await screen.findByTestId('queue-card-case_rob');
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Show me the floor' })).toBeEnabled());
+        await userEvent.click(screen.getByRole('button', { name: 'Show me the floor' }));
+        expect(await screen.findByTestId('handy-desk-thinking')).toBeInTheDocument();
+
+        setMessages([
+            { id: 'u1', sessionId: 'sess_1', role: 'user', content: 'Show me the floor', via: 'tap', createdAt: AT } as AskMessageDTO,
+            { id: 'a1', sessionId: 'sess_1', role: 'assistant', content: 'Two files need you.', runId: 'run_1', createdAt: AT, answer: { finalText: 'Two files need you.', surface: { type: 'words' } } } as AskMessageDTO,
+        ]);
+        emit({ type: 'ops_message', sessionId: 'sess_1', message: {}, at: AT });
+        emit({ type: 'ops_run_finished', sessionId: 'sess_1', runId: 'run_1', ok: true, at: AT });
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('Two files need you.');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Back to the conversation' }));
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+        await act(async () => {
+            await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+            await new Promise((r) => setTimeout(r, 20));
+        });
+        expect(client.getQueryData<{ id: string }>(['comms-v2-ask-latest'])?.id).toBe('a1');
+        expect(screen.queryByTestId('handy-desk-answer')).toBeNull();
+        expect(screen.getByTestId('handy-desk-idle')).toBeInTheDocument();
+    });
+
+    it('Change something on the asked answer puts the sentence back in the ask bar', async () => {
+        const { setMessages } = setup();
+        renderWithQuery(<HandyDesk />);
+        await screen.findByTestId('queue-card-case_rob');
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Show me the floor' })).toBeEnabled());
+        await userEvent.click(screen.getByRole('button', { name: 'Show me the floor' }));
+        setMessages([
+            { id: 'u1', sessionId: 'sess_1', role: 'user', content: 'Show me the floor', via: 'tap', createdAt: AT } as AskMessageDTO,
+            { id: 'a1', sessionId: 'sess_1', role: 'assistant', content: 'Two files need you.', runId: 'run_1', createdAt: AT, answer: { finalText: 'Two files need you.', surface: { type: 'words' } } } as AskMessageDTO,
+        ]);
+        emit({ type: 'ops_message', sessionId: 'sess_1', message: {}, at: AT });
+        emit({ type: 'ops_run_finished', sessionId: 'sess_1', runId: 'run_1', ok: true, at: AT });
+        expect(await screen.findByTestId('handy-desk-reply')).toHaveTextContent('Two files need you.');
+
+        await userEvent.click(screen.getByRole('button', { name: 'Change something' }));
+        expect(screen.getByTestId('handy-desk-ask-input')).toHaveValue('Show me the floor');
     });
 
     it('settles the run from the polled session when the finish event never arrives', async () => {
