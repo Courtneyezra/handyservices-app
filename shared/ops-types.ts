@@ -211,14 +211,87 @@ export interface DispatchContractor {
 }
 
 /**
- * The ask agent's new cards (ask-agent specification section 4). Stubs: the ask
- * core types them so the set shares one contract, and the task that produces each
- * one fills in its body (pick and client: ASK find; booking: ASK diary;
- * contractor: ASK ops reads). Every field added later is optional or lives in the
+ * The ask agent's new cards (ask-agent specification section 4). The ask core
+ * typed them so the set shares one contract, and the task that produces each one
+ * fills in its body: pick and client (below) are produced by
+ * server/comms-v2/ask/client-tools.ts; booking and contractor are still stubs
+ * (ASK diary, ASK ops reads). Every field added is optional or lives in the
  * `data` object, so a client written against the stub keeps compiling.
  */
-export interface PickSurface { type: 'pick'; question: string; candidates: { id: string; name: string; data?: Record<string, unknown> }[] }
-export interface ClientSurface { type: 'client'; name: string | null; data?: Record<string, unknown> }
+/**
+ * One row of the pick card (N3): who Ben may mean. `id` is a person ref,
+ * `<kind>:<id>` (server/comms-v2/ask/people.ts), never a phone number. A tap
+ * posts `choose` as the ask: `{ text: choose.text, via: 'tap', context: choose.context }`.
+ */
+export interface PickCandidate {
+  id: string;
+  name: string;
+  data?: Record<string, unknown>;
+  /** client, tenant, landlord, lead or case_file. */
+  kind?: string;
+  /** The company as the card may show it: a tag, a landlord's name, or the company word Ben gave. */
+  company?: string | null;
+  /** The last three digits of the phone, never the number. */
+  phoneTail?: string | null;
+  outwardPostcode?: string | null;
+  lastActivity?: string | null;
+  /** The person's open case file on the board, and its stage. */
+  caseFileId?: string | null;
+  stage?: CaseStage | null;
+  held?: boolean;
+  choose?: { text: string; context: AskContext };
+}
+export interface PickSurface {
+  type: 'pick';
+  question: string;
+  candidates: PickCandidate[];
+  /** What Ben asked for, for "None of these" to put back in the ask bar. */
+  query?: string;
+  hint?: string | null;
+  /** How many matched in all; the card lists at most five. */
+  total?: number;
+}
+
+export interface ClientRecordQuote { id: string; slug: string; status: string; pricePence: number | null; summary: string | null; createdAt: string | null; viewedAt: string | null }
+export interface ClientRecordJob { id: string; quoteId: string | null; status: string; dayOfStatus: string | null; scheduledDate: string | null; completedAt: string | null; summary: string | null }
+export interface ClientRecordInvoice { id: string; number: string; status: string; totalPence: number; balanceDuePence: number; dueDate: string | null; paidAt: string | null }
+export interface ClientRecordCall { id: string; direction: string; outcome: string | null; startTime: string | null; summary: string | null }
+export interface ClientRecordLead { id: string; status: string; stage: string | null; summary: string | null; createdAt: string | null }
+
+/**
+ * The client card (N4): one person's full record, read only (answer 115).
+ * Email and postal address are only ever "on file" flags, never the values
+ * (answers 46 and 47); properties are listed by outward postcode. Figures are
+ * shown read only (answer A8). Every list is the newest five; `counts` gives
+ * the totals.
+ */
+export interface ClientSurface {
+  type: 'client';
+  name: string | null;
+  data?: Record<string, unknown>;
+  /** The person ref, `<kind>:<id>`: an ask about this person posts it as `context.personId`. */
+  id?: string;
+  kind?: string;
+  company?: string | null;
+  phoneTail?: string | null;
+  emailOnFile?: boolean;
+  addressOnFile?: boolean;
+  properties?: { id: string; outwardPostcode: string | null; role: 'client' | 'tenant' | 'landlord'; active: boolean }[];
+  caseFile?: { id: string; stage: CaseStage; held: boolean } | null;
+  lastQuote?: ClientRecordQuote | null;
+  nextBooking?: ClientRecordJob | null;
+  /** Open balance on unpaid invoices, in pence. */
+  owedPence?: number;
+  liveQuotes?: number;
+  counts?: { leads: number; quotes: number; jobs: number; invoices: number; calls: number };
+  quotes?: ClientRecordQuote[];
+  jobs?: ClientRecordJob[];
+  invoices?: ClientRecordInvoice[];
+  calls?: ClientRecordCall[];
+  leads?: ClientRecordLead[];
+  /** Why part of the record could not be read. */
+  note?: string;
+}
 export interface BookingSurface { type: 'booking'; bookingId: string; data?: Record<string, unknown> }
 export interface ContractorSurface { type: 'contractor'; contractorId: string; name: string; data?: Record<string, unknown> }
 
@@ -351,6 +424,12 @@ export type AskVia = 'typed' | 'voice' | 'tap';
 export interface AskContext {
   caseFileId?: string | null;
   phone?: string | null;
+  /**
+   * A person ref (`<kind>:<id>`) from a pick card or a client card: the
+   * person the ask is about. The server takes it only when this session's own
+   * answers showed that ref.
+   */
+  personId?: string | null;
 }
 
 /** An ask-agent message: the OpsMessageDTO shape with how it was asked, what it was about and, on the assistant row, the answer. */

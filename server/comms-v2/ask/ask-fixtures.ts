@@ -1,13 +1,15 @@
 /**
  * Shared fixtures for the ask agent's tests: a WhatsApp case file with an open window, a memory
- * store behind the BoardSource shape the board reads, and a scripted reasoner loop that calls the
- * agent's own tools in the order a test gives.
+ * store behind the BoardSource shape the board reads, a scripted reasoner loop that calls the
+ * agent's own tools in the order a test gives, and CRM people and dossiers for the clients group.
  */
 import type { AgentTool, AgentTranscriptEvent } from '../../agents/runner';
 import { open, type CaseFile } from '../desk/case-file';
 import { MemoryCaseFileStore } from '../desk/store';
 import type { BoardSource } from '../api/store';
 import type { AskLoop } from './agent';
+import type { PersonRow } from './people';
+import type { CustomerDossier } from '../../customer-dossier';
 
 export const AT = '2026-09-17T09:00:00.000Z';
 export const NOW = '2026-09-17T09:10:00.000Z';
@@ -49,5 +51,22 @@ export function scriptedLoop(steps: ScriptStep[] | ((tools: AgentTool[]) => Scri
             opts.onEvent({ at, type: 'tool_result', detail: { tool: step.tool, result } } as AgentTranscriptEvent);
         }
         return { finalText: 'Done.', usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 } as never };
+    };
+}
+
+/** A CRM person row for the people directory (people.ts); its name is its only company field unless given. */
+export function personRow(over: Partial<PersonRow> & Pick<PersonRow, 'kind' | 'id' | 'name'>): PersonRow {
+    return {
+        phone: null, clientId: over.kind === 'client' ? over.id : null, companyFields: over.name ? [{ field: 'name', text: over.name, shown: null }] : [],
+        company: null, outwardPostcodes: [], emailOnFile: false, addressOnFile: false, lastActivity: '2026-09-01T10:00:00.000Z', ...over,
+    };
+}
+
+/** An empty dossier for a phone, with any lists a test gives. */
+export function dossierOf(over: Partial<CustomerDossier> = {}): CustomerDossier {
+    return {
+        phoneKey: '', name: null,
+        summary: { jobs: 0, openBalancePence: 0, liveQuotes: 0, counts: { leads: 0, quotes: 0, jobs: 0, invoices: 0, conversations: 0, calls: 0 } },
+        leads: [], quotes: [], jobs: [], invoices: [], conversations: [], calls: [], ...over,
     };
 }

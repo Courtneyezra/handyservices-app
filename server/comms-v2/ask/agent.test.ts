@@ -18,7 +18,8 @@ import { hold as setHold } from '../desk/case-file';
 import { BEN } from '../desk/guards';
 import { COMPOSER_MODEL, FakeModelClient, ROUTER_MODEL, SPECIALIST_MODEL } from '../desk/models';
 import { MONEY_REFUSAL, contextFile, historyToPriorMessages, runAskTurn, type RunAskTurnOptions } from './agent';
-import { ASK_TOOL_NAMES } from './tools';
+import { ASK_READ_TOOLS, ASK_TOOL_NAMES } from './tools';
+import { CLIENT_TOOL_NAMES } from './client-tools';
 import { MemoryAskActionStore } from './actions';
 import { BEN_PERSON, memorySource, now, scriptedLoop, whatsappFile } from './ask-fixtures';
 
@@ -253,12 +254,12 @@ describe('the router gates the tool groups', () => {
         expect(out.leanTranscript[0]).toMatchObject({ type: 'route', detail: { domains: ['quotes'], offered: ['quotes'] } });
     });
 
-    it('still offers the reads to "show me Gemma" routed to clients only with no card selected', async () => {
+    it('still offers the reads to "show me Gemma" routed to clients only with no card selected, with the clients group', async () => {
         const { source } = memorySource([whatsappFile({ name: 'Gemma' })]);
         const seen: { opts?: any; results: unknown[] } = { results: [] };
         const client = new FakeModelClient({ router: () => route({ intents: ['show'], domains: ['clients'], surface: 'client' }) });
         await runAskTurn(ask({ userMessage: 'show me Gemma', context: null }), { source, assignments: async () => ({}), client, loop: scriptedLoop([], seen), now: now() });
-        expect(names(seen)).toEqual(['get_board', 'find_case_files', 'get_case_file', 'give_answer']);
+        expect(names(seen)).toEqual(['get_board', 'find_case_files', 'get_case_file', ...CLIENT_TOOL_NAMES, 'give_answer']);
     });
 
     it('adds the messages group for a selected card or a route naming no domain, and offers every group when the route fails', async () => {
@@ -271,7 +272,8 @@ describe('the router gates the tool groups', () => {
         };
         expect(await run(() => route({ domains: ['quotes'] }), { caseFileId: file.id })).toEqual({ names: [...ASK_TOOL_NAMES], offered: ['quotes', 'messages'] });
         expect(await run(() => route({ domains: [] }), null)).toEqual({ names: [...ASK_TOOL_NAMES], offered: ['messages'] });
-        expect(await run(() => ({ error: 'overloaded' }), null)).toEqual({ names: [...ASK_TOOL_NAMES], offered: ['clients', 'quotes', 'bookings', 'contractors', 'messages', 'calls', 'invoices'] });
+        const [answer] = ASK_TOOL_NAMES.slice(-1);
+        expect(await run(() => ({ error: 'overloaded' }), null)).toEqual({ names: [...ASK_READ_TOOLS, ...CLIENT_TOOL_NAMES, ...ASK_TOOL_NAMES.slice(ASK_READ_TOOLS.length, -1), answer], offered: ['clients', 'quotes', 'bookings', 'contractors', 'messages', 'calls', 'invoices'] });
     });
 
     it('passes the router\'s steps to the reasoner, and keeps the turn cap', async () => {

@@ -6,13 +6,15 @@
  * reasoner, so a tool that is not the ask's business is not there to be called. The board and
  * case-file reads (tools.ts `caseFileReads`) and `give_answer` are offered in every run. A failed route offers every group, as a failed route has always fallen
  * through to the reasoner with no hint; a route naming no domain offers `messages`, and so does a
- * selected card, which is a case file.
+ * selected card, which is a case file. A selected person (a pick card's tap, a client card) offers
+ * `clients`.
  *
  * Every group reads; a change is only ever a proposal (tools.ts `proposeInRun`). Each task in the
  * ask-agent set fills its own group here and nowhere else.
  */
 import type { AgentTool } from '../../agents/runner';
 import { answerTool, caseFileReads, messageTools, type AskRunState, type AskToolDeps } from './tools';
+import { clientTools } from './client-tools';
 
 export const ASK_DOMAINS = ['clients', 'quotes', 'bookings', 'contractors', 'messages', 'calls', 'invoices'] as const;
 export type AskDomain = (typeof ASK_DOMAINS)[number];
@@ -20,7 +22,7 @@ export type AskDomain = (typeof ASK_DOMAINS)[number];
 export type ToolGroup = (deps: AskToolDeps, state: AskRunState) => AgentTool[];
 
 export const TOOL_GROUPS: Record<AskDomain, ToolGroup> = {
-    clients: () => [],
+    clients: clientTools,
     quotes: () => [],
     bookings: () => [],
     contractors: () => [],
@@ -34,6 +36,8 @@ export interface ToolsForInput {
     domains: readonly AskDomain[] | null;
     /** Whether the ask came with a case file's card selected. */
     cardSelected: boolean;
+    /** Whether the ask names a person (a pick card's tap, or a client card), who is the `clients` group's business. */
+    personSelected?: boolean;
 }
 
 /** The domains a run is offered, in catalogue order. */
@@ -41,6 +45,7 @@ export function offeredDomains(input: ToolsForInput): AskDomain[] {
     if (!input.domains) return [...ASK_DOMAINS];
     const want = new Set<AskDomain>(input.domains);
     if (!want.size || input.cardSelected) want.add('messages');
+    if (input.personSelected) want.add('clients');
     return ASK_DOMAINS.filter((d) => want.has(d));
 }
 

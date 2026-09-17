@@ -31,11 +31,14 @@ import { AnthropicModelClient, ROUTER_MODEL, SPECIALIST_MODEL, type ModelClient 
 import type { ApproverAssignments } from '../api/approvers';
 import type { BoardSource } from '../api/store';
 import { newRunState, proposeInRun, type AskRunState, type AskToolDeps } from './tools';
-import { buildAnswer, customerOf, fileAnswersTo } from './surface';
+import { buildAnswer, customerOf, fileAnswersTo, type SurfaceChoice } from './surface';
 import { ASK_DOMAINS, offeredDomains, toolsFor, type AskDomain } from './tool-groups';
 import type { AskActionStore } from './actions';
 import type { ActionKinds } from './action-kinds';
 import { buildPlan, cleanSteps } from './plan';
+import type { PeopleDirectory } from './people';
+import type { DossierReader } from './client-record';
+import type { PickedPerson } from './session-people';
 
 export const ASK_AGENT_NAME = 'comms-v2-ask';
 /** Most recent session messages fed to the reasoner as prior turns. */
@@ -80,6 +83,8 @@ What you can do:
 - Read with the tools you are given. Every tool reads; none changes anything a customer sees.
 - Hold ONE drafted reply for Ben with draft_reply. It never sends. A draft you hold is proposed for sending: Ben reads it and confirms. Only draft when he asks you to reply, message or answer a customer, or clearly wants one.
 - Propose ONE change per turn with a propose_ tool (for example propose_send_held_draft). Nothing runs until Ben confirms it on your answer. After proposing, stop and answer: the next step is proposed after he confirms, on a fresh read.
+- Find who Ben means with find_people: a name or phone number as the query, and a company or postcode as the hint ("Sarah" with hint "Tena Properties"). If it answers "pick", stop there: read and propose nothing more about those people, and call give_answer with surface "pick"; Ben taps the person and his ask comes back to you. Act only on a personId that find_people returned as "found", or the selected person.
+- Show one person's full record with client_record, then give_answer with surface "client" and that personId. Figures on it are for Ben to read; the record never gives an email address or a postal address, only whether one is on file.
 - End with give_answer, exactly once, then one short closing line. For an ask with more than one step, give its plan, marking the steps you finished.
 
 Rules:
@@ -91,7 +96,7 @@ Rules:
 6. If a draft is refused, say why in plain words; do not retry more than once with a different brief.
 7. Earlier messages in this conversation describe the desk as it was then. What is held, waiting or drafted now comes only from this ask's fresh read and your tool results.
 
-Answer surface: "thread" for one customer's conversation (always when you drafted or looked at one file), "floor" for the whole board, "words" otherwise. finalText is one to three short sentences, UK English, plain, no markdown.`;
+Answer surface: "thread" for one customer's conversation (always when you drafted or looked at one file), "floor" for the whole board, "client" for one person's record, "pick" when find_people asks Ben to pick, "words" otherwise. finalText is one to three short sentences, UK English, plain, no markdown.`;
 
 /** The reasoner loop: the generic runner, or a fake in tests. */
 export type AskLoop = (opts: {
@@ -124,6 +129,10 @@ export interface RunAskTurnOptions {
     /** The ask run: the proposals it saves carry it, so its answer message can be named on them. */
     askRunId?: string | null;
     onEvent?: (step: LeanRunStep) => void;
+    /** Person refs this session has settled (session-people.ts), including `context.personId` once checked. */
+    knownPeople?: string[];
+    /** The pick this ask answers, when it is a tap on a pick card. */
+    picked?: PickedPerson | null;
 }
 
 export interface RunAskTurnResult {
@@ -143,6 +152,10 @@ export interface AskTurnDeps {
     /** Where proposals are saved; without one, nothing is proposed. */
     actions?: AskActionStore;
     kinds?: ActionKinds;
+    /** The CRM people directory; the app's database by default. */
+    people?: PeopleDirectory;
+    /** The record read by phone; getCustomerDossier by default. */
+    dossier?: DossierReader;
 }
 
 /** The session history as runner prior messages: recent, non-empty, strictly alternating, user first, and not ending on a user turn (the ask follows). */
@@ -182,6 +195,13 @@ function goalFor(opts: RunAskTurnOptions, selected: CaseFile | null, route: AskR
         lines.push('The selected card is not on the desk any more.');
     } else {
         lines.push('No card is selected.');
+    }
+    const personId = opts.context?.personId;
+    if (opts.picked) {
+        lines.push(`Ben picked ${opts.picked.name ?? 'a person'} (personId ${opts.picked.personId}) for "${opts.picked.question}". Do not search for them again: use that personId.`);
+        if (opts.picked.ask) lines.push(`Carry on with the ask the pick came from: ${opts.picked.ask}`);
+    } else if (personId) {
+        lines.push(`Selected person: personId ${personId}.`);
     }
     if (route) {
         lines.push(`Router hint: surface ${route.surface}${route.wantsDraft ? ', wants a draft' : ''}.`);
@@ -223,13 +243,18 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
     const routed = await routeAsk(client, opts, selected);
     state.calls.push(routed.record);
     const domains: readonly AskDomain[] | null = routed.route ? routed.route.domains : null;
-    const offered = offeredDomains({ domains, cardSelected: !!selected });
+    const personSelected = !!opts.context?.personId;
+    const offered = offeredDomains({ domains, cardSelected: !!selected, personSelected });
     push({ at: now().toISOString(), type: 'route', detail: routed.route ? { ...routed.route, offered } : { error: routed.error, offered } });
 
     const toolDeps: AskToolDeps = {
         source: deps.source, assignments, approver: opts.approver, person: opts.person, client, now,
         actions: deps.actions, kinds: deps.kinds, sessionId: opts.sessionId, askRunId: opts.askRunId ?? null,
+        people: deps.people, dossier: deps.dossier, selectedCaseFileId: selected?.id ?? null,
     };
+    for (const ref of opts.knownPeople ?? []) state.people.settled.add(ref);
+    if (opts.context?.personId) state.people.settled.add(opts.context.personId);
+    if (selected) state.people.settled.add(`case_file:${selected.id}`);
 
     let autoRefusal: string | null = null;
     const answerFrom = async (fallbackText: string): Promise<OpsAnswer> => {
@@ -245,16 +270,21 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
         const selectedNow = selected ? files.find((f) => f.id === selected.id) ?? null : null;
         // The reasoner often closes without give_answer: fall back to what it drafted, then the
         // router's floor, then the selected card.
-        const choice = chosen?.surface
+        // A pick waiting on Ben is the answer whatever else the run chose: nothing about those people stands until he taps.
+        const pick = state.people.picks[0] ?? null;
+        const choice: SurfaceChoice = pick ? { type: 'pick' }
+            : chosen?.surface
             ?? (state.drafted.length ? { type: 'thread' as const, caseFileId: state.drafted[state.drafted.length - 1] }
                 : routed.route?.surface === 'floor' ? { type: 'floor' as const }
+                : state.people.lastCard ? { type: 'client' as const, personId: state.people.lastCard }
                 : selectedNow ? { type: 'thread' as const, caseFileId: selectedNow.id } : { type: 'words' as const });
         const notes = [chosen?.note ?? null, drafted.length > 1 ? `${drafted.length} drafts are held; send each from its own card.` : null, autoRefusal].filter(Boolean).join(' ');
         // Router steps say nothing of what is done, so they stand in only while nothing waits or was refused.
         const steps = chosen?.plan.length ? chosen.plan
             : state.proposal || state.refusal ? [] : cleanSteps(routed.route?.steps ?? []);
         const plan = buildPlan({ steps, proposal: state.proposal, refusal: state.refusal });
-        return buildAnswer({ finalText: chosen?.finalText ?? fallbackText, choice, files, assignments, drafted, proposal: state.proposal, plan, note: notes || null, now: now() });
+        const finalText = pick && chosen?.surface.type !== 'pick' ? pick.question : chosen?.finalText ?? fallbackText;
+        return buildAnswer({ finalText, choice, files, assignments, drafted, proposal: state.proposal, plan, note: notes || null, now: now(), pick, clientCards: state.people.cards });
     };
 
     if (routed.route?.moneyAction) {
@@ -262,7 +292,7 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
         return { answer: { ...answer, note: 'No money actions yet.' }, leanTranscript, usage: { loop: null, calls: state.calls } };
     }
 
-    const tools = toolsFor({ domains, cardSelected: !!selected }, toolDeps, state);
+    const tools = toolsFor({ domains, cardSelected: !!selected, personSelected }, toolDeps, state);
 
     // The session carries earlier runs' answers, which go stale: a floor ask reads the board and a
     // thread ask reads the selected file before the reasoner starts, whatever the history says.

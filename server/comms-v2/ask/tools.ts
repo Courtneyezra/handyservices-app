@@ -33,6 +33,8 @@ import { fileAnswersTo, type SurfaceChoice } from './surface';
 import { proposeAction, type AskActionStore } from './actions';
 import type { ActionKinds } from './action-kinds';
 import { cleanSteps, type PlannedStep } from './plan';
+import { newRunPeople, type PeopleDirectory, type RunPeople } from './people';
+import type { DossierReader } from './client-record';
 
 export const BOARD_CARD_CAP = 60;
 export const FIND_CAP = 10;
@@ -63,6 +65,12 @@ export interface AskToolDeps {
     sessionId?: string;
     /** The ask run the proposals belong to. */
     askRunId?: string | null;
+    /** The CRM people directory (people.ts); the app's database by default. */
+    people?: PeopleDirectory;
+    /** The record read by phone (client-record.ts); getCustomerDossier by default. */
+    dossier?: DossierReader;
+    /** The case file of the card Ben has selected: a person on it needs no pick. */
+    selectedCaseFileId?: string | null;
 }
 
 export interface GiveAnswerInput {
@@ -91,10 +99,12 @@ export interface AskRunState {
     proposal: RunProposal | null;
     /** The refusal that stopped this run's chain, verbatim. */
     refusal: string | null;
+    /** Who the run may act on, and the pick and client cards it built (client-tools.ts). */
+    people: RunPeople;
 }
 
 export function newRunState(): AskRunState {
-    return { drafted: [], answer: null, calls: [], proposal: null, refusal: null };
+    return { drafted: [], answer: null, calls: [], proposal: null, refusal: null, people: newRunPeople() };
 }
 
 export type ProposeInRunResult =
@@ -108,6 +118,8 @@ export type ProposeInRunResult =
  */
 export async function proposeInRun(deps: AskToolDeps, state: AskRunState, kind: ConfirmKind, args: unknown): Promise<ProposeInRunResult> {
     if (state.refusal) return { status: 'refused', reason: `the plan stopped at a refusal (${state.refusal}); tell Ben and propose nothing more` };
+    // Waiting on Ben's pick is not a refusal: the chain carries on after his tap.
+    if (state.people.picks.length) return { status: 'refused', reason: 'Ben has not picked who this is about yet: answer with the pick card and propose nothing' };
     if (state.proposal) return { status: 'refused', reason: `one change at a time: ${state.proposal.kind} is waiting for Ben's confirm, and the next step is proposed after it` };
     if (!deps.actions || !deps.sessionId) return { status: 'refused', reason: 'this run cannot propose changes' };
     const out = await proposeAction(
@@ -322,13 +334,14 @@ export function messageTools(deps: AskToolDeps, state: AskRunState): AgentTool[]
 export function answerTool(state: AskRunState): AgentTool {
     return {
         name: 'give_answer',
-        description: 'Your answer to Ben, and what his answer surface shows. Call it exactly once, last, before your closing line. surface "thread" shows one case file\'s conversation (give caseFileId); "floor" shows the whole board; "words" shows only your reply. A change you proposed this turn is shown with its preview and a confirm button automatically. For an ask with more than one step, give plan: every step of what Ben asked, in order, with done true for the ones finished. A multi-step ask that proposes a change must give plan, or no plan strip is shown.',
+        description: 'Your answer to Ben, and what his answer surface shows. Call it exactly once, last, before your closing line. surface "thread" shows one case file\'s conversation (give caseFileId); "floor" shows the whole board; "client" shows one person\'s record you read with client_record (give personId); "pick" shows the people find_people asked Ben to pick from; "words" shows only your reply. A change you proposed this turn is shown with its preview and a confirm button automatically. For an ask with more than one step, give plan: every step of what Ben asked, in order, with done true for the ones finished. A multi-step ask that proposes a change must give plan, or no plan strip is shown.',
         input_schema: {
             type: 'object',
             properties: {
                 finalText: { type: 'string', description: 'The reply line: one to three short sentences, what you found or did.' },
-                surface: { type: 'string', enum: ['thread', 'floor', 'words'] },
+                surface: { type: 'string', enum: ['thread', 'floor', 'client', 'pick', 'words'] },
                 caseFileId: { type: 'string', description: 'Required for surface "thread".' },
+                personId: { type: 'string', description: 'Required for surface "client".' },
                 note: { type: 'string', description: 'Optional footer: anything Ben must know before he confirms, such as a shut window.' },
                 plan: {
                     type: 'array',
@@ -338,7 +351,7 @@ export function answerTool(state: AskRunState): AgentTool {
             },
             required: ['finalText', 'surface'],
         },
-        run: async (input: { finalText?: string; surface?: string; caseFileId?: string; note?: string; plan?: unknown }) => {
+        run: async (input: { finalText?: string; surface?: string; caseFileId?: string; personId?: string; note?: string; plan?: unknown }) => {
             const finalText = str(input?.finalText).trim();
             if (!finalText) return { ok: false, error: 'finalText is required' };
             let surface: SurfaceChoice;
@@ -346,6 +359,14 @@ export function answerTool(state: AskRunState): AgentTool {
                 const id = str(input.caseFileId).trim();
                 if (!id) return { ok: false, error: 'a thread surface needs caseFileId' };
                 surface = { type: 'thread', caseFileId: id };
+            } else if (input?.surface === 'client') {
+                const id = str(input.personId).trim();
+                if (!id) return { ok: false, error: 'a client surface needs personId' };
+                if (!state.people.cards.has(id)) return { ok: false, error: 'read that person with client_record first' };
+                surface = { type: 'client', personId: id };
+            } else if (input?.surface === 'pick') {
+                if (!state.people.picks.length) return { ok: false, error: 'no pick is waiting: find_people did not ask Ben to pick' };
+                surface = { type: 'pick' };
             } else if (input?.surface === 'floor') surface = { type: 'floor' };
             else surface = { type: 'words' };
             state.answer = { finalText, surface, note: str(input?.note).trim() || null, plan: cleanSteps(input?.plan) };

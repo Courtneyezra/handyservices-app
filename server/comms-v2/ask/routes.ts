@@ -7,7 +7,8 @@
  * GET  /sessions?limit=           - the person's active sessions, newest first
  * GET  /sessions/:id              - { session, messages } (messages oldest first, AskMessageDTO)
  * POST /sessions/:id/archive
- * POST /sessions/:id/messages {text, via?, context?} -> 202 { runId }
+ * POST /sessions/:id/messages {text, via?, context?} -> 202 { runId }; context.personId is kept only
+ *                                    when this session's answers showed that person (session-people.ts)
  * GET  /actions/:id                - one of the person's proposals (AskActionDTO)
  * POST /actions/:id/confirm        - run it (actions.ts `confirmAction`): 200 { action, repeat, continuedRunId },
  *                                    or 403 (no slot, or not the slot the file answers to), 404 (not one
@@ -39,6 +40,7 @@ import { databaseAskSessionStore, dayTitle, londonDay, type AskSessionStore } fr
 import { actionDTO, cancelAction, confirmAction, databaseAskActionStore, type AskAction, type AskActionStore, type SettleCode, type SettleOutcome } from './actions';
 import type { ActionKinds } from './action-kinds';
 import { planAfter, remainingAfter } from './plan';
+import { sessionPeople } from './session-people';
 
 export interface AskRouterDeps {
     source: () => Promise<BoardSource>;
@@ -72,7 +74,9 @@ function contextOf(body: any): AskContext | null {
     if (!raw || typeof raw !== 'object') return null;
     const caseFileId = typeof raw.caseFileId === 'string' && raw.caseFileId.trim() ? raw.caseFileId.trim().slice(0, 200) : null;
     const phone = typeof raw.phone === 'string' && raw.phone.trim() ? raw.phone.trim().slice(0, 200) : null;
-    return caseFileId || phone ? { caseFileId, phone } : null;
+    const personId = typeof raw.personId === 'string' && raw.personId.trim() ? raw.personId.trim().slice(0, 200) : null;
+    if (!caseFileId && !phone && !personId) return null;
+    return personId ? { caseFileId, phone, personId } : { caseFileId, phone };
 }
 
 const defaultEmit: NonNullable<AskRouterDeps['emit']> = (evt) => {
@@ -188,7 +192,12 @@ export function createAskRouter(deps: AskRouterDeps): Router {
      * taken before any await, so a second request on this tick is refused.
      */
     function startRun(input: { req: Request; sessionId: string; person: string; content: string; via: AskVia; context: AskContext | null; prior: AskMessageDTO[] }): { runId: string } | { busy: string } {
-        const { req, sessionId, person, content, via, context } = input;
+        const { req, sessionId, person, content, via } = input;
+        // A person the session never showed is not taken from the body (session-people.ts).
+        const people = sessionPeople(input.prior, input.context);
+        const context: AskContext | null = input.context?.personId && !people.personId
+            ? (input.context.caseFileId || input.context.phone ? { caseFileId: input.context.caseFileId ?? null, phone: input.context.phone ?? null } : null)
+            : input.context;
         const busy = activeRuns.get(sessionId);
         if (busy) return { busy };
         const runId = `ask_${randomUUID()}`;
@@ -206,6 +215,7 @@ export function createAskRouter(deps: AskRouterDeps): Router {
                 const assignments = await approvers();
                 const result = await runTurn({
                     sessionId, userMessage: content, via, context, history, person, askRunId: runId,
+                    knownPeople: people.settled, picked: people.picked,
                     approver: slotOf((req as any).user, assignments),
                     onEvent: (step: LeanRunStep) => emit({ type: 'ops_run_event', sessionId, runId, step, at: stamp() }),
                 }, { source: deps.source, assignments: async () => assignments, actions, kinds: deps.kinds, now: actionClock, ...deps.turnDeps });

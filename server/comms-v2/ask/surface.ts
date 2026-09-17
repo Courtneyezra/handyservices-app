@@ -8,11 +8,13 @@
  * preview, or a held draft this run wrote when nothing could be proposed for it.
  *
  * Sources: thread -> the case file's turns (desk/case-file.ts), with a call turn's summary from
- * api/board.ts `callViewOf`; floor -> api/board.ts `boardOf`, the same columns Ben's kanban shows.
- * The other four surface types in shared/ops-types.ts are not produced here yet.
+ * api/board.ts `callViewOf`; floor -> api/board.ts `boardOf`, the same columns Ben's kanban shows;
+ * pick -> the card find_people saved; client -> the record client_record read (client-tools.ts).
+ * The model names a person and the server supplies the card, so neither carries the model's words.
+ * The other surface types in shared/ops-types.ts are not produced here yet.
  */
 import type {
-    AnswerSurface, CaseStage, OpsAnswer, OpsOutgoing, PlanStep, SurfaceBoardCard, SurfaceTurn,
+    AnswerSurface, CaseStage, ClientSurface, OpsAnswer, OpsOutgoing, PickSurface, PlanStep, SurfaceBoardCard, SurfaceTurn,
 } from '@shared/ops-types';
 import { boardOf, callViewOf, replyChannelOf } from '../api/board';
 import type { ApproverAssignments } from '../api/approvers';
@@ -141,6 +143,8 @@ export function confirmOf(p: RunProposal): NonNullable<OpsAnswer['confirm']> {
 export type SurfaceChoice =
     | { type: 'thread'; caseFileId: string }
     | { type: 'floor' }
+    | { type: 'client'; personId: string }
+    | { type: 'pick' }
     | { type: 'words' };
 
 export interface BuildAnswerInput {
@@ -155,6 +159,10 @@ export interface BuildAnswerInput {
     plan?: PlanStep[];
     note?: string | null;
     now?: Date;
+    /** The pick card waiting on Ben, as find_people built it (client-tools.ts). */
+    pick?: PickSurface | null;
+    /** The client cards this run read, by person ref (client-record.ts). */
+    clientCards?: ReadonlyMap<string, ClientSurface>;
 }
 
 /**
@@ -174,6 +182,19 @@ export function buildAnswer(input: BuildAnswerInput): OpsAnswer {
         else {
             surface = { type: 'words' };
             notes.push(`No case file ${input.choice.caseFileId} is on the desk, so there is no thread to show.`);
+        }
+    } else if (input.choice.type === 'pick') {
+        if (input.pick) surface = input.pick;
+        else {
+            surface = { type: 'words' };
+            notes.push('No pick is waiting, so there is nobody to choose from.');
+        }
+    } else if (input.choice.type === 'client') {
+        const card = input.clientCards?.get(input.choice.personId);
+        if (card) surface = card;
+        else {
+            surface = { type: 'words' };
+            notes.push('That person\'s record was not read on this ask, so there is no card to show.');
         }
     } else if (input.choice.type === 'floor') {
         surface = floorSurface(input.files, input.assignments);

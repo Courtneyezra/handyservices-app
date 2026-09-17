@@ -342,6 +342,13 @@ const OVERRIDES: Record<string, Treatment> = {
     'comms_v2_ask_messages.approver': 'actor',
     'comms_v2_ask_messages.label': 'note',               // a plan step or confirm label, which can name a customer
     'comms_v2_ask_messages.guard_note': 'note',
+    // The pick and client cards (server/comms-v2/ask/client-tools.ts): `company` is a client's tag,
+    // a landlord's name or the company word Ben typed, and `hint` that word as the search read it.
+    // `phone_tail` is only the last three digits of a phone, which name nobody; `outward_postcode`
+    // is a postcode by the name rule, and `person_id` (`<kind>:<id>`) an id by the id rule.
+    'comms_v2_ask_messages.company': 'note',
+    'comms_v2_ask_messages.hint': 'note',
+    'comms_v2_ask_messages.phone_tail': 'keep',
 
     // --- the ask agent's proposals (server/comms-v2/ask/actions.ts). `kind` and `status` are
     //     enumerations and `preview_hash` a sha256; the ids are kept by the id rule. The preview is
