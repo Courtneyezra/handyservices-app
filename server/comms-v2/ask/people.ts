@@ -424,13 +424,13 @@ const iso = (v: Date | string | null | undefined): string | null => (v == null ?
 const txt = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const list = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()) : []);
 
-type Pick = { terms: SearchTerms } | { kind: DirectoryKind; id: string };
+type LoadPick = { terms: SearchTerms } | { kind: DirectoryKind; id: string };
 
 /**
  * The rows a search or a single ref names, each source shaped the same way. A search prefilters with
  * ILIKE on its words and a digits match on the phone, capped at SOURCE_ROW_CAP per source.
  */
-async function loadRows(pick: Pick): Promise<PersonRow[]> {
+async function loadRows(pick: LoadPick): Promise<PersonRow[]> {
     const { db } = await import('../../db');
     const s = await import('@shared/schema');
     const { and, eq, ilike, inArray, isNull, or, sql } = await import('drizzle-orm');
