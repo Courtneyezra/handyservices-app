@@ -327,6 +327,11 @@ describe('an expired quote, when the customer writes back', () => {
             'is the £120 still right?',
             'what was the total again?',
             'Hi, is the £120.00 still ok? Thanks',
+            // The apology a customer puts in front of the ask when the quote lapsed weeks ago: it
+            // asks nothing, so it is no more money for Ben than a greeting is.
+            'Hi Ben, sorry for the slow reply. Is that price still ok?',
+            "Sorry it's taken me so long to get back to you, how much is it now?",
+            'Apologies for not getting back to you sooner, is the £120 still right?',
         ])('a plain ask of the quote\'s own price is answered by the reissue: %s', async (text) => {
             const { say, row, file } = await expired({ reading: total });
             const out = await say(text);
@@ -353,6 +358,7 @@ describe('an expired quote, when the customer writes back', () => {
             'could I pay half now and half later, is the £120 still ok?',
             'is £100 still ok?',
             'is the price still ok if you add the shower too?',
+            'sorry for the delay, any chance of a discount?',
         ])('haggling, a discount or payment terms stays with Ben and nothing is reissued: %s', async (text) => {
             const { say, row, file } = await expired({ reading: total });
             const out = await say(text);
@@ -361,6 +367,15 @@ describe('an expired quote, when the customer writes back', () => {
             expect(reissueRecordOf(row)).toBeNull();
             expect(file.hold?.exception).toBe('money');
             expect(reissueNotes(file)).toEqual([]);
+        });
+
+        it('an apology that is not about the slow reply is not a pleasantry: the turn stays with Ben', async () => {
+            const { say, row, file } = await expired({ reading: total });
+            const out = await say('sorry for the mess in the bathroom, how much is it now?');
+            expect(out.text).not.toMatch(/expired|£126/);
+            expect(row.basePrice).toBe(12_000);
+            expect(reissueRecordOf(row)).toBeNull();
+            expect(file.hold?.exception).toBe('money');
         });
 
         it('money beyond the quote\'s own lines stays with Ben and nothing is reissued', async () => {

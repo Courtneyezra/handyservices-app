@@ -115,3 +115,32 @@ round (below).
   you get my email?") drew a full composed reply asking for the postcode and a photo, offering a
   call and offering WhatsApp — the desk treats an opt-out hold as an ordinary hold, and behaviour.md
   records nothing about what a thread should do between the stop request and Ben recording it.
+- Round 6 (17 Sep 2026) — the expired quote and the +5% reissue, WhatsApp, driven on the app's own
+  comms-v2 sandbox door as Ben (scoped a bathroom fan and a sticking door at SE13 5QT, Ben priced
+  and sent, `/lapse` expired the quote). The finding is live: the most ordinary way a customer
+  returns to a quote that lapsed weeks ago — "Hi Ben, sorry for the slow reply. Is that price still
+  ok?" — was not reissued at all. `plainPriceAsk` (`desk/lexicon.ts`) requires every clause to be a
+  plain price ask or a pleasantry, and its pleasantry list holds a bare "sorry" but nothing like
+  "sorry for the slow reply", so the apology made the whole message not-plain, the money exemption
+  did not fire and the thread held for Ben on `money: price` with the holding line ("I can't confirm
+  the figure just yet"). The captain's ruling is that a plain ask of the quote's own price is
+  answered by the reissue, and an apology for being slow to write back asks nothing, names no figure
+  and adds no scope. Fix: the pleasantry set takes that apology family (`DELAY_APOLOGY` in
+  `desk/lexicon.ts`: "sorry for the delay", "apologies for the slow reply", "sorry it's taken me so
+  long to get back to you", "sorry for not getting back to you sooner", each with an optional "on
+  this"), narrow on purpose so an apology about anything else is still not a pleasantry, with four
+  regression tests in `desk/reissue-desk.test.ts` (three plain asks under an apology reissued — they
+  fail without the fix — a delay apology beside a discount ask still Ben's, and "sorry for the mess
+  in the bathroom, how much is it now?" still Ben's) and the rule restated in
+  `docs/comms-v2/contracts.md`. Not an ESCALATE: nothing wrong went to the customer and no figure
+  moved, the desk failed closed to Ben; the cost is a reissue that never happens and a card Ben must
+  answer by hand. Re-driven live after the fix on a fresh thread: a £169.00 quote lapsed, the same
+  message reissued it at £178.00 (169 × 1.05 = 177.45, up to the pound), one reply of three bubbles
+  (146/50/127 characters) opening with the expiry sentence and the link, every guard passing and no
+  hold. The haggle control on the same door holds: a lapsed £188.00 quote met with "Sorry for the
+  slow reply. Any chance of knocking a bit off that price?" held for Ben on money with no figure in
+  the reply, no reissue, and the row still £188.00 and expired. Noted for a later round, not chased
+  here: the door's `POST /reset` now fails to delete the sandbox quotes it made
+  (`quotes: { error: 'violates foreign key constraint "invoices_quote_id_personalized_quotes_id_fk"' }`),
+  so the drama number's quote rows stay on the branch; nothing customer-facing reads them, since a
+  file reads only its own `quoteRef`.
