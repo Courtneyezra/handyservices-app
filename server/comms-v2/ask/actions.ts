@@ -39,15 +39,15 @@ export const PROPOSAL_TTL_MS = 15 * 60_000;
 
 /**
  * A shorter proposal window for a sandbox or branch run, in whole seconds, so a live check of the
- * expiry does not wait out 15 minutes. It can only shorten the window, and it is ignored on a
- * process whose DATABASE_URL is production.
+ * expiry does not wait out 15 minutes. It can only shorten the window, and it is ignored when
+ * NODE_ENV is production or DATABASE_URL is the production database.
  */
 export const PROPOSAL_TTL_ENV = 'COMMS_V2_ASK_PROPOSAL_TTL_SECONDS';
 
 /** The proposal window this process uses: 15 minutes, or the shorter non-production override. */
 export function proposalTtlMs(env: NodeJS.ProcessEnv = process.env): number {
     const raw = env[PROPOSAL_TTL_ENV]?.trim();
-    if (!raw || isProductionDatabaseUrl(env.DATABASE_URL)) return PROPOSAL_TTL_MS;
+    if (!raw || env.NODE_ENV === 'production' || isProductionDatabaseUrl(env.DATABASE_URL)) return PROPOSAL_TTL_MS;
     if (!/^\d+$/.test(raw)) return PROPOSAL_TTL_MS;
     const ms = Number(raw) * 1000;
     return ms >= 1000 && ms < PROPOSAL_TTL_MS ? ms : PROPOSAL_TTL_MS;

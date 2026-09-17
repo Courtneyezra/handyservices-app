@@ -7,11 +7,11 @@
  * step waiting on a confirm, or refused, is set here from the proposal itself. A plan of one step is
  * not shown. The strip is stored on the answer of the assistant message that offered it, and moves
  * with its proposal (`planAfter`) when Ben confirms or cancels; a refused step drops every step
- * after it, which is never re-planned silently.
+ * after it, which is never re-planned silently. No step is ever dropped for length: the chain runs
+ * through every step, bounded only by the reasoner's turn limit.
  */
 import type { AskActionStatus, PlanStep } from '@shared/ops-types';
 
-export const PLAN_STEP_CAP = 12;
 const LABEL_CAP = 80;
 
 export interface PlannedStep { label: string; done: boolean }
@@ -30,7 +30,7 @@ export function cleanSteps(raw: unknown): PlannedStep[] {
         const label = typeof s === 'string' ? s : typeof s?.label === 'string' ? s.label : '';
         const clean = label.replace(/\s+/g, ' ').trim().slice(0, LABEL_CAP);
         return clean ? [{ label: clean, done: typeof s === 'object' && s?.done === true }] : [];
-    }).slice(0, PLAN_STEP_CAP);
+    });
 }
 
 /** The strip for an answer, or undefined when there is nothing to chain. */

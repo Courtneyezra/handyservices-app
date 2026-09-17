@@ -45,7 +45,6 @@ export const MAX_TURNS = 10;
 export const MONEY_REFUSAL = 'Money actions are not on the Handy Desk yet, so I have not touched any price, invoice or payment. Use the price screen or the invoice pages for that.';
 
 export const ASK_INTENTS = ['find', 'show', 'message', 'book', 'call', 'note'] as const;
-export const ROUTE_STEP_CAP = 12;
 
 export const RouteSchema = z.object({
     intents: z.array(z.enum(ASK_INTENTS)).describe('What Ben wants done, every one that applies.'),
@@ -255,7 +254,7 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
         const steps = chosen?.plan.length ? chosen.plan
             : state.proposal || state.refusal ? [] : cleanSteps(routed.route?.steps ?? []);
         const plan = buildPlan({ steps, proposal: state.proposal, refusal: state.refusal });
-        return buildAnswer({ finalText: chosen?.finalText ?? fallbackText, choice, files, assignments, drafted, proposal: state.proposal, plan, note: notes || null });
+        return buildAnswer({ finalText: chosen?.finalText ?? fallbackText, choice, files, assignments, drafted, proposal: state.proposal, plan, note: notes || null, now: now() });
     };
 
     if (routed.route?.moneyAction) {

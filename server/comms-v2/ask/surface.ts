@@ -17,6 +17,7 @@ import type {
 import { boardOf, callViewOf, replyChannelOf } from '../api/board';
 import type { ApproverAssignments } from '../api/approvers';
 import type { CaseFile, Party, SystemTurn, Turn } from '../desk/case-file';
+import { replyRouteOf } from '../desk/human-reply';
 import type { RunProposal } from './tools';
 
 /** Most recent turns a thread surface carries. */
@@ -116,12 +117,17 @@ export function floorSurface(files: CaseFile[], assignments: ApproverAssignments
 
 const WIRE_CHANNEL = { whatsapp: 'wa', sms: 'sms', email: 'email' } as const;
 
-/** The held draft as the tile "what goes out when you confirm" shows it; empty when nothing is held with a draft. */
-export function outgoingOf(file: CaseFile): OpsOutgoing[] {
+/**
+ * The held draft as the tile "what goes out when you confirm" shows it, on the route the send takes
+ * (desk/human-reply.ts `replyRouteOf`); empty when nothing is held with a draft or no reply can be routed.
+ */
+export function outgoingOf(file: CaseFile, now: Date): OpsOutgoing[] {
     const draft = file.hold?.draft;
-    const channel = replyChannelOf(file);
-    if (!draft || !channel) return [];
-    return [{ to: replyAddressOf(file), channel: WIRE_CHANNEL[channel], text: draft }];
+    if (!draft) return [];
+    const route = replyRouteOf(file, now);
+    if (!route.ok) return [];
+    const to = route.party.channels.find((c) => c.kind === route.channel)?.address ?? route.party.canonical;
+    return [{ to, channel: WIRE_CHANNEL[route.channel], text: draft }];
 }
 
 /** The confirm footer for a proposal: its id and kind; a held-draft send also names the file, for the surface built before proposals. */
@@ -148,6 +154,7 @@ export interface BuildAnswerInput {
     proposal?: RunProposal | null;
     plan?: PlanStep[];
     note?: string | null;
+    now?: Date;
 }
 
 /**
@@ -176,9 +183,11 @@ export function buildAnswer(input: BuildAnswerInput): OpsAnswer {
 
     const drafted = Array.from(new Set(input.drafted ?? [])).map((id) => byId.get(id)).filter((f): f is CaseFile => !!f && !!f.hold?.draft);
     const proposal = input.proposal ?? null;
+    const now = input.now ?? new Date();
+    const tilesOf = (f: CaseFile) => outgoingOf(f, now);
     const outgoing = proposal
-        ? [...proposal.outgoing, ...drafted.filter((f) => f.id !== proposal.caseFileId).flatMap(outgoingOf)]
-        : drafted.flatMap(outgoingOf);
+        ? [...proposal.outgoing, ...drafted.filter((f) => f.id !== proposal.caseFileId).flatMap(tilesOf)]
+        : drafted.flatMap(tilesOf);
 
     const answer: OpsAnswer = { finalText: input.finalText.trim() || 'Done.', surface };
     if (outgoing.length) answer.outgoing = outgoing;

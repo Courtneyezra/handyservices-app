@@ -169,14 +169,13 @@ export function askTools(deps: AskToolDeps, state: AskRunState): AgentTool[] {
     return [...messageTools(deps, state), answerTool(state)];
 }
 
-/** The `messages` group: the board and case-file reads, the held draft, and its send as a proposal. */
-export function messageTools(deps: AskToolDeps, state: AskRunState): AgentTool[] {
-    const now = deps.now ?? (() => new Date());
-    const fileOr = async (id: string): Promise<{ src: BoardSource; file: CaseFile | null }> => {
-        const src = await deps.source();
-        return { src, file: id ? src.store.get(id) : null };
-    };
+async function fileOf(deps: AskToolDeps, id: string): Promise<{ src: BoardSource; file: CaseFile | null }> {
+    const src = await deps.source();
+    return { src, file: id ? src.store.get(id) : null };
+}
 
+/** The board and case-file reads, offered in every run whatever the route names: they only read. */
+export function caseFileReads(deps: AskToolDeps): AgentTool[] {
     return [
         {
             name: 'get_board',
@@ -230,7 +229,7 @@ export function messageTools(deps: AskToolDeps, state: AskRunState): AgentTool[]
                 required: ['caseFileId'],
             },
             run: async (input: { caseFileId?: string }) => {
-                const { file } = await fileOr(str(input?.caseFileId));
+                const { file } = await fileOf(deps, str(input?.caseFileId));
                 if (!file) return { error: 'no such case file' };
                 const d = detailOf(file, deps.assignments);
                 return {
@@ -255,6 +254,16 @@ export function messageTools(deps: AskToolDeps, state: AskRunState): AgentTool[]
                 };
             },
         },
+    ];
+}
+
+/** The `messages` group: the board and case-file reads, the held draft, and its send as a proposal. */
+export function messageTools(deps: AskToolDeps, state: AskRunState): AgentTool[] {
+    const now = deps.now ?? (() => new Date());
+    const fileOr = (id: string) => fileOf(deps, id);
+
+    return [
+        ...caseFileReads(deps),
         {
             name: 'draft_reply',
             description: 'Draft a reply to the customer on one case file and hold it for Ben to send. It never sends: Ben reads the draft on the file and sends it himself. Give a brief of what the reply should say; the words are written for you and checked. A draft may not carry a price, a date or time, a commitment, a claim about the business, or a repeated ask; a refusal says which, and a second attempt with a different brief is fine. Refused when the file already holds a draft.',

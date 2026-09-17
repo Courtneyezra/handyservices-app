@@ -11,7 +11,16 @@ describe('the plan strip', () => {
     it('is not shown for a one-step ask, and trims what the model gave', () => {
         expect(buildPlan({ steps: cleanSteps(['Answer Ben']) })).toBeUndefined();
         expect(cleanSteps([' ', { label: '  Find\n Marcus ' }, 7, 'x'.repeat(200)])).toEqual([{ label: 'Find Marcus', done: false }, { label: 'x'.repeat(80), done: false }]);
-        expect(cleanSteps(Array.from({ length: 20 }, (_, i) => `s${i}`))).toHaveLength(12);
+    });
+
+    it('keeps every step of a long plan and chains past the twelfth (answer A5)', () => {
+        const long = cleanSteps(Array.from({ length: 20 }, (_, i) => ({ label: `s${i + 1}`, done: i < 12 })));
+        expect(long).toHaveLength(20);
+        const plan = buildPlan({ steps: long, proposal: { id: 'a13' } })!;
+        expect(plan).toHaveLength(20);
+        expect(plan[12]).toEqual({ label: 's13', state: 'current', actionId: 'a13' });
+        const after = planAfter(plan, { id: 'a13', status: 'executed', result: {} });
+        expect(remainingAfter(after, 'a13').map((s) => s.label)).toEqual(['s14', 's15', 's16', 's17', 's18', 's19', 's20']);
     });
 
     it('marks the first unfinished step current with its proposal, or refused with the rest dropped', () => {

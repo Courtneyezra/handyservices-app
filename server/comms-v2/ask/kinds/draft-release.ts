@@ -8,7 +8,7 @@
  *
  * A thread kept with a person may still be sent on: it is a person's send on Ben's confirm.
  */
-import { sendHeldDraft } from '../../desk/human-reply';
+import { replyRouteOf, sendHeldDraft } from '../../desk/human-reply';
 import { outgoingOf } from '../surface';
 import type { ActionKindDef } from '../action-kinds';
 import { PREVIEW_CHANGED } from '../actions';
@@ -29,10 +29,12 @@ export const draftRelease: ActionKindDef<DraftReleaseArgs> = {
         if (!file.hold?.draft) return 'there is no held draft to send';
         return null;
     },
-    async preview({ file }) {
+    async preview({ file, now }) {
         const draft = file?.hold?.draft;
         if (!file || !draft) return { ok: false, reason: 'there is no held draft to send' };
-        return { ok: true, text: draft, outgoing: outgoingOf(file) };
+        const route = replyRouteOf(file, now);
+        if (!route.ok) return { ok: false, reason: route.reason };
+        return { ok: true, text: draft, outgoing: outgoingOf(file, now) };
     },
     async execute(ctx) {
         const { file } = ctx;

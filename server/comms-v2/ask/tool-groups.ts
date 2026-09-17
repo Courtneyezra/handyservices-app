@@ -3,8 +3,8 @@
  * specification N17).
  *
  * The router names the domains an ask touches; only those groups' tools are offered to the
- * reasoner, so a tool that is not the ask's business is not there to be called. `give_answer` is
- * offered in every run. A failed route offers every group, as a failed route has always fallen
+ * reasoner, so a tool that is not the ask's business is not there to be called. The board and
+ * case-file reads (tools.ts `caseFileReads`) and `give_answer` are offered in every run. A failed route offers every group, as a failed route has always fallen
  * through to the reasoner with no hint; a route naming no domain offers `messages`, and so does a
  * selected card, which is a case file.
  *
@@ -12,7 +12,7 @@
  * ask-agent set fills its own group here and nowhere else.
  */
 import type { AgentTool } from '../../agents/runner';
-import { answerTool, messageTools, type AskRunState, type AskToolDeps } from './tools';
+import { answerTool, caseFileReads, messageTools, type AskRunState, type AskToolDeps } from './tools';
 
 export const ASK_DOMAINS = ['clients', 'quotes', 'bookings', 'contractors', 'messages', 'calls', 'invoices'] as const;
 export type AskDomain = (typeof ASK_DOMAINS)[number];
@@ -44,12 +44,13 @@ export function offeredDomains(input: ToolsForInput): AskDomain[] {
     return ASK_DOMAINS.filter((d) => want.has(d));
 }
 
-/** The tools for a run: the offered groups' tools, each once, then the answer. */
+/** The tools for a run: the board and case-file reads, the offered groups' tools, each once, then the answer. */
 export function toolsFor(input: ToolsForInput, deps: AskToolDeps, state: AskRunState, groups: Record<AskDomain, ToolGroup> = TOOL_GROUPS): AgentTool[] {
     const seen = new Set<string>();
     const out: AgentTool[] = [];
-    for (const domain of offeredDomains(input)) {
-        for (const tool of groups[domain](deps, state)) {
+    const offered = [caseFileReads(deps), ...offeredDomains(input).map((domain) => groups[domain](deps, state))];
+    for (const tools of offered) {
+        for (const tool of tools) {
             if (seen.has(tool.name)) continue;
             seen.add(tool.name);
             out.push(tool);

@@ -225,13 +225,21 @@ describe('a stale session', () => {
 describe('the router gates the tool groups', () => {
     const names = (seen: { opts?: any }) => seen.opts.tools.map((t: { name: string }) => t.name);
 
-    it('offers only the routed domains\' tools, and always the answer', async () => {
+    it('offers only the routed domains\' tools on top of the board and case-file reads, and always the answer', async () => {
         const { source } = memorySource([whatsappFile()]);
         const seen: { opts?: any; results: unknown[] } = { results: [] };
         const client = new FakeModelClient({ router: () => route({ intents: ['show'], domains: ['quotes'], surface: 'quote' }) });
         const out = await runAskTurn(ask({ userMessage: 'show me the latest quote for Alan Smith' }), { source, assignments: async () => ({}), client, loop: scriptedLoop([], seen), now: now() });
-        expect(names(seen)).toEqual(['give_answer']);
+        expect(names(seen)).toEqual(['get_board', 'find_case_files', 'get_case_file', 'give_answer']);
         expect(out.leanTranscript[0]).toMatchObject({ type: 'route', detail: { domains: ['quotes'], offered: ['quotes'] } });
+    });
+
+    it('still offers the reads to "show me Gemma" routed to clients only with no card selected', async () => {
+        const { source } = memorySource([whatsappFile({ name: 'Gemma' })]);
+        const seen: { opts?: any; results: unknown[] } = { results: [] };
+        const client = new FakeModelClient({ router: () => route({ intents: ['show'], domains: ['clients'], surface: 'client' }) });
+        await runAskTurn(ask({ userMessage: 'show me Gemma', context: null }), { source, assignments: async () => ({}), client, loop: scriptedLoop([], seen), now: now() });
+        expect(names(seen)).toEqual(['get_board', 'find_case_files', 'get_case_file', 'give_answer']);
     });
 
     it('adds the messages group for a selected card or a route naming no domain, and offers every group when the route fails', async () => {

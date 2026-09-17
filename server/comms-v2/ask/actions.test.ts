@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CONFIRM_KINDS } from '@shared/ops-types';
-import { hold as setHold, type ApproverSlot } from '../desk/case-file';
+import { appendTurn, recordSend, hold as setHold, type ApproverSlot } from '../desk/case-file';
 import { BEN } from '../desk/guards';
 import { PRODUCTION_DB_HOST_MARKER } from '../../worker-gate';
 import {
@@ -118,11 +118,17 @@ describe('the proposal window', () => {
     const prod = `postgres://u:p@${PRODUCTION_DB_HOST_MARKER}-pooler.example.neon.tech/db`;
     it('is 15 minutes unless a non-production process shortens it', () => {
         expect(proposalTtlMs({})).toBe(15 * 60_000);
-        expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: '60', DATABASE_URL: 'postgres://u:p@branch-host/db' })).toBe(60_000);
+        expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: '60', NODE_ENV: 'development', DATABASE_URL: 'postgres://u:p@branch-host/db' })).toBe(60_000);
         expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: '60' })).toBe(60_000);
         // Never longer, never nonsense.
         for (const v of ['3600', '900', '0', '-5', '1.5', 'soon', ' ']) expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: v })).toBe(15 * 60_000);
         expect(expiryFor(new Date('2026-09-17T12:00:00Z'), 60_000).toISOString()).toBe('2026-09-17T12:01:00.000Z');
+    });
+
+    it('ignores the override on a production process or a production database', () => {
+        expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: '60', NODE_ENV: 'production' })).toBe(15 * 60_000);
+        expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: '60', NODE_ENV: 'production', DATABASE_URL: 'postgres://u:p@branch-host/db' })).toBe(15 * 60_000);
+        expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: '60', NODE_ENV: 'development', DATABASE_URL: prod })).toBe(15 * 60_000);
         expect(proposalTtlMs({ COMMS_V2_ASK_PROPOSAL_TTL_SECONDS: '60', DATABASE_URL: prod })).toBe(15 * 60_000);
     });
 });
@@ -186,11 +192,35 @@ describe('confirming draft.release', () => {
         const p = await propose();
         if (!p.ok) throw new Error(p.reason);
         expect(p.outgoing).toEqual([expect.objectContaining({ channel: 'wa' })]);
-        cases.get(file.id)!.parties[0].channels.push({ kind: 'sms', address: '+447700900999', lastInboundAt: new Date().toISOString() });
+        const moved = cases.get(file.id)!;
+        const at = new Date().toISOString();
+        moved.parties[0].channels.push({ kind: 'email', address: 'sam@example.com', lastInboundAt: at });
+        const turn = appendTurn(moved, { at, channel: 'email', direction: 'inbound', partyId: moved.parties[0].personId, kind: 'text', body: 'Replying by email instead.', media: [], runId: null, approver: null });
+        if (!turn.ok) throw new Error(turn.reason);
         const out = await confirmAction(settleAs(p.action.id), deps);
         expect(out).toMatchObject({ ok: false, code: 'refused', reason: PREVIEW_CHANGED, action: { status: 'refused' } });
         expect(cases.get(file.id)!.sends).toEqual([]);
         expect(cases.get(file.id)!.hold?.draft).toBe(DRAFT);
+    });
+
+    it('previews and sends on the channel the customer last wrote on, not the last send\'s', async () => {
+        const file = whatsappFile({ at: new Date(Date.now() - 10 * 60_000).toISOString() });
+        const party = file.parties[0];
+        party.channels.push({ kind: 'sms', address: '+447700900998', lastInboundAt: null });
+        const sent = recordSend(file, {
+            runId: 'run_earlier_sms', approver: 'human:office', partyId: party.personId, channel: 'sms', windowState: 'open', templateId: null,
+            bubbles: [], factIds: [], kbIds: [], calls: [], at: new Date(Date.now() - 5 * 60_000).toISOString(), mode: 'dry_run', partial: false, turnId: null,
+        });
+        if (!sent.ok) throw new Error(sent.reason);
+        setHold(file, { approver: BEN, reason: 'guards', exception: null, draft: DRAFT });
+        const { propose, deps, settleAs, cases } = setup([file]);
+        const p = await propose();
+        if (!p.ok) throw new Error(p.reason);
+        const whatsapp = party.channels.find((c) => c.kind === 'whatsapp')!.address;
+        expect(p.outgoing).toEqual([{ to: whatsapp, channel: 'wa', text: DRAFT, actionId: p.action.id }]);
+        const out = await confirmAction(settleAs(p.action.id), deps);
+        expect(out).toMatchObject({ ok: true, action: { status: 'executed', result: { channel: 'whatsapp' } } });
+        expect(cases.get(file.id)!.sends.at(-1)).toMatchObject({ channel: 'whatsapp' });
     });
 
     it('refuses the draft swapped between the check and the send, in the executor\'s own tick', async () => {
