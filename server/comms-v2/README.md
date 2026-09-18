@@ -661,9 +661,9 @@ right-hand side over the thread while it shows, and the composer's half-written 
 kept per case file, so it is still there when the thread comes back. It shows, in WhatsApp's own
 shape and colours:
 - a header of words: the name, a line with the role, stage, job and the reply channel and its
-  window (`replyChannel`, `replyWindow`), then Call (`tel:`), More (View customer
-  `/admin/clients/:clientKey`, Latest quote `/admin/price/:slug` when a quote is on file, and Close
-  file) and Close (`threadLinks`, `client/src/lib/comms-v2-thread.ts`);
+  window (`replyChannel`, `replyWindow`), then More (Call `tel:` when there is a number, View
+  customer `/admin/clients/:clientKey`, Latest quote `/admin/price/:slug` when a quote is on file,
+  and Close file) and Close (`threadLinks`, `client/src/lib/comms-v2-thread.ts`);
 - the customer's bubbles in white on the left and ours in green on the right, the first of each run
   with its tail and, on our side, a small "Desk" or staff name; the time inside each bubble, with
   the channel as a word only when it is not WhatsApp; a day chip between days (`chatItems`);
