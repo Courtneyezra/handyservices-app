@@ -43,6 +43,8 @@ export interface BoardCard {
     benToRequest: string[];
     /** The desk's newest automatic reissue of the file's quote: the new figure, the one before, and when the customer was told (or why not). */
     quoteReissue: ReissueNote | null;
+    /** The quote slug the file's job names (desk/case-file.ts `Job.quoteRef`); null while no quote is on the file. Lets a held card and its ready-to-price card merge on one row. */
+    quoteSlug: string | null;
 }
 
 /**
@@ -128,6 +130,7 @@ export function cardOf(file: CaseFile, assignments: ApproverAssignments = {}): B
         openedAt: file.openedAt,
         benToRequest: benToRequest(file),
         quoteReissue: newestReissue(file),
+        quoteSlug: file.job.quoteRef,
     };
 }
 
