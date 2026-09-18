@@ -68,8 +68,9 @@ export interface Proposal {
      * regulated from Scoping; Service's reasons (service/hold-reasons.ts); money beyond a quote line, acceptance in chat,
      * a failed draft and a stale quote from Quoting; a date change or an unconfirmed date from Scheduling.
      * `acceptedInChat`: the same turn also said yes to the quote, whatever the reason.
+     * `rest`: on a regulated hold, the work we do the same message also asked for, which is still scoped (scoping-tools.ts workBesideRegulated).
      */
-    hold: { reason: HoldException | 'acceptance' | 'draft_failed' | 'stale_quote'; match: string; acceptedInChat?: boolean } | null;
+    hold: { reason: HoldException | 'acceptance' | 'draft_failed' | 'stale_quote'; match: string; acceptedInChat?: boolean; rest?: string } | null;
 }
 
 export interface SpecialistReturn {

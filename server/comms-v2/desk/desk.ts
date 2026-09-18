@@ -10,10 +10,12 @@
  * A turn can raise more than one: each carries its own fixed line into the reply and the hold
  * records the gravest, so a price question that also asks for a call gets both lines. A reply that
  * puts a question off on a turn Service's model did not read holds as no source too (6b).
- * Complaints, refunds, trust doubts, gas and scoping that is not converging: one fixed line in
+ * Complaints, refunds, trust doubts and gas: one fixed line in
  * Ben's words, no composer, and while the hold stands no specialist either: each later turn gets
- * the short acknowledgement that Ben will come back. The vocabulary is server/comms-v2/service/
- * hold-reasons.ts. A thread held because the customer asked us to stop gets not even that
+ * the short acknowledgement that Ben will come back. Gas in a message that also asks for work we do
+ * does not freeze that work (the ruling of 18 Sep 2026): the gas line goes, unchanged, after the
+ * composer's reply to the rest, the work is scoped and quoted, and the hold names the gas item for
+ * Ben. The vocabulary is server/comms-v2/service/hold-reasons.ts. A thread held because the customer asked us to stop gets not even that
  * acknowledgement: no specialist, no composer and nothing sent on any later turn while the hold
  * stands (`optOutHeld`), because someone who asked us to stop is not written to again whatever the
  * opt-out ledger says yet. A router that fails to read the turn holds for Ben with the fixed acknowledgement,
@@ -47,7 +49,7 @@ import type { Exception, HoldException, Route } from './router';
 import { HOLD_EXCEPTIONS, matchFor, route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
 import { chaseIfDue, clearChaseRecord, type ChaseState } from '../service/chase';
-import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY, NOT_CONVERGING_CARD, regulatedWithoutLine } from '../service/hold-reasons';
+import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY, NOT_CONVERGING_CARD, freezes, regulatedWithRestReason, regulatedWithoutLine } from '../service/hold-reasons';
 import { serve, type ServiceSpecialistDeps } from '../service/service-specialist';
 import { asksAboutOurArea, asksToChangeDetails, convergence } from '../service/service-tools';
 import { asksAboutInvoice } from '../service/customer-record';
@@ -456,7 +458,7 @@ export class Desk implements DeskLike {
             this.holdFor(file, null, OPT_OUT_HELD, null, DESK_RUN_NOTE);
             return this.nothing(file, party.personId, runId, calls, OPT_OUT_HELD, 'hold');
         }
-        if (file.hold?.exception && FIXED_LINE_ONLY.has(file.hold.exception)) {
+        if (file.hold && freezes(file.hold)) {
             return this.heldAck(file, party.personId, turn, runId, calls, `held for Ben on ${file.hold.exception}: the desk does not scope this thread until he releases it`, null, 0, []);
         }
 
@@ -498,8 +500,10 @@ export class Desk implements DeskLike {
         let scoping: SpecialistReturn | null = null;
         // Thanks owed for media that came in well before this turn: a line after the composed reply, never the composer's own words.
         let lateAck: FixedLine | null = null;
-        const withLateAck = (composed: string) => lateAck ? `${composed}\n\n${lateAck.text}` : composed;
-        const sentLines = () => lateAck ? [...fixedLines, lateAck] : fixedLines;
+        // The gas line, when the same message also asked for work we do: after the composed reply, in Ben's reviewed words, never the composer's.
+        let gasLine: FixedLine | null = null;
+        const withLateAck = (composed: string) => [composed, gasLine?.text, lateAck?.text].filter(Boolean).join('\n\n');
+        const sentLines = () => [...fixedLines, ...(gasLine ? [gasLine] : []), ...(lateAck ? [lateAck] : [])];
         let composed: string | null = null;
         // What goes ahead of the composer's words, and the facts it is written from: the reissue sentence, when this run reissued the quote.
         let prefix: string | null = null;
@@ -520,20 +524,33 @@ export class Desk implements DeskLike {
         };
         // Gravest first: a fixed-line-only exception on the turn takes the thread off the composer, whatever else it raised.
         const fixedOnlyException = exceptions.find((e) => FIXED_LINE_ONLY.has(e)) ?? null;
-        let fixedLineOnly = !!fixedOnlyException;
-        if (fixedOnlyException) {
+        // Scoping runs until the quote is sent (Goal 4) and unless the turn is service only.
+        const scopingRan = !quotingOwnsThread(file) && !(route.subjects.length === 1 && route.subjects[0] === 'service');
+        const runScoping = async (): Promise<SpecialistReturn> => {
+            const s = await scope(file, turn, party, client, { ...this.deps.scoping, now: this.now });
+            calls.push(...s.calls); specialists.push(s); if (s.error) log(`scoping: ${s.error}`);
+            return s;
+        };
+        // Gas beside work we do in the same message does not freeze that work (the ruling of 18 Sep 2026): Scoping reads the
+        // turn first, and the work it finds is scoped and quoted with the gas line after the reply. Only where the gas line may
+        // go and nothing graver than gas was raised: regulated work that is not gas, a complaint, a refund or a trust doubt hold as ever.
+        // A thread already answering the rest beside gas keeps doing so when the customer names the gas item again, Scoping or not.
+        const gasNothingGraver = fixedOnlyException === 'regulated' && !regulatedWithoutLine('regulated', turn.body) && exceptions.every((e) => e === 'regulated' || !FIXED_LINE_ONLY.has(e));
+        if (gasNothingGraver && scopingRan) scoping = await runScoping();
+        const standingBeside = gasNothingGraver && !scopingRan && file.hold?.exception === 'regulated' && !freezes(file.hold);
+        const regulatedRest = gasBesideWork(scoping, turn.body) ?? (standingBeside ? { match: matchFor(route, 'regulated', turn.body), rest: file.job.type ?? 'the work already on this thread' } : null);
+        let fixedLineOnly = !!fixedOnlyException && !regulatedRest;
+        if (fixedOnlyException && !regulatedRest) {
             const noLine = await fixedLineHold(fixedOnlyException, matchFor(route, fixedOnlyException, turn.body));
             if (noLine) return this.nothing(file, party.personId, runId, calls, noLine, 'hold');
         } else {
             // 3. Gather: every routed specialist that exists. Scoping runs until the quote is sent (Goal 4)
-            // and unless the turn is service only; Service runs its deterministic tools every turn and its
+            // and unless the turn is service only (read above already when the turn named gas); Service runs its deterministic tools every turn and its
             // model when routed here, or when the customer asks to change a detail on their record or asks
             // whether we cover their area, whatever the router read, so that change is recorded and held for
             // Ben and the areas-covered answer is read (the area match raises no hold and leaves Scoping to
             // the job half); Quoting gathers below once the job and the location are known.
-            const scopingRan = !quotingOwnsThread(file) && !(route.subjects.length === 1 && route.subjects[0] === 'service');
-            scoping = scopingRan ? await scope(file, turn, party, client, { ...this.deps.scoping, now: this.now }) : null;
-            if (scoping) { calls.push(...scoping.calls); specialists.push(scoping); if (scoping.error) log(`scoping: ${scoping.error}`); }
+            if (scopingRan && !scoping) scoping = await runScoping();
             // An invoice or receipt question from a customer the CRM knows is Service's whatever the router read, and money the router handed it is its to answer or hold.
             const invoiceQuestion = !!turn.customerId && asksAboutInvoice(turn.body);
             const service = await serve(file, turn, party, client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service') || asksToChangeDetails(turn.body) || asksAboutOurArea(turn.body) || invoiceQuestion || !!route.moneyToService, scopingRan, invoiceMoney: !!route.moneyToService });
@@ -541,8 +558,8 @@ export class Desk implements DeskLike {
             serviceRead = service.calls.length > 0;
             specialists.push(service);
             if (service.error) log(`service: ${service.error}`);
-            // Scoping's and Service's holds, in the one vocabulary a fixed line answers; Quoting raises its own below.
-            const holds = specialists.flatMap((s) => (s.proposal.hold && isHoldException(s.proposal.hold.reason) ? [{ reason: s.proposal.hold.reason, match: s.proposal.hold.match }] : []));
+            // Scoping's and Service's holds, in the one vocabulary a fixed line answers; Quoting raises its own below. Gas beside work we do is raised below, answering the rest.
+            const holds = specialists.flatMap((s) => (s.proposal.hold && isHoldException(s.proposal.hold.reason) && !(regulatedRest && s.proposal.hold.reason === 'regulated') ? [{ reason: s.proposal.hold.reason, match: s.proposal.hold.match }] : []));
             const fixedOnly = holds.find((h) => FIXED_LINE_ONLY.has(h.reason));
             if (fixedOnly) {
                 fixedLineOnly = true;
@@ -554,6 +571,12 @@ export class Desk implements DeskLike {
                 let staleQuote: string | null = null;
                 this.releaseDraftFailedHold(file);
                 this.releaseConvergedHold(file);
+                // Gas beside work we do: the gas line goes after the reply and the hold names the gas item for Ben, whatever else the thread is held on.
+                if (regulatedRest) {
+                    gasLine = await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines);
+                    if (gasLine.kbId) fixedLineKbIds.push(gasLine.kbId);
+                    holdFor('regulated', regulatedWithRestReason(regulatedRest.match, regulatedRest.rest));
+                }
                 // Every exception the turn raised carries its own fixed line; the hold records the gravest.
                 for (const e of exceptions.filter((x) => ANSWER_THE_REST.has(x))) {
                     fixedLines.push(await fixedLine(FIXED_LINE_FOR[e], this.deps.fixedLines ?? knowledgeBaseFixedLines));
@@ -658,10 +681,11 @@ export class Desk implements DeskLike {
                 const owed = scoping?.proposal.thankForMedia ? mediaThanksOf(file, turn, this.now()) : 'on_time';
                 if (scoping && owed !== 'on_time') {
                     scoping.proposal.thankForMedia = false;
-                    if (owed !== 'followed') lateAck = lateMediaAckLine(owed.media, owed.at, this.now());
+                    // Beside the gas line there is no bubble left for it within the ceiling, so the late thanks is not sent.
+                    if (owed !== 'followed' && !gasLine) lateAck = lateMediaAckLine(owed.media, owed.at, this.now());
                 }
                 // 4. Compose, once; a guard failure sends it back once; the ceiling sends it back once.
-                const input: ComposeInput = { file, party, turn, route, specialists, fixedLines, lateAck, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 };
+                const input: ComposeInput = { file, party, turn, route, specialists, fixedLines, lateAck, after: gasLine, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 };
                 const first = await compose(input, client);
                 calls.push(first.record);
                 composerCalls++;
@@ -710,7 +734,7 @@ export class Desk implements DeskLike {
         let kbIds: string[] = attempt.kbIds;
         let guards: GuardOutcome = withOneThing(attempt.guards, composed ?? reply!);
         if (!guards.ok && !fixedLineOnly) {
-            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, failures: guards.failures, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 }, client);
+            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, after: gasLine, failures: guards.failures, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 }, client);
             calls.push(again.record);
             composerCalls++;
             if (again.output) {
@@ -731,11 +755,11 @@ export class Desk implements DeskLike {
         // fixed line is Ben's and is never taken out.
         // A customer who asks about the quote is answered, even when the answer is the one they had.
         const previous = fixedLineOnly || route.turnKind === 'question' ? [] : saidSinceLastQuestion(file, party.personId).map((t) => t.body);
-        const repeatsOf = (text: string): string[] => repeatedSentences(text, previous).filter((r) => !fixedLines.some((f) => f.text.includes(r)));
+        const repeatsOf = (text: string): string[] => repeatedSentences(text, previous).filter((r) => !sentLines().some((f) => f.text.includes(r)));
         let repeated = repeatsOf(reply!);
         if (repeated.length) {
             const said = `said again: you have already said ${repeated.map((r) => `"${r}"`).join(' and ')}. Do not say that again in any words. If nothing new needs saying, write one short, warm acknowledgement of a few words and nothing else`;
-            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, failures: [said], now: this.now() }, client);
+            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, after: gasLine, failures: [said], now: this.now() }, client);
             calls.push(again.record);
             composerCalls++;
             if (again.output) {
@@ -767,7 +791,7 @@ export class Desk implements DeskLike {
             const brief = shortenBriefFor(choice.channel, reply!, own.bubbles);
             const room = prefix ? render(choice.channel, prefix, { name: party.name }).bubbles.length : 0;
             const shorten = !prefix ? brief : brief.channel === 'sms' ? { ...brief, charBudget: Math.max(0, brief.charBudget - prefix.length - 2) } : { ...brief, measured: brief.measured + room, ceiling: BUBBLE_CEILING - room };
-            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, shorten, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 }, client);
+            const shorter = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, after: gasLine, shorten, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 }, client);
             calls.push(shorter.record);
             composerCalls++;
             if (shorter.output) {
@@ -843,17 +867,21 @@ export class Desk implements DeskLike {
     }
 
     /**
-     * One record of what a thread is held on. A first hold is raised; a fixed-line-only reason
-     * takes over a standing hold that answers the rest, so the graver reason is the one Ben's card
+     * One record of what a thread is held on. A first hold is raised; a reason that freezes the
+     * thread (hold-reasons.ts `freezes`) takes over a standing hold that does not, so the graver reason is the one Ben's card
      * shows and the one step 0 reads. A second reason of the same weight, a price and a call
      * request in one message, is added to the card rather than dropped, with `ownCard` marking a
      * note that is the desk's own run speaking rather than a new question for Ben (case-file.ts noteOnHold).
      */
     private holdFor(file: CaseFile, exception: HoldException | null, reason: string, draft: string | null = null, ownCard?: string): void {
         if (!file.hold) { setHold(file, { approver: approverFor(file, exception), reason, exception, draft }, this.fileDeps()); return; }
-        const standing = file.hold.exception;
-        if (exception && FIXED_LINE_ONLY.has(exception) && !(standing && FIXED_LINE_ONLY.has(standing))) {
+        if (freezes({ exception, reason }) && !freezes(file.hold)) {
             supersedeHold(file, { approver: approverFor(file, exception), reason, exception }, this.fileDeps());
+            return;
+        }
+        // Gas beside work we do labels the card as regulated, so Ben sees the gas item, and keeps what the card already said, since the rest is still answered.
+        if (exception === 'regulated' && file.hold.exception !== 'regulated') {
+            supersedeHold(file, { approver: approverFor(file, exception), reason: `${reason}; ${file.hold.reason}`, exception }, this.fileDeps());
             return;
         }
         noteOnHold(file, { reason, draft, ownCard });
@@ -952,6 +980,16 @@ function mediaThanksOf(file: CaseFile, turn: Turn, now: Date): 'on_time' | 'foll
     if (file.turns.slice(i + 1).some((t) => t.direction === 'outbound' && t.partyId === turn.partyId)) return 'followed';
     const at = new Date(last.at);
     return now.getTime() - at.getTime() > LATE_MEDIA_MS ? { media: last.media, at } : 'on_time';
+}
+
+/**
+ * The work we do that a gas turn also asked for, as Scoping read it (scoping-specialist.ts `rest`), or
+ * null. Only where the gas line may go: regulated work that is not gas never answers the rest.
+ */
+function gasBesideWork(scoping: SpecialistReturn | null, body: string): { match: string; rest: string } | null {
+    const h = scoping?.proposal.hold;
+    if (h?.reason !== 'regulated' || !h.rest || regulatedWithoutLine('regulated', body)) return null;
+    return { match: h.match, rest: h.rest };
 }
 
 /** A hold reason a fixed line answers (service/hold-reasons.ts). Quoting's own reasons are not in that vocabulary; the desk raises them on their own. */

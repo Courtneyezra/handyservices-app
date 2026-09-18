@@ -9,7 +9,7 @@
  *   next_question     the one subject to ask next, in the fixed order job, location, access,
  *                     photos; refuses a subject asked and unanswered, and photos asked once.
  *   offer_call        not when the party prefers text, has already rung, or has been offered one.
- *   regulated         gas or asbestos only.
+ *   regulated         gas or asbestos only; the work we do a regulated message also asks for.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -135,6 +135,21 @@ export function offerCall(party: Party): boolean {
 export function regulated(turn: Turn): { regulated: boolean; match: string | null } {
     const m = regulatedMatch(turn.body);
     return { regulated: !!m, match: m };
+}
+
+/**
+ * The work we do that a message naming regulated work also asks for (the ruling of 18 Sep 2026), or
+ * null: the job type Scoping read from that same message, which it is told never to name gas or
+ * asbestos work in. A belt under that reading, failing closed to the freeze: a job type that itself
+ * matches regulated work ("boiler removal and ceiling repair" read as one) or names the regulated
+ * item's own words beside "gas" ("hob replacement" for a gas hob) is not taken as work we do.
+ */
+export function workBesideRegulated(regulatedText: string, jobType: string | null | undefined): string | null {
+    const job = jobType?.trim();
+    if (!job || regulatedMatch(job)) return null;
+    const words = regulatedText.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2 && w !== 'gas');
+    if (words.some((w) => new RegExp(`\\b${w}`, 'i').test(job))) return null;
+    return job;
 }
 
 // ---------------------------------------------------------------- the reviewed knowledge base

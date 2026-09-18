@@ -117,6 +117,10 @@ T21 left in place. Needs an approved template because a call does not open the W
 **21. Which exceptions the desk talks around while a thread is with Ben.** "Money, callbacks and
 date changes only." On complaints, refunds, trust doubts and gas: one fixed line in Ben's words,
 then Ben only. The Scoper does not scope those threads.
+Changed for gas on 18 Sep 2026, "answer the part we cover": when the message that names gas work also
+asks for work we do (a boiler removal and a ceiling repair), the gas line goes, unchanged, and the
+desk carries on scoping and quoting the work we do. The thread is still held for Ben on the gas item.
+Gas on its own, and regulated work that is not gas, are held exactly as above.
 
 **22. Diary facts.** "Build a proper diary read first", and "Before the flip". One canonical
 booked-date read and a computed lead time land before the desk goes reply-by-default. Pushes the
