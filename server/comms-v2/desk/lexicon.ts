@@ -92,20 +92,7 @@ const PLAIN_ASKS = [
     `(?:can|could) you (?:confirm|remind me of) ${PLAIN_THING}`,
 ];
 const RE_PLAIN_CLAUSE = new RegExp(`^(?:${PLAIN_ASKS.join('|')})${PLAIN_TAIL}$`, 'i');
-/**
- * An apology for being slow to write back: what a customer returning to a quote that lapsed weeks
- * ago puts in front of their question. It asks nothing, names no figure and adds no scope, so it
- * sits beside a plain price ask exactly as a greeting or a thanks does. Narrow on purpose: only an
- * apology about the reply itself, never "sorry, can you also..." or an apology about the price.
- */
-const DELAY_APOLOGY = [
-    `(?:sorry|apologies|apols)(?: about| for)?(?: the| my| our)?(?: slow| late| delayed| long| belated| tardy)?(?: reply| response| delay| wait| silence)`,
-    `(?:sorry|apologies)(?: for)?(?: not (?:getting|coming) back to you| i (?:didn't|did not|never|hadn't|have not|haven't) (?:got|get|come|came) back to you)(?: sooner| earlier| before| yet)?`,
-    `(?:sorry|apologies)(?: that)? (?:it's|it is|it has|its) taken (?:me |us )?(?:so |this |such a )?long(?: to (?:get|come) back to you| to reply| to respond)?`,
-    `(?:sorry|apologies) (?:to be|for being)(?: so| a bit)? slow(?: (?:in |at )?(?:replying|responding|getting back to you))?`,
-].map((a) => `(?:so |very |really |terribly |awfully )?${a}(?:\\s+(?:on (?:this|that)|about (?:this|that)|here|again))?`).join('|');
-
-const RE_PLEASANTRY = new RegExp(`^(?:(?:hi|hiya|hello|hey|morning|afternoon|evening|ok|okay|thanks|thank you|cheers|sorry|quick question|just checking|just wondering)(?:\\s+(?:there|again|mate|ben))?|${DELAY_APOLOGY})$`, 'i');
+const RE_PLEASANTRY = /^(?:hi|hiya|hello|hey|morning|afternoon|evening|ok|okay|thanks|thank you|cheers|sorry|quick question|just checking|just wondering)(?:\s+(?:there|again|mate|ben))?$/i;
 const RE_ANY_FIGURE = /£\s*(\d[\d,]*(?:\.\d{1,2})?)/g;
 
 const toPence = (amount: string): number => Math.round(Number(amount.replace(/,/g, '')) * 100);
@@ -113,7 +100,7 @@ const toPence = (amount: string): number => Math.round(Number(amount.replace(/,/
 /**
  * Whether a whole message is nothing but a plain ask of a quote's own price or whether it still
  * stands ("is that price still ok?", "how much is it now?", "is the £120 still right?"), with at most
- * a greeting, a thanks or an apology for being slow to reply (`DELAY_APOLOGY`) beside it. Fails closed: every clause must be one of those asks or a
+ * a greeting or a thanks beside it. Fails closed: every clause must be one of those asks or a
  * pleasantry, every figure it names must be one of `quotedPence`, and anything haggling
  * (`haggleMatch`) is never plain.
  */

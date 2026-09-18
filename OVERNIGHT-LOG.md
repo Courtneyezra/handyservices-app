@@ -152,23 +152,18 @@ round (below).
   plain price ask or a pleasantry, and its pleasantry list holds a bare "sorry" but nothing like
   "sorry for the slow reply", so the apology made the whole message not-plain, the money exemption
   did not fire and the thread held for Ben on `money: price` with the holding line ("I can't confirm
-  the figure just yet"). The captain's ruling is that a plain ask of the quote's own price is
-  answered by the reissue, and an apology for being slow to write back asks nothing, names no figure
-  and adds no scope. Fix: the pleasantry set takes that apology family (`DELAY_APOLOGY` in
-  `desk/lexicon.ts`: "sorry for the delay", "apologies for the slow reply", "sorry it's taken me so
-  long to get back to you", "sorry for not getting back to you sooner", each with an optional "on
-  this"), narrow on purpose so an apology about anything else is still not a pleasantry, with four
-  regression tests in `desk/reissue-desk.test.ts` (three plain asks under an apology reissued — they
-  fail without the fix — a delay apology beside a discount ask still Ben's, and "sorry for the mess
-  in the bathroom, how much is it now?" still Ben's) and the rule restated in
-  `docs/comms-v2/contracts.md`. Not an ESCALATE: nothing wrong went to the customer and no figure
-  moved, the desk failed closed to Ben; the cost is a reissue that never happens and a card Ben must
-  answer by hand. Re-driven live after the fix on a fresh thread: a £169.00 quote lapsed, the same
-  message reissued it at £178.00 (169 × 1.05 = 177.45, up to the pound), one reply of three bubbles
-  (146/50/127 characters) opening with the expiry sentence and the link, every guard passing and no
-  hold. The haggle control on the same door holds: a lapsed £188.00 quote met with "Sorry for the
-  slow reply. Any chance of knocking a bit off that price?" held for Ben on money with no figure in
-  the reply, no reissue, and the row still £188.00 and expired. Noted for a later round, not chased
+  the figure just yet"). Not an ESCALATE: nothing wrong went to the customer and no figure moved,
+  the desk failed closed to Ben; the cost is a card Ben must answer by hand. A fix was written that
+  night (the pleasantry set taking a delay-apology family, so the same message reissued a lapsed
+  £169.00 quote at £178.00 on a re-drive) and was deliberately held back on the captain's ruling,
+  18 Sep 2026: "dont reissue at 5% when we kept them waiting". A customer may apologise out of
+  politeness when the silence was ours, the desk cannot yet tell the two apart, and today such a
+  message holding for Ben is what lets Ben notice. So a plain price ask under a delay apology holds
+  for Ben on money with no reissue and no figure, exactly as before, and `desk/reissue-desk.test.ts`
+  asserts that for three such messages beside the haggle control ("sorry for the delay, any chance
+  of a discount?") and "sorry for the mess in the bathroom, how much is it now?", both still Ben's;
+  `docs/comms-v2/contracts.md` says the same. An our-delay rule is a separate build that waits on an
+  approved definition. Noted for a later round, not chased
   here: the door's `POST /reset` now fails to delete the sandbox quotes it made
   (`quotes: { error: 'violates foreign key constraint "invoices_quote_id_personalized_quotes_id_fk"' }`),
   so the drama number's quote rows stay on the branch; nothing customer-facing reads them, since a

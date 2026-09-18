@@ -68,6 +68,10 @@ saying so.
 
 ## 3. What a thread does between a stop request and Ben recording it
 
+**Resolved by #132 (f56a332b), not open.** While an opt-out hold stands the thread now stays silent
+on every later turn, as it is on the opt-out turn itself (`optOutHeld` and `carryOptOutHold` in
+`server/comms-v2/desk/desk.ts`); the entry below is kept as the record of what was found.
+
 Found: round 5 (17 Sep 2026), driving opt-outs across SMS, a call and email on the sandbox door.
 
 On the channels the old inbound path does not record — a call, an email, a web form — an opt-out
