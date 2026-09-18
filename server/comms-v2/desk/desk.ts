@@ -182,8 +182,13 @@ export function optOutHeld(file: CaseFile): boolean {
  * booked or done (file-close.ts) and the person's next message then opens a new one (store.ts
  * `newestOpenFor`), so without this the silence would end with the close rather than with Ben.
  * Their newest file alone is read, so the hold Ben has released is not raised again by an older
- * file that still carries it, and the same card is raised with the same approver slot, since it is
- * the same thing Ben has to do. A file opened already held carries nothing else over.
+ * file that still carries it.
+ *
+ * What travels is the fact that this person asked us to stop, and nothing else. A hold is one card
+ * carrying every reason it was raised for, so the earlier card's own words - a complaint, and
+ * whatever the customer said in it - belong to that thread and are never copied onto a fresh file
+ * about another job: the new card is written here, naming the file the opt-out is recorded on, and
+ * answers to the slot this file's own opt-out would (`approverFor`).
  */
 export function carryOptOutHold(file: CaseFile, files: Iterable<CaseFile>, personId: string, deps: CaseFileDeps = {}): boolean {
     if (file.hold) return false;
@@ -191,8 +196,8 @@ export function carryOptOutHold(file: CaseFile, files: Iterable<CaseFile>, perso
         .filter((f) => f.id !== file.id && f.parties.some((p) => p.personId === personId))
         .sort((a, b) => Date.parse(b.openedAt) - Date.parse(a.openedAt))[0];
     if (!previous || !optOutHeld(previous)) return false;
-    const reason = `${previous.hold!.reason}; carried onto this file: the earlier one closed while the opt-out hold stood, and it stands until it is released`;
-    return setHold(file, { approver: previous.hold!.approver, reason, exception: null }, deps).ok;
+    const reason = `${OPT_OUT_HOLD}, on case file ${previous.id} (held since ${previous.hold!.since}), which closed while that hold stood; check and record the opt-out, which stands here until it is released`;
+    return setHold(file, { approver: approverFor(file, null), reason, exception: null }, deps).ok;
 }
 
 /**

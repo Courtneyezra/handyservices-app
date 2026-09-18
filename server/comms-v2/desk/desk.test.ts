@@ -498,9 +498,51 @@ describe('the desk', () => {
         expect(next.file.id).not.toBe(stop.file.id);
         expect(next.result.decision).toBe('hold');
         expectSilent(next.result, next.file, client.calls, 'the file opened after the close');
-        expect(next.file.hold?.reason).toContain('customer may have asked to stop by email');
+        expect(next.file.hold?.reason).toContain('customer may have asked to stop');
+        expect(next.file.hold?.reason).toContain(stop.file.id);
         expect(next.file.hold?.approver).toEqual(stop.file.hold?.approver);
         expect(next.result.note).toMatch(/the opt-out hold stands: no specialist read this turn/);
+    });
+
+    it('a file held on a complaint as well carries only the opt-out onto the next file, never the complaint or the words on its card', async () => {
+        const { client, desk: d, now } = desk({
+            router: ({ n }) => { if (n > 1) throw new Error('the router must not be called on a held thread'); return routeScoping({ exception: 'complaint', turnKind: 'other' }); },
+            specialist: () => { throw new Error('the specialist must not be called'); },
+            composer: () => { throw new Error('the composer must not be called'); },
+        });
+        const g = new ChannelGateway({ desk: d, now });
+        const complaint = await g.inbound(emailFrom('Your last job was rubbish, I want it redone', '2026-09-11T10:00:00.000Z'));
+        if (complaint.kind !== 'handled') throw new Error(complaint.kind);
+        expect(complaint.file.hold?.exception).toBe('complaint');
+        const card = complaint.file.hold!.reason;
+        expect(card).toMatch(/^complaint: \S/);
+
+        // The opt-out lands on the card Ben already has, so it carries both reasons.
+        const stop = await g.inbound(emailFrom('Subject: Unsubscribe\n\nPlease unsubscribe me', '2026-09-11T10:05:00.000Z'));
+        if (stop.kind !== 'handled') throw new Error(stop.kind);
+        expect(stop.file.id).toBe(complaint.file.id);
+        expect(stop.file.hold?.reason).toContain(card);
+        expect(stop.file.hold?.reason).toContain('customer may have asked to stop by email');
+        expect(closeFile(stop.file, 'done', { why: 'the job was signed off as complete' }, { now }).ok).toBe(true);
+
+        // The file their next message opens inherits the fact of the opt-out and nothing else.
+        const callsBefore = client.calls.length;
+        const next = await g.inbound(emailFrom('Can you come and look at the shed door?', '2026-09-11T11:00:00.000Z'));
+        if (next.kind !== 'handled') throw new Error(next.kind);
+        expect(next.file.id).not.toBe(stop.file.id);
+        expect(next.result.decision).toBe('hold');
+        expect(next.result.delivered).toBe(false);
+        expect(next.result.bubbles).toEqual([]);
+        expect(next.file.sends).toHaveLength(0);
+        expect(next.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+        expect(client.calls).toHaveLength(callsBefore);
+
+        const carried = next.file.hold!.reason;
+        expect(carried).toContain('customer may have asked to stop');
+        expect(carried).toContain(stop.file.id);
+        expect(carried).not.toContain(card);
+        expect(carried).not.toMatch(/complaint|rubbish|redone/);
+        expect(next.file.hold?.exception).toBeNull();
     });
 
     it('the hold released on the newest file is not raised again by the next message', async () => {
