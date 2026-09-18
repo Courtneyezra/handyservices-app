@@ -1,6 +1,6 @@
 /**
  * Handy Desk B4 - one customer's thread on the new desk, opened by tapping a card: the comms board's
- * docked panel (≥1024px) or bottom sheet, and a Handy Desk queue card. A recreation of section 3 of
+ * docked panel (≥1024px) or full screen below it, and a Handy Desk queue card. A recreation of section 3 of
  * the Claude Design export's `Comms Board.dc.html`, in Handy Desk's slate and amber, with a held
  * hold in amber.
  *
@@ -247,7 +247,7 @@ function TemplateCard({ fileId, sinceTurnId, busy, onSend, refusal }: { fileId: 
 
 export interface ThreadViewProps {
     fileId: string;
-    /** 'panel' closes with × or Esc; 'sheet' has a drag handle and a ‹ back button. */
+    /** 'panel' closes with × or Esc; 'sheet' is full screen with a ‹ back arrow. */
     layout: 'panel' | 'sheet';
     /** What the way back returns to: "Board" on the comms board, "Queue" on the Handy Desk. */
     backTo?: string;
@@ -295,10 +295,11 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
     const [released, setReleased] = useState(false);
     const [factsOpen, setFactsOpen] = useState(false);
 
-    // Esc closes the docked panel, unless focus is in a field anywhere on the page; a sheet's own dialog handles Esc.
+    // Esc closes the docked panel, unless focus is in a field anywhere on the page or the thread's own
+    // boxes hold words; the full-screen thread's own dialog handles Esc.
     useEffect(() => {
         if (layout !== 'panel') return;
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !focusInField()) onClose(); };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !focusInField() && !threadHoldsWords()) onClose(); };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [layout, onClose]);
@@ -329,6 +330,12 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
     useEffect(() => {
         setDraftGone(false);
     }, [heldDraft]);
+
+    // A new hold raised after a release is the desk's again to hand over: the release note is stale.
+    const holdSince = data?.hold?.since ?? null;
+    useEffect(() => {
+        if (holdSince) setReleased(false);
+    }, [holdSince]);
 
     const refresh = () => {
         queryClient.invalidateQueries({ queryKey: ['comms-v2-case-file', fileId] });
@@ -615,8 +622,7 @@ function ThreadFrame({ layout, backTo, onClose, onAskAbout, title, pills = [], l
                     </button>
                 </div>
             ) : (
-                <div className="flex shrink-0 flex-col gap-2 border-b border-slate-200 px-3.5 pb-2.5 pt-2">
-                    <span aria-hidden className="mx-auto h-1 w-10 rounded-sm bg-slate-300" />
+                <div className="flex shrink-0 flex-col border-b border-slate-200 px-3.5 pb-2.5 pt-[max(0.5rem,env(safe-area-inset-top))]">
                     <div className="flex items-center gap-2">
                         <button type="button" onClick={onClose} className="flex h-11 shrink-0 items-center gap-1 pl-1 pr-2 text-sm font-semibold text-slate-900">
                             <ChevronLeft aria-hidden className="h-[18px] w-[18px]" />{backTo}
@@ -639,8 +645,8 @@ function ThreadFrame({ layout, backTo, onClose, onAskAbout, title, pills = [], l
 }
 
 /**
- * The thread as a bottom sheet below 1024px: the board or queue stays behind it, and closing returns
- * to it. Escape and a tap above the sheet are ignored while one of the thread's own boxes holds
+ * The thread full screen below 1024px, over the board or queue, with a back arrow that returns to
+ * it. Escape and a tap outside are ignored while one of the thread's own boxes holds
  * words, so neither throws away a half-written reply or close. "Ask about this", when the page offers
  * one, is the page's own leaving rather than a close: the page hears it as it is tapped and puts the
  * sheet away itself, keeping the card, and the dialog is stopped from taking the focus back on its
@@ -651,11 +657,11 @@ export function ThreadSheet({ fileId, onClose, onAskAbout, ...rest }: Omit<Threa
     return (
         <Sheet open={!!fileId} onOpenChange={(open) => !open && onClose()}>
             <SheetContent
-                side="bottom"
+                side="right"
                 onEscapeKeyDown={(e) => { if (threadHoldsWords()) e.preventDefault(); }}
                 onPointerDownOutside={(e) => { if (threadHoldsWords()) e.preventDefault(); }}
                 onCloseAutoFocus={(e) => { if (!asking.current) return; asking.current = false; e.preventDefault(); }}
-                className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-xl border-0 p-0 [&>button:last-child]:hidden"
+                className="flex h-[100dvh] w-full flex-col gap-0 overflow-hidden border-0 p-0 sm:max-w-none [&>button:last-child]:hidden"
             >
                 <SheetTitle className="sr-only">Conversation</SheetTitle>
                 <SheetDescription className="sr-only">The conversation, with the held draft and your reply beneath it.</SheetDescription>

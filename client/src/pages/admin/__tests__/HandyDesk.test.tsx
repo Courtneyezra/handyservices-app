@@ -303,11 +303,13 @@ describe('HandyDesk', () => {
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
     });
 
-    it('on a phone a card tap opens the thread as a sheet, and ‹ Queue puts the card down with it', async () => {
+    it('on a phone a card tap opens the thread full screen, and ‹ Queue puts the card down with it', async () => {
         routes();
         renderWithQuery(<HandyDesk />);
         await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
         const sheet = await screen.findByRole('dialog');
+        expect(sheet).toHaveClass('h-[100dvh]', 'w-full');
+        expect(sheet).not.toHaveClass('rounded-t-xl');
         expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
         expect(within(sheet).getByLabelText('Your reply to the customer')).toBeInTheDocument();
         expect(screen.queryByTestId('handy-desk-thread')).toBeNull();

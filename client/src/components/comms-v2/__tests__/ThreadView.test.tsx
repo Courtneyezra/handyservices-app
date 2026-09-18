@@ -81,6 +81,22 @@ describe('<ThreadView>', () => {
         expect(onClose).not.toHaveBeenCalled();
         expect(words().value).toBe('half a reply');
 
+        await userEvent.clear(box);
+        box.blur();
+        fireEvent.keyDown(window, { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('Esc leaves the panel open while the reply box holds words with focus elsewhere, and closes it once the box is empty', async () => {
+        const { onClose } = mount([fileRoute(detail())]);
+        const box = await ready();
+        await userEvent.type(box, 'half a reply');
+        box.blur();
+        fireEvent.keyDown(window, { key: 'Escape' });
+        expect(onClose).not.toHaveBeenCalled();
+        expect(words().value).toBe('half a reply');
+
+        await userEvent.clear(box);
         box.blur();
         fireEvent.keyDown(window, { key: 'Escape' });
         expect(onClose).toHaveBeenCalledTimes(1);
@@ -429,6 +445,22 @@ describe('<ThreadView>', () => {
         await userEvent.click(screen.getByRole('button', { name: 'Release hold only' }));
         expect(await screen.findByTestId('thread-refusal')).toHaveTextContent('Not released. only Ben may release this hold');
         expect(words().value).toBe('again');
+    });
+
+    it('the released note goes once the desk raises a new hold on the same thread', async () => {
+        let held = true;
+        const { client } = mount([
+            fileRoute(() => (held ? detail() : detail({ hold: { ...detail().hold!, since: iso(0) } }))),
+            { method: 'POST', url: `${FILE}/release`, reply: () => ({ json: { ok: true } }) },
+        ]);
+        await userEvent.type(await ready(), 'Fine to leave.');
+        await userEvent.click(screen.getByRole('button', { name: 'Release hold only' }));
+        expect(await screen.findByTestId('thread-released')).toBeInTheDocument();
+
+        held = false;
+        await client.refetchQueries({ queryKey: ['comms-v2-case-file', 'case_p'] });
+        await waitFor(() => expect(screen.queryByTestId('thread-released')).toBeNull());
+        expect(screen.getByTestId('held-reason')).toBeInTheDocument();
     });
 
     it('an unassigned slot says nobody can act and disables Send this and Release', async () => {
