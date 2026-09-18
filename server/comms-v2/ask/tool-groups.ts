@@ -13,6 +13,7 @@
  */
 import type { AgentTool } from '../../agents/runner';
 import { answerTool, caseFileReads, messageTools, type AskRunState, type AskToolDeps } from './tools';
+import { quoteTools } from './quote-tools';
 
 export const ASK_DOMAINS = ['clients', 'quotes', 'bookings', 'contractors', 'messages', 'calls', 'invoices'] as const;
 export type AskDomain = (typeof ASK_DOMAINS)[number];
@@ -21,7 +22,7 @@ export type ToolGroup = (deps: AskToolDeps, state: AskRunState) => AgentTool[];
 
 export const TOOL_GROUPS: Record<AskDomain, ToolGroup> = {
     clients: () => [],
-    quotes: () => [],
+    quotes: quoteTools,
     bookings: () => [],
     contractors: () => [],
     messages: messageTools,
@@ -34,13 +35,16 @@ export interface ToolsForInput {
     domains: readonly AskDomain[] | null;
     /** Whether the ask came with a case file's card selected. */
     cardSelected: boolean;
+    /** B9: whether the ask came from the Price and Send screen, which always offers `quotes`. */
+    priceScreen?: boolean;
 }
 
 /** The domains a run is offered, in catalogue order. */
 export function offeredDomains(input: ToolsForInput): AskDomain[] {
     if (!input.domains) return [...ASK_DOMAINS];
     const want = new Set<AskDomain>(input.domains);
-    if (!want.size || input.cardSelected) want.add('messages');
+    if (input.priceScreen) want.add('quotes');
+    else if (!want.size || input.cardSelected) want.add('messages');
     return ASK_DOMAINS.filter((d) => want.has(d));
 }
 

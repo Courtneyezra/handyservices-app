@@ -72,6 +72,8 @@ function contextOf(body: any): AskContext | null {
     if (!raw || typeof raw !== 'object') return null;
     const caseFileId = typeof raw.caseFileId === 'string' && raw.caseFileId.trim() ? raw.caseFileId.trim().slice(0, 200) : null;
     const phone = typeof raw.phone === 'string' && raw.phone.trim() ? raw.phone.trim().slice(0, 200) : null;
+    const priceSlug = typeof raw.priceSlug === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(raw.priceSlug.trim()) ? raw.priceSlug.trim() : null;
+    if (priceSlug) return { caseFileId, phone, priceSlug };
     return caseFileId || phone ? { caseFileId, phone } : null;
 }
 

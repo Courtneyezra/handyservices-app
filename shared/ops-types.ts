@@ -270,7 +270,7 @@ export const HELD_DRAFT_CHANGED = 'the held draft changed since you saw it';
  * booking.create is typed and refused until design-map Q8 is answered. No kind
  * hands a thread kept with a person back to the desk: that switch is Ben's.
  */
-export const CONFIRM_KINDS = ['draft.release', 'message.send', 'quote.resend_link', 'booking.move', 'booking.create', 'call.start'] as const;
+export const CONFIRM_KINDS = ['draft.release', 'message.send', 'quote.resend_link', 'booking.move', 'booking.create', 'call.start', 'quote.set_line'] as const;
 export type ConfirmKind = (typeof CONFIRM_KINDS)[number];
 
 /** Where one proposal stands. */
@@ -351,6 +351,8 @@ export type AskVia = 'typed' | 'voice' | 'tap';
 export interface AskContext {
   caseFileId?: string | null;
   phone?: string | null;
+  /** B9: the ask came from the Price and Send screen for this quote's slug; its one change is quote.set_line. */
+  priceSlug?: string | null;
 }
 
 /** An ask-agent message: the OpsMessageDTO shape with how it was asked, what it was about and, on the assistant row, the answer. */

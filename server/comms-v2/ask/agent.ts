@@ -84,7 +84,7 @@ What you can do:
 
 Rules:
 1. You never send or change anything yourself. Every change is a proposal Ben confirms, one at a time. If a proposal is refused, stop: tell Ben why in plain words and propose nothing more.
-2. No money actions: never change, send or chase a price, quote, invoice or payment. You may report what a file says.
+2. No money actions: never change, send or chase a price, quote, invoice or payment. You may report what a file says. The one exception: when Ben asks from the Price and Send screen, you may propose a new figure for one line of the quote in front of him with propose_set_quote_line. That only changes the line on his screen; he sends. You never send a quote, whatever he says ("send it" is his Send button to press).
 3. Drafts carry no price, date, time, commitment or business claim; the desk refuses them. If a reply needs one of those, tell Ben what to say himself instead of drafting.
 4. Diary, map, quote and ledger views are not connected to this desk yet. If asked, answer in words with what the case files show and say so.
 5. Never invent data: every name, count and quote from a customer must come from a tool result. If the selected card is named, start there.
@@ -143,6 +143,8 @@ export interface AskTurnDeps {
     /** Where proposals are saved; without one, nothing is proposed. */
     actions?: AskActionStore;
     kinds?: ActionKinds;
+    /** B9: reads the Price and Send screen for a `priceSlug` ask (the real loader by default). */
+    loadPriceScreen?: AskToolDeps['loadPriceScreen'];
 }
 
 /** The session history as runner prior messages: recent, non-empty, strictly alternating, user first, and not ending on a user turn (the ask follows). */
@@ -180,9 +182,10 @@ function goalFor(opts: RunAskTurnOptions, selected: CaseFile | null, route: AskR
         lines.push(`Selected card: case file ${selected.id} (${party?.name ?? 'no name'}, ${selected.stage}${selected.hold ? ', held' : ''}).`);
     } else if (opts.context?.caseFileId || opts.context?.phone) {
         lines.push('The selected card is not on the desk any more.');
-    } else {
+    } else if (!opts.context?.priceSlug) {
         lines.push('No card is selected.');
     }
+    if (opts.context?.priceSlug) lines.push(`Ben is on the Price and Send screen for quote ${opts.context.priceSlug}. A figure he gives for a line is a proposal with propose_set_quote_line; he presses Send himself.`);
     if (route) {
         lines.push(`Router hint: surface ${route.surface}${route.wantsDraft ? ', wants a draft' : ''}.`);
         if (route.steps.length > 1) lines.push(`Steps: ${route.steps.map((s, i) => `${i + 1} ${s}`).join(' · ')}.`);
@@ -223,12 +226,14 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
     const routed = await routeAsk(client, opts, selected);
     state.calls.push(routed.record);
     const domains: readonly AskDomain[] | null = routed.route ? routed.route.domains : null;
-    const offered = offeredDomains({ domains, cardSelected: !!selected });
+    const priceScreen = !!opts.context?.priceSlug;
+    const offered = offeredDomains({ domains, cardSelected: !!selected, priceScreen });
     push({ at: now().toISOString(), type: 'route', detail: routed.route ? { ...routed.route, offered } : { error: routed.error, offered } });
 
     const toolDeps: AskToolDeps = {
         source: deps.source, assignments, approver: opts.approver, person: opts.person, client, now,
         actions: deps.actions, kinds: deps.kinds, sessionId: opts.sessionId, askRunId: opts.askRunId ?? null,
+        priceSlug: opts.context?.priceSlug ?? null, loadPriceScreen: deps.loadPriceScreen,
     };
 
     let autoRefusal: string | null = null;
@@ -257,16 +262,19 @@ export async function runAskTurn(opts: RunAskTurnOptions, deps: AskTurnDeps): Pr
         return buildAnswer({ finalText: chosen?.finalText ?? fallbackText, choice, files, assignments, drafted, proposal: state.proposal, plan, note: notes || null, now: now() });
     };
 
-    if (routed.route?.moneyAction) {
+    // B9: from the Price and Send screen a line's figure is the ask; the only money change offered
+    // there is quote.set_line, which changes his screen and sends nothing.
+    if (routed.route?.moneyAction && !priceScreen) {
         const { plan: _noPlan, ...answer } = await answerFrom(MONEY_REFUSAL);
         return { answer: { ...answer, note: 'No money actions yet.' }, leanTranscript, usage: { loop: null, calls: state.calls } };
     }
 
-    const tools = toolsFor({ domains, cardSelected: !!selected }, toolDeps, state);
+    const tools = toolsFor({ domains, cardSelected: !!selected, priceScreen }, toolDeps, state);
 
     // The session carries earlier runs' answers, which go stale: a floor ask reads the board and a
     // thread ask reads the selected file before the reasoner starts, whatever the history says.
-    const freshRead = routed.route?.surface === 'floor' ? { tool: 'get_board', input: {} }
+    const freshRead = priceScreen ? { tool: 'get_price_screen', input: {} }
+        : routed.route?.surface === 'floor' ? { tool: 'get_board', input: {} }
         : selected && (!routed.route || routed.route.surface === 'thread') ? { tool: 'get_case_file', input: { caseFileId: selected.id } }
         : null;
     let fresh: { tool: string; result: unknown } | null = null;

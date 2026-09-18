@@ -395,10 +395,10 @@ describe('a change that sends nothing', () => {
 });
 
 describe('the registry', () => {
-    it('holds draft.release and nothing that hands a thread back to the desk; booking.create stays out', () => {
-        expect(Object.keys(ACTION_KINDS)).toEqual(['draft.release']);
+    it('holds draft.release and quote.set_line, nothing that hands a thread back to the desk; booking.create stays out', () => {
+        expect(Object.keys(ACTION_KINDS)).toEqual(['draft.release', 'quote.set_line']);
         expect(Object.keys(ACTION_KINDS)).not.toContain('booking.create');
-        expect(CONFIRM_KINDS).toEqual(['draft.release', 'message.send', 'quote.resend_link', 'booking.move', 'booking.create', 'call.start']);
+        expect(CONFIRM_KINDS).toEqual(['draft.release', 'message.send', 'quote.resend_link', 'booking.move', 'booking.create', 'call.start', 'quote.set_line']);
         for (const kind of Object.keys(ACTION_KINDS)) expect(CONFIRM_KINDS).toContain(kind);
     });
 });

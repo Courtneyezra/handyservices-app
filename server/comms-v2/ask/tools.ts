@@ -63,6 +63,10 @@ export interface AskToolDeps {
     sessionId?: string;
     /** The ask run the proposals belong to. */
     askRunId?: string | null;
+    /** B9: the quote on Ben's Price and Send screen, when the ask came from there. */
+    priceSlug?: string | null;
+    /** Reads that screen (server/spine/price-screen.ts `loadPriceScreen` by default; a fake in tests). */
+    loadPriceScreen?: import('./kinds/quote-set-line').PriceScreenLoad;
 }
 
 export interface GiveAnswerInput {
