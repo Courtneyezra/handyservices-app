@@ -16,7 +16,7 @@ import { appendTurn, closeFile, open, release, type CaseFile } from './case-file
 import { customerTurnOf } from './turn-window';
 import { noFixedLineSource, DEFAULT_FIXED_LINES, type FixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
-import { asksForCall } from './lexicon';
+import { asksForCall, regulatedMatch } from './lexicon';
 import { FakeModelClient } from './models';
 import { emptyKb } from './scoping-tools';
 import { noTemplateApproved } from './sender';
@@ -253,6 +253,23 @@ describe('the desk', () => {
             expect(out.file.hold?.exception, body).toBe('regulated');
             expect(out.file.hold?.reason, body).toMatch(/^regulated: .*nothing sent: the turn is regulated but not identified as gas/);
         }
+    });
+
+    it('the rule is positive identification: a regulated family no pattern knows at all is held for Ben and sends nothing, so the next family is safe without a case of its own', async () => {
+        // Deliberately outside every regulated pattern: nothing here names gas, asbestos or artex.
+        const body = 'Can you replace the oil tank at the bottom of my garden?';
+        expect(regulatedMatch(body)).toBeNull();
+        const { client, gateway } = desk({ router: () => routeScoping({ exception: 'regulated' }), specialist: () => specialistFacts([]), composer: () => { throw new Error('the composer must not be called'); } });
+        const out = await gateway.inbound(turn(body, '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(0);
+        expect(out.result.decision).toBe('hold');
+        expect(out.result.delivered).toBe(false);
+        expect(out.result.bubbles).toEqual([]);
+        expect(out.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+        expect(out.file.hold?.exception).toBe('regulated');
+        expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+        expect(out.file.hold?.reason).toMatch(/^regulated: .*nothing sent: the turn is regulated but not identified as gas/);
     });
 
     it('electrical work is ours: a socket or a rewire is scoped and answered, with no regulated hold and no gas line', async () => {
