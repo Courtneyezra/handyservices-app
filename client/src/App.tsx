@@ -6,13 +6,15 @@ import { queryClient } from "@/lib/queryClient";
 import { LiveCallProvider } from "@/contexts/LiveCallContext";
 import { Toaster } from "@/components/ui/toaster";
 import { HANDY_DESK_PATH } from "@/lib/handy-desk-path";
+import { isPriceAndSendPath } from "@/lib/price-and-send-path";
 // The admin shell is its own chunk so the Handy Desk, which renders full screen outside it, never
 // fetches the sidebar, its polling or the live-call socket. Any other admin path starts the chunk
-// at boot, beside the page's own, rather than after React first reaches the shell.
+// at boot, beside the page's own, rather than after React first reaches the shell. Price and Send
+// (B9) also renders outside it, so it skips the chunk too.
 const loadSidebarLayout = () => import("@/components/layout/SidebarLayout");
 const SidebarLayout = lazy(loadSidebarLayout);
 const isHandyDesk = (path: string) => path === HANDY_DESK_PATH || path === `${HANDY_DESK_PATH}/`;
-if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin") && !isHandyDesk(window.location.pathname)) {
+if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin") && !isHandyDesk(window.location.pathname) && !isPriceAndSendPath(window.location.pathname)) {
     void loadSidebarLayout();
 }
 
@@ -324,7 +326,7 @@ function Router() {
 
     return (
         <Suspense fallback={<LoadingFallback />}>
-            {!isHandyDesk(location) && <SmartBanner />}
+            {!isHandyDesk(location) && !isPriceAndSendPath(location) && <SmartBanner />}
             <Switch>
                 {/* ============ PUBLIC ROUTES ============ */}
                 {/* Landing Pages — cities are the canonical landings.
@@ -804,11 +806,10 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                {/* B9 (F6): full screen, outside the shell; the page's own header is the only one here. */}
                 <Route path="/admin/price/:slug">
                     <ProtectedRoute role="admin">
-                        <SidebarLayout>
-                            <PriceAndSendPage />
-                        </SidebarLayout>
+                        <PriceAndSendPage />
                     </ProtectedRoute>
                 </Route>
                 <Route path="/admin/activity">
