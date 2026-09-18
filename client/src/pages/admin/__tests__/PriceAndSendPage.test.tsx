@@ -16,6 +16,7 @@ import {
     type PricePayload, type PriceLine, type Contradiction,
 } from '@/pages/admin/PriceAndSendPage';
 import { isPriceAndSendPath } from '@/lib/price-and-send-path';
+import { HANDY_DESK_PATH } from '@/lib/handy-desk-path';
 
 const T = (h: number, m = 0, d = 4) => `2026-09-0${d}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`;
 
@@ -244,7 +245,7 @@ describe('PriceAndSend (phone)', () => {
         expect(screen.getByTestId('message-body')).toHaveValue(DESK);
         expect(screen.getByTestId('send-quote')).toHaveTextContent('Send · £2,100');
         expect(screen.getByTestId('total')).toHaveTextContent('£2,100');
-        // B9 F2: the bar is mic, Send and ⋯; the builder is behind ⋯
+        // B9 F2: the bar is Send and ⋯; the builder is behind ⋯
         expect(screen.queryByTestId('open-builder')).toBeNull();
         await openExits();
         expect(screen.getByTestId('open-builder')).toHaveAttribute('href', '/admin/quotes/z4p6t9mw/edit');
@@ -1067,8 +1068,8 @@ describe('B9: the restyle to Ben\'s design (direction A, the collapsed stack)', 
     it('F6: the header goes back to the desk and carries the postcode', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        expect(await screen.findByTestId('back')).toHaveAttribute('href', '/admin/handy-desk');
-        expect(screen.getByTestId('postcode')).toHaveTextContent('NG2 7QP');
+        expect(await screen.findByTestId('postcode')).toHaveTextContent('NG2 7QP');
+        expect(screen.getByTestId('back')).toHaveAttribute('href', '/admin/handy-desk');
     });
 
     it('F6: only the price-and-send route leaves the admin shell', () => {
@@ -1097,5 +1098,49 @@ describe('B9: embedded as the Handy Desk\'s answer surface', () => {
         expect(onClose).toHaveBeenCalled();
         await userEvent.click(screen.getByTestId('send-quote'));
         await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+    });
+
+    it('asks before its X throws away unsent changes, and closes straight away without any', async () => {
+        screenFetch(payload());
+        const onClose = vi.fn();
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" embedded onClose={onClose} />);
+        const message = await screen.findByTestId('message-body');
+        await userEvent.type(message, ' Thanks');
+
+        await userEvent.click(screen.getByTestId('price-close'));
+        expect(screen.getByRole('alertdialog')).toHaveTextContent("Close Sarah's quote? Your changes on it will be lost.");
+        expect(onClose).not.toHaveBeenCalled();
+        await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+        expect(screen.queryByRole('alertdialog')).toBeNull();
+        expect(screen.getByTestId('message-body')).toHaveValue(`${DESK} Thanks`);
+
+        await userEvent.click(screen.getByTestId('price-close'));
+        await userEvent.click(screen.getByRole('button', { name: 'Close and lose them' }));
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('stacks the thread under the price below xl, so the price column keeps its width in the desk', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" embedded />);
+        const grid = await screen.findByTestId('side-by-side');
+        expect(grid).toHaveClass('grid-cols-1', 'xl:grid-cols-[340px_minmax(0,1fr)]');
+    });
+});
+
+describe('the page on its own has a way back to the desk', () => {
+    it('on a quote that cannot be found', async () => {
+        mockFetch([{ url: '/api/spine/price/nope', reply: () => ({ status: 404, json: {} }) }, { url: '/api/spine/price-queue', reply: () => ({ json: { count: 0, items: [], oldestWaitingMs: null, at: new Date().toISOString() } }) }]);
+        renderWithQuery(<PriceAndSend slug="nope" />);
+        expect(await screen.findByTestId('not-found')).toBeInTheDocument();
+        expect(screen.getByTestId('back')).toHaveAttribute('href', HANDY_DESK_PATH);
+    });
+
+    it('after Send', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await waitFor(() => expect(screen.getByTestId('send-quote')).toBeEnabled());
+        await userEvent.click(screen.getByTestId('send-quote'));
+        expect(await screen.findByTestId('confirm-screen')).toBeInTheDocument();
+        expect(screen.getByTestId('back')).toHaveAttribute('href', HANDY_DESK_PATH);
     });
 });

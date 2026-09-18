@@ -22,14 +22,14 @@
  * fault-to-fix table F1–F6): one line open at a time, the top doubt line on load (F1); the dark
  * header is the only header on the route, name, stage and postcode (F6), with the total, the line
  * count and how many want checking under it (F3); materials as a table (F4); the message box grows
- * from two rows to six (F5); the thumb bar is mic, Send and ⋯ (F2). Rendered outside the admin
+ * from two rows to six (F5); the thumb bar is Send and ⋯ (F2). Rendered outside the admin
  * shell (App.tsx).
  * Data: GET /api/spine/price/:slug. Send: POST …/send; the other exits POST …/ask, …/call, …/visit.
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type TextareaHTMLAttributes } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRoute } from 'wouter';
-import { Loader2, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, PenLine, RotateCcw, CheckCircle2, RefreshCw, Phone, HelpCircle, Home, X, Check, ArrowRight, Mic, MoreHorizontal, Quote as QuoteIcon } from 'lucide-react';
+import { Loader2, AlertTriangle, ChevronDown, ChevronUp, ChevronLeft, PenLine, RotateCcw, CheckCircle2, RefreshCw, Phone, HelpCircle, Home, X, Check, ArrowRight, MoreHorizontal, Quote as QuoteIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { depositFor } from '@shared/pricing-settings';
 import { CATEGORY_OPTIONS } from '@/lib/quote-categories';
@@ -889,11 +889,14 @@ export function cleanNotIncluded(items: string[]): string[] {
     return items.map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 8);
 }
 
-export function PriceAndSend({ slug, embedded = false, onClose, onOpenQuote }: {
+export function PriceAndSend({ slug, embedded = false, onClose, onOpenQuote, onSent }: {
     slug: string;
     /** B9: inside the Handy Desk's answer column on a wide screen: no page header, the bar inline. */
     embedded?: boolean;
+    /** Embedded: the X. With unsent changes it asks before it is called. */
     onClose?: () => void;
+    /** Embedded: the quote has gone out. */
+    onSent?: () => void;
     /** Embedded: open another quote in place rather than leaving the desk. */
     onOpenQuote?: (slug: string) => void;
 }) {
@@ -931,6 +934,7 @@ export function PriceAndSend({ slug, embedded = false, onClose, onOpenQuote }: {
     const [superseded, setSuperseded] = useState<string | null>(null);
     const [hold, setHold] = useState<QuoteHold | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
+    const [confirmClose, setConfirmClose] = useState(false);
 
     // Prefill whenever a fresh payload arrives (a reload after 409 re-prefills).
     useEffect(() => {
@@ -963,6 +967,16 @@ export function PriceAndSend({ slug, embedded = false, onClose, onOpenQuote }: {
     const warnings = useMemo(() => messageWarnings(message), [message]);
     // P16: the link lives in the message Ben reads. If he deletes it, say so and offer it back.
     const linkPresent = !data || hasQuoteLink(message, data.quoteUrl);
+    // Anything different from what the screen loaded, until it has been sent.
+    const unsent = !!data && !result?.ok && (addedLines.length > 0 || Object.keys(resolutions).length > 0
+        || message !== (data.message?.body ?? '')
+        || data.lines.some((l) => JSON.stringify(states[l.lineId]) !== JSON.stringify(initialLineState(l))));
+    useEffect(() => { if (result?.ok) onSent?.(); }, [result?.ok]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    function requestClose() {
+        if (unsent) setConfirmClose(true);
+        else onClose?.();
+    }
 
     function insertLink() {
         if (!data) return;
@@ -1081,19 +1095,26 @@ export function PriceAndSend({ slug, embedded = false, onClose, onOpenQuote }: {
         } finally { setBusy(null); }
     }
 
+    // Outside the admin shell the page's header is the only way back, and these screens have none.
+    const backToDesk = !embedded && (
+        <a href={HANDY_DESK_PATH} className="mx-4 mt-3 inline-flex min-h-11 items-center gap-1 text-sm font-bold text-slate-600 underline" data-testid="back">
+            <ChevronLeft className="h-4 w-4" /> Back to the desk
+        </a>
+    );
+
     if (isLoading) {
-        return <div className="flex h-64 items-center justify-center text-slate-500"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading the quote…</div>;
+        return <div>{backToDesk}<div className="flex h-64 items-center justify-center text-slate-500"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading the quote…</div></div>;
     }
     if ((error as Error)?.message === 'AUTH') {
-        return <div className="m-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        return <div>{backToDesk}<div className="m-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             Your admin session has expired. <a href={`/admin/login?next=${encodeURIComponent(`/admin/price/${slug}`)}`} className="font-bold underline">Log in again</a> to price this quote.
-        </div>;
+        </div></div>;
     }
     if ((error as Error)?.message === 'NOT_FOUND') {
-        return <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" data-testid="not-found">No quote with the slug <span className="font-mono">{slug}</span>.</div>;
+        return <div>{backToDesk}<div className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" data-testid="not-found">No quote with the slug <span className="font-mono">{slug}</span>.</div></div>;
     }
     if (error || !data) {
-        return <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Couldn't load the quote. {(error as Error)?.message}</div>;
+        return <div>{backToDesk}<div className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Couldn't load the quote. {(error as Error)?.message}</div></div>;
     }
 
     const first = data.customer.firstName;
@@ -1118,6 +1139,14 @@ export function PriceAndSend({ slug, embedded = false, onClose, onOpenQuote }: {
         const left = queue ? fresh.count : null;
         return (
             <div className="mx-auto max-w-md px-4 py-10" data-testid="confirm-screen">
+                {backToDesk && <div className="-mx-4 -mt-6 mb-4">{backToDesk}</div>}
+                {embedded && onClose && (
+                    <div className="mb-2 flex justify-end">
+                        <button type="button" onClick={onClose} aria-label="Close the quote" className="flex h-10 w-10 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" data-testid="price-close">
+                            <X className="h-5 w-5" />
+                        </button>
+                    </div>
+                )}
                 <div className="rounded-3xl border border-emerald-300 bg-emerald-50 p-6 text-emerald-950">
                     <div className="flex items-center gap-2 text-xl font-black"><CheckCircle2 className="h-6 w-6" /> {result.sent ? (result.mode === 'template' ? 'Sent by WhatsApp template' : 'Sent on WhatsApp') : result.queued ? 'Queued for the window' : 'Done'}</div>
                     <p className="mt-3 text-base font-bold" data-testid="next-steps">{result.nextSteps ?? `Sent to ${first}.${result.totals ? ` Deposit ${gbp(result.totals.depositPence)}.` : ''}`}</p>
@@ -1361,13 +1390,13 @@ export function PriceAndSend({ slug, embedded = false, onClose, onOpenQuote }: {
                         </h2>
                     </div>
                     {onClose && (
-                        <button type="button" onClick={onClose} aria-label="Close the quote" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" data-testid="price-close">
+                        <button type="button" onClick={requestClose} aria-label="Close the quote" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" data-testid="price-close">
                             <X className="h-5 w-5" />
                         </button>
                     )}
                 </div>
-                <div className="grid grid-cols-[340px_minmax(0,1fr)] gap-5" data-testid="side-by-side">
-                    <aside className="self-start rounded-[20px] border border-slate-200 bg-slate-100 p-3">
+                <div className="grid grid-cols-1 gap-5 xl:grid-cols-[340px_minmax(0,1fr)]" data-testid="side-by-side">
+                    <aside className="order-last self-start rounded-[20px] xl:order-none border border-slate-200 bg-slate-100 p-3">
                         <div className={cn(EYEBROW, 'mb-2')}>Thread{data.thread?.count ? ` · ${data.thread.count}` : ''}</div>
                         {threadPane}
                     </aside>
@@ -1392,6 +1421,17 @@ export function PriceAndSend({ slug, embedded = false, onClose, onOpenQuote }: {
                     <div className="flex w-64">{sendButton('Send quote')}</div>
                 </div>
                 {sheets}
+                {confirmClose && (
+                    <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => setConfirmClose(false)}>
+                        <div role="alertdialog" aria-labelledby="price-close-title" className="w-full max-w-sm rounded-[24px] bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()} data-testid="price-close-confirm">
+                            <div id="price-close-title" className="text-base font-extrabold text-slate-900">Close {first}'s quote? Your changes on it will be lost.</div>
+                            <div className="mt-4 flex gap-2">
+                                <button type="button" autoFocus onClick={() => setConfirmClose(false)} className="min-h-12 flex-1 rounded-full border border-slate-300 text-sm font-bold text-slate-700" data-testid="price-close-keep">Keep editing</button>
+                                <button type="button" onClick={() => { setConfirmClose(false); onClose?.(); }} className="min-h-12 flex-1 rounded-full bg-red-600 text-sm font-bold text-white" data-testid="price-close-discard">Close and lose them</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
@@ -1448,24 +1488,11 @@ export function PriceAndSend({ slug, embedded = false, onClose, onOpenQuote }: {
 
             {sheets}
 
-            {/* F2: the thumb bar. Mic, the amber Send pill with the total, and ⋯. */}
+            {/* F2: the thumb bar. The amber Send pill with the total, and ⋯. */}
             <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
                 <div className={cn('mx-auto flex items-center gap-2.5 px-4 py-3', desktop ? 'max-w-6xl pl-[calc(340px+2.25rem)]' : 'max-w-xl')}>
-                    {/* Voice edits to a line are the ask agent's work, not this screen's yet: shown as the design has it, not wired. */}
-                    <button type="button" disabled aria-label="Voice input (coming soon)" title="Voice input is not wired yet"
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-400 text-slate-900 disabled:opacity-40" data-testid="mic">
-                        <Mic className="h-5 w-5" />
-                    </button>
-                    <button type="button" onClick={send} disabled={!canSend}
-                        className="inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-amber-400 px-4 text-sm font-bold text-slate-900 transition-colors hover:bg-amber-300 disabled:bg-slate-200 disabled:text-slate-400"
-                        data-testid="send-quote">
-                        {busy === 'send' && <Loader2 className="h-4 w-4 animate-spin" />}
-                        <span className="truncate">{busy === 'send' ? 'Sending…' : `Send${totals.totalPence > 0 ? ` · ${gbp(totals.totalPence)}` : ''}`}</span>
-                    </button>
-                    <button type="button" onClick={() => setOverflow(true)} aria-label="Other options: ask first, call, visit, full builder"
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-900" data-testid="more-exits">
-                        <MoreHorizontal className="h-5 w-5" />
-                    </button>
+                    {sendButton('Send')}
+                    {moreButton}
                 </div>
             </div>
         </div>

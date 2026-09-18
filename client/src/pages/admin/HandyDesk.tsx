@@ -18,8 +18,11 @@
  * its one "Open & price" pill - opens Price and Send for that quote (/admin/price/:slug,
  * PriceAndSendPage in client/src/App.tsx). From 1024px (B9, the captain's desktop design) the card is
  * selected instead and the quote opens as the answer surface on the right, the same screen embedded
- * (`PriceAndSend` with `embedded`, its own lazy chunk). The desk's ask bar stays as it is, with no
- * card selected; it does not change a quote. The pill stays a real link to the page.
+ * (`PriceAndSend` with `embedded`, its own lazy chunk). Every quote opened there stays mounted,
+ * hidden while another card is selected, so Ben's unsent edits survive a look elsewhere; one leaves
+ * only through its X (which asks first when it has changes) or once it has been sent. The desk's ask
+ * bar stays as it is, with no card selected; it does not change a quote, and its answer shows above
+ * the open quote. The pill stays a real link to the page.
  *
  * The column reads from two independent queries, so what it may say is decided once from both of
  * their states (`needsYouView` in client/src/lib/handy-desk-queue.ts) rather than per element. React
@@ -422,8 +425,10 @@ export default function HandyDesk() {
     const [sheetDismissed, setSheetDismissed] = useState(false);
     // The thread's half-written reply, kept per case file so an ask answer taking the right-hand side never eats it.
     const [threadWords, setThreadWords] = useState<Record<string, string>>({});
-    /** B9: the quote open as the answer surface (wide screens only). */
+    /** B9: the quote open as the answer surface (wide screens only), and every quote opened there, kept mounted. */
     const [priceSlug, setPriceSlug] = useState<string | null>(null);
+    const [openSlugs, setOpenSlugs] = useState<string[]>([]);
+    const sentSlugs = useRef(new Set<string>());
     const [done, setDone] = useState<{ key: number; note: string }[]>([]);
     const [askText, setAskText] = useState('');
     const [showAnswer, setShowAnswer] = useState(false);
@@ -493,13 +498,49 @@ export default function HandyDesk() {
         if (shown) dismiss(shown);
     };
 
-    const select = (item: QueueItem) => {
-        setPriceSlug(null);
-        setSelection(selectionOf(item));
-        setSheetDismissed(false);
+    const putAwayLatest = () => {
         if (latest === undefined) dismiss(FIRST_LOAD);
         else if (latest) dismiss(latest.id);
     };
+
+    // A sent quote has nothing left to keep, so it goes once Ben looks elsewhere.
+    const dropSent = (list: string[], except?: string) => list.filter((s) => s === except || !sentSlugs.current.has(s));
+
+    const select = (item: QueueItem) => {
+        setPriceSlug(null);
+        setOpenSlugs((list) => dropSent(list));
+        setSelection(selectionOf(item));
+        setSheetDismissed(false);
+        putAwayLatest();
+    };
+
+    const openQuote = (slug: string) => {
+        sentSlugs.current.delete(slug);
+        setOpenSlugs((list) => [...dropSent(list).filter((s) => s !== slug), slug]);
+        setPriceSlug(slug);
+        setSelection(null);
+        setShowAnswer(false);
+        putAwayLatest();
+    };
+
+    const closeQuote = (slug: string) => {
+        sentSlugs.current.delete(slug);
+        setOpenSlugs((list) => list.filter((s) => s !== slug));
+        setPriceSlug((active) => (active === slug ? null : active));
+    };
+
+    const priceOpen = wide && priceSlug != null;
+    const answerCard = exchange && (showAnswer || exchange.live) ? (
+        <AnswerCard exchange={exchange} onClose={closeAsked} onChange={setAskText} onConfirmed={handleHandled} />
+    ) : answered ? (
+        <AnswerCard
+            key={answered.id}
+            exchange={exchangeOfAnswered(answered)}
+            onClose={() => dismiss(answered.id)}
+            onChange={answered.ask?.text ? setAskText : undefined}
+            onConfirmed={handleHandled}
+        />
+    ) : null;
 
     // The desk is the whole screen (no admin shell around it), so the ask bar stays in view without scrolling.
     return (
@@ -538,7 +579,7 @@ export default function HandyDesk() {
                         )}
                         {view.items.map((item) => isReadyToPrice(item) ? (
                             <ReadyToPriceCard key={item.id} item={item} active={wide && priceSlug === item.slug}
-                                onSelect={wide ? () => { setPriceSlug(item.slug); setSelection(null); setShowAnswer(false); } : undefined} />
+                                onSelect={wide ? () => openQuote(item.slug) : undefined} />
                         ) : (
                             <QueueCard
                                 key={item.id}
@@ -569,21 +610,18 @@ export default function HandyDesk() {
 
                 <section aria-label="Answer" className="flex min-h-[50vh] flex-col bg-slate-50 lg:min-h-0">
                     <div className="flex-1 px-4 py-6 sm:px-8 lg:overflow-y-auto">
-                        {wide && priceSlug ? (
+                        {priceOpen && answerCard && <div className="mb-6">{answerCard}</div>}
+                        {openSlugs.length > 0 && (
                             <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>}>
-                                <EmbeddedPrice key={priceSlug} slug={priceSlug} embedded onClose={() => setPriceSlug(null)} onOpenQuote={setPriceSlug} />
+                                {openSlugs.map((slug) => (
+                                    <div key={slug} hidden={!priceOpen || slug !== priceSlug} data-testid={`embedded-quote-${slug}`}>
+                                        <EmbeddedPrice slug={slug} embedded onClose={() => closeQuote(slug)} onOpenQuote={openQuote}
+                                            onSent={() => sentSlugs.current.add(slug)} />
+                                    </div>
+                                ))}
                             </Suspense>
-                        ) : exchange && (showAnswer || exchange.live) ? (
-                            <AnswerCard exchange={exchange} onClose={closeAsked} onChange={setAskText} onConfirmed={handleHandled} />
-                        ) : answered ? (
-                            <AnswerCard
-                                key={answered.id}
-                                exchange={exchangeOfAnswered(answered)}
-                                onClose={() => dismiss(answered.id)}
-                                onChange={answered.ask?.text ? setAskText : undefined}
-                                onConfirmed={handleHandled}
-                            />
-                        ) : selection && wide ? (
+                        )}
+                        {priceOpen ? null : answerCard ? answerCard : selection && wide ? (
                             <section data-testid="handy-desk-thread" className="h-[min(760px,calc(100vh-14rem))] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
                                 <ThreadView
                                     key={selection.caseFileId}
