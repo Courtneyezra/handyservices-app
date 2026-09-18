@@ -465,7 +465,9 @@ is no source. A question about the customer's own job is Scoping's: when Scoping
 left to it, so a mixed turn never holds the job half as `no_source`. Never a sentence for the customer.
 
 **Holds and what the customer hears.** Fixed line only, no composer, no specialist until Ben
-releases: complaint, refund, trust doubt, gas (answer 21). Answer the rest, with the fixed line
+releases: complaint, refund, trust doubt, gas (answer 21). Gas beside work we do in the same message
+answers the rest instead (18 Sep 2026): the gas line goes after the reply, the work we do is scoped and
+quoted, and the hold stays `regulated` for Ben. Answer the rest, with the fixed line
 in the reply (answer 14): money, a date change, a customer asking for a call (`callback`, the router's own
 reading: "call round", "call in" and "call out" ask for a visit in this trade, which no matcher
 separated reliably from a phone call), no source, a change of details, and scoping that is not

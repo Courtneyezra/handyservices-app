@@ -5,7 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { answered, ask, open, recordFact, type CaseFile, type Turn } from './case-file';
-import { confirmLocation, describeMedia, nextQuestion, offerCall, readiness, regulated } from './scoping-tools';
+import { confirmLocation, describeMedia, nextQuestion, offerCall, readiness, regulated, workBesideRegulated } from './scoping-tools';
+import { freezes, REGULATED_WITH_REST, regulatedWithRestReason } from '../service/hold-reasons';
 import { moneyQuestionMatch, offersCall, regulatedMatch, regulatedNotGasMatch, scopingQuestionCount, textAsks } from './lexicon';
 
 function fixture(text = 'hi', media: Turn['media'] = []): CaseFile {
@@ -213,5 +214,31 @@ describe('lexicon', () => {
         expect(textAsks('Where is it sticking, top or side?', 'postcode')).toBe(false);
         expect(textAsks("What's your postcode?", 'postcode')).toBe(true);
         expect(scopingQuestionCount('Got it. Where does it catch? Top or side? Happy to give you a quick call if easier?')).toBe(2);
+    });
+});
+
+describe('gas beside work we do (the ruling of 18 Sep 2026)', () => {
+    it('takes the job type Scoping read as work we do only when it names none of the gas work', () => {
+        expect(workBesideRegulated('boiler', 'repair a crack in the lounge ceiling')).toBe('repair a crack in the lounge ceiling');
+        expect(workBesideRegulated('gas', 'put up two shelves')).toBe('put up two shelves');
+        // A belt under the model, failing closed to the freeze.
+        expect(workBesideRegulated('boiler', 'boiler removal and ceiling repair')).toBeNull();
+        expect(workBesideRegulated('gas hob', 'hob replacement')).toBeNull();
+        expect(workBesideRegulated('combi', 'new combi')).toBeNull();
+        expect(workBesideRegulated('boiler', null)).toBeNull();
+        expect(workBesideRegulated('boiler', '  ')).toBeNull();
+    });
+
+    it('a gas hold beside work we do answers the rest; every other fixed-line-only hold still freezes', () => {
+        const beside = regulatedWithRestReason('boiler', 'ceiling repair');
+        expect(beside).toContain(REGULATED_WITH_REST);
+        expect(freezes({ exception: 'regulated', reason: beside })).toBe(false);
+        expect(freezes({ exception: 'regulated', reason: 'regulated: boiler' })).toBe(true);
+        // The marker counts only on a regulated hold: a complaint that took the card over freezes whatever it carries.
+        expect(freezes({ exception: 'complaint', reason: `complaint: a mess; ${beside}` })).toBe(true);
+        for (const e of ['refund', 'trust_doubt'] as const) expect(freezes({ exception: e, reason: e })).toBe(true);
+        for (const e of ['money', 'callback', 'not_converging'] as const) expect(freezes({ exception: e, reason: e })).toBe(false);
+        expect(freezes({ exception: null, reason: 'router_failed' })).toBe(false);
+        expect(freezes(null)).toBe(false);
     });
 });

@@ -50,6 +50,12 @@ export interface ComposeInput {
      * bubble after the reply, so the composer is told to leave that media alone and keep a bubble free.
      */
     lateAck?: FixedLine | null;
+    /**
+     * The gas line, when the message also asked for work we do (desk.ts, the ruling of 18 Sep 2026).
+     * The desk adds it after the reply in Ben's reviewed words, so the composer answers only the rest,
+     * says nothing about the gas work, and leaves room for the line's two bubbles.
+     */
+    after?: FixedLine | null;
     /** Second attempt only: the guard failures, named. */
     failures?: string[];
     /** Second attempt only: the reply was too long for the channel it is going out on. */
@@ -204,6 +210,7 @@ export function buildComposerUser(input: ComposeInput): string {
     if (never.length) lines.push(`Never ask again (already asked or declined): ${never.map((s) => s === 'media' ? 'photos or video' : s).join(', ')}.`);
     for (const s of specialists) if (s.specialist !== 'scoping' && s.brief?.length) { lines.push(s.specialist === 'service' ? 'Proposal from Service:' : `Notes from ${s.specialist} (facts to copy verbatim, what not to say):`); for (const b of s.brief) lines.push(`- ${b}`); }
     if (input.lateAck) lines.push(`The last photo or video in the thread came in earlier and this reply is late for it: a bubble is added after your reply saying "${input.lateAck.text}". Do not thank for it or mention it yourself, answer the turn marked >> first, and use at most ${BUBBLE_CEILING - 1} bubbles.`);
+    if (input.after) lines.push(`The customer also asked about work we do not take on. Ben's line about it is added after your reply, as it is: "${input.after.text}". Do not mention that work, gas or a Gas Safe engineer yourself, and do not sign off; answer the rest of the turn marked >> in one short bubble of under 150 characters with no blank line.`);
     if (fixedLines.length) {
         lines.push('Fixed lines to include, in Ben\'s words:');
         for (const f of fixedLines) lines.push(`- ${f.text}`);

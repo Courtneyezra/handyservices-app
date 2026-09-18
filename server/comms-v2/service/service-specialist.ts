@@ -37,6 +37,7 @@ import type { ServiceHold } from './hold-reasons';
 import { asksAboutOurArea, BY, changeOfDetails, convergence, customerRecord, kbLookup, MASKED_FIELDS, RECORD_FIELDS, type KbRowVerbatim, type RecordEntry } from './service-tools';
 import { recordFactKey, recordItems, recordSourceField, type CustomerRecordReader, type RecordItem } from './customer-record';
 import { isoDayOf } from '../scheduling/diary';
+import { regulatedMatch } from '../desk/lexicon';
 
 /** What the model may return: selections and labels only. No field can carry a reply. */
 export const serviceOutputSchema = z.object({
@@ -139,6 +140,8 @@ export interface ServeOptions {
     scopingRan: boolean;
     /** The router handed this turn's money question to Service as one about an invoice (desk/router.ts): unanswered from an invoice row, it holds as money. */
     invoiceMoney?: boolean;
+    /** The gas line goes with this reply (desk.ts, gas beside work we do): a question about the gas item is answered by it, never put off with a promise to check and come back. */
+    gasLineGoes?: boolean;
 }
 
 /** The customer's history for the model: each item by ref, its values masked like the thread. */
@@ -210,6 +213,7 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
 
     let hold: ServiceHold | null = res.output.holdReason ? { reason: res.output.holdReason, match: turn.body.slice(0, 80) } : null;
     let invoiceRead = false;
+    let gasAsked = 0;
     if (!opts.scopingRan) brief.push('This turn: answer what they asked from the lines below. Ask nothing about the job.');
     for (const a of res.output.answers) {
         const asked = askedLabel(a.asked);
@@ -270,6 +274,12 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
                 }
             }
         }
+        // The gas item, when the gas line goes with this reply: that line is the answer, and a promise to check on it would contradict it.
+        if (opts.gasLineGoes && regulatedMatch(asked)) {
+            notes.push(`"${asked}" answered by the gas line`);
+            gasAsked++;
+            continue;
+        }
         // No source (or a selection that did not check out): Ben, and the customer hears that.
         brief.push(`They asked "${asked}": we have no source for it. Say you will check on it and come back to them; do not answer it yourself.`);
         notes.push(`no source for "${asked}"`);
@@ -300,5 +310,6 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
         hold = { ...moneyHold(), match: `${moneyHold().match}${also}` };
         notes.push('invoice money question not answered from an invoice');
     }
-    return { specialist: 'service', factIds, proposal: emptyProposal(file, hold ?? slow), calls, error: null, brief, note: notes.length ? `service: ${notes.join('; ')}` : 'service: nothing to answer' };
+    const onlyTheGasItem = gasAsked > 0 && gasAsked === res.output.answers.length && !res.output.changeOfDetails && !(hold ?? slow);
+    return { specialist: 'service', factIds, proposal: emptyProposal(file, hold ?? slow), calls, error: null, brief, note: notes.length ? `service: ${notes.join('; ')}` : 'service: nothing to answer', onlyTheGasItem };
 }

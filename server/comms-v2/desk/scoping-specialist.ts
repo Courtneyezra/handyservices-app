@@ -9,12 +9,18 @@
  * decides the proposal deterministically: readiness, the next question in the fixed order,
  * whether to offer a call, whether to thank for media, a hold on regulated work. The specialist
  * never sees the customer and holds no send tool.
+ *
+ * A message that names gas or asbestos work and also asks for work we do (a boiler removal and a
+ * ceiling repair) is still scoped for the work we do: the hold names that work as `rest`, and the
+ * next question and the call offer stand for it (the ruling of 18 Sep 2026). The job type is only
+ * ever the work we do, so the quote drafted from it never carries the regulated item.
  */
 import { z } from 'zod/v4';
 import { answered, everAsked, recordFact, type CaseFile, type ModelCallRecord, type Party, type Turn, isTurnOf } from './case-file';
 import type { Proposal, SpecialistReturn } from './desk-types';
 import { SPECIALIST_MODEL, type ModelClient } from './models';
-import { confirmLocation, describeMedia, mediaDeclined, mediaReceived, nextQuestion, offerCall, readiness, regulated, type DescribeDeps } from './scoping-tools';
+import { confirmLocation, describeMedia, mediaDeclined, mediaReceived, nextQuestion, offerCall, readiness, regulated, workBesideRegulated, type DescribeDeps } from './scoping-tools';
+import { REGULATED_WITH_REST, regulatedWithoutLine } from '../service/hold-reasons';
 
 export const FACT_KEYS = ['job_type', 'job_detail', 'location', 'access', 'prefers_text', 'already_rung', 'media_declined', 'customer_name', 'promise_of_more'] as const;
 
@@ -59,10 +65,10 @@ export function clampJobUnknowns(labels: readonly string[]): string[] {
 
 const SYSTEM = [
     'You are the Scoping specialist for a small handyman business\'s desk. You never write to the customer. You read the thread and return facts about the job with no prose.',
-    'Facts, each with a short value: job_type (what the job is, e.g. "leaking kitchen tap", "replace one fence panel"; when there are several jobs, list them in one value), job_detail (a detail that matters for pricing, one per fact), location (a postcode, an outward code like NG9, or a named area, exactly as they gave it), access (parking, keys, someone home), prefers_text ("true" when they say text only or cannot take calls), already_rung ("true" when they say they already called us), media_declined ("true" when they decline to send photos), customer_name (if they give it), promise_of_more ("true" when they promise to send something later).',
+    'Facts, each with a short value: job_type (what the job is, e.g. "leaking kitchen tap", "replace one fence panel"; when there are several jobs, list them in one value; only work we do: never gas work (a boiler, a combi, a gas hob, fire or appliance) or asbestos or artex work, which we do not take on, so a message asking for a boiler removal and a ceiling repair has job_type "ceiling repair" and one asking only for gas or asbestos work has no job_type; a boiler cupboard or casing is joinery and ours), job_detail (a detail that matters for pricing, one per fact), location (a postcode, an outward code like NG9, or a named area, exactly as they gave it), access (parking, keys, someone home), prefers_text ("true" when they say text only or cannot take calls), already_rung ("true" when they say they already called us), media_declined ("true" when they decline to send photos), customer_name (if they give it), promise_of_more ("true" when they promise to send something later).',
     'Only what the thread supports. Never invent. Never a figure of money.',
     'Photo descriptions help you understand what the customer asked for. A defect, damage or wear seen only in a photo is not a job_detail and not part of job_type unless the customer asked for that work.',
-    'jobUnknowns: up to four short labels, each under 40 characters, of what a handyman would still check before pricing this job (e.g. "which of the three jobs first", "tap type", "panel size", "wall or ceiling", "how many"). Most jobs have at least one until the customer has described it properly; empty only when the job is clear enough to price.',
+    'jobUnknowns: up to four short labels, each under 40 characters, of what a handyman would still check before pricing the work in job_type, never about gas or asbestos work (e.g. "which of the three jobs first", "tap type", "panel size", "wall or ceiling", "how many"). Most jobs have at least one until the customer has described it properly; empty only when the job is clear enough to price.',
     'answeredSubjects: which of job, postcode, access, media the customer dealt with in the newest turn. A turn that answers the pending question, or engages with it (asks which one we mean, asks for clarification, gives a partial answer), counts as answering it. A photo arriving or being declined counts as media.',
     'Reply with the JSON object only.',
 ].join('\n');
@@ -92,6 +98,9 @@ export async function scope(file: CaseFile, turn: Turn, party: Party, client: Mo
         if (f.ok) factIds.push(f.value.id);
     }
     const reg = regulated(turn);
+    // A thread already answering the rest beside gas keeps doing so while the customer goes on naming it.
+    const answeringBeside = !!file.hold && file.hold.exception === 'regulated' && file.hold.reason.includes(REGULATED_WITH_REST);
+    let jobTypeThisTurn: string | null = null;
 
     // The model reads the thread and returns facts.
     const user = [
@@ -112,9 +121,10 @@ export async function scope(file: CaseFile, turn: Turn, party: Party, client: Mo
                     else if (loc.outward) value = loc.outward + (loc.text ? ` (${loc.text})` : '');
                     else if (loc.confidence === 'low' && !loc.text && !/[a-z]/i.test(value)) continue;
                 }
-                if (f.key === 'job_type' && file.job.type && file.job.type.toLowerCase() === value.toLowerCase()) continue;
+                if (f.key === 'job_type' && file.job.type && file.job.type.toLowerCase() === value.toLowerCase()) { jobTypeThisTurn = file.job.type; continue; }
                 const rec = recordFact(file, { key: f.key, value, source: { kind: 'thread', turnId: turn.id }, by }, deps);
                 if (rec.ok) factIds.push(rec.value.id);
+                if (rec.ok && f.key === 'job_type') jobTypeThisTurn = value;
             }
             for (const s of res.output.answeredSubjects) answered(file, s, deps);
             jobUnknowns = clampJobUnknowns(res.output.jobUnknowns);
@@ -122,21 +132,24 @@ export async function scope(file: CaseFile, turn: Turn, party: Party, client: Mo
     }
     if (turn.media.length) answered(file, 'media', deps);
 
-    // The proposal, from the tools.
+    // The proposal, from the tools. Regulated work stops the scoping, unless it is gas and the message also asked for work we do:
+    // regulated work that is not gas has no line to send, so it holds as ever.
+    const rest = reg.regulated && !regulatedWithoutLine('regulated', turn.body) ? workBesideRegulated(reg.match!, jobTypeThisTurn ?? (answeringBeside ? file.job.type : null)) : null;
+    const stopped = reg.regulated && !rest;
     const ready = readiness(file).ready;
     const proposal: Proposal = {
-        nextQuestion: reg.regulated ? null : nextQuestion(file, jobUnknowns),
-        offerCall: !reg.regulated && offerCall(party),
+        nextQuestion: stopped ? null : nextQuestion(file, jobUnknowns),
+        offerCall: !stopped && offerCall(party),
         mentionPhotos: false,
         thankForMedia: mediaReceived(file) && !file.ledger.find((l) => l.subject === 'media')?.thankedAt,
         ready,
-        hold: reg.regulated ? { reason: 'regulated', match: reg.match! } : null,
+        hold: reg.regulated ? { reason: 'regulated', match: reg.match!, ...(rest ? { rest } : {}) } : null,
     };
     // Photos are mentioned once, on the first reply of a job that arrived without any ("ask for a
     // photo, but if there is hesitation do not insist"), so the ask is on the ledger from the start
     // and next_question never returns it again.
     const firstReply = !file.turns.some((t) => t.direction === 'outbound');
-    if (firstReply && !reg.regulated && !mediaReceived(file) && !mediaDeclined(file) && !everAsked(file, 'media')) {
+    if (firstReply && !stopped && !mediaReceived(file) && !mediaDeclined(file) && !everAsked(file, 'media')) {
         proposal.mentionPhotos = true;
         if (proposal.nextQuestion?.subject === 'media') proposal.nextQuestion = null;
     }
