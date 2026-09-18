@@ -1,8 +1,12 @@
 /**
- * Handy Desk B4 - one customer's thread on the new desk, opened by tapping a card: the comms board's
- * docked panel (≥1024px) or full screen below it, and a Handy Desk queue card. A recreation of section 3 of
- * the Claude Design export's `Comms Board.dc.html`, in Handy Desk's slate and amber, with a held
- * hold in amber.
+ * Handy Desk B4 - one customer's thread on the new desk, opened by tapping a card: beside the comms
+ * board (≥1024px) only while a card is picked, full screen below it, and from a Handy Desk queue card.
+ * Drawn like a WhatsApp chat (captain, 18 Sep 2026): the customer's messages in white on the left,
+ * ours in green on the right with a small "Desk" or staff name on the first bubble of a run, the time
+ * inside each bubble, a day chip between days, calls and system turns as centred notes, and a round
+ * message field with one send button. The held draft sits in the chat as a dashed bubble that has not
+ * gone, with Send this under it. The header is words: More (Call, the customer's record, the latest
+ * quote, Close file) and Close.
  *
  * Reads GET /api/comms-v2/case-files/:id every fifteen seconds. Every write is one of the board's own
  * human-send routes, and the server decides who may act:
@@ -13,9 +17,9 @@
  *   - "Release hold only" posts release with the same words, for the file;
  *   - on a shut WhatsApp window, the template card previews GET template-offer (the template the send
  *     would pick and its wording, or its refusal) and "Send template" posts send-template;
- *   - below the composer, on a file not yet done, "Close file" posts close (CloseFileForm.tsx) after a
- *     second tap, with words required on a held file; the file is then read again and the board or
- *     queue refreshed.
+ *   - "Close file" in the More menu opens CloseFileForm.tsx above the composer on a file not yet done,
+ *     which posts close after a second tap, with words required on a held file; the file is then read
+ *     again and the board or queue refreshed.
  * Every refusal is shown as the desk worded it, with the words kept in the box. A reply shows as a
  * sending bubble at once and as sent from the response, until the next read carries the turn. A
  * session that may not act sees the thread with every action hidden and one line saying why; the
@@ -23,7 +27,8 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronLeft, Loader2, Phone, Send, X } from 'lucide-react';
+import { ChevronLeft, Loader2, Send } from 'lucide-react';
+import { Link } from 'wouter';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import { CloseFileForm } from '@/components/comms-v2/CloseFileForm';
@@ -32,8 +37,8 @@ import { channelLabel, refusalMessage } from '@/lib/handy-desk-queue';
 import { addressLabel } from '@/lib/handy-desk-answer';
 import { HELD_DRAFT_CHANGED } from '@shared/ops-types';
 import {
-    hasCustomerTurn, headerLine, heldFor, refusalOf, slotLabel, threadRows,
-    type Refusal, type SentReply, type TemplateOffer, type ThreadRow,
+    chatItems, hasCustomerTurn, headerLine, heldFor, refusalOf, slotLabel, threadLinks, threadRows,
+    type Refusal, type SentReply, type TemplateOffer, type ThreadLinks, type ThreadRow,
 } from '@/lib/comms-v2-thread';
 import { STAGE_LABELS } from '@/lib/comms-board';
 import type { CaseFileDetail, TurnMedia } from '@/pages/admin/CommsV2BoardPage';
@@ -82,32 +87,74 @@ function focusInField(): boolean {
         || (el instanceof HTMLElement && el.isContentEditable);
 }
 
-const PILL = 'rounded-full bg-slate-100 px-[7px] py-0.5 text-[10px] font-semibold text-slate-500';
 const BTN = 'inline-flex items-center justify-center gap-1.5 rounded-md font-semibold transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50';
 const BTN_AMBER = cn(BTN, 'bg-amber-400 text-slate-900 hover:bg-amber-300');
-const BTN_DARK = cn(BTN, 'bg-slate-900 text-white hover:bg-slate-800');
 const BTN_OUTLINE = cn(BTN, 'border border-slate-200 bg-white text-slate-900 hover:bg-slate-50');
+/** A word-only action in the chat: underlined text, no box. */
+const BTN_TEXT = 'inline-flex min-h-9 items-center px-1.5 text-[13px] font-medium text-[#111b21] underline underline-offset-2 hover:text-slate-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline';
+
+// WhatsApp's own colours, so the chat reads as the shape anyone knows: the wallpaper, her white
+// bubble, our green one, the grey of a bubble's time, and the header bar.
+const WA_WALL = 'bg-[#efeae2]';
+const WA_BAR = 'bg-[#f0f2f5]';
+const WA_META = 'text-[#667781]';
+const BUBBLE_SHADOW = 'shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]';
+/** The tail on the first bubble of a run: a small corner flag pointing at the side it came from. */
+const TAIL_IN = "rounded-tl-none before:absolute before:-left-2 before:top-0 before:border-b-[10px] before:border-r-8 before:border-b-transparent before:border-r-white before:content-['']";
+const TAIL_OUT = "rounded-tr-none before:absolute before:-right-2 before:top-0 before:border-b-[10px] before:border-l-8 before:border-b-transparent before:border-l-[#d9fdd3] before:content-['']";
 
 // ---------------------------------------------------------------- rows
 
 function MediaThumb({ media }: { media: TurnMedia }) {
     if (!media.url) {
-        return <div className="flex h-[90px] items-center justify-center bg-slate-200 text-[11px] text-slate-500">{media.kind === 'video' ? 'video' : 'photo'}</div>;
+        return <div className="flex h-[90px] items-center justify-center rounded bg-slate-200 text-[11px] text-slate-500">{media.kind === 'video' ? 'video' : 'photo'}</div>;
     }
-    if (media.kind === 'video') return <video src={media.url} controls preload="metadata" className="max-h-56 w-full bg-black" />;
+    if (media.kind === 'video') return <video src={media.url} controls preload="metadata" className="max-h-56 w-full rounded bg-black" />;
     return (
         <a href={media.url} target="_blank" rel="noreferrer">
-            <img src={media.url} alt="" loading="lazy" className="max-h-56 w-full object-cover" />
+            <img src={media.url} alt="" loading="lazy" className="max-h-56 w-full rounded object-cover" />
         </a>
     );
 }
 
-function Bubble({ side, meta, children, testId, muted }: { side: 'customer' | 'desk'; meta: React.ReactNode; children: React.ReactNode; testId?: string; muted?: boolean }) {
-    const desk = side === 'desk';
+/**
+ * One chat bubble. Hers is white on the left, ours green on the right; the first of a run wears the
+ * tail and, on our side, the small name of who wrote it. The time sits inside the bubble, bottom
+ * right, with the channel as a word before it only when it is not WhatsApp.
+ */
+function Bubble({ side, first, speaker, meta, children, testId, metaTestId, muted }: {
+    side: 'customer' | 'desk';
+    first: boolean;
+    speaker?: string | null;
+    meta: React.ReactNode;
+    children: React.ReactNode;
+    testId?: string;
+    metaTestId?: string;
+    muted?: boolean;
+}) {
+    const ours = side === 'desk';
     return (
-        <div data-testid={testId} className={cn('flex max-w-[85%] flex-col gap-[3px]', desk ? 'self-end' : 'self-start', muted && 'opacity-60')}>
-            <div className={cn('whitespace-pre-wrap rounded-lg px-3 py-2 text-[13px] leading-normal', desk ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-900')}>{children}</div>
-            <div className={cn('text-[10px] text-slate-400', desk && 'text-right')}>{meta}</div>
+        <div
+            data-testid={testId}
+            className={cn(
+                'relative max-w-[80%] rounded-[7.5px] px-2.5 pb-1.5 pt-1.5 text-[13.5px] leading-[1.38] text-[#111b21]', BUBBLE_SHADOW,
+                ours ? 'self-end bg-[#d9fdd3]' : 'self-start bg-white',
+                first ? cn('mt-1.5', ours ? TAIL_OUT : TAIL_IN) : 'mt-0.5',
+                muted && 'opacity-60',
+            )}
+        >
+            {first && ours && speaker && <span className="block text-[12px] font-semibold text-[#1f7a5a]">{speaker}</span>}
+            <div className="whitespace-pre-wrap break-words">{children}</div>
+            <div data-testid={metaTestId} className={cn('mt-0.5 text-right text-[11px] leading-none', WA_META)}>{meta}</div>
+        </div>
+    );
+}
+
+/** A note in the middle of the chat, the way WhatsApp shows a call or a change: white, small, centred. */
+function Note({ testId, children, className }: { testId?: string; children: React.ReactNode; className?: string }) {
+    return (
+        <div data-testid={testId} className={cn('my-1 max-w-[88%] self-center rounded-[7.5px] bg-white px-3 py-1.5 text-center text-[12px] leading-snug text-[#54656f]', BUBBLE_SHADOW, className)}>
+            {children}
         </div>
     );
 }
@@ -115,70 +162,59 @@ function Bubble({ side, meta, children, testId, muted }: { side: 'customer' | 'd
 function CallRow({ row }: { row: Extract<ThreadRow, { kind: 'call' }> }) {
     const [open, setOpen] = useState(false);
     return (
-        <div data-testid={`call-turn-${row.id}`} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-            <div className="flex items-center gap-2">
-                <span aria-hidden className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white"><Phone className="h-[13px] w-[13px]" /></span>
-                <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-slate-900">{row.headline}</p>
-                    <p className="text-[10px] text-slate-500">{row.meta}</p>
-                </div>
-            </div>
+        <Note testId={`call-turn-${row.id}`} className="flex flex-col gap-1 text-left">
+            <p className="font-semibold text-[#111b21]">{row.headline}</p>
+            <p className={cn('text-[11px]', WA_META)}>{row.meta}</p>
             {row.pending && (
-                <p data-testid={`call-pending-${row.id}`} className="flex items-center gap-2 text-xs text-slate-500">
+                <p data-testid={`call-pending-${row.id}`} className="flex items-center gap-2 text-[12px]">
                     <Loader2 aria-hidden className="h-3 w-3 animate-spin" />
                     Transcribing… summary lands within a few minutes, on the next 15s refresh.
                 </p>
             )}
-            {row.summary && <p data-testid={`call-summary-${row.id}`} className="text-xs leading-normal text-slate-700">{row.summary}</p>}
+            {row.summary && <p data-testid={`call-summary-${row.id}`} className="text-[12px] leading-normal text-[#111b21]">{row.summary}</p>}
             {row.transcript && (
                 <>
-                    <button
-                        type="button"
-                        aria-expanded={open}
-                        onClick={() => setOpen((v) => !v)}
-                        className={cn(BTN_OUTLINE, 'h-10 self-start px-2.5 text-xs lg:h-8')}
-                    >
+                    <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="self-start text-[12px] font-medium text-[#027eb5] hover:underline">
                         {open ? 'Hide transcript' : 'Show transcript'}
-                        <ChevronDown aria-hidden className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
                     </button>
-                    {open && <p data-testid={`call-transcript-${row.id}`} className="whitespace-pre-line border-t border-slate-200 pt-2 text-xs leading-relaxed text-slate-700">{row.transcript}</p>}
+                    {open && <p data-testid={`call-transcript-${row.id}`} className="whitespace-pre-line border-t border-slate-200 pt-1.5 text-[12px] leading-relaxed text-[#111b21]">{row.transcript}</p>}
                 </>
             )}
-        </div>
+        </Note>
     );
 }
 
-function Row({ row }: { row: ThreadRow }) {
+/** The time inside a bubble, with the channel as a word before it only when it is not WhatsApp. */
+function bubbleMeta(row: Extract<ThreadRow, { kind: 'text' | 'media' }>): string {
+    return [row.channelWord, row.clock].filter(Boolean).join(' · ');
+}
+
+function Row({ row, first }: { row: ThreadRow; first: boolean }) {
     switch (row.kind) {
         case 'call':
             return <CallRow row={row} />;
         case 'system':
-            return (
-                <div data-testid={`turn-system-${row.id}`} className="flex items-center gap-2 py-0.5 text-[11px] text-slate-500">
-                    <span aria-hidden className="h-px flex-1 bg-slate-200" />
-                    <span>{row.body} · {row.at}</span>
-                    <span aria-hidden className="h-px flex-1 bg-slate-200" />
-                </div>
-            );
+            return <Note testId={`turn-system-${row.id}`}>{row.body} · {row.at}</Note>;
         case 'media':
             return (
-                <div data-testid={`turn-bubble-${row.id}`} className={cn('flex max-w-[85%] flex-col gap-[3px]', row.side === 'desk' ? 'self-end' : 'self-start')}>
-                    {row.media.map((m) => (
-                        <div key={m.id} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-                            <MediaThumb media={m} />
-                            <p data-testid={`media-description-${m.id}`} className="px-3 py-2 text-xs leading-snug text-slate-700">
-                                {m.description
-                                    ? <>{m.description.description} <span className="text-slate-400">· {m.description.confidence} confidence</span></>
-                                    : <span className="text-slate-400">Not described yet</span>}
-                            </p>
-                        </div>
-                    ))}
-                    {row.body && <div className={cn('whitespace-pre-wrap rounded-lg px-3 py-2 text-[13px] leading-normal', row.side === 'desk' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-900')}>{row.body}</div>}
-                    <div data-testid={`turn-meta-${row.id}`} className={cn('text-[10px] text-slate-400', row.side === 'desk' && 'text-right')}>{row.meta}</div>
-                </div>
+                <Bubble testId={`turn-bubble-${row.id}`} metaTestId={`turn-meta-${row.id}`} side={row.side} first={first} speaker={row.speaker} meta={bubbleMeta(row)}>
+                    <span className="flex flex-col gap-1">
+                        {row.media.map((m) => (
+                            <span key={m.id} className="flex flex-col gap-1">
+                                <MediaThumb media={m} />
+                                <span data-testid={`media-description-${m.id}`} className="text-[12px] italic leading-snug text-[#54656f]">
+                                    {m.description
+                                        ? <>{m.description.description} · {m.description.confidence} confidence</>
+                                        : 'Not described yet'}
+                                </span>
+                            </span>
+                        ))}
+                        {row.body && <span>{row.body}</span>}
+                    </span>
+                </Bubble>
             );
         default:
-            return <Bubble testId={`turn-bubble-${row.id}`} side={row.side} meta={<span data-testid={`turn-meta-${row.id}`}>{row.meta}</span>}>{row.body}</Bubble>;
+            return <Bubble testId={`turn-bubble-${row.id}`} metaTestId={`turn-meta-${row.id}`} side={row.side} first={first} speaker={row.speaker} meta={bubbleMeta(row)}>{row.body}</Bubble>;
     }
 }
 
@@ -247,7 +283,7 @@ function TemplateCard({ fileId, sinceTurnId, busy, onSend, refusal }: { fileId: 
 
 export interface ThreadViewProps {
     fileId: string;
-    /** 'panel' closes with × or Esc; 'sheet' is full screen with a ‹ back arrow. */
+    /** 'panel' closes with Close or Esc; 'sheet' is full screen with a ‹ back arrow. */
     layout: 'panel' | 'sheet';
     /** What the way back returns to: "Board" on the comms board, "Queue" on the Handy Desk. */
     backTo?: string;
@@ -294,6 +330,7 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
     const [pending, setPending] = useState<Pending | null>(null);
     const [released, setReleased] = useState(false);
     const [factsOpen, setFactsOpen] = useState(false);
+    const [closing, setClosing] = useState(false);
 
     // Esc closes the docked panel, unless focus is in a field anywhere on the page or the thread's own
     // boxes hold words; the full-screen thread's own dialog handles Esc.
@@ -459,16 +496,29 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
         refresh();
     };
 
-    const pills = [data.party?.role ?? null, STAGE_LABELS[data.stage] ?? data.stage, showMode ? data.mode : null].filter(Boolean) as string[];
+    const line = [
+        data.party?.role ?? null,
+        STAGE_LABELS[data.stage] ?? data.stage,
+        showMode ? data.mode : null,
+        headerLine(data) || null,
+    ].filter(Boolean).join(' · ');
+    const items = chatItems(rows);
 
     return (
-        <ThreadFrame layout={layout} backTo={backTo} onClose={onClose} onAskAbout={onAskAbout} title={name} pills={pills} line={headerLine(data)}>
-            <div data-testid="thread-turns" className="flex min-h-[120px] flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3.5">
-                {rows.map((row) => <Row key={row.id} row={row} />)}
+        <ThreadFrame
+            layout={layout} backTo={backTo} onClose={onClose} onAskAbout={onAskAbout} title={name} line={line}
+            links={threadLinks(data)}
+            onCloseFile={canAct && data.stage !== 'done' ? () => setClosing(true) : undefined}
+        >
+            <div data-testid="thread-turns" className={cn('flex min-h-[120px] flex-1 flex-col overflow-y-auto px-4 pb-3 pt-2', WA_WALL)}>
+                {items.map((item) => item.kind === 'day'
+                    ? <p key={item.id} data-testid={item.id} className={cn('my-2 self-center rounded-[7.5px] bg-white px-2.5 py-1 text-[11.5px]', WA_META, BUBBLE_SHADOW)}>{item.label}</p>
+                    : <Row key={item.id} row={item.row} first={item.first} />)}
                 {pending && (
                     <Bubble
                         testId="thread-pending"
                         side="desk"
+                        first
                         muted={pending.status === 'sending'}
                         meta={pending.status === 'sending'
                             ? <span className="inline-flex items-center gap-1"><Loader2 aria-hidden className="h-2.5 w-2.5 animate-spin" />Sending as {replyAs}…</span>
@@ -477,17 +527,58 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
                         {pending.bubbles.join('\n\n')}
                     </Bubble>
                 )}
-                {released && <p data-testid="thread-released" className="text-center text-[11px] text-slate-500">✓ Hold released · the thread is the desk&apos;s again</p>}
+                {released && <Note testId="thread-released">✓ Hold released · the thread is the desk&apos;s again</Note>}
+                {hold && (
+                    // The hold sits in the chat where the next message would go: the draft as a dashed
+                    // bubble on our side that has not gone, then why it is held and what Ben can do.
+                    <div data-testid="held-block" className="mt-2 flex flex-col items-end gap-1.5">
+                        {showDraft && (
+                            <div className="relative max-w-[80%] rounded-[7.5px] border-[1.5px] border-dashed border-[#d8a106] bg-white px-2.5 py-1.5 text-[13.5px] leading-[1.38] text-[#111b21]">
+                                <span className="block text-[12px] font-semibold text-amber-700">Draft · not sent</span>
+                                <p data-testid="hold-draft" className="whitespace-pre-wrap break-words">{hold.draft}</p>
+                            </div>
+                        )}
+                        <p className="max-w-[90%] text-right text-[12px] leading-snug text-[#54656f]">
+                            <span className="font-semibold text-amber-800">Held {heldFor(hold.since)} · for {slotLabel(hold.approver.id)}</span>{' '}
+                            <span data-testid="held-reason">· {hold.reason}</span>
+                        </p>
+                        {holdBlocked && (
+                            <p data-testid="held-unassigned" className="max-w-[90%] text-right text-[12px] text-amber-900">No one is assigned to the {slotLabel(hold.approver.id)} slot, so nobody can act on this yet. Set the comms_v2_approvers row.</p>
+                        )}
+                        {showDraft && draftNotice && <p role="status" data-testid="draft-changed" className="max-w-[90%] text-right text-[12px] font-semibold text-amber-900">{draftNotice}</p>}
+                        {canAct && (
+                            <div className="flex flex-wrap items-center justify-end gap-1">
+                                {showDraft && (
+                                    <button type="button" className={BTN_TEXT} disabled={busy !== null} onClick={() => setWords(hold.draft ?? '')}>Edit</button>
+                                )}
+                                <button type="button" className={BTN_TEXT} disabled={busy !== null || !words.trim() || holdBlocked} onClick={release} title="Hands the file back to the desk with the words in the box, sending nothing">
+                                    {busy === 'release' && <Loader2 aria-hidden className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                                    Release hold only
+                                </button>
+                                {showDraft && (
+                                    <button
+                                        type="button"
+                                        className={cn(BTN, 'min-h-9 rounded-full bg-[#111b21] px-4 text-[13px] text-white hover:bg-slate-700')}
+                                        disabled={busy !== null || holdBlocked || shut || !!unroutable}
+                                        onClick={sendDraft}
+                                    >
+                                        {busy === 'draft' && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
+                                        Send this
+                                    </button>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
                 {data.facts.length > 0 && (
-                    <div className="pt-1">
-                        <button type="button" aria-expanded={factsOpen} onClick={() => setFactsOpen((v) => !v)} className="inline-flex min-h-10 items-center gap-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 hover:text-slate-900">
+                    <div className="self-center pt-2 text-center">
+                        <button type="button" aria-expanded={factsOpen} onClick={() => setFactsOpen((v) => !v)} className={cn('min-h-9 text-[12px] font-medium hover:underline', WA_META)}>
                             Facts ({data.facts.length})
-                            <ChevronDown aria-hidden className={cn('h-3 w-3 transition-transform', factsOpen && 'rotate-180')} />
                         </button>
                         {factsOpen && (
-                            <ul data-testid="thread-facts" className="mt-1 space-y-1 text-xs">
+                            <ul data-testid="thread-facts" className="mt-1 space-y-1 rounded-[7.5px] bg-white px-3 py-2 text-left text-xs">
                                 {data.facts.map((f) => (
-                                    <li key={f.id} className="flex justify-between gap-2"><span className="text-slate-500">{f.key}</span><span className="text-right font-medium text-slate-900">{f.value}</span></li>
+                                    <li key={f.id} className="flex justify-between gap-3"><span className="text-slate-500">{f.key}</span><span className="text-right font-medium text-slate-900">{f.value}</span></li>
                                 ))}
                             </ul>
                         )}
@@ -496,149 +587,130 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
                 <div ref={endRef} />
             </div>
 
-            {/* Capped and scrolling on its own, so a tall hold, shut notice and template card never push the
-                reply box and its buttons out of a fixed-height panel or squeeze the conversation to nothing. */}
-            <div data-testid="thread-footer" className={cn('flex max-h-[60%] shrink-0 flex-col gap-2.5 overflow-y-auto border-t border-slate-200 bg-white px-4 pt-3', layout === 'sheet' ? 'pb-5' : 'pb-3.5')}>
-                {hold && (
-                    <div data-testid="held-block" className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            <p className="text-[11px] font-bold text-amber-800">Held {heldFor(hold.since)} · for {slotLabel(hold.approver.id)}</p>
-                            <p data-testid="held-reason" className="text-[11px] text-amber-900">· {hold.reason}</p>
-                        </div>
-                        {holdBlocked && (
-                            <p data-testid="held-unassigned" className="text-[11px] text-amber-900">No one is assigned to the {slotLabel(hold.approver.id)} slot, so nobody can act on this yet. Set the comms_v2_approvers row.</p>
-                        )}
-                        {showDraft && (
-                            <>
-                                <p data-testid="hold-draft" className="whitespace-pre-wrap rounded-md border border-amber-200 bg-white px-2.5 py-2 text-[13px] leading-normal text-slate-900">{hold.draft}</p>
-                                {draftNotice && <p role="status" data-testid="draft-changed" className="text-[11px] font-semibold text-amber-900">{draftNotice}</p>}
-                                {canAct && (
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <button
-                                            type="button"
-                                            className={cn(BTN_AMBER, layout === 'sheet' ? 'h-11 w-full text-sm' : 'h-10 px-3.5 text-[13px]')}
-                                            disabled={busy !== null || holdBlocked || shut || !!unroutable}
-                                            onClick={sendDraft}
-                                        >
-                                            {busy === 'draft' ? <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" /> : <Send aria-hidden className="h-3.5 w-3.5" />}
-                                            Send this
-                                        </button>
-                                        {layout === 'panel' && <span className="text-[11px] text-slate-500">or write your own below</span>}
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
-                )}
-
+            {/* Capped and scrolling on its own, so a shut notice, template card or close form never push the
+                message field out of a fixed-height panel or squeeze the conversation to nothing. */}
+            <div data-testid="thread-footer" className={cn('flex max-h-[60%] shrink-0 flex-col gap-2 overflow-y-auto px-2.5 pt-2', WA_BAR, layout === 'sheet' ? 'pb-[max(0.75rem,env(safe-area-inset-bottom))]' : 'pb-2.5')}>
                 {canAct && (
                     <>
                         {noCustomer && (
-                            <p data-testid="thread-empty" className="text-xs text-slate-500">No messages from the customer yet. Nothing to answer until they write.</p>
+                            <p data-testid="thread-empty" className="px-1.5 text-xs text-slate-500">No messages from the customer yet. Nothing to answer until they write.</p>
                         )}
-                        {unroutable && <p data-testid="thread-unroutable" className="text-xs text-slate-500">No reply can go from here: {unroutable}</p>}
+                        {unroutable && <p data-testid="thread-unroutable" className="px-1.5 text-xs text-slate-500">No reply can go from here: {unroutable}</p>}
                         {shut && !refusal && data.replyWindow?.state === 'shut' && (
-                            <p data-testid="thread-window-shut" className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-[11px] leading-normal text-slate-700">
-                                <b className="text-slate-900">Can&apos;t send freeform words.</b> The {channelLabel(data.replyChannel)} window is shut ({data.replyWindow.reason}), so only an approved template can go until the customer writes again.
+                            <p data-testid="thread-window-shut" className="rounded-[7.5px] bg-[#fff5c4] px-2.5 py-2 text-[12px] leading-normal text-[#54656f]">
+                                <b className="text-[#111b21]">Can&apos;t send freeform words.</b> The {channelLabel(data.replyChannel)} window is shut ({data.replyWindow.reason}), so only an approved template can go until the customer writes again.
                             </p>
                         )}
                         {refusal && <RefusalNote refusal={refusal} testId="thread-refusal" />}
                         {shut && <TemplateCard fileId={fileId} sinceTurnId={lastInboundId} busy={busy === 'template'} onSend={sendTemplate} refusal={templateRefusal} />}
+                        {closing && data.stage !== 'done' && (
+                            <CloseFileForm key={fileId} fileId={fileId} held={!!hold} layout={layout} onClosed={() => { setClosing(false); refresh(); }} startConfirming onCancel={() => setClosing(false)} />
+                        )}
 
-                        <div className={cn('flex gap-2', layout === 'sheet' ? 'items-end' : 'flex-col gap-1.5')}>
+                        <div className="flex items-end gap-2">
                             <label htmlFor={`thread-words-${fileId}`} className="sr-only">Your reply to the customer</label>
                             <textarea
                                 id={`thread-words-${fileId}`}
                                 value={words}
                                 onChange={(e) => setWords(e.target.value)}
                                 disabled={(noCustomer && !hold) || busy === 'answer'}
-                                placeholder={noCustomer ? (hold ? 'Your words for releasing the hold' : 'Needs a customer turn to answer') : layout === 'sheet' ? 'Or your own words…' : `Your own words to ${firstName}… (no guards run)`}
-                                className={cn(
-                                    'w-full rounded-md border border-slate-200 px-3 text-[13px] leading-normal text-slate-900 outline-none placeholder:text-slate-400 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/25 disabled:bg-slate-50',
-                                    layout === 'sheet' ? 'max-h-[120px] min-h-11 flex-1 resize-none py-[11px]' : 'min-h-[72px] resize-y py-2.5',
-                                )}
+                                rows={1}
+                                placeholder={noCustomer ? (hold ? 'Your words for releasing the hold' : 'Needs a customer turn to answer') : `Message ${firstName}, sent as typed`}
+                                className="max-h-[120px] min-h-10 flex-1 resize-none rounded-[20px] border-0 bg-white px-4 py-[9px] text-[13.5px] leading-normal text-[#111b21] outline-none placeholder:text-[#8696a0] focus:ring-2 focus:ring-amber-400/40 disabled:bg-white/60"
                             />
-                            {layout === 'sheet' ? (
-                                <button type="button" aria-label="Send reply" className={cn(BTN_DARK, 'h-11 w-11 shrink-0')} disabled={busy !== null || !words.trim() || noCustomer || shut || !!unroutable} onClick={answer}>
-                                    {busy === 'answer' ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : <Send aria-hidden className="h-4 w-4" />}
-                                </button>
-                            ) : (
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <p className="flex-1 text-[11px] text-slate-500">{words.length} characters · replies as <b className="text-slate-900">{replyAs}</b>, as typed</p>
-                                    {hold && (
-                                        <button type="button" className={cn(BTN_OUTLINE, 'h-10 px-3.5 text-[13px]')} disabled={busy !== null || !words.trim() || holdBlocked} onClick={release}>
-                                            {busy === 'release' && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
-                                            Release hold only
-                                        </button>
-                                    )}
-                                    <button type="button" className={cn(BTN_DARK, 'h-10 px-4 text-[13px]')} disabled={busy !== null || !words.trim() || noCustomer || shut || !!unroutable} onClick={answer}>
-                                        {busy === 'answer' && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
-                                        Send reply
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-                        {layout === 'sheet' && hold && (
-                            <button type="button" className={cn(BTN_OUTLINE, 'h-11 text-sm')} disabled={busy !== null || !words.trim() || holdBlocked} onClick={release}>
-                                {busy === 'release' && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
-                                Release hold only
+                            <button
+                                type="button"
+                                aria-label="Send reply"
+                                title={`Send as ${replyAs}`}
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111b21] text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                disabled={busy !== null || !words.trim() || noCustomer || shut || !!unroutable}
+                                onClick={answer}
+                            >
+                                {busy === 'answer' ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : <Send aria-hidden className="h-4 w-4" />}
                             </button>
-                        )}
-                        {data.stage !== 'done' && <CloseFileForm key={fileId} fileId={fileId} held={!!hold} layout={layout} onClosed={refresh} />}
+                        </div>
                     </>
                 )}
 
                 {!canAct && (
-                    <p data-testid="thread-read-only" className="text-xs text-slate-500">Read only: no approver slot is assigned to your login.</p>
+                    <p data-testid="thread-read-only" className="px-1.5 pb-1 text-xs text-slate-500">Read only: no approver slot is assigned to your login.</p>
                 )}
             </div>
         </ThreadFrame>
     );
 }
 
-function ThreadFrame({ layout, backTo, onClose, onAskAbout, title, pills = [], line, children }: {
+/**
+ * The thread's "More": Call, the customer's record, the quote on file, and Close file, each shown only when
+ * there is one. Words, not icons. Esc closes the menu alone, never the panel behind it.
+ */
+function MoreMenu({ links, onCloseFile }: { links?: ThreadLinks; onCloseFile?: () => void }) {
+    const [open, setOpen] = useState(false);
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopImmediatePropagation(); setOpen(false); } };
+        window.addEventListener('keydown', onKey, true);
+        return () => window.removeEventListener('keydown', onKey, true);
+    }, [open]);
+    if (!links?.call && !links?.customer && !links?.quote && !onCloseFile) return null;
+    const item = 'block w-full px-4 py-2.5 text-left text-[13px] text-[#111b21] hover:bg-[#f0f2f5]';
+    return (
+        <div className="relative">
+            <button type="button" data-testid="thread-more" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)} className="min-h-9 px-2 text-[13px] font-medium text-[#111b21] hover:underline">
+                More
+            </button>
+            {open && (
+                <>
+                    <div aria-hidden className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+                    <div role="menu" className="absolute right-0 top-full z-50 mt-1 min-w-[200px] rounded-md bg-white py-1.5 shadow-[0_6px_24px_rgba(0,0,0,0.18)]">
+                        {links?.call && <a role="menuitem" href={links.call} data-testid="thread-call" className={item}>Call</a>}
+                        {links?.customer && <Link role="menuitem" href={links.customer} data-testid="thread-view-customer" className={item}>View customer</Link>}
+                        {links?.quote && <Link role="menuitem" href={links.quote} data-testid="thread-latest-quote" className={item}>Latest quote</Link>}
+                        {onCloseFile && (
+                            <button type="button" role="menuitem" data-testid="close-file" className={item} onClick={() => { setOpen(false); onCloseFile(); }}>
+                                Close file
+                            </button>
+                        )}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+}
+
+function ThreadFrame({ layout, backTo, onClose, onAskAbout, title, line, links, onCloseFile, children }: {
     layout: 'panel' | 'sheet';
     backTo: string;
     onClose: () => void;
     onAskAbout?: () => void;
     title: string;
-    pills?: string[];
     line: string;
+    /** Set once the file has loaded: the More menu's links. */
+    links?: ThreadLinks;
+    onCloseFile?: () => void;
     children: React.ReactNode;
 }) {
+    const WORD = 'min-h-9 shrink-0 px-2 text-[13px] font-medium text-[#111b21] hover:underline';
     return (
-        <div data-testid="thread-view" className="flex h-full min-h-0 flex-col bg-white font-sans text-slate-900">
-            {layout === 'panel' ? (
-                <div className="flex shrink-0 items-start gap-2.5 border-b border-slate-200 px-4 py-3">
-                    <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            <p data-testid="thread-name" className="text-[15px] font-semibold">{title}</p>
-                            {pills.map((p) => <span key={p} className={PILL}>{p}</span>)}
-                        </div>
-                        {line && <p data-testid="thread-line" className="mt-0.5 text-[11px] text-slate-500">{line}</p>}
-                    </div>
-                    <button type="button" aria-label="Close" onClick={onClose} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100">
-                        <X aria-hidden className="h-[18px] w-[18px]" />
+        <div data-testid="thread-view" className={cn('flex h-full min-h-0 flex-col font-sans text-[#111b21]', WA_WALL)}>
+            <div className={cn('flex shrink-0 items-center gap-1 border-b border-[#d1d7db] px-3 py-2', WA_BAR, layout === 'sheet' && 'pt-[max(0.5rem,env(safe-area-inset-top))]')}>
+                {layout === 'sheet' && (
+                    <button type="button" onClick={onClose} className="flex h-11 shrink-0 items-center gap-0.5 rounded-md pr-2 text-sm font-semibold text-[#111b21] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
+                        <ChevronLeft aria-hidden className="h-[18px] w-[18px]" />{backTo}
                     </button>
+                )}
+                <div className="min-w-0 flex-1 px-1">
+                    <p data-testid="thread-name" className="truncate text-[15px] font-semibold">{title}</p>
+                    {line && <p data-testid="thread-line" className={cn('truncate text-[12px]', WA_META)} title={line}>{line}</p>}
                 </div>
-            ) : (
-                <div className="flex shrink-0 flex-col border-b border-slate-200 px-3.5 pb-2.5 pt-[max(0.5rem,env(safe-area-inset-top))]">
-                    <div className="flex items-center gap-2">
-                        <button type="button" onClick={onClose} className="flex h-11 shrink-0 items-center gap-1 pl-1 pr-2 text-sm font-semibold text-slate-900">
-                            <ChevronLeft aria-hidden className="h-[18px] w-[18px]" />{backTo}
-                        </button>
-                        <div className="min-w-0 flex-1">
-                            <p data-testid="thread-name" className="truncate text-[15px] font-semibold">{title}</p>
-                            {(pills.length > 1 || line) && <p data-testid="thread-line" className="truncate text-[11px] text-slate-500">{[...pills.slice(1), line].filter(Boolean).join(' · ')}</p>}
-                        </div>
-                        {onAskAbout && (
-                            <button type="button" data-testid="thread-ask-about" onClick={onAskAbout} className={cn(BTN_OUTLINE, 'h-11 shrink-0 px-3 text-xs')}>
-                                Ask about this
-                            </button>
-                        )}
-                    </div>
-                </div>
-            )}
+                {onAskAbout && (
+                    <button type="button" data-testid="thread-ask-about" onClick={onAskAbout} className={WORD}>Ask about this</button>
+                )}
+                <MoreMenu links={links} onCloseFile={onCloseFile} />
+                {layout === 'panel' && (
+                    <button type="button" onClick={onClose} className={WORD}>Close</button>
+                )}
+            </div>
             {children}
         </div>
     );

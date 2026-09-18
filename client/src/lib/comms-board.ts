@@ -1,10 +1,9 @@
 /**
  * B3 - how the comms board (`/admin/comms-v2`, GET /api/comms-v2/board) reads a card, the header
  * counts and the phone's one-column-at-a-time chips. Pure, so the mapping is tested apart from the
- * page. Every value comes from the `/board` response; the Floor is the same response re-rendered.
+ * page. Every value comes from the `/board` response.
  */
 import type { Board, BoardCard } from '@/pages/admin/CommsV2BoardPage';
-import { displayName } from '@/lib/handy-desk-queue';
 
 /** Contract 2's stages, in the board's column order (server/comms-v2/desk/case-file.ts). */
 export const STAGES = ['first_contact', 'scoping', 'ready', 'quoted', 'accepted', 'booked', 'done'] as const;
@@ -50,9 +49,6 @@ export const EXCEPTION_LABELS: Record<HoldException, string> = {
     change_of_details: 'change of details',
 };
 
-/** The Ready column is Ben's to price, so the mock-up picks it out in amber. */
-export const ACCENT_STAGES: ReadonlySet<Stage> = new Set<Stage>(['ready']);
-
 /** How long a hold has stood, as the card's pill reads it: "now", "12m", "1h 20m", "3h", "2d". */
 export function holdAge(since: string | null, nowMs: number = Date.now()): string {
     if (!since) return '';
@@ -64,25 +60,21 @@ export function holdAge(since: string | null, nowMs: number = Date.now()): strin
     return `${Math.floor(hours / 24)}d`;
 }
 
-/** The held pill: its age, then the router exception that raised it when one did. */
-export function heldLabel(card: Pick<BoardCard, 'held' | 'holdSince' | 'holdException'>, nowMs: number = Date.now()): string | null {
+/** The held card's short amber chip: the router exception that raised the hold, else the hold reason as worded. */
+export function holdChip(card: Pick<BoardCard, 'held' | 'holdReason' | 'holdException'>): string | null {
     if (!card.held) return null;
-    const age = holdAge(card.holdSince, nowMs);
-    const exception = card.holdException ? EXCEPTION_LABELS[card.holdException] ?? card.holdException.replace(/_/g, ' ') : null;
-    return [`Held${age ? ` ${age}` : ''}`, exception].filter(Boolean).join(' · ');
+    if (card.holdException) return EXCEPTION_LABELS[card.holdException] ?? card.holdException.replace(/_/g, ' ');
+    return card.holdReason || 'held';
 }
 
-/** `jobType · location · role`, the job not yet known until the desk has read one. */
-export function jobLine(card: Pick<BoardCard, 'jobType' | 'location' | 'role'>): string {
-    return [card.jobType ?? 'job not yet known', card.location, card.role].filter(Boolean).join(' · ');
-}
-
-/** A Floor token's caption: first name and last initial, else the name or address as the card has it. */
-export function shortName(card: Pick<BoardCard, 'customerName' | 'customerAddress'>): string {
-    const words = (card.customerName ?? '').trim().split(/\s+/).filter(Boolean);
-    // A name that already opens on an initial ("S. Kaur") is short enough as it stands.
-    if (words.length > 1 && !/^[A-Za-z]\.?$/.test(words[0])) return `${words[0]} ${words[words.length - 1][0].toUpperCase()}.`;
-    return displayName(card);
+/**
+ * The card's wait: how long a held file has actually stood, otherwise when the customer last wrote.
+ * The office working-hours wait the queue orders by (`waitingWorkingHours`) is a different figure,
+ * and reads as nothing at all out of hours, so no card shows it.
+ */
+export function cardWait(card: Pick<BoardCard, 'held' | 'holdSince' | 'lastCustomerMessageAt' | 'openedAt'>, nowMs: number = Date.now()): string {
+    if (!card.held) return relativeTime(card.lastCustomerMessageAt ?? card.openedAt, nowMs);
+    return holdAge(card.holdSince, nowMs);
 }
 
 export function allCards(board: Pick<Board, 'stages' | 'columns'> | undefined): BoardCard[] {

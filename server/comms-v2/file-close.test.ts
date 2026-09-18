@@ -118,11 +118,11 @@ async function quotedThread(g: Gateway, quoting: QuotingDeps): Promise<CaseFile>
     const file = first.file;
     recordFact(file, { key: 'job_type', value: 'leaking kitchen tap', source: { kind: 'thread', turnId: file.turns[0].id }, by: 'scoping' });
     recordFact(file, { key: 'location', value: 'NG9 2AB', source: { kind: 'thread', turnId: file.turns[0].id }, by: 'scoping' });
-    setStage(file, 'scoping', 'test');
-    setStage(file, 'ready', 'test');
+    setStage(file, 'scoping', 'test', { now });
+    setStage(file, 'ready', 'test', { now });
     const drafted = await draftQuote(file, file.parties[0], intake, quoting);
     if (!drafted.ok) throw new Error(drafted.reason);
-    setStage(file, 'quoted', 'test');
+    setStage(file, 'quoted', 'test', { now });
     return file;
 }
 

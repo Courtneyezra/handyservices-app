@@ -5,16 +5,15 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { LiveCallProvider } from "@/contexts/LiveCallContext";
 import { Toaster } from "@/components/ui/toaster";
-import { HANDY_DESK_PATH } from "@/lib/handy-desk-path";
+import { isFullScreenAdmin } from "@/lib/handy-desk-path";
 import { isPriceAndSendPath } from "@/lib/price-and-send-path";
-// The admin shell is its own chunk so the Handy Desk, which renders full screen outside it, never
-// fetches the sidebar, its polling or the live-call socket. Any other admin path starts the chunk
-// at boot, beside the page's own, rather than after React first reaches the shell. Price and Send
-// (B9) also renders outside it, so it skips the chunk too.
+// The admin shell is its own chunk so the Handy Desk and the comms board, which render full screen
+// outside it, never fetch the sidebar, its polling or the live-call socket. Any other admin path
+// starts the chunk at boot, beside the page's own, rather than after React first reaches the shell.
+// Price and Send (B9) also renders outside it, so it skips the chunk too.
 const loadSidebarLayout = () => import("@/components/layout/SidebarLayout");
 const SidebarLayout = lazy(loadSidebarLayout);
-const isHandyDesk = (path: string) => path === HANDY_DESK_PATH || path === `${HANDY_DESK_PATH}/`;
-if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin") && !isHandyDesk(window.location.pathname) && !isPriceAndSendPath(window.location.pathname)) {
+if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin") && !isFullScreenAdmin(window.location.pathname) && !isPriceAndSendPath(window.location.pathname)) {
     void loadSidebarLayout();
 }
 
@@ -326,7 +325,7 @@ function Router() {
 
     return (
         <Suspense fallback={<LoadingFallback />}>
-            {!isHandyDesk(location) && !isPriceAndSendPath(location) && <SmartBanner />}
+            {!isFullScreenAdmin(location) && !isPriceAndSendPath(location) && <SmartBanner />}
             <Switch>
                 {/* ============ PUBLIC ROUTES ============ */}
                 {/* Landing Pages — cities are the canonical landings.
@@ -761,11 +760,10 @@ function Router() {
                         </SidebarLayout>
                     </ProtectedRoute>
                 </Route>
+                {/* Full screen, outside the admin shell, like the Handy Desk below. */}
                 <Route path="/admin/comms-v2">
                     <ProtectedRoute role="admin">
-                        <SidebarLayout>
-                            <CommsV2BoardPage />
-                        </SidebarLayout>
+                        <CommsV2BoardPage />
                     </ProtectedRoute>
                 </Route>
                 {/* Full screen, outside the admin shell: the desk carries its own header and links. */}
@@ -1344,8 +1342,8 @@ function Router() {
 
 function App() {
     const [location] = useLocation();
-    // The live-call socket serves the shell and the call pages; the desk has no use for it.
-    const router = isHandyDesk(location) ? <Router /> : <LiveCallProvider><Router /></LiveCallProvider>;
+    // The live-call socket serves the shell and the call pages; the full-screen pages have no use for it.
+    const router = isFullScreenAdmin(location) ? <Router /> : <LiveCallProvider><Router /></LiveCallProvider>;
     return (
         <QueryClientProvider client={queryClient}>
             <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
