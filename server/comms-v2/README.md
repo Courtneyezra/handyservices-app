@@ -159,7 +159,8 @@ together, on the next read, with nothing written to any row:
   passes every held file, every file with a quote, every file with a chase record and every file
   holding a burst of customer messages (`waits`), once a minute; a pass never messages a customer
   except to recover a burst another gateway left behind at a restart (`clockDue`, `Gateway.clock`
-  above), and leaves a burst this process is still timing or answering alone. Ticks never overlap.
+  above) or to re-drive a priced quote whose refused delivery has cleared ("the re-drive" below),
+  and leaves a burst this process is still timing or answering alone. Ticks never overlap.
   The same tick closes a quoted file that has gone 30 days quiet ("A stale quote closes itself after
   30 days" below).
 - Ben's chase goes to `COMMS_V2_CHASE_BEN_E164` and the owner's escalation to

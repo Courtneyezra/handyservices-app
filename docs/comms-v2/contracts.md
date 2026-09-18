@@ -234,7 +234,8 @@ channel the send goes out on rather than resolving one of its own, so the shape 
 shape the render wants. The quote leaves draft only once that send has landed: a shut window on a
 channel the customer chose with no approved `quote_ready_link` template, a guard failure or a refused
 send all hold for Ben and leave the quote a draft he can price again, rather than recording figures
-as live that the customer was never shown. With `quote_ready_link` approved a shut window takes that
+as live that the customer was never shown; once the refusal clears, the clock pass delivers that
+same priced draft again under the person who priced it (server/comms-v2/README.md "the re-drive"). With `quote_ready_link` approved a shut window takes that
 template, its second variable the link, sent under the person who licensed it: its approved wording
 is the delivery. Ben's live price screen takes this same delivery for a quote a live case file
 carries (`server/comms-v2/quoting/price-screen-send.ts`); every other quote keeps the old send. One channel is skipped rather than held on: a channel the
