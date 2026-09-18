@@ -576,7 +576,7 @@ export default function HandyDesk() {
                             </section>
                         ) : selection ? (
                             <p data-testid="handy-desk-asking" className="py-16 text-center text-sm text-slate-500">
-                                Asking about {selection.name}. {items.some((i) => i.id === selection.caseFileId)
+                                Asking about {selection.name}. {view.items.some((i) => i.id === selection.caseFileId)
                                     ? 'Tap their card above to read the conversation.'
                                     : 'Their card has left the queue.'}
                             </p>

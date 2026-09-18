@@ -525,6 +525,10 @@ describe('HandyDesk', () => {
     });
 
     it('tapping a ready-to-price card anywhere opens Price and Send for that quote', async () => {
+        // Wide: the held card beside it docks its thread on the right. Below 1024px the same tap
+        // opens the sheet instead (covered by the phone tests above); the navigation under test is
+        // the same at either width.
+        stubWide();
         const { calls } = routes([
             priceRoute([SAM_ROW]),
             { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB], sandboxAvailable: true } }) },
