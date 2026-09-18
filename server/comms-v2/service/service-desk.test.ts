@@ -527,6 +527,27 @@ describe('the Service specialist on the desk', () => {
         expect(answered.result.decision).toBe('send');
         expect(answered.result.bubbles.map((b) => b.text).join(' ')).not.toContain(NC);
     });
+    it('a customer who withholds the location still reaches Ben when each turn restates a fact already on the file', async () => {
+        const { gateway } = desk({
+            router: () => route({ turnKind: 'answer' }),
+            specialist: ({ system, user }) => {
+                if (isService(system)) return serviceOut();
+                // The Scoper re-records the customer's name from every turn; only the first turn names the job.
+                return /leaking tap/.test(user.split('\n').filter((l) => l.startsWith('>>')).pop() ?? '')
+                    ? scopingOut([{ key: 'customer_name', value: 'Sam' }, { key: 'job_type', value: 'leaking tap' }])
+                    : scopingOut([{ key: 'customer_name', value: 'Sam' }]);
+            },
+            composer: ({ n }) => ({ reply: `Right, no worries at all. (${n})`, factIds: [], kbIds: [] }),
+        });
+        let last = await gateway.inbound(turn('Hi, Sam here, I have a leaking tap', '2026-09-11T10:00:00.000Z'));
+        for (let i = 1; i < 10 && last.kind === 'handled' && !last.file.hold; i++) {
+            last = await gateway.inbound(turn(`Sam here, rather not say where (${i})`, `2026-09-11T10:0${i}:00.000Z`));
+        }
+        if (last.kind !== 'handled') throw new Error(last.kind);
+        expect(last.file.facts.filter((f) => f.key === 'customer_name').length).toBeGreaterThan(1);
+        expect(last.file.hold?.exception).toBe('not_converging');
+        expect(last.file.hold?.reason).toMatch(/^not_converging: 6 replies .*\(no location\)$/);
+    });
     it('a card raised on the job asks clears with the job type named when it arrives, and says the location is still missing', async () => {
         const NC = DEFAULT_FIXED_LINES.not_converging;
         const { gateway } = desk({

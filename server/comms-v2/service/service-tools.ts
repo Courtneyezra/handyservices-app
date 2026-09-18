@@ -189,8 +189,8 @@ export interface Convergence { converging: boolean; why: string | null; replies:
  * Scoping that is not converging goes to Ben (checklist 7.1): the desk has asked about the job
  * JOB_ASKS_MAX times and still has no job type, or has sent SCOPING_REPLIES_MAX replies while
  * scoping that the customer's answers put nothing new on the file for, and the file is still not
- * ready. A reply counts only when no customer turn since the reply before it gave the file a fact
- * (a thread fact or a media description sourced from that turn): a customer answering question
+ * ready. A reply counts only when no customer turn since the reply before it gave the file a new fact
+ * (a thread fact or a media description sourced from that turn, not one restating a value already on the file): a customer answering question
  * after question is converging however fast the replies go, and six of those inside a few minutes
  * is what tripped the old count on threads whose address arrived seconds later. A ready file, or
  * one past scoping, always converges, and so does a thread nothing is scoping. A thread is being scoped once a turn is routed to the
@@ -214,9 +214,20 @@ export function convergence(file: CaseFile, scopingRouted = false): Convergence 
     return { converging: true, why: null, replies, jobAsks };
 }
 
-/** The desk's replies from turn `from` on that no customer turn since the reply before them gave the file a fact. */
+/**
+ * The desk's replies from turn `from` on that no customer turn since the reply before them gave the
+ * file a new fact. A fact restating a key and value already on the file (the Scoper re-records the
+ * customer's name from nearly every turn) is not progress.
+ */
 function stalledReplies(file: CaseFile, from: number): number {
-    const factTurns = new Set(file.facts.flatMap((f) => (f.source.kind === 'thread' || f.source.kind === 'media_description' ? [f.source.turnId] : [])));
+    const factTurns = new Set<string>();
+    const seen = new Set<string>();
+    for (const f of file.facts) {
+        const kv = `${f.key}\u0000${f.value.toLowerCase()}`;
+        if (seen.has(kv)) continue;
+        seen.add(kv);
+        if (f.source.kind === 'thread' || f.source.kind === 'media_description') factTurns.add(f.source.turnId);
+    }
     let replies = 0;
     let progressed = false;
     for (const t of file.turns.slice(from)) {
