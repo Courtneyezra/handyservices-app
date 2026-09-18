@@ -9,10 +9,12 @@
  *   live on an open window, Ben's priced quote goes through the real live deliverer under his
  *   `human:*` approver and is gated on the desk's own switch, not refused for his row having none;
  *   the price screen hands a quote to the new desk only while the new desk is live and a case file
- *   carries the quote, and every other quote gets null back for the old path.
+ *   carries the quote, and every other quote gets null back for the old path;
+ *   with the thread held because the customer asked us to stop, nothing is composed and nothing goes.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { open } from '../desk/case-file';
+import { appendTurn, open } from '../desk/case-file';
+import { Desk } from '../desk/desk';
 import { noFixedLineSource } from '../desk/fixed-lines';
 import { FakeModelClient } from '../desk/models';
 import { noTemplateApproved, type Deliverer } from '../desk/sender';
@@ -180,5 +182,30 @@ describe('the live price screen hands a quote to the new desk', () => {
         expect(sent).toMatchObject({ status: 200, json: { ok: true, sent: true, desk: 'comms_v2', caseId: file.id, mode: 'template', templateName: 'quote_ready_link' } });
         expect(file.sends.at(-1)).toMatchObject({ approver: APPROVER, mode: 'live' });
         expect(puts).toBe(1);
+    });
+});
+
+describe('deliverPricedQuote while the customer has asked us to stop', () => {
+    it('composes nothing, sends nothing and leaves the quote a draft, with the reason on the card the price screen shows', async () => {
+        const { file, store, priced } = await pricedThread('2026-09-14T11:50:00.000Z');
+        // The opt-out arrives by email, which the old inbound path does not record, so the desk holds the thread for Ben.
+        const stop = appendTurn(file, { at: '2026-09-14T11:55:00.000Z', channel: 'email', kind: 'text', body: 'Subject: Unsubscribe\n\nPlease unsubscribe me', media: [], partyId: 'p1', direction: 'inbound', runId: null, approver: null });
+        if (!stop.ok) throw new Error(stop.reason);
+        const held = await new Desk({ client, templates: approved, fixedLines: noFixedLineSource, now, quoting: { store } }).handleTurn(file, stop.value);
+        expect(held.decision).toBe('hold');
+        expect(file.hold?.reason).toContain('customer may have asked to stop by email');
+
+        const out = await deliverPricedQuote({ file, priced, approver: APPROVER, mode: 'dry_run', now, deps: { client, templates: approved, fixedLines: noFixedLineSource, quoting: { store } } });
+        expect(out).toMatchObject({ ok: true, sent: false });
+        if (!out.ok) return;
+        expect(out.result).toMatchObject({ decision: 'hold', delivered: false, composerCalls: 0 });
+        expect(out.result.bubbles).toEqual([]);
+        expect(file.sends).toHaveLength(0);
+        expect(file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+        expect((await store.read(priced.record.slug))?.isDraft).toBe(true);
+        // The card carries both: why the thread is held and why the quote did not go.
+        expect(out.result.note).toMatch(/the customer asked us to stop and the thread is held for Ben on it/);
+        expect(file.hold?.reason).toContain('customer may have asked to stop by email');
+        expect(file.hold?.reason).toMatch(/the quote is not sent and stays a draft/);
     });
 });
