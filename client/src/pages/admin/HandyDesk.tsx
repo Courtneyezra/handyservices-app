@@ -553,7 +553,7 @@ export default function HandyDesk() {
                 updatedAt={dataUpdatedAt}
             />
 
-            <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
+            <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_minmax(0,1fr)] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
                     <p className={cn(EYEBROW, 'text-amber-400')}>Needs you</p>
                     {view.countText && (
@@ -608,7 +608,7 @@ export default function HandyDesk() {
                     </div>
                 </section>
 
-                <section aria-label="Answer" className="flex min-h-[50vh] flex-col bg-slate-50 lg:min-h-0">
+                <section aria-label="Answer" className="flex min-h-[50vh] min-w-0 flex-col bg-slate-50 lg:min-h-0">
                     <div className="flex-1 px-4 py-6 sm:px-8 lg:overflow-y-auto">
                         {priceOpen && answerCard && <div className="mb-6">{answerCard}</div>}
                         {openSlugs.length > 0 && (
