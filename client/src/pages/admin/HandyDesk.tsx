@@ -48,18 +48,27 @@
  * both have a payload and both are empty. A read that failed with its last payload still listed is
  * called out of date, never unread, so no alert ever contradicts the cards beneath it.
  *
- * Selecting a card sets the selected conversation (`DeskSelection`): the answer surface shows its
- * thread while idle, and the ask bar takes it as context. The mapping from a held file to the
- * card's copy lives in client/src/lib/handy-desk-queue.ts.
+ * Selecting a card sets the selected conversation (`DeskSelection`): the answer surface opens that
+ * customer's thread (client/src/components/comms-v2/ThreadView.tsx, B4), with the held draft and
+ * Ben's own reply, docked on the right at 1024px and up and full screen below; the ask bar
+ * takes it as context. A ready-to-price card has no conversation, so it selects nothing. Which of the two shows follows the window as it is now, so narrowing a window
+ * with a card selected brings its thread with it. Leaving the sheet puts the card down with it, so
+ * the queue, the ask bar's context and the answer surface always agree; "Ask about this" in its
+ * header is the one leaving that keeps the card, closing the sheet back onto the ask bar. The
+ * thread's half-written reply is the page's, kept per case file, so an answer taking the right-hand
+ * side never eats it. The mapping from a held file to the card's copy lives in
+ * client/src/lib/handy-desk-queue.ts.
  *
  * The ask bar (T2) asks the new desk's ask agent (/api/comms-v2/ask, useAskSession); while it runs
  * the answer surface shows the thinking card, then the answer, until Ben closes it. With no ask on
  * screen, the right-hand side shows the newest answer on the person's newest session until a card is
- * selected or the answer is closed; a selected card shows its thread through the same `thread`
- * renderer (client/src/lib/handy-desk-answer.ts). Both answers render in the one AnswerCard, whose
- * body (client/src/components/handy-desk/AnswerSurface.tsx, T3) carries the typed surface and confirm.
+ * selected or the answer is closed; then a selected card shows its thread, or below 1024px, where the
+ * thread is the sheet, names the card the ask bar is asking about - and says so when the desk has
+ * answered it since and it has left the queue, the ask keeping its context either way. Both answers render in
+ * the one AnswerCard, whose body (client/src/components/handy-desk/AnswerSurface.tsx, T3) carries
+ * the typed surface and confirm.
  */
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2, MoreHorizontal } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
@@ -69,9 +78,9 @@ import { cn } from '@/lib/utils';
 import { AnswerCard } from '@/components/handy-desk/AnswerCard';
 import { AskBar } from '@/components/handy-desk/AskBar';
 import type { AskMessageDTO, AskVia, OpsSessionDTO } from '@shared/ops-types';
-import { SurfaceBody } from '@/components/handy-desk/AnswerSurface';
-import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
-import { exchangeOfAnswered, latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
+import { ThreadSheet, ThreadView } from '@/components/comms-v2/ThreadView';
+import { useIsWideBoard } from '@/hooks/useIsWideBoard';
+import { exchangeOfAnswered, latestAnswered, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
     ACTION_ROUTE, QUEUE_KEY, isReadyToPrice, isShutWindow, needsWords, needsYouView, queueCardCopy, queueQuery, readStateOf, readyToPriceCardCopy, refusalMessage, selectionOf,
     type DeskQueue, type DeskSelection, type QueueAction, type QueueItem, type ReadyToPriceItem,
@@ -361,30 +370,7 @@ export function ReadyToPriceCard({ item }: { item: ReadyToPriceItem }) {
     );
 }
 
-// ---------------------------------------------------------------- answer surface (idle: the selected thread)
-
-function SelectedThread({ selection }: { selection: DeskSelection }) {
-    const { data, isLoading, error } = useQuery<CaseFileDetail>({
-        queryKey: ['comms-v2-case-file', selection.caseFileId],
-        queryFn: async () => {
-            const res = await fetch(`/api/comms-v2/case-files/${selection.caseFileId}`, { headers: getAuthHeaders() });
-            if (!res.ok) throw new Error(`Failed to load conversation (${res.status})`);
-            return res.json();
-        },
-        refetchInterval: QUEUE_REFETCH_MS,
-    });
-
-    if (isLoading) return <div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>;
-    if (error || !data) return <p className="text-sm text-red-600">Could not load this conversation.</p>;
-
-    const surface = threadSurfaceOfDetail(data);
-    return (
-        <section data-testid="handy-desk-thread" className="rounded-3xl bg-white p-5 shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
-            <p className={cn(EYEBROW, 'mb-4 text-slate-500')}>Thread · {selection.name}</p>
-            <SurfaceBody surface={{ ...surface, customerName: surface.customerName ?? selection.name }} speakerNames={data.speakerNames} />
-        </section>
-    );
-}
+// ---------------------------------------------------------------- latest answer
 
 /**
  * The newest answer on the signed-in person's newest ask session (GET /api/comms-v2/ask/sessions,
@@ -415,6 +401,9 @@ const FIRST_LOAD = Symbol('first answer load');
 export default function HandyDesk() {
     const queryClient = useQueryClient();
     const [selection, setSelection] = useState<DeskSelection | null>(null);
+    const [sheetDismissed, setSheetDismissed] = useState(false);
+    // The thread's half-written reply, kept per case file so an ask answer taking the right-hand side never eats it.
+    const [threadWords, setThreadWords] = useState<Record<string, string>>({});
     const [done, setDone] = useState<{ key: number; note: string }[]>([]);
     const [askText, setAskText] = useState('');
     const [showAnswer, setShowAnswer] = useState(false);
@@ -423,6 +412,12 @@ export default function HandyDesk() {
     // Every answer put away; `FIRST_LOAD` stands for the answer a card selected before the first load puts away.
     const [dismissed, setDismissed] = useState<ReadonlySet<string | typeof FIRST_LOAD>>(() => new Set());
     const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
+    const wide = useIsWideBoard();
+    const askInput = useRef<HTMLInputElement>(null);
+    // The ask bar takes the focus as the sheet goes, once the dialog it was under has let go of it.
+    useEffect(() => { if (sheetDismissed) askInput.current?.focus(); }, [sheetDismissed]);
+    // The dismissal is the sheet's alone: once the thread has docked instead, a narrower window opens it again.
+    useEffect(() => { if (wide) setSheetDismissed(false); }, [wide]);
 
     const { data, isError, dataUpdatedAt } = useQuery<DeskQueue>({
         queryKey: QUEUE_KEY,
@@ -455,6 +450,9 @@ export default function HandyDesk() {
         { state: readStateOf({ isError, data }), items: data?.items ?? [] },
         { state: readStateOf(prices), payload: prices.data },
     );
+    const canAct = data?.viewer?.canAct !== false;
+    const viewerApprover = data?.viewer?.approver ?? null;
+    const refreshQueue = () => queryClient.invalidateQueries({ queryKey: QUEUE_KEY });
 
     const handleHandled = (note: string) => {
         setDone((d) => [{ key: Date.now(), note }, ...d].slice(0, 3));
@@ -477,6 +475,7 @@ export default function HandyDesk() {
 
     const select = (item: QueueItem) => {
         setSelection(selectionOf(item));
+        setSheetDismissed(false);
         if (latest === undefined) dismiss(FIRST_LOAD);
         else if (latest) dismiss(latest.id);
     };
@@ -558,13 +557,35 @@ export default function HandyDesk() {
                                 onChange={answered.ask?.text ? setAskText : undefined}
                                 onConfirmed={handleHandled}
                             />
+                        ) : selection && wide ? (
+                            <section data-testid="handy-desk-thread" className="h-[min(760px,calc(100vh-14rem))] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
+                                <ThreadView
+                                    key={selection.caseFileId}
+                                    fileId={selection.caseFileId}
+                                    layout="panel"
+                                    backTo="Queue"
+                                    words={threadWords[selection.caseFileId] ?? ''}
+                                    onWords={(w) => setThreadWords((kept) => ({ ...kept, [selection.caseFileId]: w }))}
+                                    fallbackName={selection.name}
+                                    onClose={() => setSelection(null)}
+                                    onChanged={refreshQueue}
+                                    canAct={canAct}
+                                    viewerApprover={viewerApprover}
+                                    showMode={sandbox}
+                                />
+                            </section>
                         ) : selection ? (
-                            <SelectedThread key={selection.caseFileId} selection={selection} />
+                            <p data-testid="handy-desk-asking" className="py-16 text-center text-sm text-slate-500">
+                                Asking about {selection.name}. {view.items.some((i) => i.id === selection.caseFileId)
+                                    ? 'Tap their card above to read the conversation.'
+                                    : 'Their card has left the queue.'}
+                            </p>
                         ) : (
                             <p data-testid="handy-desk-idle" className="py-16 text-center text-sm text-slate-500">Pick something from the queue to see its conversation.</p>
                         )}
                     </div>
                     <AskBar
+                        inputRef={askInput}
                         selection={selection}
                         ready={!!askSession.sessionId}
                         busy={askSession.busy}
@@ -576,6 +597,21 @@ export default function HandyDesk() {
                     />
                 </section>
             </div>
+            {!wide && (
+                <ThreadSheet
+                    fileId={sheetDismissed ? null : selection?.caseFileId ?? null}
+                    backTo="Queue"
+                    words={selection ? threadWords[selection.caseFileId] ?? '' : ''}
+                    onWords={(w) => selection && setThreadWords((kept) => ({ ...kept, [selection.caseFileId]: w }))}
+                    fallbackName={selection?.name}
+                    onClose={() => setSelection(null)}
+                    onAskAbout={() => setSheetDismissed(true)}
+                    onChanged={refreshQueue}
+                    canAct={canAct}
+                    viewerApprover={viewerApprover}
+                    showMode={sandbox}
+                />
+            )}
         </div>
     );
 }

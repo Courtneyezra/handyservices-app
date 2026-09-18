@@ -4,7 +4,7 @@
  * card as this session's ops_* events stream (ignoring another session's), then the answer, and
  * shows a refused ask as the desk said it.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch } from '@test-utils';
@@ -34,7 +34,11 @@ function setup(opts: { messageReply?: () => { status?: number; json?: unknown };
         { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB] } }) },
         { url: '/api/spine/price-queue', reply: () => ({ json: { count: 0, items: [], oldestWaitingMs: null, at: new Date().toISOString() } }) },
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
-        { url: /\/api\/comms-v2\/case-files\/case_rob$/, reply: () => ({ json: { id: 'case_rob', turns: [], speakerNames: {} } }) },
+        { url: /\/api\/comms-v2\/case-files\/case_rob$/, reply: () => ({ json: {
+            id: 'case_rob', stage: 'scoping', mode: 'sandbox', party: { name: 'Rob Hale', role: 'homeowner', address: 'phone:07700900942' },
+            job: { type: null, location: null, quoteRef: null, bookingRef: null }, turns: [], facts: [], holdApproverAssigned: true, speakerNames: {},
+            hold: null, replyChannel: 'whatsapp', replyWindow: { state: 'open', reason: 'the customer wrote', closesAt: null }, replyRefusal: null,
+        } }) },
         { method: 'POST', url: '/api/comms-v2/ask/sessions/today', reply: () => ({ json: SESSION }) },
         { method: 'POST', url: '/api/comms-v2/ask/sessions/sess_1/messages', reply: opts.messageReply ?? (() => ({ status: 202, json: { runId: 'run_1' } })) },
         { url: '/api/comms-v2/ask/sessions/sess_1', reply: () => ({ json: { session: SESSION, messages } }) },
@@ -45,7 +49,11 @@ function setup(opts: { messageReply?: () => { status?: number; json?: unknown };
 const emit = (evt: unknown) => act(() => { MockEventSource.last!.emit(evt); });
 
 describe('HandyDesk ask bar', () => {
-    afterEach(() => { vi.useRealTimers(); });
+    beforeEach(() => {
+        const mq = (query: string) => ({ matches: query.includes('min-width'), media: query, onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false });
+        Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: vi.fn(mq) });
+    });
+    afterEach(() => { vi.useRealTimers(); delete (window as any).matchMedia; });
 
     it('asks about the selected card, shows the thinking card live, then the answer', async () => {
         // The answer is dated AT, and an answer from an earlier London day offers no send: pin today to AT.

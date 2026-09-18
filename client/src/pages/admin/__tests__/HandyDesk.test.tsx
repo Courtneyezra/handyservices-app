@@ -2,18 +2,46 @@
  * Handy Desk T1 - the page reads the new desk's queue (never /api/desk), shows the held cards in the
  * server's order with their badge, sends a held draft with one tap through send-held-draft, sends
  * Ben's own words through answer, shows a refusal as the desk said it (with the template offer on a
- * shut window), and selecting a card puts that conversation on the right and in the ask context. A
- * ready-to-price card (answer Q12) is merged in from /api/spine/price-queue and has no conversation:
+ * shut window), and selecting a card puts that conversation on the right and in the ask context. On a
+ * phone the conversation is a sheet: leaving it puts the card down with it, and only "Ask about this"
+ * keeps the card as the ask bar's context.
+ * A ready-to-price card (answer Q12) is merged in from /api/spine/price-queue and has no conversation:
  * tapping it opens Price and Send for that quote instead.
  */
-import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithQuery, mockFetch, type RecordedCall } from '@test-utils';
 import HandyDesk from '@/pages/admin/HandyDesk';
 import type { QueueItem } from '@/lib/handy-desk-queue';
 import type { PriceQueueItem } from '@/hooks/usePriceQueue';
 import type { OpsAnswer } from '@shared/ops-types';
+
+/**
+ * jsdom has no matchMedia: without a stub the page is narrow and the thread opens as a sheet. The
+ * returned setter is a resize - it tells every listening media query the window crossed 1024px.
+ */
+function stubViewport(startWide: boolean) {
+    const listeners = new Set<() => void>();
+    let wide = startWide;
+    const mq = (query: string) => ({
+        get matches() { return wide && query.includes('min-width'); },
+        media: query, onchange: null,
+        addEventListener: (_: string, fn: () => void) => { listeners.add(fn); },
+        removeEventListener: (_: string, fn: () => void) => { listeners.delete(fn); },
+        addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false,
+    });
+    Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: vi.fn(mq) });
+    return (next: boolean) => { wide = next; listeners.forEach((fn) => fn()); };
+}
+
+function stubWide() {
+    stubViewport(true);
+}
+
+afterEach(() => {
+    delete (window as any).matchMedia;
+});
 
 function item(over: Partial<QueueItem>): QueueItem {
     return {
@@ -38,7 +66,9 @@ function detail(id: string, name: string) {
             { id: 't1', at: '2026-09-11T10:00:00.000Z', channel: 'whatsapp', direction: 'inbound', kind: 'text', body: `${name} asks a thing`, media: [] },
             { id: 't2', at: '2026-09-11T10:01:00.000Z', channel: 'whatsapp', direction: 'outbound', kind: 'text', body: 'The desk answers', media: [], approver: 'agent.comms_v2' },
         ],
-        facts: [], hold: null, holdApproverAssigned: true, speakerNames: {},
+        facts: [], holdApproverAssigned: true, speakerNames: {},
+        hold: { approver: { kind: 'human', id: 'ben' }, reason: 'money question', since: '2026-09-11T10:02:00.000Z', draft: null, exception: 'money', failures: [], notedOn: false },
+        replyChannel: 'whatsapp', replyWindow: { state: 'open', reason: 'the customer wrote', closesAt: null }, replyRefusal: null,
     };
 }
 
@@ -218,8 +248,11 @@ describe('HandyDesk', () => {
         expect(within(card).getByRole('button', { name: 'More' })).toBeDisabled();
     });
 
-    it('selecting a card makes it the active one, shows its thread and sets the ask context', async () => {
-        routes();
+    it('selecting a card makes it the active one, opens its thread with manual chat and sets the ask context', async () => {
+        stubWide();
+        const { calls } = routes([
+            { method: 'POST', url: '/api/comms-v2/case-files/case_gemma/answer', reply: () => ({ json: { ok: true, sent: { bubbles: ['Sorry Gemma, I will call you now.'], turnId: 't9' } } }) },
+        ]);
         renderWithQuery(<HandyDesk />);
         await screen.findByTestId('queue-card-case_gemma');
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
@@ -232,11 +265,139 @@ describe('HandyDesk', () => {
         expect(thread).toHaveTextContent('Gemma Patel asks a thing');
         expect(thread).toHaveTextContent('The desk answers');
 
+        const queueLoads = calls.filter((c) => c.url === '/api/comms-v2/queue').length;
+        await userEvent.type(within(thread).getByLabelText('Your reply to the customer'), 'Sorry Gemma, I will call you now.');
+        await userEvent.click(within(thread).getByRole('button', { name: 'Send reply' }));
+        await waitFor(() => expect(within(thread).getByTestId('thread-pending')).toHaveTextContent('✓ Sent'));
+        expect(calls.find((c) => c.method === 'POST' && c.url === '/api/comms-v2/case-files/case_gemma/answer')?.body).toEqual({ words: 'Sorry Gemma, I will call you now.' });
+        await waitFor(() => expect(calls.filter((c) => c.url === '/api/comms-v2/queue').length).toBeGreaterThan(queueLoads));
+
         await userEvent.click(within(screen.getByTestId('queue-card-case_rob')).getByText('Rob Hale'));
         expect(await screen.findByText('Rob Hale asks a thing')).toBeInTheDocument();
         expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Rob Hale');
+
+        await userEvent.click(within(screen.getByTestId('handy-desk-thread')).getByRole('button', { name: 'Close' }));
+        expect(screen.queryByTestId('handy-desk-thread')).toBeNull();
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
+    });
+
+    it('Esc while typing in the ask bar leaves the thread open and the ask context set, and closes it once focus leaves the field', async () => {
+        stubWide();
+        routes();
+        renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const thread = await screen.findByTestId('handy-desk-thread');
+        expect(await within(thread).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+
+        const ask = screen.getByTestId('handy-desk-ask-input');
+        await waitFor(() => expect(ask).not.toBeDisabled());
+        await userEvent.type(ask, 'What did she say about the leak?');
+        await userEvent.keyboard('{Escape}');
+        expect(screen.getByTestId('handy-desk-thread')).toBeInTheDocument();
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+        expect(ask).toHaveValue('What did she say about the leak?');
+
+        (document.activeElement as HTMLElement).blur();
+        await userEvent.keyboard('{Escape}');
+        expect(screen.queryByTestId('handy-desk-thread')).toBeNull();
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
+    });
+
+    it('on a phone a card tap opens the thread full screen, and ‹ Queue puts the card down with it', async () => {
+        routes();
+        renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const sheet = await screen.findByRole('dialog');
+        expect(sheet).toHaveClass('h-[100dvh]', 'w-full');
+        expect(sheet).not.toHaveClass('rounded-t-xl');
+        expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+        expect(within(sheet).getByLabelText('Your reply to the customer')).toBeInTheDocument();
+        expect(screen.queryByTestId('handy-desk-thread')).toBeNull();
+
+        await userEvent.click(within(sheet).getByRole('button', { name: 'Queue' }));
+        // The card is put down the moment he taps back, without waiting on the sheet's way out.
+        expect(screen.getByTestId('queue-card-case_gemma')).not.toHaveAttribute('aria-current');
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.getByTestId('queue-card-case_gemma')).not.toHaveAttribute('aria-current');
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
+        expect(screen.getByTestId('handy-desk-idle')).toBeInTheDocument();
+    });
+
+    it('on a phone dismissing the sheet with Esc puts the card down too', async () => {
+        routes();
+        renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const sheet = await screen.findByRole('dialog');
+        expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+
+        await userEvent.keyboard('{Escape}');
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.getByTestId('queue-card-case_gemma')).not.toHaveAttribute('aria-current');
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · nothing selected');
+        expect(screen.getByTestId('handy-desk-idle')).toBeInTheDocument();
+    });
+
+    it('on a phone a selected card that leaves the queue says so, keeping the ask context and touching no send', async () => {
+        let held = true;
+        const { calls } = routes([
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: held ? [ROB, GEMMA] : [ROB], sandboxAvailable: true } }) },
+        ]);
+        const { client } = renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const sheet = await screen.findByRole('dialog');
+        expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+        await userEvent.click(within(sheet).getByRole('button', { name: 'Ask about this' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(screen.getByTestId('handy-desk-asking')).toHaveTextContent('Asking about Gemma Patel. Tap their card above to read the conversation.');
+
+        held = false;
+        await client.refetchQueries({ queryKey: ['comms-v2-queue'] });
+        await waitFor(() => expect(screen.queryByTestId('queue-card-case_gemma')).toBeNull());
+        expect(screen.getByTestId('handy-desk-asking')).toHaveTextContent('Asking about Gemma Patel. Their card has left the queue.');
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+        expect(casePosts(calls)).toHaveLength(0);
+    });
+
+    it('narrowing the window with a card selected brings its thread into the sheet, not the idle placeholder', async () => {
+        const resize = stubViewport(true);
+        routes();
+        renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        expect(await screen.findByTestId('handy-desk-thread')).toHaveTextContent('Gemma Patel asks a thing');
+
+        act(() => resize(false));
+        const sheet = await screen.findByRole('dialog');
+        expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+        expect(within(sheet).getByLabelText('Your reply to the customer')).toBeInTheDocument();
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+    });
+
+    it('on a phone Ask about this leaves the sheet for the ask bar, with the card still the context and named on the answer side', async () => {
+        routes();
+        renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const sheet = await screen.findByRole('dialog');
+        expect(await within(sheet).findByText('Gemma Patel asks a thing')).toBeInTheDocument();
+
+        await userEvent.click(within(sheet).getByRole('button', { name: 'Ask about this' }));
+        // The card stays Ben's the moment he taps, without waiting on the sheet's way out.
+        expect(screen.getByTestId('queue-card-case_gemma')).toHaveAttribute('aria-current', 'true');
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        const ask = screen.getByTestId('handy-desk-ask-input');
+        await waitFor(() => expect(ask).toHaveFocus());
+        expect(screen.getByTestId('handy-desk-context')).toHaveTextContent('Context · Gemma Patel');
+        expect(screen.getByTestId('queue-card-case_gemma')).toHaveAttribute('aria-current', 'true');
+        expect(screen.getByTestId('handy-desk-asking')).toHaveTextContent('Asking about Gemma Patel. Tap their card above to read the conversation.');
+        expect(screen.queryByTestId('handy-desk-idle')).toBeNull();
+
+        await userEvent.type(ask, 'What did she say about the leak?');
+        expect(ask).toHaveValue('What did she say about the leak?');
     });
     it('shows the newest ask answer on the right, confirms it through send-held-draft, and a selected card puts it away', async () => {
+        stubWide();
         const { calls } = routes([
             ...askRoutes(),
             { method: 'POST', url: '/api/comms-v2/case-files/case_rob/send-held-draft', reply: () => ({ json: { ok: true } }) },
@@ -277,6 +438,7 @@ describe('HandyDesk', () => {
     });
 
     it('a card selected before the ask answer loads is not replaced by that answer, only by a different one', async () => {
+        stubWide();
         let open!: () => void;
         const gate = new Promise<void>((r) => { open = r; });
         let answerId = 'a1';
@@ -299,6 +461,31 @@ describe('HandyDesk', () => {
         answerId = 'a2';
         await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
         expect(await screen.findByTestId('handy-desk-answer')).toHaveTextContent('I drafted a reply to Rob.');
+    });
+
+    it('keeps a half-written thread reply while an ask answer takes the right-hand side', async () => {
+        stubWide();
+        let open!: () => void;
+        const gate = new Promise<void>((r) => { open = r; });
+        let answerId = 'a1';
+        const { calls } = routes(askRoutes(gate, () => answerId));
+        const { client } = renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-case_gemma')).getByText('Gemma Patel'));
+        const thread = await screen.findByTestId('handy-desk-thread');
+        await userEvent.type(within(thread).getByLabelText('Your reply to the customer'), 'Marek can be there 2-6 today');
+
+        open();
+        await waitFor(() => expect(calls.some((c) => c.url === '/api/comms-v2/ask/sessions/sess_1')).toBe(true));
+        await new Promise((r) => setTimeout(r, 20));
+        await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+        answerId = 'a2';
+        await client.refetchQueries({ queryKey: ['comms-v2-ask-latest'] });
+        const surface = await screen.findByTestId('handy-desk-answer');
+        expect(screen.queryByLabelText('Your reply to the customer')).toBeNull();
+
+        await userEvent.click(within(surface).getByRole('button', { name: 'Back to the conversation' }));
+        const back = await screen.findByTestId('handy-desk-thread');
+        expect(within(back).getByLabelText('Your reply to the customer')).toHaveValue('Marek can be there 2-6 today');
     });
 
     it('with no ask session, the right side waits for a card', async () => {
@@ -340,6 +527,10 @@ describe('HandyDesk', () => {
     });
 
     it('tapping a ready-to-price card anywhere opens Price and Send for that quote', async () => {
+        // Wide: the held card beside it docks its thread on the right. Below 1024px the same tap
+        // opens the sheet instead (covered by the phone tests above); the navigation under test is
+        // the same at either width.
+        stubWide();
         const { calls } = routes([
             priceRoute([SAM_ROW]),
             { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB], sandboxAvailable: true } }) },

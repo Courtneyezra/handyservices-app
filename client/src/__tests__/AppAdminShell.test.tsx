@@ -18,7 +18,9 @@ vi.mock('@/components/layout/SidebarLayout', () => {
 vi.mock('@/contexts/LiveCallContext', () => ({
     LiveCallProvider: ({ children }: { children: ReactNode }) => <div data-testid="live-call-provider">{children}</div>,
 }));
-vi.mock('@/pages/admin/CommsV2BoardPage', () => ({ default: () => <div data-testid="comms-board-page" /> }));
+vi.mock('@/pages/admin/CommsV2BoardPage', () => ({
+    default: () => <div data-testid="comms-board-page" />,
+}));
 
 let App: ComponentType;
 
