@@ -938,7 +938,7 @@ export class Desk implements DeskLike {
         if (file.hold) noteOnHold(file, { ...held, ownCard: DESK_RUN_NOTE });
         else setHold(file, { approver: approverFor(file, null), ...held }, this.fileDeps());
         // The failed attempt's verdicts stay on the result, so the run shows why nothing went.
-        const base = { ...this.nothing(file, partyId, runId, calls, why, 'hold' as const), summary, composerCalls, ...(failed ? { guards: failed.guards } : {}) };
+        const base = { ...this.nothing(file, partyId, runId, calls, held.reason, 'hold' as const), summary, composerCalls, ...(failed ? { guards: failed.guards } : {}) };
         if (!regulatedTurn || noLine) return base;
         const line = await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines);
         const kbIds = line.kbId ? [line.kbId] : [];
