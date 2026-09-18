@@ -52,6 +52,10 @@
  *                                    never quote_accepted_ack_v1, enquiry_followup_optin_v1 or a
  *                                    marketing row
  *
+ * /media-backfill/* puts back photos and videos a deploy took from the new desk, by copying the old
+ * desk's copy of the same message to a new name and re-linking the item (api/media-backfill-routes.ts,
+ * server/comms-v2/media-backfill.ts); /plan reads only, /apply needs an approver slot.
+ *
  * /ask/* mounts the Handy Desk ask agent (server/comms-v2/ask/routes.ts) over the same store this
  * router reads; its one write is a draft on a hold, which goes out only through send-held-draft here.
  *
@@ -80,6 +84,7 @@ import { oldCommsRetired } from '../old-comms';
 import { closeByHand } from '../file-close';
 import { commsV2DatabaseCheck } from '../live-database';
 import { createAskRouter, type AskRouterDeps } from '../ask/routes';
+import { createMediaBackfillRouter } from './media-backfill-routes';
 
 /**
  * Who is looking at the board, so it can show a read-only state before a write fails: the slot the
@@ -111,6 +116,7 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
 
     router.use('/sandbox', door.router);
     router.use('/ask', createAskRouter({ ...ask, source: () => sourceFor(door), approvers }));
+    router.use('/media-backfill', createMediaBackfillRouter({ source: () => sourceFor(door), approvers }));
 
     router.get('/old-comms', async (_req, res) => {
         res.json({ retired: await retired() });

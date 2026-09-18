@@ -97,6 +97,10 @@ and has not been done as part of this document.**
 - **Database** — Neon Postgres (`server/db.ts`). Region not determinable from this repository.
 - **Media and call recordings** — AWS S3, `AWS_REGION` defaulting to `eu-west-2` (London), objects
   private, streamed by the app rather than served from a public URL (`server/media-store.ts`).
+  A new-desk photo or video that a deploy took before 18 Sep 2026 and that the media backfill put
+  back is a copy of the old desk's object under `chat-media/<media id>-restored.<ext>`; the old
+  desk's object is kept, so that media is held twice and an erasure must reach both
+  (`server/comms-v2/media-backfill.ts`).
 - **Local disk on the app host** — `server/storage/media` as a cache, plus the media-description
   cache at `server/storage/media/.descriptions/`. Railway's disk is ephemeral, so this is a copy,
   not the record (`server/media-store.ts`).
