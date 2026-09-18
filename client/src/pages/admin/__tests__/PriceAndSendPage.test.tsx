@@ -638,7 +638,10 @@ describe('P16 item 3: add and delete a line on the screen', () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await screen.findByTestId('price-line-card_1');
-        expect(screen.getByTestId('total')).toHaveTextContent(gbp(210000));
+        // The first render after the payload arrives already shows the line cards but reads £0: the
+        // per-line states are filled by the prefill effect keyed on data.version, which runs after that
+        // render. Wait for the prefill, not just the cards, or a slow runner reads the £0 frame.
+        await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent(gbp(210000)));
 
         await userEvent.click(screen.getByTestId('line-delete-card_1'));
         expect(screen.getByTestId('line-deleted-card_1')).toHaveTextContent('Oak panelled doors, hung and finished');
