@@ -17,6 +17,19 @@ export function regulatedMatch(text: string): string | null {
     return m ? m[0] : null;
 }
 
+/**
+ * The regulated work that is not gas: asbestos, and an artex ceiling (which may hold it). Every match
+ * here is a regulated match too. The gas fixed line would name the wrong work and send them to the
+ * wrong trade, and no line is approved for this yet, so the desk holds it and sends nothing
+ * (service/hold-reasons.ts).
+ */
+export const RE_REGULATED_NOT_GAS = /\b(?:asbestos|artex(?:\s+\w+)?\s+(?:ceiling|test))\b/i;
+
+export function regulatedNotGasMatch(text: string): string | null {
+    const m = RE_REGULATED_NOT_GAS.exec(text);
+    return m ? m[0] : null;
+}
+
 /** A figure of money. */
 export const RE_FIGURE = /(?:£\s*\d[\d,]*(?:\.\d+)?)|(?:\b\d[\d,]*(?:\.\d+)?\s*(?:pounds?|quid|gbp)\b)|(?:\b\d+p\b)/i;
 
