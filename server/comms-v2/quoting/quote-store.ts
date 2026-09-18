@@ -86,6 +86,7 @@ export interface QuoteStore {
 export const QUOTE_READ_COLUMNS = {
     id: true, shortSlug: true, customerName: true, phone: true, postcode: true, isDraft: true, revokedAt: true, supersededAt: true,
     depositPaidAt: true, expiresAt: true, createdAt: true, basePrice: true, depositAmountPence: true, pricingLineItems: true, pricingSuggestions: true, customerPhotoUrls: true,
+    pricingLayerBreakdown: true,
 } as const;
 
 /** Who the database refusal names when this store is the one that asked (live-database.ts). */
@@ -340,9 +341,9 @@ export class MemoryQuoteStore implements QuoteStore {
         const materialsPence = priced.reduce((a, b) => a + (b.materialsPence ?? 0), 0);
         const pct = this.opts.depositPercent ?? 25;
         const depositPence = Math.round((materialsPence + Math.round((totalPence - materialsPence) * (pct / 100))) / 100) * 100;
-        // Exactly what confirmPrices leaves on the row: the prices, the totals and a fresh expiry.
+        // Exactly what confirmPrices leaves on the row: the prices, the totals, a fresh expiry and who priced it.
         // It does NOT leave draft - the delivery does that (markSent) - and this fake must not either.
-        Object.assign(row, { pricingLineItems: priced, basePrice: totalPence, depositAmountPence: depositPence, expiresAt: new Date(Date.now() + 48 * 3_600_000).toISOString() });
+        Object.assign(row, { pricingLineItems: priced, basePrice: totalPence, depositAmountPence: depositPence, expiresAt: new Date(Date.now() + 48 * 3_600_000).toISOString(), pricingLayerBreakdown: { confirmedBy: input.by, confirmedAt: new Date().toISOString() } });
         const base = (this.opts.baseUrl ?? 'https://handyservices.app').replace(/\/$/, '');
         const quoteUrl = `${base}/quote/${slug}`;
         return { ok: true, totals: { totalPence, depositPence }, quoteUrl };

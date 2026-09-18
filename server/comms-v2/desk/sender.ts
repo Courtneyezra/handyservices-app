@@ -489,6 +489,27 @@ export interface Deliverer {
 export type DeliveryOutcome = { ok: true; sid: string | null; label?: OutboundLabel } | { ok: false; reason: string; delivered: RenderedBubble[]; label?: OutboundLabel };
 
 /**
+ * Why the live deliverer would refuse this approver before anything else is asked: no row in the
+ * sender registry, or a switch it answers to not on. Null when neither stops it. Read by the
+ * deliverer itself and by a caller that must know a refusal has cleared before it tries again
+ * (quoting/redrive-quote.ts).
+ */
+export async function liveSwitchRefusal(approver: Approver): Promise<string | null> {
+    const { registryEntryFor } = await import('../../sender-registry');
+    const entry = registryEntryFor(approver);
+    if (!entry) return `approver ${approver} has no row in the sender registry; the live send is refused`;
+    const { getSpineConfig } = await import('../../spine/config');
+    const cfg = await getSpineConfig();
+    // The desk's own switch gates every send, whoever licensed it. A row with a switch key of its
+    // own must have that switch on as well; a person's `human:*` row has none by design (nothing
+    // may stop a person replying), and reading that missing key as the switch refused every send
+    // Ben pressed on the live desk ("spine.senders.null.enabled is not true").
+    const switches = [registryEntryFor(DESK_APPROVER)?.switchKey ?? null, ...(entry.switchKey ? [entry.switchKey] : [])];
+    const off = switches.find((key) => !key || cfg.senders?.[key]?.enabled !== true);
+    return off !== undefined ? `spine.senders.${off}.enabled is not true; the new desk stays in the sandbox until it is` : null;
+}
+
+/**
  * The surviving outbound send. The registry gate inside it refuses an unknown or switched-off
  * approver; the desk adds one rule of its own on top: its switch is off until someone writes
  * `spine.senders.comms_v2.enabled = true`, because an absent switch is on for every other sender
@@ -501,18 +522,8 @@ export const liveDeliverer: Deliverer = {
     async deliver(input) {
         const delivered: RenderedBubble[] = [];
         const label = outboundLabelFor(input.purpose);
-        const { registryEntryFor } = await import('../../sender-registry');
-        const entry = registryEntryFor(input.approver);
-        if (!entry) return { ok: false, reason: `approver ${input.approver} has no row in the sender registry; the live send is refused`, delivered, label };
-        const { getSpineConfig } = await import('../../spine/config');
-        const cfg = await getSpineConfig();
-        // The desk's own switch gates every send, whoever licensed it. A row with a switch key of its
-        // own must have that switch on as well; a person's `human:*` row has none by design (nothing
-        // may stop a person replying), and reading that missing key as the switch refused every send
-        // Ben pressed on the live desk ("spine.senders.null.enabled is not true").
-        const switches = [registryEntryFor(DESK_APPROVER)?.switchKey ?? null, ...(entry.switchKey ? [entry.switchKey] : [])];
-        const off = switches.find((key) => !key || cfg.senders?.[key]?.enabled !== true);
-        if (off !== undefined) return { ok: false, reason: `spine.senders.${off}.enabled is not true; the new desk stays in the sandbox until it is`, delivered, label };
+        const switched = await liveSwitchRefusal(input.approver);
+        if (switched) return { ok: false, reason: switched, delivered, label };
         // The opt-out ledger, asked about every address the party wrote to us on, phone and email alike,
         // so an opt-out that arrived on one channel stops a send on any other. It runs before the
         // channel rule, so an email to an opted-out address is refused as that even while email is

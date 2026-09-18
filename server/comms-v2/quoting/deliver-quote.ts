@@ -34,12 +34,15 @@ import { humanRunId, markQuoteSent, type QuotingDeps } from './quoting-tools';
 /** The opening of every hold reason the delivery writes, and the one it reads back when Ben's next send lands. */
 export const priceHold = (slug: string) => `quote ${slug} priced;`;
 
+/** The card's words when the WhatsApp window is shut and no approved template carries the link: the delivery's and the re-drive's (redrive-quote.ts). */
+export const shutWindowHold = (slug: string, windowReason: string) => `${priceHold(slug)} the WhatsApp window is shut (${windowReason}) and no approved template carries a quote link, so the quote is not sent and stays a draft`;
+
 /**
  * The newest thing the customer said: the channel the quote goes out on, the thread context the
  * composer writes against, and the turn the regulated guard reads. The desk's own last reply is not
  * it, and neither is a channel named here: a thread the customer wrote on by SMS is answered there.
  */
-function newestCustomerTurn(file: CaseFile, party: Party): Turn {
+export function newestCustomerTurn(file: CaseFile, party: Party): Turn {
     return [...file.turns].reverse().find((t) => t.direction === 'inbound' && t.partyId === party.personId) ?? file.turns[file.turns.length - 1];
 }
 
@@ -189,7 +192,7 @@ export async function deliverPricedQuote(input: DeliverQuoteInput): Promise<Deli
         // template rather than a composed reply, so no guard runs over them, and the person who
         // licensed the send is the approver. Not approved, or with nowhere to put the link, it holds.
         const pick = await pickTemplate('quote_ready', { name: party.name, topic: priced.quoteUrl, link: priced.quoteUrl, at: now() }, deps.templates ?? liveTemplateStatus);
-        if (!pick.ok || !pick.body.includes(priced.quoteUrl)) return held(`${priceHold(slug)} the WhatsApp window is shut (${window.reason}) and no approved template carries a quote link, so the quote is not sent and stays a draft`, null, []);
+        if (!pick.ok || !pick.body.includes(priced.quoteUrl)) return held(shutWindowHold(slug, window.reason), null, []);
         const bubbles: RenderedBubble[] = [{ text: pick.body, gapMs: 0 }];
         const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles, template: pick.template, runId, approver, guards: null, factIds: priced.factIds, kbIds: [], fixedLines: [], calls: [], mode }, senderDeps);
         if (!sent.ok) return held(`${priceHold(slug)} the ${pick.template.name} template send was refused (${sent.reason}), so the quote stays a draft`, pick.body, []);

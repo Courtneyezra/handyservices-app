@@ -514,6 +514,7 @@ describe('the live read', () => {
         revokedAt: { revokedAt: '2026-09-05T09:00:00.000Z' },
         supersededAt: { supersededAt: '2026-09-05T09:00:00.000Z' },
         depositPaidAt: { depositPaidAt: '2026-09-05T09:00:00.000Z' },
+        pricingLayerBreakdown: { pricingLayerBreakdown: { confirmedBy: 'human:ben' } },
     };
     /** What `liveQuoteStore.read` hands back: the row narrowed to the columns it asked the database for. */
     const asRead = (row: QuoteRowLike, columns: string[]): QuoteRowLike =>

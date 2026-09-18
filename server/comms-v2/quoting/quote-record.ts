@@ -12,6 +12,7 @@
  * 35). Scope (what a line covers, what is not included) may be read from a draft as well, because
  * it is the desk's own record of the customer's words, and never carries a figure.
  */
+import { isHumanApprover, type HumanApprover } from '../../approver';
 import { recordFact, type CaseFile, type CaseFileDeps, type Fact, type FactSource } from '../desk/case-file';
 
 export type QuoteStatus = 'draft' | 'sent' | 'accepted' | 'revoked' | 'superseded' | 'expired';
@@ -54,6 +55,12 @@ export interface QuoteRecord {
     photoUrls: string[];
     /** The desk's own reissues of this quote (reissue.ts), kept on the row under `pricing_suggestions.reissue`. */
     reissue: ReissueRecord | null;
+    /**
+     * The person who confirmed the prices on the price screen (`pricing_layer_breakdown.confirmedBy`,
+     * written by server/spine/price-screen.ts confirmPrices), as their `human:*` approver; null when
+     * no person has. The one record that a price was decided by somebody rather than suggested.
+     */
+    pricedBy: HumanApprover | null;
 }
 
 /** The row fields this module reads, in the column names drizzle gives them. */
@@ -74,6 +81,7 @@ export interface QuoteRowLike {
     pricingLineItems?: unknown;
     pricingSuggestions?: unknown;
     customerPhotoUrls?: unknown;
+    pricingLayerBreakdown?: unknown;
 }
 
 // ---------------------------------------------------------------- the desk's reissue record
@@ -167,7 +175,14 @@ export function quoteRecordOf(row: QuoteRowLike, now: Date = new Date()): QuoteR
         checkThis: (suggestions?.lines ?? []).filter((l) => l?.checkThis).length,
         photoUrls: strings(row.customerPhotoUrls),
         reissue: reissueRecordOf(row),
+        pricedBy: pricedByOf(row),
     };
+}
+
+/** Who confirmed the row's prices, when a person did (`QuoteRecord.pricedBy`). */
+function pricedByOf(row: QuoteRowLike): HumanApprover | null {
+    const by = (row.pricingLayerBreakdown as { confirmedBy?: unknown } | null | undefined)?.confirmedBy;
+    return typeof by === 'string' && isHumanApprover(by) ? by : null;
 }
 
 // ---------------------------------------------------------------- figures

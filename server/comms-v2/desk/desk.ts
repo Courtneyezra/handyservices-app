@@ -331,10 +331,22 @@ export class Desk implements DeskLike {
         return 'a quote draft lost to a restart was started again';
     }
 
-    /** A clock pass with no new message: the desk never chases the customer, so nothing goes to them; an unpriced draft is chased for Ben (4.5) and a held thread chases Ben, then the owner (7.5). */
+    /** A priced quote whose delivery was refused, delivered once the refusal has cleared; null when the file has none. */
+    private async redriveQuote(file: CaseFile): Promise<{ note: string; result: DeskResult | null } | null> {
+        const { redrivePricedQuote } = await import('../quoting/redrive-quote');
+        return redrivePricedQuote(file, { desk: { ...this.deps, quoting: this.quotingDeps() }, mode: this.deps.mode ?? 'dry_run', now: this.now });
+    }
+
+    /**
+     * A clock pass with no new message: the desk never chases the customer; an unpriced draft is
+     * chased for Ben (4.5) and a held thread chases Ben, then the owner (7.5). The one thing it may
+     * send a customer is a quote a person already priced whose delivery was refused, once that
+     * refusal has cleared (quoting/redrive-quote.ts): their decision, delivered late, never a new one.
+     */
     async clockPass(file: CaseFile): Promise<DeskResult> {
         const party = file.parties[0];
         const recovered = await this.recoverDraft(file).catch((e: any) => `recovering a lost quote draft failed: ${e?.message ?? e}`);
+        const redriven = await this.redriveQuote(file).catch((e: any) => ({ note: `re-driving a refused quote delivery failed: ${e?.message ?? e}`, result: null }));
         const chased = await quotingClock(file, this.quotingDeps());
         // The gateway (gateway.ts) answers a customer turn once it is due, and recovers one a restart
         // left behind before this pass runs; a tick can still land here while one is waiting out its
@@ -343,7 +355,8 @@ export class Desk implements DeskLike {
         const waitingNote = (file.waits ?? []).some((w) => w.partyId === party.personId)
             ? 'a customer turn is waiting out its quiet window; the desk never chases, so it answers once quiet'
             : 'no customer turn, nothing to reply to; the desk never chases the customer';
-        const base = this.nothing(file, party.personId, `run_${randomUUID()}`, [], `clock pass: ${waitingNote}; ${chased.note}${recovered ? `; ${recovered}` : ''}`);
+        const passNote = `clock pass: ${waitingNote}; ${chased.note}${recovered ? `; ${recovered}` : ''}${redriven ? `; ${redriven.note}` : ''}`;
+        const base = redriven?.result ? { ...redriven.result, hold: file.hold, stageAfter: file.stage, note: passNote } : this.nothing(file, party.personId, `run_${randomUUID()}`, [], passNote);
         const chase = this.deps.service?.chase;
         if (!chase) return { ...base, chase: null };
         // A release from any surface, the board included, leaves the old record behind: clear it here,

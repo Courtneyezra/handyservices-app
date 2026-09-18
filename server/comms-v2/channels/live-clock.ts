@@ -2,10 +2,12 @@
  * The live desk's clock: a clock pass over every file that can have something due, once a minute,
  * in the comms worker, while the new desk is the live desk.
  *
- * A clock pass never messages a customer (desk/desk.ts `clockPass`): it chases Ben on an unpriced
- * draft (4.5, recorded on the file) and on a standing hold, then the owner (7.5, desk-started
- * template sends under their own purpose, service/chase.ts). Without this caller no chase would
- * ever fire on a live thread: the sandbox door's `/run` is the only other one.
+ * A clock pass never starts a conversation with a customer (desk/desk.ts `clockPass`): it chases Ben
+ * on an unpriced draft (4.5, recorded on the file) and on a standing hold, then the owner (7.5,
+ * desk-started template sends under their own purpose, service/chase.ts). The one customer send it
+ * makes is a quote a person already priced whose delivery was refused, once the refusal has cleared
+ * (quoting/redrive-quote.ts). Without this caller no chase or re-drive would ever fire on a live
+ * thread: the sandbox door's `/run` is the only other one.
  *
  * The same tick also closes a stale quote (answer 125, `../file-close.ts` `closeStaleQuotes`): a
  * quoted file nobody has answered for 30 days, held files excepted. No scheduler of its own.
