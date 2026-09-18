@@ -45,6 +45,8 @@ describe('HandyDesk ask bar', () => {
     afterEach(() => { vi.useRealTimers(); });
 
     it('asks about the selected card, shows the thinking card live, then the answer', async () => {
+        // The answer is dated AT, and an answer from an earlier London day offers no send: pin today to AT.
+        vi.useFakeTimers({ now: new Date(AT), toFake: ['Date'] });
         const { calls, setMessages } = setup();
         renderWithQuery(<HandyDesk />);
         await userEvent.click(within(await screen.findByTestId('queue-card-case_rob')).getByText('Rob Hale'));
