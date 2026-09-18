@@ -115,6 +115,20 @@ Within a minute, or on a reload, the sidebar has no Comms item and `/admin/comms
 
 ## Roll-back
 
+**A roll-back brings back the promise to come back.** The captain removed it from the new desk on
+18 Sep 2026 ("remove that line entirely": where the desk cannot answer it holds for Ben and says
+nothing). The old desk was not changed and still carries its own promises. They are dormant only
+while the new desk is live, and they send again the moment the old desk does:
+
+- the Scoper's prompt, `server/spine/prompts/scoper.core.md` ("Let me check on that and come straight back to you");
+- the legacy comms agent's prompt, `server/agents/comms.ts`;
+- the rules layer's holding copy and its Meta template `HOLDING_TEMPLATE_BODY`, `server/rules-layer.ts`;
+- the first-contact acknowledgement, `server/first-contact-ack.ts` ("we'll come back to you here shortly / first thing");
+- the lead automation's reply, `server/lead-automations.ts` ("We'll get back to you shortly with a quote!");
+- the house voice the old desk writes to, `brand-voice/whatsapp-comms.md`.
+
+Anyone rolling back is re-enabling those lines, with nothing in the system that keeps them.
+
 One switch, any time, felt on the very next read (the spine row is read on every call, never cached):
 
 ```sql
