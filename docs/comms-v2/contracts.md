@@ -351,7 +351,8 @@ price still ok?", "is the £120 still right?") is not money for Ben here: the ro
 Quoting (`applyQuotingRoute`) and the reissue answers it ("reissue for plain asks", 16 September
 2026). Only a message that is nothing but such an ask qualifies (`plainPriceAsk` in
 `desk/lexicon.ts`: every clause a plain ask or a pleasantry, any figure one the file recorded as the
-quote's total, nothing `haggleMatch` reads). A pleasantry is a greeting or a thanks. An apology for
+quote's total, nothing `haggleMatch` reads). A pleasantry is one short clause from `RE_PLEASANTRY`
+(a greeting, a thanks, an "ok" or a bare "sorry"). An apology for
 being slow to write back ("sorry for the slow reply", "apologies for not getting back to you
 sooner") is not one, so a plain ask under it holds for Ben as money with no reissue: widening the
 pleasantries to take it was deliberately held back on the captain's ruling ("dont reissue at 5% when
