@@ -15,6 +15,9 @@ import type { AskMessageDTO } from '@shared/ops-types';
 import type { QueueItem } from '@/lib/handy-desk-queue';
 
 const AT = '2026-09-17T09:00:00.000Z';
+// The answer card offers its confirm only on the answer's own London day, so an answer row whose
+// send is under test is dated now rather than at AT's fixed instant.
+const justNow = () => new Date().toISOString();
 const ROB: QueueItem = {
     id: 'case_rob', stage: 'scoping', mode: 'sandbox', held: true,
     holdReason: 'money question', holdApprover: 'ben', holdApproverAssigned: true,
@@ -78,7 +81,7 @@ describe('HandyDesk ask bar', () => {
         setMessages([
             { id: 'u1', sessionId: 'sess_1', role: 'user', content: 'Draft a reply saying we will call', via: 'typed', createdAt: AT } as AskMessageDTO,
             {
-                id: 'a1', sessionId: 'sess_1', role: 'assistant', content: 'I have held a reply for Rob.', runId: 'run_1', createdAt: AT,
+                id: 'a1', sessionId: 'sess_1', role: 'assistant', content: 'I have held a reply for Rob.', runId: 'run_1', createdAt: justNow(),
                 transcript: [{ at: AT, type: 'route' }],
                 answer: {
                     finalText: 'I have held a reply for Rob.',

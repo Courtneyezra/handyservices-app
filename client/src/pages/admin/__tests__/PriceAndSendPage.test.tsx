@@ -181,6 +181,10 @@ describe('PriceAndSend (phone)', () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         const root = await screen.findByTestId('price-and-send');
+        // The first render after the payload arrives already shows the line cards but reads £0: the
+        // per-line states are filled by the prefill effect keyed on data.version, which runs after that
+        // render. Wait for the prefill, not just the cards, or a slow runner reads the £0 frame.
+        await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent('£2,100'));
         expect(root).toHaveAttribute('data-layout', 'phone');
         expect(screen.getByTestId('customer-first-name')).toHaveTextContent('Sarah');
         expect(screen.getByTestId('contradiction-count')).toHaveTextContent('1 to check');
@@ -617,6 +621,10 @@ describe('P16 items 1 + 2: the money on the screen', () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await screen.findByTestId('price-line-card_1');
+        // The first render after the payload arrives already shows the line cards but reads £0: the
+        // per-line states are filled by the prefill effect keyed on data.version, which runs after that
+        // render. Wait for the prefill, not just the cards, or a slow runner reads the £0 frame.
+        await waitFor(() => expect(screen.getByTestId('totals')).toHaveTextContent(gbp(210000)));
         const summary = screen.getByTestId('totals');
         expect(summary).toHaveTextContent(gbp(210000));
         expect(summary).toHaveTextContent(gbp(172900));   // materials £1,569.72 in full + 30 % of £530.28 labour
@@ -638,7 +646,10 @@ describe('P16 item 3: add and delete a line on the screen', () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await screen.findByTestId('price-line-card_1');
-        expect(screen.getByTestId('total')).toHaveTextContent(gbp(210000));
+        // The first render after the payload arrives already shows the line cards but reads £0: the
+        // per-line states are filled by the prefill effect keyed on data.version, which runs after that
+        // render. Wait for the prefill, not just the cards, or a slow runner reads the £0 frame.
+        await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent(gbp(210000)));
 
         await userEvent.click(screen.getByTestId('line-delete-card_1'));
         expect(screen.getByTestId('line-deleted-card_1')).toHaveTextContent('Oak panelled doors, hung and finished');
@@ -815,7 +826,10 @@ describe('P18: labour and materials are the two inputs', () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         const l1 = await screen.findByTestId('price-line-card_1');
-        expect(screen.getByTestId('total')).toHaveTextContent('£2,100');
+        // The first render after the payload arrives already shows the line cards but reads £0: the
+        // per-line states are filled by the prefill effect keyed on data.version, which runs after that
+        // render. Wait for the prefill, not just the cards, or a slow runner reads the £0 frame.
+        await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent('£2,100'));
 
         fireEvent.change(within(l1).getByTestId('labour-input-card_1'), { target: { value: '520.78' } });
         expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£1,900');
@@ -909,6 +923,10 @@ describe('P18: labour and materials are the two inputs', () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await screen.findByTestId('price-line-card_1');
+        // The first render after the payload arrives already shows the line cards but reads £0: the
+        // per-line states are filled by the prefill effect keyed on data.version, which runs after that
+        // render. Wait for the prefill, not just the cards, or a slow runner reads the £0 frame.
+        await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent('£2,100'));
         // doors 420.78 + 1,379.22 = 1,800; cupboard 109.50 + 190.50 = 300
         const totals = screen.getByTestId('totals');
         expect(totals).toHaveTextContent(gbp(42078 + 10950));      // labour £530.28
