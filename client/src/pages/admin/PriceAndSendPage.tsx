@@ -889,7 +889,14 @@ export function cleanNotIncluded(items: string[]): string[] {
     return items.map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 8);
 }
 
-export function PriceAndSend({ slug }: { slug: string }) {
+export function PriceAndSend({ slug, embedded = false, onClose, onOpenQuote }: {
+    slug: string;
+    /** B9: inside the Handy Desk's answer column on a wide screen: no page header, the bar inline. */
+    embedded?: boolean;
+    onClose?: () => void;
+    /** Embedded: open another quote in place rather than leaving the desk. */
+    onOpenQuote?: (slug: string) => void;
+}) {
     const qc = useQueryClient();
     const desktop = useIsDesktop();
     const { data, isLoading, error, refetch, isFetching } = useQuery<PricePayload>({
@@ -1119,7 +1126,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
                     {result.quoteUrl && <a className="mt-2 block truncate font-mono text-xs underline" href={result.quoteUrl}>{result.quoteUrl}</a>}
                 </div>
                 {next ? (
-                    <a href={`/admin/price/${next.slug}`} className="mt-4 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 text-lg font-black text-white" data-testid="next-waiting">
+                    <a href={`/admin/price/${next.slug}`} onClick={(e) => { if (onOpenQuote) { e.preventDefault(); onOpenQuote(next.slug); } }} className="mt-4 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 text-lg font-black text-white" data-testid="next-waiting">
                         Next quote waiting: {next.firstName}{'waitingMs' in next && next.waitingMs != null ? ` · ${ageLabel(next.waitingMs)}` : ''} <ArrowRight className="h-5 w-5" />
                     </a>
                 ) : (
@@ -1276,6 +1283,119 @@ export function PriceAndSend({ slug }: { slug: string }) {
 
     const exitRow = 'flex min-h-12 w-full items-center gap-2 rounded-full border border-slate-300 px-4 text-left text-[13px] font-bold text-slate-900 disabled:opacity-40';
 
+    const sheets = (
+        <>
+            {/* Sheets: one question / why a visit */}
+            {sheet && (
+                <div className="fixed inset-0 z-30 flex items-end justify-center bg-slate-900/50" onClick={() => !busy && setSheet(null)}>
+                    <div className="w-full max-w-xl rounded-t-[28px] bg-white px-4 pb-6 pt-3 shadow-2xl" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()} data-testid={`${sheet}-sheet`}>
+                        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300" />
+                        <div className="text-base font-extrabold text-slate-900">{sheet === 'ask' ? `Ask ${first} one thing first` : `Offer ${first} a visit instead of a price`}</div>
+                        <p className="mt-1 text-xs text-slate-600">{sheet === 'ask' ? 'It goes to your queue to approve, then to her. The quote stays here until she answers.' : 'The survey offer (fee from settings) goes to your queue to approve. No price goes out.'}</p>
+                        <textarea value={sheetText} onChange={(e) => setSheetText(e.target.value)} rows={3} autoFocus
+                            placeholder={sheet === 'ask' ? 'Are the handles staying, or do you want new ones?' : 'Why a visit (optional): what it depends on'}
+                            className="mt-2 w-full rounded-[14px] border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" data-testid={sheet === 'ask' ? 'ask-question' : 'visit-why'} />
+                        <div className="mt-3 flex gap-2">
+                            <button type="button" onClick={() => setSheet(null)} className="min-h-12 flex-1 rounded-full border border-slate-300 text-sm font-bold text-slate-700">Back</button>
+                            <button type="button" onClick={() => void exit(sheet)} disabled={!!busy || (sheet === 'ask' && !sheetText.trim())}
+                                className="min-h-12 flex-1 rounded-full bg-slate-900 text-sm font-bold text-white disabled:bg-slate-300" data-testid={sheet === 'ask' ? 'ask-submit' : 'visit-submit'}>
+                                {busy ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : sheet === 'ask' ? 'Queue the question' : 'Draft the visit offer'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* F2: the ⋯ sheet holds the three other exits and the full builder. */}
+            {overflow && (
+                <div className="fixed inset-0 z-30 flex items-end justify-center bg-slate-900/50" onClick={() => !busy && setOverflow(false)}>
+                    <div className="w-full max-w-xl rounded-t-[28px] bg-white px-4 pt-3" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()} data-testid="exits-sheet">
+                        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300" />
+                        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Instead of sending</div>
+                        <div className="mt-3 flex flex-col gap-2">
+                            <button type="button" disabled={locked || !!busy} onClick={() => { setOverflow(false); setSheetText(''); setSheet('ask'); }} className={exitRow} data-testid="ask-first">
+                                <HelpCircle className="h-4 w-4 text-slate-500" /> Ask {first} first
+                            </button>
+                            <button type="button" disabled={locked || !!busy || !data.call?.customerPhone} onClick={() => void exit('call')} className={exitRow} data-testid="call-her">
+                                {busy === 'call' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4 text-slate-500" />} Call {first}
+                            </button>
+                            <button type="button" disabled={locked || !!busy} onClick={() => { setOverflow(false); setSheetText(''); setSheet('visit'); }} className={exitRow} data-testid="needs-visit">
+                                <Home className="h-4 w-4 text-slate-500" /> Needs a visit
+                            </button>
+                            <a href={data.builderUrl} className={cn(exitRow, 'font-semibold text-slate-500')} data-testid="open-builder">
+                                <PenLine className="h-4 w-4" /> Open full builder
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+
+    const sendButton = (label: string) => (
+        <button type="button" onClick={send} disabled={!canSend}
+            className="inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-amber-400 px-4 text-sm font-bold text-slate-900 transition-colors hover:bg-amber-300 disabled:bg-slate-200 disabled:text-slate-400"
+            data-testid="send-quote">
+            {busy === 'send' && <Loader2 className="h-4 w-4 animate-spin" />}
+            <span className="truncate">{busy === 'send' ? 'Sending…' : `${label}${totals.totalPence > 0 ? ` · ${gbp(totals.totalPence)}` : ''}`}</span>
+        </button>
+    );
+    const moreButton = (
+        <button type="button" onClick={() => setOverflow(true)} aria-label="Other options: ask first, call, visit, full builder"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-900" data-testid="more-exits">
+            <MoreHorizontal className="h-5 w-5" />
+        </button>
+    );
+
+    if (embedded) {
+        // B9 desktop: the quote as the Handy Desk's answer surface. The thread on the left, the price
+        // on the right and the confirm footer under them; the desk's own header stays above.
+        return (
+            <div className="flex flex-col gap-3" data-testid="price-and-send" data-layout="desktop" data-embedded="true">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-amber-600" data-testid="readiness">{eyebrow}</div>
+                        <h2 className="mt-0.5 flex items-center gap-2 text-[22px] font-extrabold leading-tight tracking-[-0.02em] text-slate-900" data-testid="customer-first-name">
+                            {first}
+                            {data.customer.postcode && <span className="rounded-full border border-slate-300 px-2.5 py-1 font-mono text-[11px] font-bold text-slate-700" data-testid="postcode">{data.customer.postcode}</span>}
+                        </h2>
+                    </div>
+                    {onClose && (
+                        <button type="button" onClick={onClose} aria-label="Close the quote" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" data-testid="price-close">
+                            <X className="h-5 w-5" />
+                        </button>
+                    )}
+                </div>
+                <div className="grid grid-cols-[340px_minmax(0,1fr)] gap-5" data-testid="side-by-side">
+                    <aside className="self-start rounded-[20px] border border-slate-200 bg-slate-100 p-3">
+                        <div className={cn(EYEBROW, 'mb-2')}>Thread{data.thread?.count ? ` · ${data.thread.count}` : ''}</div>
+                        {threadPane}
+                    </aside>
+                    <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2" data-testid="summary">
+                            <span className="rounded-full bg-amber-400 px-3 py-1 text-xs font-extrabold text-slate-900" data-testid="summary-total">{gbp(totals.totalPence)}</span>
+                            <span className="rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold text-slate-600" data-testid="summary-lines">{kept.length} line{kept.length === 1 ? '' : 's'}</span>
+                            {toCheck > 0
+                                ? <span className="rounded-full border border-amber-400 bg-amber-50 px-3 py-1 text-[11px] font-bold text-amber-700" data-testid="contradiction-count">{toCheck} to check</span>
+                                : <span className="rounded-full border border-slate-300 px-3 py-1 text-[11px] font-semibold text-slate-500" data-testid="contradiction-count">nothing to check</span>}
+                            {queueItem && <span className="ml-auto text-[11px] text-slate-500" data-testid="summary-waiting">{channel ? `${channel} · ` : ''}{ageLabel(queueItem.waitingMs)}</span>}
+                        </div>
+                        {context}
+                        {pricePane}
+                    </div>
+                </div>
+                <div className="sticky bottom-0 z-10 -mx-1 flex items-center gap-2.5 rounded-t-[20px] border-t border-slate-200 bg-white/95 px-3 py-3 backdrop-blur" data-testid="price-footer">
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-slate-500">
+                        {data.settings.depositPercent}% deposit on labour, materials in full{data.followUpDays ? ` · follow-up in ${data.followUpDays} days if unviewed` : ''} · {stripCount === 0 && !stripNext ? 'nothing else waiting' : stripCount == null ? 'more waiting' : `${stripCount} more waiting`}
+                    </span>
+                    {moreButton}
+                    <div className="flex w-64">{sendButton('Send quote')}</div>
+                </div>
+                {sheets}
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-slate-900" data-testid="price-and-send" data-layout={desktop ? 'desktop' : 'phone'}>
             {/* F6: the page's own header, the only one on this route: name, stage and postcode, then F3's
@@ -1326,50 +1446,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
                 </div>
             </div>
 
-            {/* Sheets: one question / why a visit */}
-            {sheet && (
-                <div className="fixed inset-0 z-30 flex items-end justify-center bg-slate-900/50" onClick={() => !busy && setSheet(null)}>
-                    <div className="w-full max-w-xl rounded-t-[28px] bg-white px-4 pb-6 pt-3 shadow-2xl" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()} data-testid={`${sheet}-sheet`}>
-                        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300" />
-                        <div className="text-base font-extrabold text-slate-900">{sheet === 'ask' ? `Ask ${first} one thing first` : `Offer ${first} a visit instead of a price`}</div>
-                        <p className="mt-1 text-xs text-slate-600">{sheet === 'ask' ? 'It goes to your queue to approve, then to her. The quote stays here until she answers.' : 'The survey offer (fee from settings) goes to your queue to approve. No price goes out.'}</p>
-                        <textarea value={sheetText} onChange={(e) => setSheetText(e.target.value)} rows={3} autoFocus
-                            placeholder={sheet === 'ask' ? 'Are the handles staying, or do you want new ones?' : 'Why a visit (optional): what it depends on'}
-                            className="mt-2 w-full rounded-[14px] border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900" data-testid={sheet === 'ask' ? 'ask-question' : 'visit-why'} />
-                        <div className="mt-3 flex gap-2">
-                            <button type="button" onClick={() => setSheet(null)} className="min-h-12 flex-1 rounded-full border border-slate-300 text-sm font-bold text-slate-700">Back</button>
-                            <button type="button" onClick={() => void exit(sheet)} disabled={!!busy || (sheet === 'ask' && !sheetText.trim())}
-                                className="min-h-12 flex-1 rounded-full bg-slate-900 text-sm font-bold text-white disabled:bg-slate-300" data-testid={sheet === 'ask' ? 'ask-submit' : 'visit-submit'}>
-                                {busy ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : sheet === 'ask' ? 'Queue the question' : 'Draft the visit offer'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* F2: the ⋯ sheet holds the three other exits and the full builder. */}
-            {overflow && (
-                <div className="fixed inset-0 z-30 flex items-end justify-center bg-slate-900/50" onClick={() => !busy && setOverflow(false)}>
-                    <div className="w-full max-w-xl rounded-t-[28px] bg-white px-4 pt-3" style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }} onClick={(e) => e.stopPropagation()} data-testid="exits-sheet">
-                        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-slate-300" />
-                        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-500">Instead of sending</div>
-                        <div className="mt-3 flex flex-col gap-2">
-                            <button type="button" disabled={locked || !!busy} onClick={() => { setOverflow(false); setSheetText(''); setSheet('ask'); }} className={exitRow} data-testid="ask-first">
-                                <HelpCircle className="h-4 w-4 text-slate-500" /> Ask {first} first
-                            </button>
-                            <button type="button" disabled={locked || !!busy || !data.call?.customerPhone} onClick={() => void exit('call')} className={exitRow} data-testid="call-her">
-                                {busy === 'call' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Phone className="h-4 w-4 text-slate-500" />} Call {first}
-                            </button>
-                            <button type="button" disabled={locked || !!busy} onClick={() => { setOverflow(false); setSheetText(''); setSheet('visit'); }} className={exitRow} data-testid="needs-visit">
-                                <Home className="h-4 w-4 text-slate-500" /> Needs a visit
-                            </button>
-                            <a href={data.builderUrl} className={cn(exitRow, 'font-semibold text-slate-500')} data-testid="open-builder">
-                                <PenLine className="h-4 w-4" /> Open full builder
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {sheets}
 
             {/* F2: the thumb bar. Mic, the amber Send pill with the total, and ⋯. */}
             <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>

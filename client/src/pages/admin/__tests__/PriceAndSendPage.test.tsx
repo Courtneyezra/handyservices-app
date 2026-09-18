@@ -1080,3 +1080,22 @@ describe('B9: the restyle to Ben\'s design (direction A, the collapsed stack)', 
         expect(isPriceAndSendPath('/admin/prices/z4p6t9mw')).toBe(false);
     });
 });
+
+describe('B9: embedded as the Handy Desk\'s answer surface', () => {
+    it('drops the page header for the desk\'s, keeps the summary, the thread beside the price and the send in its footer', async () => {
+        const f = screenFetch(payload());
+        const onClose = vi.fn();
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" embedded onClose={onClose} />);
+        const root = await screen.findByTestId('price-and-send');
+        expect(root).toHaveAttribute('data-embedded', 'true');
+        expect(screen.queryByTestId('back')).toBeNull();
+        expect(screen.getByTestId('side-by-side')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId('summary-total')).toHaveTextContent('£2,100'));
+        expect(within(screen.getByTestId('price-footer')).getByTestId('send-quote')).toHaveTextContent('Send quote · £2,100');
+        expect(screen.queryByTestId('mic')).toBeNull();
+        await userEvent.click(screen.getByTestId('price-close'));
+        expect(onClose).toHaveBeenCalled();
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+    });
+});
