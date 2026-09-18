@@ -297,8 +297,12 @@ describe('convergence', () => {
         recordFact(file, { key: 'media_photo', value: 'a dripping tap', source: { kind: 'media_description', turnId: file.turns[file.turns.length - 1].id, mediaId: 'm1' }, by: 'scoping' });
         reply(10);
         expect(convergence(file).replies).toBe(0);
-        // Replies to turns that gave nothing still count, and SCOPING_REPLIES_MAX of them is not converging.
-        for (let i = 11; i < 11 + SCOPING_REPLIES_MAX; i++) { inbound(i, 'erm not sure'); reply(i); }
+        // Replies to turns that gave nothing about the job still count, a first-time name included, and SCOPING_REPLIES_MAX of them is not converging.
+        for (let i = 11; i < 11 + SCOPING_REPLIES_MAX; i++) {
+            inbound(i, 'erm not sure');
+            if (i === 11) recordFact(file, { key: 'customer_name', value: 'Sam', source: { kind: 'thread', turnId: file.turns[file.turns.length - 1].id }, by: 'scoping' });
+            reply(i);
+        }
         expect(convergence(file)).toMatchObject({ converging: false, replies: SCOPING_REPLIES_MAX });
         expect(convergence(file).why).toMatch(/nothing new from the customer .*\(no location\)$/);
     });

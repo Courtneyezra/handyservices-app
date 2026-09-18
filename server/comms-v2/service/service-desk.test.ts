@@ -527,6 +527,35 @@ describe('the Service specialist on the desk', () => {
         expect(answered.result.decision).toBe('send');
         expect(answered.result.bubbles.map((b) => b.text).join(' ')).not.toContain(NC);
     });
+    it('a not-converging card that also carries a callback stays held for the callback, labelled with it, once the location arrives', async () => {
+        const ADDRESS = '14 Wollaton Road, Beeston NG9 2AB';
+        const NC = DEFAULT_FIXED_LINES.not_converging;
+        const quotes = new MemoryQuoteStore();
+        const { gateway } = desk({
+            router: ({ user }) => />>.*anyone going to come out/.test(user) ? route({ turnKind: 'question', exception: 'callback' }) : route({ turnKind: 'answer' }),
+            specialist: ({ system, user }) => {
+                if (isService(system)) return serviceOut();
+                if (/lines of a quote/.test(system)) return { lines: [{ title: 'Replace kitchen tap', category: 'plumbing', qty: 1, detail: 'mixer tap', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] };
+                return new RegExp(`>>.*${ADDRESS}`).test(user)
+                    ? scopingOut([{ key: 'location', value: 'NG9 2AB' }])
+                    : />>.*leaking tap/.test(user) ? scopingOut([{ key: 'job_type', value: 'leaking tap' }]) : scopingOut();
+            },
+            composer: ({ n, user }) => ({ reply: carries(user, NC) ? `Right. (${n}) ${NC}` : `Right. (${n})`, factIds: [], kbIds: [] }),
+        }, { quoting: { store: quotes, drafter: new FakeDrafter(quotes), notifier: recordingNotifier } });
+        let last = await gateway.inbound(turn('I have a leaking tap', '2026-09-11T10:00:00.000Z'));
+        for (let i = 1; i < 10 && last.kind === 'handled' && !last.file.hold; i++) last = await gateway.inbound(turn('erm not sure', `2026-09-11T10:0${i}:00.000Z`));
+        if (last.kind !== 'handled') throw new Error(last.kind);
+        expect(last.file.hold?.exception).toBe('not_converging');
+        const call = await gateway.inbound(turn('is anyone going to come out or not', '2026-09-11T10:20:00.000Z'));
+        if (call.kind !== 'handled') throw new Error(call.kind);
+        expect(call.file.hold?.reason).toMatch(/; callback: /);
+        const answered = await gateway.inbound(turn(ADDRESS, '2026-09-11T10:21:00.000Z'));
+        if (answered.kind !== 'handled') throw new Error(answered.kind);
+        expect(answered.file.job.location).toBe('NG9 2AB');
+        // The callback still stands, so the card does; it no longer reads as not converging.
+        expect(answered.file.hold?.exception).toBe('callback');
+        expect(answered.file.hold?.reason).toMatch(/scoping converged on a later turn \(the file now has the job type and the location\)/);
+    });
     it('a customer who withholds the location still reaches Ben when each turn restates a fact already on the file', async () => {
         const { gateway } = desk({
             router: () => route({ turnKind: 'answer' }),

@@ -44,7 +44,7 @@ import { asksForCall, asksProposed, deferralMatch, offersCall, RE_THANKS_MEDIA, 
 import { AnthropicModelClient, type ModelClient } from './models';
 import { TurnModelWatch, type TurnReport } from './model-health';
 import type { Exception, HoldException, Route } from './router';
-import { matchFor, route as routeTurn } from './router';
+import { HOLD_EXCEPTIONS, matchFor, route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
 import { chaseIfDue, clearChaseRecord, type ChaseState } from '../service/chase';
 import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY, NOT_CONVERGING_CARD, regulatedWithoutLine } from '../service/hold-reasons';
@@ -293,7 +293,13 @@ export class Desk implements DeskLike {
             : 'the replies it counted no longer stand';
         const words = `${CONVERGED} on a later turn (${why}), so the not-converging card is done`;
         if (file.hold.exception === 'not_converging' && file.hold.reason.startsWith(NOT_CONVERGING_CARD) && !file.hold.notedOn) releaseHold(file, file.hold.approver, words, this.fileDeps());
-        else noteOnHold(file, { reason: words, ownCard: NOT_CONVERGING_CARD });
+        else {
+            noteOnHold(file, { reason: words, ownCard: NOT_CONVERGING_CARD });
+            // The card stands for another reason on it: it is labelled with that one, not the not-converging it no longer is.
+            if (file.hold.exception !== 'not_converging') return;
+            const remaining = file.hold.reason.split('; ').map((r) => HOLD_EXCEPTIONS.find((e) => e !== 'not_converging' && r.startsWith(`${e}:`))).find((e) => e) ?? null;
+            supersedeHold(file, { approver: file.hold.approver, reason: file.hold.reason, exception: remaining }, this.fileDeps());
+        }
     }
 
     /**

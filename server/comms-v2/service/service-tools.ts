@@ -214,10 +214,14 @@ export function convergence(file: CaseFile, scopingRouted = false): Convergence 
     return { converging: true, why: null, replies, jobAsks };
 }
 
+/** The thread facts that move a job toward ready; a name, a preference or a promise is not scoping progress. */
+const SCOPING_PROGRESS_KEYS: ReadonlySet<string> = new Set(['job_type', 'job_detail', 'location']);
+
 /**
  * The desk's replies from turn `from` on that no customer turn since the reply before them gave the
- * file a new fact. A fact restating a key and value already on the file (the Scoper re-records the
- * customer's name from nearly every turn) is not progress.
+ * file a new fact about the job (SCOPING_PROGRESS_KEYS, or a media description). A fact restating a
+ * key and value already on the file is not progress, and nor is a customer's name (the Scoper
+ * records it from nearly every turn, the first time often after the party already carries it).
  */
 function stalledReplies(file: CaseFile, from: number): number {
     const factTurns = new Set<string>();
@@ -226,7 +230,7 @@ function stalledReplies(file: CaseFile, from: number): number {
         const kv = `${f.key}\u0000${f.value.toLowerCase()}`;
         if (seen.has(kv)) continue;
         seen.add(kv);
-        if (f.source.kind === 'thread' || f.source.kind === 'media_description') factTurns.add(f.source.turnId);
+        if (f.source.kind === 'media_description' || (f.source.kind === 'thread' && SCOPING_PROGRESS_KEYS.has(f.key))) factTurns.add(f.source.turnId);
     }
     let replies = 0;
     let progressed = false;
