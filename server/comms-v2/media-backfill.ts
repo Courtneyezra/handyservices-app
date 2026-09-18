@@ -5,7 +5,8 @@
  * (`personalized_quotes.customer_photo_urls` and `customer_video_urls`) are repaired. Contractor
  * briefs (`job_dispatches.media_urls` and the per-task media in `job_dispatches.tasks`) and the old
  * message records (`messages.media_url`) are NOT re-pointed: the plan and the apply both say so in
- * plain words, with how many rows of each still point at a lost url (`NotRepaired`). Follow-up:
+ * plain words, with how many rows of each still point at a lost url (`NotRepaired`), counted over the lost
+ * items in scope and every url an item already put back records in `restored.from`. Follow-up:
  * re-point contractor briefs and the old message records in a separate change.
  *
  * The new desk wrote each inbound photo and video only to the container's local disk
@@ -246,7 +247,13 @@ export function notRepaired(counts: Omit<NotRepaired, 'statement'>): NotRepaired
     return { ...counts, statement };
 }
 
-async function notRepairedFor(io: BackfillIo, urls: string[]): Promise<NotRepaired> {
+/**
+ * Counted over every lost url the backfill knows of: `lostUrls` and the url each item already put back
+ * recorded in `restored.from`, so a plan or run after a successful one still counts what points at it.
+ */
+async function notRepairedFor(io: BackfillIo, files: readonly CaseFile[], lostUrls: string[]): Promise<NotRepaired> {
+    const restoredFrom = files.flatMap((f) => f.turns.flatMap((t) => (t.media ?? []).map((m) => m.restored?.from))).filter((u): u is string => !!u);
+    const urls = Array.from(new Set([...lostUrls, ...restoredFrom]));
     return notRepaired(urls.length ? await io.otherReferences(urls) : { dispatches: 0, dispatchTasks: 0, messages: 0 });
 }
 
@@ -273,7 +280,7 @@ export interface BackfillPlan {
     digest: string;
     /** The size of each ready item's old-desk copy, by media id. */
     twinBytes: Record<string, number>;
-    /** What this backfill will not re-point, counted over the lost urls in scope. */
+    /** What this backfill will not re-point, counted over the lost urls in scope and those already put back. */
     notRepaired: NotRepaired;
 }
 
@@ -313,7 +320,7 @@ export async function planBackfill(store: CaseFileStore, io: BackfillIo, opts: B
 
     const summary = pairings.map((p) => [p.item.mediaId, p.outcome, p.outcome === 'ready' ? `${p.twin.messageId}:${p.by}` : '']).sort((a, b) => a[0].localeCompare(b[0]));
     const digest = createHash('sha256').update(JSON.stringify({ lost: inScope.length, summary })).digest('hex').slice(0, 16);
-    const notRepairedNow = await notRepairedFor(io, inScope.map((m) => m.url));
+    const notRepairedNow = await notRepairedFor(io, store.all(), inScope.map((m) => m.url));
     return { lost: inScope.length, outOfScope: lost.length - inScope.length, alive, alreadyRestored, pairings, refusedChoices, digest, twinBytes, notRepaired: notRepairedNow };
 }
 
@@ -334,7 +341,7 @@ export interface ApplyResult {
     alreadyRestored: number;
     outOfScope: number;
     quoteRowsUpdated: number;
-    /** After the run: how many places still carry a lost url in scope (items left for a person, or failed, carry theirs). */
+    /** After the run: how many places still carry a lost url (items left for a person, or failed, carry theirs; dispatches and messages as in `notRepaired`). */
     stillPointingAtLost: { caseFileItems: number; quoteRows: number; dispatches: number; dispatchTasks: number; messages: number };
     /** What this backfill never re-points, counted after the run, with the plain-words statement. */
     notRepaired: NotRepaired;
@@ -418,7 +425,7 @@ export async function applyBackfill(store: CaseFileStore, io: BackfillIo, req: A
     const lostSet = new Set(lostUrls);
     result.stillPointingAtLost.caseFileItems = mediaRefsOf(store.all()).filter((m) => m.url && lostSet.has(m.url)).length;
     if (lostUrls.length) result.stillPointingAtLost.quoteRows = (await io.quotesCarrying(lostUrls)).length;
-    result.notRepaired = await notRepairedFor(io, lostUrls);
+    result.notRepaired = await notRepairedFor(io, store.all(), lostUrls);
     result.stillPointingAtLost.dispatches = result.notRepaired.dispatches;
     result.stillPointingAtLost.dispatchTasks = result.notRepaired.dispatchTasks;
     result.stillPointingAtLost.messages = result.notRepaired.messages;

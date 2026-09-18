@@ -288,6 +288,29 @@ describe('the backfill run', () => {
         expect(JSON.stringify([io.dispatchMedia, io.dispatchTaskMedia, io.messageMedia])).toBe(briefsBefore);
     });
 
+    it('after a run, a second plan and apply still count the contractor briefs and old message records that point at a restored item\'s lost url', async () => {
+        const { store, io } = scene();
+        io.dispatchMedia = [['/api/media/v2_single.jpg']];
+        io.dispatchTaskMedia = [[['/api/media/v2_single.jpg']]];
+        io.messageMedia = ['/api/media/v2_single.jpg'];
+        const first = await planBackfill(store, io);
+        const done = await applyBackfill(store, io, { digest: first.digest, expect: first.lost });
+        if (!done.ok) throw new Error(done.error);
+        expect(done.result.notRepaired).toMatchObject({ dispatches: 1, dispatchTasks: 1, messages: 1 });
+
+        const second = await planBackfill(store, io);
+        expect(second.pairings.map((p) => p.item.mediaId)).not.toContain('v2_single');
+        expect(second.notRepaired).toMatchObject({ dispatches: 1, dispatchTasks: 1, messages: 1 });
+        expect(second.notRepaired.statement).toContain('1 contractor brief row(s) (job_dispatches.media_urls)');
+        const again = await applyBackfill(store, io, { digest: second.digest, expect: second.lost });
+        if (!again.ok) throw new Error(again.error);
+        expect(again.result.restored).toBe(0);
+        expect(again.result.notRepaired).toMatchObject({ dispatches: 1, dispatchTasks: 1, messages: 1 });
+        expect(again.result.stillPointingAtLost).toMatchObject({ dispatches: 1, dispatchTasks: 1, messages: 1 });
+        expect(io.dispatchMedia).toEqual([['/api/media/v2_single.jpg']]);
+        expect(io.messageMedia).toEqual(['/api/media/v2_single.jpg']);
+    });
+
     it('run twice: the second run copies nothing, changes nothing and makes no duplicate', async () => {
         const { store, io } = scene();
         const first = await planBackfill(store, io);
