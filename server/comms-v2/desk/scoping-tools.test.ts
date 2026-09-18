@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { answered, ask, open, recordFact, type CaseFile, type Turn } from './case-file';
 import { confirmLocation, describeMedia, nextQuestion, offerCall, readiness, regulated } from './scoping-tools';
-import { moneyQuestionMatch, offersCall, scopingQuestionCount, textAsks } from './lexicon';
+import { moneyQuestionMatch, offersCall, regulatedMatch, regulatedNotGasMatch, scopingQuestionCount, textAsks } from './lexicon';
 
 function fixture(text = 'hi', media: Turn['media'] = []): CaseFile {
     const r = open({
@@ -111,6 +111,15 @@ describe('offer_call and regulated', () => {
         expect(regulated(t('a few roof tiles have slipped')).regulated).toBe(false);
         expect(regulated(t('a socket has stopped working and a wall needs a lintel')).regulated).toBe(false);
         expect(regulated(t('the boiler cupboard door is hanging off')).regulated).toBe(false);
+    });
+    it('tells asbestos and an artex ceiling apart from gas, so the gas line never answers them (service/hold-reasons.ts)', () => {
+        for (const body of ['there is asbestos in the garage roof', 'Can you skim over my artex ceiling?', 'do I need an artex test first']) {
+            expect(regulatedMatch(body), body).not.toBeNull();
+            expect(regulatedNotGasMatch(body), body).not.toBeNull();
+        }
+        for (const body of ['my gas hob has stopped', 'the boiler is making a noise', 'My combi keeps losing pressure', 'The pilot light keeps going out', 'a socket has stopped working']) {
+            expect(regulatedNotGasMatch(body), body).toBeNull();
+        }
     });
     it('reads a combi, a pilot light and a flue beside a gas word as gas, but not a combi oven, microwave or drill, or a wood burner\'s flue', () => {
         const t = (body: string): Turn => ({ ...fixture(body).turns[0] });

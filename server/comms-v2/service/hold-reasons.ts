@@ -16,6 +16,7 @@
  * to a complaint stops being scoped; one thread has one record of what it is held on.
  */
 import type { FixedLineKind } from '../desk/fixed-lines';
+import { regulatedMatch, regulatedNotGasMatch } from '../desk/lexicon';
 import type { HoldException } from '../desk/router';
 
 /** `money` only for an invoice money question the router handed to Service that the invoice row did not answer (service/customer-record.ts). */
@@ -37,6 +38,21 @@ export const FIXED_LINE_FOR: Record<HoldException, FixedLineKind> = {
     not_converging: 'not_converging',
     change_of_details: 'change_of_details',
 };
+
+/**
+ * A regulated hold with no line to send. `FIXED_LINE_FOR.regulated` is the gas line, so it goes only
+ * when the turn is positively gas: a gas term matches and no regulated work that is not gas does.
+ * Anything else the desk holds as regulated (asbestos, an artex ceiling, gas beside asbestos, or a
+ * turn the router flagged that no pattern recognises) would hear the wrong work and the wrong trade,
+ * so the desk holds for Ben, sends nothing, and says why on the hold. Null when the gas line may go.
+ */
+export function regulatedWithoutLine(reason: HoldException | null, body: string): string | null {
+    if (reason !== 'regulated') return null;
+    const notGas = regulatedNotGasMatch(body);
+    if (notGas) return `nothing sent: "${notGas}" is regulated work that is not gas, and the gas line would send them to the wrong trade; no line is approved for it`;
+    if (regulatedMatch(body)) return null;
+    return 'nothing sent: the turn is regulated but not identified as gas, so the gas line would not be true; no line is approved for it';
+}
 
 /** Reasons the desk sends one fixed line for and keeps every specialist off the thread until Ben releases it. */
 export const FIXED_LINE_ONLY: ReadonlySet<HoldException> = new Set<HoldException>(['complaint', 'refund', 'trust_doubt', 'regulated', 'not_converging']);

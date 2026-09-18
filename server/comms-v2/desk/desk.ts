@@ -47,7 +47,7 @@ import type { Exception, HoldException, Route } from './router';
 import { matchFor, route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
 import { chaseIfDue, clearChaseRecord, type ChaseState } from '../service/chase';
-import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY } from '../service/hold-reasons';
+import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY, regulatedWithoutLine } from '../service/hold-reasons';
 import { serve, type ServiceSpecialistDeps } from '../service/service-specialist';
 import { asksAboutOurArea, asksToChangeDetails } from '../service/service-tools';
 import { asksAboutInvoice } from '../service/customer-record';
@@ -478,19 +478,24 @@ export class Desk implements DeskLike {
         let prefixFactIds: string[] = [];
         const words = (text: string): string => (prefix ? `${prefix}\n\n${text}` : text);
 
-        // A fixed-line hold, whoever raised it: one line in Ben's words, the hold, no composer.
-        const fixedLineHold = async (reason: HoldException, match: string) => {
+        // A fixed-line hold, whoever raised it: one line in Ben's words, the hold, no composer. Regulated
+        // work that is not gas has no line: the hold says why, and the turn sends nothing (returned).
+        const fixedLineHold = async (reason: HoldException, match: string): Promise<string | null> => {
+            const noLine = regulatedWithoutLine(reason, turn.body);
+            if (noLine) { holdFor(reason, `${reason}: ${match}; ${noLine}`); return noLine; }
             const line = await fixedLine(FIXED_LINE_FOR[reason], this.deps.fixedLines ?? knowledgeBaseFixedLines);
             fixedLines.push(line);
             if (line.kbId) fixedLineKbIds.push(line.kbId);
             holdFor(reason, `${reason}: ${match}`);
             reply = line.text;
+            return null;
         };
         // Gravest first: a fixed-line-only exception on the turn takes the thread off the composer, whatever else it raised.
         const fixedOnlyException = exceptions.find((e) => FIXED_LINE_ONLY.has(e)) ?? null;
         let fixedLineOnly = !!fixedOnlyException;
         if (fixedOnlyException) {
-            await fixedLineHold(fixedOnlyException, matchFor(route, fixedOnlyException, turn.body));
+            const noLine = await fixedLineHold(fixedOnlyException, matchFor(route, fixedOnlyException, turn.body));
+            if (noLine) return this.nothing(file, party.personId, runId, calls, noLine, 'hold');
         } else {
             // 3. Gather: every routed specialist that exists. Scoping runs until the quote is sent (Goal 4)
             // and unless the turn is service only; Service runs its deterministic tools every turn and its
@@ -513,7 +518,8 @@ export class Desk implements DeskLike {
             const fixedOnly = holds.find((h) => FIXED_LINE_ONLY.has(h.reason));
             if (fixedOnly) {
                 fixedLineOnly = true;
-                await fixedLineHold(fixedOnly.reason, fixedOnly.match);
+                const noLine = await fixedLineHold(fixedOnly.reason, fixedOnly.match);
+                if (noLine) return this.nothing(file, party.personId, runId, calls, noLine, 'hold');
             } else {
                 const quoting = await quoteGather(file, turn, party, route, client, this.quotingDeps());
                 if (quoting) { calls.push(...quoting.calls); specialists.push(quoting); if (quoting.error) log(`quoting: ${quoting.error}`); }
@@ -821,10 +827,14 @@ export class Desk implements DeskLike {
     /** Contract 4's second failure and the composer's fallback route: hold with the draft, and the customer still hears the fixed acknowledgement, naming any photo or video the turn brought. */
     private async heldAck(file: CaseFile, partyId: string, turn: Turn, runId: string, calls: ModelCallRecord[], why: string, draft: string | null, composerCalls: number, specialists: SpecialistReturn[], failed?: GuardOutcome, summary: string | null = null): Promise<DeskResult> {
         const party = partyOf(file, partyId)!;
-        const held = { reason: why, draft, failures: failed?.failures ?? [] };
+        // A regulated turn that is not positively gas: the gas line would be untrue, and no other line is approved for it, so nothing goes.
+        const regulatedTurn = !!regulatedMatch(turn.body);
+        const noLine = regulatedTurn ? regulatedWithoutLine('regulated', turn.body) : null;
+        const held = { reason: noLine ? `${why}; ${noLine}` : why, draft, failures: failed?.failures ?? [] };
         if (file.hold) noteOnHold(file, { ...held, ownCard: DESK_RUN_NOTE });
         else setHold(file, { approver: approverFor(file, null), ...held }, this.fileDeps());
-        const line = regulatedMatch(turn.body) ? await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines) : heldAckLine(turn, file);
+        if (noLine) return { ...this.nothing(file, partyId, runId, calls, held.reason, 'hold'), summary, composerCalls };
+        const line = regulatedTurn ? await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines) : heldAckLine(turn, file);
         const kbIds = line.kbId ? [line.kbId] : [];
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds, kbRows: await this.kbRows(kbIds, [line]), fixedLines: [line], proposedSubject: null, liveQuoteRefs: new Set() });
         const choice = chooseChannel(party, turn.channel, this.now());

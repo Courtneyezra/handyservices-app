@@ -465,7 +465,7 @@ reading: "call round", "call in" and "call out" ask for a visit in this trade, w
 separated reliably from a phone call), no source, a change of details. A turn can raise more than
 one exception: each carries its own fixed line into the reply, and the hold records the gravest. Every later turn on a held thread is
 acknowledged (checklist 7.3), except one held because the customer asked us to stop, which gets
-nothing at all while that hold stands (`optOutHeld`; server/comms-v2/README.md, the desk). A question the customer asked and the reply puts off still reaches Ben when
+nothing at all while that hold stands (`optOutHeld`; server/comms-v2/README.md, the desk), and one whose own words are regulated work not identified as gas, which gets nothing (`regulatedWithoutLine`; server/comms-v2/README.md, the hold vocabulary). A question the customer asked and the reply puts off still reaches Ben when
 Service's model did not read the turn: where the customer's words ask something and a composed sentence
 says it will check or come back on that question ("I'll check and come back to you on that",
 `deferralMatch`, desk/lexicon.ts), the turn holds as `no_source`, unless it raised or noted a hold of its

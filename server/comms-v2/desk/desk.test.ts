@@ -16,7 +16,7 @@ import { appendTurn, closeFile, open, release, type CaseFile } from './case-file
 import { customerTurnOf } from './turn-window';
 import { noFixedLineSource, DEFAULT_FIXED_LINES, type FixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
-import { asksForCall } from './lexicon';
+import { asksForCall, regulatedMatch } from './lexicon';
 import { FakeModelClient } from './models';
 import { emptyKb } from './scoping-tools';
 import { noTemplateApproved } from './sender';
@@ -212,6 +212,81 @@ describe('the desk', () => {
             expect(client.calls.filter((c) => c.role === 'composer'), body).toHaveLength(0);
             expect(out.result.bubbles.map((b) => b.text).join('\n\n'), body).toBe(DEFAULT_FIXED_LINES.gas);
             expect(out.file.hold?.reason, body).toMatch(/regulated/);
+        }
+    });
+
+    it.each([
+        ['asbestos', 'Hi, I think there might be asbestos in my garage roof, can you remove it?'],
+        ['an artex ceiling', 'Can you skim over my artex ceiling in the lounge?'],
+    ])('%s is held for Ben with the reason on the hold and sends nothing: the gas line would name the wrong work and the wrong trade', async (_what, body) => {
+        const { client, gateway } = desk({ router: () => routeScoping(), specialist: () => specialistFacts([]), composer: () => { throw new Error('the composer must not be called'); } });
+        const out = await gateway.inbound(turn(body, '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(client.calls.filter((c) => c.role === 'composer'), body).toHaveLength(0);
+        expect(out.result.decision, body).toBe('hold');
+        expect(out.result.delivered, body).toBe(false);
+        expect(out.result.bubbles, body).toEqual([]);
+        expect(out.file.turns.filter((t) => t.direction === 'outbound'), body).toHaveLength(0);
+        expect(out.file.hold?.exception, body).toBe('regulated');
+        expect(out.file.hold?.approver, body).toEqual({ kind: 'human', id: 'ben' });
+        expect(out.file.hold?.reason, body).toMatch(/^regulated: .*nothing sent: .* is regulated work that is not gas/);
+        // A later turn on the held thread that names it again still hears no gas line.
+        const again = await gateway.inbound(turn(`${body} Any news?`, '2026-09-11T10:05:00.000Z'));
+        if (again.kind !== 'handled') throw new Error(again.kind);
+        expect(again.result.delivered, body).toBe(false);
+        expect(again.file.turns.filter((t) => t.direction === 'outbound'), body).toHaveLength(0);
+        expect(again.file.hold?.exception, body).toBe('regulated');
+        const clock = await gateway.clock(out.file.id);
+        expect(clock?.delivered, body).toBe(false);
+    });
+
+    it('a turn the router raises as regulated that no pattern recognises is held for Ben and sends nothing: unknown is never assumed to be gas', async () => {
+        for (const body of ['Could you remove the artex from my ceiling?', 'my ceiling is artexed', 'is there absestos in my shed roof?']) {
+            const { client, gateway } = desk({ router: () => routeScoping({ exception: 'regulated', turnKind: 'question' }), specialist: () => specialistFacts([]), composer: () => { throw new Error('the composer must not be called'); } });
+            const out = await gateway.inbound(turn(body, '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(client.calls.filter((c) => c.role === 'composer'), body).toHaveLength(0);
+            expect(out.result.decision, body).toBe('hold');
+            expect(out.result.delivered, body).toBe(false);
+            expect(out.result.bubbles, body).toEqual([]);
+            expect(out.file.turns.filter((t) => t.direction === 'outbound'), body).toHaveLength(0);
+            expect(out.file.hold?.exception, body).toBe('regulated');
+            expect(out.file.hold?.reason, body).toMatch(/^regulated: .*nothing sent: the turn is regulated but not identified as gas/);
+        }
+    });
+
+    it('the rule is positive identification: a regulated family no pattern knows at all is held for Ben and sends nothing, so the next family is safe without a case of its own', async () => {
+        // Deliberately outside every regulated pattern: nothing here names gas, asbestos or artex.
+        const body = 'Can you replace the oil tank at the bottom of my garden?';
+        expect(regulatedMatch(body)).toBeNull();
+        const { client, gateway } = desk({ router: () => routeScoping({ exception: 'regulated' }), specialist: () => specialistFacts([]), composer: () => { throw new Error('the composer must not be called'); } });
+        const out = await gateway.inbound(turn(body, '2026-09-11T10:00:00.000Z'));
+        if (out.kind !== 'handled') throw new Error(out.kind);
+        expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(0);
+        expect(out.result.decision).toBe('hold');
+        expect(out.result.delivered).toBe(false);
+        expect(out.result.bubbles).toEqual([]);
+        expect(out.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(0);
+        expect(out.file.hold?.exception).toBe('regulated');
+        expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
+        expect(out.file.hold?.reason).toMatch(/^regulated: .*nothing sent: the turn is regulated but not identified as gas/);
+    });
+
+    it('electrical work is ours: a socket or a rewire is scoped and answered, with no regulated hold and no gas line', async () => {
+        for (const body of ['A double socket in my kitchen has stopped working, can you fix it? NG7 1AA', 'Could you quote for rewiring the lights in my hallway?']) {
+            const { client, gateway } = desk({
+                router: () => routeScoping(),
+                specialist: () => specialistFacts([{ key: 'job_type', value: 'electrical repair' }]),
+                composer: () => ({ reply: 'Hi Sam, no problem. Could you send a photo of it?', factIds: [], kbIds: [] }),
+            });
+            const out = await gateway.inbound(turn(body, '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(client.calls.filter((c) => c.role === 'composer').length, body).toBeGreaterThan(0);
+            expect(out.result.decision, body).toBe('send');
+            expect(out.result.delivered, body).toBe(true);
+            expect(out.result.bubbles.map((b) => b.text).join('\n\n'), body).not.toContain('Gas Safe');
+            expect(out.file.hold, body).toBeNull();
+            expect(out.result.guards.regulated.result, body).toBe('pass');
         }
     });
 
