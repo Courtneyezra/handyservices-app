@@ -60,11 +60,12 @@ describe('<ThreadView>', () => {
         await ready();
         expect(screen.getByTestId('thread-name')).toHaveTextContent('Priya Raval');
         expect(screen.getByTestId('thread-line').textContent).toMatch(/^homeowner · Scoping · Kitchen tap · NG2 · 07700900123 · reply via WhatsApp · window open until \d\d:\d\d$/);
-        // Words, not icon buttons: Call rings the customer's number, More holds the rest.
-        expect(screen.getByTestId('thread-call')).toHaveAttribute('href', 'tel:+447700900123');
-        expect(screen.getByTestId('thread-call').textContent).toBe('Call');
+        // Words, not icon buttons: More holds Call, which rings the customer's number, and the rest.
         expect(screen.getByTestId('thread-view').querySelector('[data-testid="thread-name"]')!.parentElement!.parentElement!.querySelectorAll('svg').length).toBe(0);
+        expect(screen.queryByTestId('thread-call')).toBeNull();
         await userEvent.click(screen.getByRole('button', { name: 'More' }));
+        expect(screen.getByTestId('thread-call')).toHaveAttribute('href', 'tel:+447700900123');
+        expect(screen.getByRole('menuitem', { name: 'Call' })).toBe(screen.getByTestId('thread-call'));
         expect(screen.getByTestId('thread-view-customer')).toHaveAttribute('href', '/admin/clients/phone%3A07700900123');
         expect(screen.queryByTestId('thread-latest-quote')).toBeNull();
         expect(screen.getByRole('menuitem', { name: 'Close file' })).toBeInTheDocument();

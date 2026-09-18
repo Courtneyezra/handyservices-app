@@ -5,7 +5,7 @@
  * ours in green on the right with a small "Desk" or staff name on the first bubble of a run, the time
  * inside each bubble, a day chip between days, calls and system turns as centred notes, and a round
  * message field with one send button. The held draft sits in the chat as a dashed bubble that has not
- * gone, with Send this under it. The header is words: Call, More (the customer's record, the latest
+ * gone, with Send this under it. The header is words: More (Call, the customer's record, the latest
  * quote, Close file) and Close.
  *
  * Reads GET /api/comms-v2/case-files/:id every fifteen seconds. Every write is one of the board's own
@@ -641,7 +641,7 @@ export function ThreadView({ fileId, layout, backTo = 'Board', onClose, onChange
 }
 
 /**
- * The thread's "More": the customer's record, the quote on file, and Close file, each shown only when
+ * The thread's "More": Call, the customer's record, the quote on file, and Close file, each shown only when
  * there is one. Words, not icons. Esc closes the menu alone, never the panel behind it.
  */
 function MoreMenu({ links, onCloseFile }: { links?: ThreadLinks; onCloseFile?: () => void }) {
@@ -652,7 +652,7 @@ function MoreMenu({ links, onCloseFile }: { links?: ThreadLinks; onCloseFile?: (
         window.addEventListener('keydown', onKey, true);
         return () => window.removeEventListener('keydown', onKey, true);
     }, [open]);
-    if (!links?.customer && !links?.quote && !onCloseFile) return null;
+    if (!links?.call && !links?.customer && !links?.quote && !onCloseFile) return null;
     const item = 'block w-full px-4 py-2.5 text-left text-[13px] text-[#111b21] hover:bg-[#f0f2f5]';
     return (
         <div className="relative">
@@ -663,6 +663,7 @@ function MoreMenu({ links, onCloseFile }: { links?: ThreadLinks; onCloseFile?: (
                 <>
                     <div aria-hidden className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
                     <div role="menu" className="absolute right-0 top-full z-50 mt-1 min-w-[200px] rounded-md bg-white py-1.5 shadow-[0_6px_24px_rgba(0,0,0,0.18)]">
+                        {links?.call && <a role="menuitem" href={links.call} data-testid="thread-call" className={item}>Call</a>}
                         {links?.customer && <Link role="menuitem" href={links.customer} data-testid="thread-view-customer" className={item}>View customer</Link>}
                         {links?.quote && <Link role="menuitem" href={links.quote} data-testid="thread-latest-quote" className={item}>Latest quote</Link>}
                         {onCloseFile && (
@@ -684,7 +685,7 @@ function ThreadFrame({ layout, backTo, onClose, onAskAbout, title, line, links, 
     onAskAbout?: () => void;
     title: string;
     line: string;
-    /** Set once the file has loaded: Call and the More menu's links. */
+    /** Set once the file has loaded: the More menu's links. */
     links?: ThreadLinks;
     onCloseFile?: () => void;
     children: React.ReactNode;
@@ -705,7 +706,6 @@ function ThreadFrame({ layout, backTo, onClose, onAskAbout, title, line, links, 
                 {onAskAbout && (
                     <button type="button" data-testid="thread-ask-about" onClick={onAskAbout} className={WORD}>Ask about this</button>
                 )}
-                {links?.call && <a href={links.call} data-testid="thread-call" className={WORD}>Call</a>}
                 <MoreMenu links={links} onCloseFile={onCloseFile} />
                 {layout === 'panel' && (
                     <button type="button" onClick={onClose} className={WORD}>Close</button>
