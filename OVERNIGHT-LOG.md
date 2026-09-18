@@ -457,3 +457,37 @@ round (below).
   customer and no live money row moved — the deleted invoice is the sandbox's own, on the branch.
   One product question filed as entry 5 in OVERNIGHT-QUESTIONS.md (a chase to Ben that cannot go
   blocks the owner escalation for ever).
+
+## Static review (18 Sep 2026, 00:10-00:30 UTC)
+
+The app's Anthropic credit ran out at 23:26 UTC (the NOTE at the top of this file), so no further
+scenario could be driven live. These are read from the code with file:line evidence and NOT driven,
+which is why each says what would have to be driven to confirm it. Ranked by customer impact.
+
+- **S1. An asbestos enquiry is answered with gas wording, and there is no asbestos line anywhere.**
+  `RE_REGULATED` (`server/comms-v2/desk/lexicon.ts:13`) matches `asbestos`, `artex ... ceiling|test`
+  and `corgi` as well as the gas family, and the router raises the one exception `regulated`
+  (`desk/router.ts:24`, `:115`). Every regulated hold then takes a single fixed line:
+  `FIXED_LINE_FOR.regulated = 'gas'` (`service/hold-reasons.ts:28`), whose default wording is
+  "We don't take on gas work, so a Gas Safe registered engineer is the one to call for this."
+  (`desk/fixed-lines.ts:39`). A customer asking about asbestos is therefore pointed at the wrong
+  trade entirely - asbestos is a licensed-contractor matter, not a Gas Safe one.
+  How far it reaches a live customer is bounded, and this is why it is filed rather than escalated
+  at the hour it was found: `gas` is KB-backed (`fixed-lines.ts:57`) and live the sender refuses a
+  default for those four lines (`desk/sender.ts:582`), so live either Ben's reviewed `gas` row goes
+  out - wrong for asbestos if that row says "gas", which is the likely wording - or nothing sends
+  at all and the file simply holds for Ben. The default wording cannot reach a live customer.
+  To confirm: drive an asbestos enquiry on the sandbox door and read the fixed line sent, then read
+  the reviewed `gas` row in `kb_entries` for what a live customer would get instead. Needs credit.
+  The wording itself is Ben's to write, so it is also OVERNIGHT-QUESTIONS.md entry 6.
+
+- **S2. The desk could not answer any customer between 23:26 and at least 00:30 UTC.**
+  Not a code defect: the environment's Anthropic key returns
+  `400 invalid_request_error: "Your credit balance is too low to access the Anthropic API"`,
+  verified directly on a one-token call, so every live customer turn comes back `router_failed` and
+  holds with the fixed acknowledgement ("Thanks, leave it with me and I'll come back to you.").
+  That is the desk behaving as designed (`desk/desk.ts:393`; model-health pages on a `provider`
+  failure, `desk/model-health.ts`), and firstmate confirmed against production that no real customer
+  turn arrived in that window. **The only reason nobody was failed is the hour.** The same outage in
+  the morning is a desk that acknowledges every customer and answers none, so the top-up is the
+  first thing to do. This belongs in the record whether or not it is ever noticed.

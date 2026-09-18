@@ -155,3 +155,25 @@ second interval passes (the fix is a fall-through in `chaseIfDue` plus a test), 
 message only ever a follow-on from a chase Ben actually received? If the second, the refusal
 deserves an alarm of its own, because today a held thread can sit for ever with nobody reachable
 and nothing said outside the case file.
+
+## 6. What the desk should say to someone asking about asbestos
+
+Found: static review (18 Sep 2026), reading the regulated path; not driven, because the credit was
+out by then.
+
+The regulated matcher covers gas, asbestos, artex ceilings and corgi in one expression
+(`RE_REGULATED`, `server/comms-v2/desk/lexicon.ts:13`), and every match takes the same fixed line,
+`FIXED_LINE_FOR.regulated = 'gas'` (`server/comms-v2/service/hold-reasons.ts:28`). There is one
+reviewed knowledge-base row behind it, the `gas` one, and no asbestos wording exists anywhere in the
+repo or the vocabulary (`FixedLineKind`, `desk/fixed-lines.ts:36`).
+
+So an asbestos enquiry either gets Ben's reviewed gas words - pointing a worried customer at a Gas
+Safe registered engineer for a licensed-asbestos matter - or, if that row is missing, gets nothing
+at all while the file holds (`desk/sender.ts:582` refuses a default live).
+
+**The decision needed:** should asbestos have its own fixed line and its own reviewed row, or is one
+"we don't take on regulated work" line meant to cover both? If it gets its own, that is a new
+`FixedLineKind`, a new `KB_BACKED` member, a split in `FIXED_LINE_FOR` keyed on which branch of
+`RE_REGULATED` matched, and a row for Ben to write and review - and the wording is his, not mine,
+which is why it is not guessed at here. Artex and corgi need the same answer: artex is an asbestos
+question, corgi is a gas one.
