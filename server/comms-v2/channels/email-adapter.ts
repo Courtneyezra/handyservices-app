@@ -203,6 +203,27 @@ export function stripQuotedHistory(text: string): string {
 
 // ---------------------------------------------------------------- the envelope
 
+/**
+ * An inbound email's turn body: the subject line in front of what the person actually wrote, so a
+ * reader of the turn has the thread's subject as well as the message.
+ */
+export function emailTurnText(subject: string | null, body: string): string {
+    return subject ? `${EMAIL_SUBJECT_LINE}${subject}\n\n${body}`.trim() : body;
+}
+
+export const EMAIL_SUBJECT_LINE = 'Subject: ';
+
+/**
+ * The message on its own, without the subject line `emailTurnText` puts in front of it. For a
+ * reader that must weigh the person's own words as they typed them: an opt-out is a terse
+ * instruction ("STOP"), and a subject carried in front of it is not part of what they said
+ * (server/comms-v2/desk/desk.ts `optOutIn`, server/opt-out-detect.ts).
+ */
+export function withoutEmailSubject(body: string): string {
+    const match = new RegExp(`^${EMAIL_SUBJECT_LINE}[^\\n]*(?:\\n+|$)`).exec(body);
+    return match ? body.slice(match[0].length) : body;
+}
+
 export interface EmailAdapterDeps extends MediaWriteDeps { now?: () => Date }
 
 export function fromInboundEmail(email: InboundEmail, deps: EmailAdapterDeps = {}): InboundEnvelope {
@@ -218,7 +239,7 @@ export function fromInboundEmail(email: InboundEmail, deps: EmailAdapterDeps = {
     // The chain a reply carries: what this message referenced, what it answered, then itself.
     const references = messageIdsOf(email.references, email.inReplyTo).filter((id) => id !== messageId).concat(messageId ? [messageId] : []);
     return {
-        channel: 'email', address, name: email.fromName?.trim() || from.name, text: subject ? `Subject: ${subject}\n\n${body}`.trim() : body, media: [],
+        channel: 'email', address, name: email.fromName?.trim() || from.name, text: emailTurnText(subject, body), media: [],
         at: email.at ?? now().toISOString(), providerMessageId: messageId, via: 'door', mediaFailures: [], kind: 'text',
         email: { subject, messageId, references },
     };

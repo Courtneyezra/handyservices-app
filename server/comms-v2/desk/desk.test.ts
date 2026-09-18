@@ -25,6 +25,7 @@ import { FakeDrafter } from '../quoting/draft-quote';
 import { MemoryQuoteStore, type QuoteStore } from '../quoting/quote-store';
 import { markQuoteSent, priceQuote } from '../quoting/quoting-tools';
 import { detectOptOut } from '../../opt-out-detect';
+import { withoutEmailSubject } from '../channels/email-adapter';
 import { ALL_OPT_OUT_WORDS } from '../../__tests__/opt-out-words';
 
 const routeScoping = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'enquiry', ...over });
@@ -300,6 +301,49 @@ describe('the desk', () => {
             expectSilent(r, file, client.calls, channel);
             expect(file.hold?.reason, channel).toMatch(new RegExp(`^customer may have asked to stop ${where}; check and record the opt-out: `));
             expect(r.hold, channel).toBe(file.hold);
+        }
+    });
+
+    // The adapter puts `Subject: <subject>` in front of the message (channels/email-adapter.ts), so
+    // the turn's body reads as prose however plainly the person wrote it: a bare keyword is no
+    // longer the whole message, and an ordinary subject's words push a plain sentence past the
+    // detector's short-message threshold. Both were answered live before the check read the message
+    // on its own; `detectOptOut` on the whole body asserts each case still needs that reading.
+    const EMAIL_SUBJECT = 'Subject: Re: Your quote for the kitchen tap and the bathroom extractor fan';
+    it('an email opt-out is the message the person wrote, not the subject line in front of it: it holds for Ben', async () => {
+        for (const [message, keyword] of [['STOP', 'stop'], ['Please unsubscribe me from this, I do not want any more emails about the quote.', 'unsubscribe']] as const) {
+            const body = `${EMAIL_SUBJECT}\n\n${message}`;
+            expect(detectOptOut(body), message).toBeNull();
+            expect(detectOptOut(message), message).not.toBeNull();
+            const { client, desk: d } = noModel();
+            const file = fileOn('email', body);
+            const r = await d.handleTurn(file, file.turns[0]);
+            expect(r.decision, message).toBe('hold');
+            expectSilent(r, file, client.calls, `email ${keyword}`);
+            expect(file.hold?.reason, message).toMatch(/^customer may have asked to stop by email; check and record the opt-out: /);
+            expect(r.note, message).toMatch(new RegExp(`asked us to stop \\("${keyword}", marketing\\)`));
+        }
+    });
+
+    it('an ordinary email that only mentions stopping is handled as before: routed, composed and sent, with no opt-out hold', async () => {
+        // The negative control for reading the message on its own: taking the subject off makes the
+        // message short enough for the phrase rules that the whole body never reached, so an
+        // everyday "will not stop dripping" is where a false opt-out would show up first. The longer
+        // message is the same words past the threshold either way.
+        for (const message of ['The kitchen tap will not stop dripping, can someone look?', 'The kitchen tap will not stop dripping, could someone come and look at it next week?']) {
+            const body = `Subject: Dripping tap\n\n${message}`;
+            expect(detectOptOut(withoutEmailSubject(body)), message).toBeNull();
+            const { client, desk: d } = desk({
+                router: () => routeScoping(),
+                specialist: () => specialistFacts([{ key: 'job_type', value: 'dripping tap' }]),
+                composer: () => ({ reply: 'Hi Sam, a dripping tap, no problem. Whereabouts are you?', factIds: [], kbIds: [] }),
+            });
+            const file = fileOn('email', body);
+            const r = await d.handleTurn(file, file.turns[0]);
+            expect(client.calls.map((c) => c.role), message).toEqual(['router', 'specialist', 'composer']);
+            expect(r.delivered, message).toBe(true);
+            expect(file.hold?.reason ?? '', message).not.toMatch(/asked to stop/);
+            expect(r.note ?? '', message).not.toMatch(/asked us to stop/);
         }
     });
 
