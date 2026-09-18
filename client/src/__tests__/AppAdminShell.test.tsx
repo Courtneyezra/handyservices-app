@@ -1,7 +1,8 @@
 /**
  * The Handy Desk renders full screen outside the admin shell: on /admin/handy-desk the shell module
  * (SidebarLayout) is never imported and the live-call provider never mounts, while another admin
- * route still renders inside the shell. The shell, the provider and the other page are stubbed so
+ * route still renders inside the shell. Price and Send (/admin/price/:slug) is outside the shell too
+ * (B9), while the price queue at /admin/price stays in it. The shell, the provider and the other page are stubbed so
  * the test sees only the routing.
  */
 import type { ComponentType, ReactNode } from 'react';
@@ -21,6 +22,8 @@ vi.mock('@/contexts/LiveCallContext', () => ({
 vi.mock('@/pages/admin/CommsV2BoardPage', () => ({
     default: () => <div data-testid="comms-board-page" />,
 }));
+vi.mock('@/pages/admin/PriceAndSendPage', () => ({ default: () => <div data-testid="price-and-send-page" /> }));
+vi.mock('@/pages/admin/PriceQueuePage', () => ({ default: () => <div data-testid="price-queue-page" /> }));
 
 let App: ComponentType;
 
@@ -69,6 +72,18 @@ describe('admin shell routing', () => {
         expect(screen.getByTestId('admin-shell')).toContainElement(screen.getByTestId('comms-board-page'));
         expect(screen.getByTestId('live-call-provider')).toBeInTheDocument();
         expect(shellImported).toHaveBeenCalled();
+    }, 30_000);
+
+    it('B9 (F6): renders Price and Send outside the shell, so its own header is the only one', async () => {
+        renderAppAt('/admin/price/z4p6t9mw');
+        expect(await screen.findByTestId('price-and-send-page', {}, LAZY)).toBeInTheDocument();
+        expect(screen.queryByTestId('admin-shell')).not.toBeInTheDocument();
+    }, 30_000);
+
+    it('B9: the price queue at /admin/price still renders inside the shell', async () => {
+        renderAppAt('/admin/price');
+        expect(await screen.findByTestId('price-queue-page', {}, LAZY)).toBeInTheDocument();
+        expect(screen.getByTestId('admin-shell')).toContainElement(screen.getByTestId('price-queue-page'));
     }, 30_000);
 
     it('sends a signed-out visitor to the login page rather than the desk', async () => {

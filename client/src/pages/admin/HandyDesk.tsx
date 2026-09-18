@@ -14,9 +14,15 @@
  * waiting on a reply is never pushed down the list by a draft nobody has priced. Those come from the
  * price queue's own cached query (`usePriceQueue`), not from /queue, so the 15-second hold poll never
  * runs that database read; `withReadyToPrice` merges the two. It is not a
- * hold, so it puts no conversation on the right: tapping the card - anywhere on it, or its one
- * "Open & price" pill - opens Price and Send for that quote (/admin/price/:slug, PriceAndSendPage in
- * client/src/App.tsx), which this page neither replaces nor changes.
+ * hold, so it puts no conversation on the right. On a phone, tapping the card - anywhere on it, or
+ * its one "Open & price" pill - opens Price and Send for that quote (/admin/price/:slug,
+ * PriceAndSendPage in client/src/App.tsx). From 1024px (B9, the captain's desktop design) the card is
+ * selected instead and the quote opens as the answer surface on the right, the same screen embedded
+ * (`PriceAndSend` with `embedded`, its own lazy chunk). Every quote opened there stays mounted,
+ * hidden while another card is selected, so Ben's unsent edits survive a look elsewhere; one leaves
+ * only through its X (which asks first when it has changes) or once it has been sent. The desk's ask
+ * bar stays as it is, with no card selected; it does not change a quote, and its answer shows above
+ * the open quote. The pill stays a real link to the page.
  *
  * The column reads from two independent queries, so what it may say is decided once from both of
  * their states (`needsYouView` in client/src/lib/handy-desk-queue.ts) rather than per element. React
@@ -340,19 +346,26 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
 
 // ---------------------------------------------------------------- ready-to-price card
 
-export function ReadyToPriceCard({ item }: { item: ReadyToPriceItem }) {
+export function ReadyToPriceCard({ item, active = false, onSelect }: {
+    item: ReadyToPriceItem;
+    /** B9: this quote is open as the answer surface. */
+    active?: boolean;
+    /** B9: on a wide screen, open the quote beside the queue instead of leaving the desk. */
+    onSelect?: () => void;
+}) {
     const copy = readyToPriceCardCopy(item);
     const [, navigate] = useLocation();
     // A held card's tap selects the conversation; this card has none, so the whole card goes where Ben
     // can act on it - Price and Send for this quote (/admin/price/:slug), a big enough tap target on a
     // phone. The pill is that same destination as a real link, the keyboard's way in, so it keeps its
     // own click from firing the card's.
-    const open = () => navigate(copy.primary.href);
+    const open = () => (onSelect ? onSelect() : navigate(copy.primary.href));
     return (
         <article
             data-testid={`queue-card-${item.id}`}
+            data-active={active ? 'true' : undefined}
             onClick={open}
-            className="cursor-pointer rounded-3xl border border-slate-800 bg-[#111c33] p-4 transition-colors duration-200 ease-[var(--ease-out)] hover:border-amber-400 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-[240ms]"
+            className={cn('cursor-pointer rounded-3xl border bg-[#111c33] p-4 transition-colors duration-200 ease-[var(--ease-out)] hover:border-amber-400 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-[240ms]', active ? 'border-amber-400' : 'border-slate-800')}
         >
             <div className="flex w-full items-center gap-3 text-left">
                 <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-700 text-sm font-bold text-white">{copy.initials}</span>
@@ -363,9 +376,13 @@ export function ReadyToPriceCard({ item }: { item: ReadyToPriceItem }) {
             </div>
             <p data-testid={`queue-card-badge-${item.id}`} className={cn(EYEBROW, 'mt-3 text-slate-300')}>{copy.badge}</p>
             <p data-testid={`queue-card-body-${item.id}`} className="mt-2 text-[13px] text-slate-300">{copy.body}</p>
-            <div className="mt-4 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
-                <Link href={copy.primary.href} className={PILL_PRIMARY}>{copy.primary.label}</Link>
-            </div>
+            {active ? (
+                <p data-testid={`queue-card-open-${item.id}`} className="mt-4 text-[13px] font-semibold text-amber-400">In progress, price on the right →</p>
+            ) : (
+                <div className="mt-4 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                    <Link href={copy.primary.href} className={PILL_PRIMARY}>{copy.primary.label}</Link>
+                </div>
+            )}
         </article>
     );
 }
@@ -398,12 +415,20 @@ function useLatestAnswer() {
 
 const FIRST_LOAD = Symbol('first answer load');
 
+/** B9: the price screen as the desk's answer surface, only fetched when a quote is opened on a wide screen. */
+const EmbeddedPrice = lazy(() => import('@/pages/admin/PriceAndSendPage').then((m) => ({ default: m.PriceAndSend })));
+
+
 export default function HandyDesk() {
     const queryClient = useQueryClient();
     const [selection, setSelection] = useState<DeskSelection | null>(null);
     const [sheetDismissed, setSheetDismissed] = useState(false);
     // The thread's half-written reply, kept per case file so an ask answer taking the right-hand side never eats it.
     const [threadWords, setThreadWords] = useState<Record<string, string>>({});
+    /** B9: the quote open as the answer surface (wide screens only), and every quote opened there, kept mounted. */
+    const [priceSlug, setPriceSlug] = useState<string | null>(null);
+    const [openSlugs, setOpenSlugs] = useState<string[]>([]);
+    const sentSlugs = useRef(new Set<string>());
     const [done, setDone] = useState<{ key: number; note: string }[]>([]);
     const [askText, setAskText] = useState('');
     const [showAnswer, setShowAnswer] = useState(false);
@@ -473,12 +498,49 @@ export default function HandyDesk() {
         if (shown) dismiss(shown);
     };
 
-    const select = (item: QueueItem) => {
-        setSelection(selectionOf(item));
-        setSheetDismissed(false);
+    const putAwayLatest = () => {
         if (latest === undefined) dismiss(FIRST_LOAD);
         else if (latest) dismiss(latest.id);
     };
+
+    // A sent quote has nothing left to keep, so it goes once Ben looks elsewhere.
+    const dropSent = (list: string[], except?: string) => list.filter((s) => s === except || !sentSlugs.current.has(s));
+
+    const select = (item: QueueItem) => {
+        setPriceSlug(null);
+        setOpenSlugs((list) => dropSent(list));
+        setSelection(selectionOf(item));
+        setSheetDismissed(false);
+        putAwayLatest();
+    };
+
+    const openQuote = (slug: string) => {
+        sentSlugs.current.delete(slug);
+        setOpenSlugs((list) => [...dropSent(list).filter((s) => s !== slug), slug]);
+        setPriceSlug(slug);
+        setSelection(null);
+        setShowAnswer(false);
+        putAwayLatest();
+    };
+
+    const closeQuote = (slug: string) => {
+        sentSlugs.current.delete(slug);
+        setOpenSlugs((list) => list.filter((s) => s !== slug));
+        setPriceSlug((active) => (active === slug ? null : active));
+    };
+
+    const priceOpen = wide && priceSlug != null;
+    const answerCard = exchange && (showAnswer || exchange.live) ? (
+        <AnswerCard exchange={exchange} onClose={closeAsked} onChange={setAskText} onConfirmed={handleHandled} />
+    ) : answered ? (
+        <AnswerCard
+            key={answered.id}
+            exchange={exchangeOfAnswered(answered)}
+            onClose={() => dismiss(answered.id)}
+            onChange={answered.ask?.text ? setAskText : undefined}
+            onConfirmed={handleHandled}
+        />
+    ) : null;
 
     // The desk is the whole screen (no admin shell around it), so the ask bar stays in view without scrolling.
     return (
@@ -491,7 +553,7 @@ export default function HandyDesk() {
                 updatedAt={dataUpdatedAt}
             />
 
-            <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
+            <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_minmax(0,1fr)] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
                     <p className={cn(EYEBROW, 'text-amber-400')}>Needs you</p>
                     {view.countText && (
@@ -516,7 +578,8 @@ export default function HandyDesk() {
                             <div data-testid="handy-desk-loading" className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
                         )}
                         {view.items.map((item) => isReadyToPrice(item) ? (
-                            <ReadyToPriceCard key={item.id} item={item} />
+                            <ReadyToPriceCard key={item.id} item={item} active={wide && priceSlug === item.slug}
+                                onSelect={wide ? () => openQuote(item.slug) : undefined} />
                         ) : (
                             <QueueCard
                                 key={item.id}
@@ -545,19 +608,20 @@ export default function HandyDesk() {
                     </div>
                 </section>
 
-                <section aria-label="Answer" className="flex min-h-[50vh] flex-col bg-slate-50 lg:min-h-0">
+                <section aria-label="Answer" className="flex min-h-[50vh] min-w-0 flex-col bg-slate-50 lg:min-h-0">
                     <div className="flex-1 px-4 py-6 sm:px-8 lg:overflow-y-auto">
-                        {exchange && (showAnswer || exchange.live) ? (
-                            <AnswerCard exchange={exchange} onClose={closeAsked} onChange={setAskText} onConfirmed={handleHandled} />
-                        ) : answered ? (
-                            <AnswerCard
-                                key={answered.id}
-                                exchange={exchangeOfAnswered(answered)}
-                                onClose={() => dismiss(answered.id)}
-                                onChange={answered.ask?.text ? setAskText : undefined}
-                                onConfirmed={handleHandled}
-                            />
-                        ) : selection && wide ? (
+                        {priceOpen && answerCard && <div className="mb-6">{answerCard}</div>}
+                        {openSlugs.length > 0 && (
+                            <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="h-5 w-5 animate-spin text-slate-400" /></div>}>
+                                {openSlugs.map((slug) => (
+                                    <div key={slug} hidden={!priceOpen || slug !== priceSlug} data-testid={`embedded-quote-${slug}`}>
+                                        <EmbeddedPrice slug={slug} embedded onClose={() => closeQuote(slug)} onOpenQuote={openQuote}
+                                            onSent={() => sentSlugs.current.add(slug)} />
+                                    </div>
+                                ))}
+                            </Suspense>
+                        )}
+                        {priceOpen ? null : answerCard ? answerCard : selection && wide ? (
                             <section data-testid="handy-desk-thread" className="h-[min(760px,calc(100vh-14rem))] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.08)]">
                                 <ThreadView
                                     key={selection.caseFileId}

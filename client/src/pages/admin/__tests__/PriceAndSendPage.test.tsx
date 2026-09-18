@@ -15,6 +15,8 @@ import {
     materialsCostOf, lineMaterialsAtMargin, refusalTitle, hasQuoteLink, insertAt, moneyBoxToPence, suggestedHalves, lineTotalPence,
     type PricePayload, type PriceLine, type Contradiction,
 } from '@/pages/admin/PriceAndSendPage';
+import { isPriceAndSendPath } from '@/lib/price-and-send-path';
+import { HANDY_DESK_PATH } from '@/lib/handy-desk-path';
 
 const T = (h: number, m = 0, d = 4) => `2026-09-0${d}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`;
 
@@ -99,6 +101,22 @@ function screenFetch(json: PricePayload, replies: Partial<Record<'send' | 'ask' 
 function stubViewport(desktop: boolean) {
     const mq = (query: string) => ({ matches: desktop && query.includes('min-width'), media: query, onchange: null, addEventListener: () => undefined, removeEventListener: () => undefined, addListener: () => undefined, removeListener: () => undefined, dispatchEvent: () => false });
     Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: vi.fn(mq) });
+}
+
+/**
+ * B9 (F1): one line is open at a time, the top doubt line on load (here the cupboard). Wait for the
+ * prefill to open it, then open the line a test works on; every other line is a one-row summary.
+ */
+async function openLine(id: string): Promise<HTMLElement> {
+    await waitFor(() => expect(document.querySelector('[data-open="true"]')).not.toBeNull());
+    const el = screen.getByTestId(`price-line-${id}`);
+    if (el.getAttribute('data-open') !== 'true') await userEvent.click(within(el).getByTestId(`line-row-${id}`));
+    return screen.getByTestId(`price-line-${id}`);
+}
+
+/** B9 (F2): Ask first, Call, Needs a visit and the full builder sit behind the bar's "⋯". */
+async function openExits() {
+    await userEvent.click(await screen.findByTestId('more-exits'));
 }
 
 afterEach(() => {
@@ -187,13 +205,31 @@ describe('PriceAndSend (phone)', () => {
         await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent('£2,100'));
         expect(root).toHaveAttribute('data-layout', 'phone');
         expect(screen.getByTestId('customer-first-name')).toHaveTextContent('Sarah');
-        expect(screen.getByTestId('contradiction-count')).toHaveTextContent('1 to check');
+        // B9 F3: the summary under the header. Both lines want a look: the cupboard is check_this,
+        // the doors carry an open contradiction.
+        expect(screen.getByTestId('summary-total')).toHaveTextContent('£2,100');
+        expect(screen.getByTestId('summary-lines')).toHaveTextContent('2 lines');
+        expect(screen.getByTestId('contradiction-count')).toHaveTextContent('2 to check');
 
         // doubt first: the cupboard (check_this, low) above the doors
         const cards = screen.getAllByTestId(/^price-line-/);
         expect(cards.map((c) => c.getAttribute('data-testid'))).toEqual(['price-line-card_2', 'price-line-card_1']);
 
-        const l1 = screen.getByTestId('price-line-card_1');
+        // B9 F1: the top doubt line is open on load; the doors are one row carrying the dot and the price.
+        const l2 = screen.getByTestId('price-line-card_2');
+        expect(l2).toHaveAttribute('data-open', 'true');
+        expect(within(l2).getByTestId('check-this')).toHaveTextContent('low confidence: unusual size');
+        expect(within(l2).getByTestId('evidence-card_2')).toHaveTextContent('different size');
+        const row = screen.getByTestId('price-line-card_1');
+        expect(row).toHaveAttribute('data-open', 'false');
+        expect(within(row).getByTestId('line-row-price-card_1')).toHaveTextContent('£1,800');
+        expect(within(row).getByTestId('confidence-medium')).toBeInTheDocument();
+        expect(within(row).queryByTestId('labour-input-card_1')).toBeNull();
+
+        // opening the doors closes the cupboard: one line open at a time
+        const l1 = await openLine('card_1');
+        expect(screen.getByTestId('price-line-card_2')).toHaveAttribute('data-open', 'false');
+        expect(screen.queryByTestId('check-this')).toBeNull();
         expect(within(l1).getByTestId('evidence-card_1')).toHaveTextContent('Can you do all 9 doors now, oak to match the ones you did?');
         expect(within(l1).getByTestId('evidence-card_1').querySelectorAll('img')).toHaveLength(2);
         expect(within(l1).getByTestId('contradiction-card_1:a0')).toHaveTextContent('assumes "Existing handles reused on all doors" but lists 7× Handle set, brushed');
@@ -206,13 +242,12 @@ describe('PriceAndSend (phone)', () => {
         // P16b's read-only split chip is now the two boxes above; the chip keeps the materials figure.
         expect(within(l1).getByTestId('split-card_1')).toHaveTextContent('incl. £1,379.22 materials');
 
-        const l2 = screen.getByTestId('price-line-card_2');
-        expect(within(l2).getByTestId('check-this')).toHaveTextContent('low confidence: unusual size');
-        expect(within(l2).getByTestId('evidence-card_2')).toHaveTextContent('different size');
-
         expect(screen.getByTestId('message-body')).toHaveValue(DESK);
-        expect(screen.getByTestId('send-quote')).toHaveTextContent('Send now · £2,100');
+        expect(screen.getByTestId('send-quote')).toHaveTextContent('Send · £2,100');
         expect(screen.getByTestId('total')).toHaveTextContent('£2,100');
+        // B9 F2: the bar is Send and ⋯; the builder is behind ⋯
+        expect(screen.queryByTestId('open-builder')).toBeNull();
+        await openExits();
         expect(screen.getByTestId('open-builder')).toHaveAttribute('href', '/admin/quotes/z4p6t9mw/edit');
         // the basis is a tap away
         await userEvent.click(within(l1).getByTestId('basis-toggle-card_1'));
@@ -223,7 +258,7 @@ describe('PriceAndSend (phone)', () => {
     it('resolving the contradiction by dropping the handles lowers the materials AND the line price, instead of labour silently absorbing it', async () => {
         const f = screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         await userEvent.click(within(l1).getByTestId('resolve-card_1:a0-drop_materials'));
         expect(within(l1).getByTestId('contradiction-card_1:a0')).toHaveTextContent('Dropped 7× Handle set, brushed.');
         expect(within(l1).queryByTestId('resolve-card_1:a0-drop_materials')).toBeNull();
@@ -251,7 +286,7 @@ describe('PriceAndSend (phone)', () => {
     it('keeping the handles drops the assumption instead', async () => {
         const f = screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         await userEvent.click(within(l1).getByTestId('resolve-card_1:a0-keep_materials'));
         expect(within(l1).getByTestId('contradiction-card_1:a0')).toHaveTextContent('Kept 7× Handle set, brushed, assumption dropped.');
         expect(within(l1).getByTestId('assumption-card_1-0')).toHaveValue('Frames are sound');
@@ -266,8 +301,7 @@ describe('PriceAndSend (phone)', () => {
     it('materials swap / remove per line and an assumption dropped by hand reach the send body; the message edit does too', async () => {
         const f = screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
-        await userEvent.click(within(l1).getByTestId('materials-toggle-card_1'));
+        const l1 = await openLine('card_1');
         // swap the handle set for a cheaper one, remove nothing yet
         const name = within(l1).getByTestId('material-name-card_1-1');
         await userEvent.clear(name); await userEvent.type(name, 'Handle set, black');
@@ -331,14 +365,15 @@ describe('PriceAndSend (phone)', () => {
     it('T20: no pill when she sent photos, and the plain "No photo" (no ask) when nothing was asked', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        await screen.findByTestId('ask-first');
+        await screen.findByTestId('more-exits');
         expect(screen.queryByTestId('no-photo')).toBeNull();
     });
 
     it('Ask her first queues ONE question and holds the quote without leaving the screen', async () => {
         const f = screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        await userEvent.click(await screen.findByTestId('ask-first'));
+        await openExits();
+        await userEvent.click(screen.getByTestId('ask-first'));
         expect(screen.getByTestId('ask-sheet')).toBeInTheDocument();
         expect(screen.getByTestId('ask-submit')).toBeDisabled();
         await userEvent.type(screen.getByTestId('ask-question'), 'Are the handles staying, or do you want new ones?');
@@ -360,7 +395,8 @@ describe('PriceAndSend (phone)', () => {
         Object.defineProperty(window, 'location', { configurable: true, value: loc });
         try {
             renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-            await userEvent.click(await screen.findByTestId('call-her'));
+            await openExits();
+            await userEvent.click(screen.getByTestId('call-her'));
             await waitFor(() => expect(f.of('POST', '/call')).toHaveLength(1));
             expect(await screen.findByTestId('hold-banner')).toHaveTextContent('Held: you are calling her');
             expect(loc.href).toBe('tel:+447811346936');
@@ -372,7 +408,8 @@ describe('PriceAndSend (phone)', () => {
     it('Needs a visit drafts the survey offer and holds the quote', async () => {
         const f = screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        await userEvent.click(await screen.findByTestId('needs-visit'));
+        await openExits();
+        await userEvent.click(screen.getByTestId('needs-visit'));
         await userEvent.type(screen.getByTestId('visit-why'), 'the cupboard door size');
         await userEvent.click(screen.getByTestId('visit-submit'));
         await waitFor(() => expect(f.of('POST', '/visit')).toHaveLength(1));
@@ -384,7 +421,8 @@ describe('PriceAndSend (phone)', () => {
     it('an exit that fails says so and keeps the screen', async () => {
         screenFetch(payload(), { visit: () => ({ status: 422, json: { ok: false, errors: ['No survey fee is set, so the offer cannot be drafted.'] } }) });
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        await userEvent.click(await screen.findByTestId('needs-visit'));
+        await openExits();
+        await userEvent.click(screen.getByTestId('needs-visit'));
         await userEvent.click(screen.getByTestId('visit-submit'));
         expect(await screen.findByTestId('action-error')).toHaveTextContent('No survey fee is set');
         expect(screen.queryByTestId('hold-banner')).toBeNull();
@@ -410,7 +448,7 @@ describe('PriceAndSend (phone)', () => {
     it('accept is one tap and folds the line; editing labour reopens it; empty labour blocks the send', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         await userEvent.click(within(l1).getByTestId('accept-card_1'));
         expect(within(l1).getByTestId('accepted-card_1')).toHaveTextContent('£1,800');
         expect(within(l1).queryByTestId('labour-input-card_1')).toBeNull();
@@ -458,9 +496,13 @@ describe('PriceAndSend (phone)', () => {
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         expect(await screen.findByTestId('status-banner')).toHaveTextContent('already been sent');
         expect(screen.getByTestId('send-quote')).toBeDisabled();
+        await openExits();
         expect(screen.getByTestId('ask-first')).toBeDisabled();
         expect(screen.getByTestId('call-her')).toBeDisabled();
         expect(screen.getByTestId('needs-visit')).toBeDisabled();
+        // a locked quote still opens a line to read it; nothing in it is editable
+        await userEvent.click(screen.getByTestId('exits-sheet').parentElement!);
+        await openLine('card_1');
         expect(screen.getByTestId('labour-input-card_1')).toBeDisabled();
         expect(screen.getByTestId('materials-input-card_1')).toBeDisabled();
         expect(screen.getByTestId('message-body')).toBeDisabled();
@@ -483,7 +525,9 @@ describe('PriceAndSend (phone)', () => {
         const f = screenFetch(old);
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         expect(await screen.findByTestId('price-line-card_1')).toBeInTheDocument();
+        await openExits();
         expect(screen.getByTestId('call-her')).toBeDisabled();
+        await userEvent.click(screen.getByTestId('exits-sheet').parentElement!);
         await userEvent.click(screen.getByTestId('send-quote'));
         await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
         // P18: both halves ride on every line and sum to the price.
@@ -549,6 +593,7 @@ describe('T9: the queue strip and the run through the queue', () => {
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await screen.findByTestId('price-and-send');
         await waitFor(() => expect(screen.getByTestId('queue-strip-count')).toHaveTextContent('2 more waiting'));
+        await openExits();
         await userEvent.click(screen.getByTestId('ask-first'));
         await userEvent.type(screen.getByTestId('ask-question'), 'Are the handles staying?');
         await userEvent.click(screen.getByTestId('ask-submit'));
@@ -583,7 +628,7 @@ describe('P15 part 1: "Not included" on the price screen', () => {
     it('shows the list per line, lets Ben edit, add and drop, and only a changed list reaches the send body', async () => {
         const f = screenFetch(payload({ lines: [{ ...doors, notIncluded: ['frames reused'] }, cupboard] }));
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         expect(within(l1).getByTestId('not-included-card_1-0')).toHaveValue('frames reused');
         await userEvent.click(within(l1).getByTestId('not-included-add-card_1'));
         await userEvent.type(within(l1).getByTestId('not-included-card_1-1'), '  decorating the frames not included ');
@@ -598,7 +643,7 @@ describe('P15 part 1: "Not included" on the price screen', () => {
     it('dropping the only item sends an empty list (Ben cleared it on purpose)', async () => {
         const f = screenFetch(payload({ lines: [{ ...doors, notIncluded: ['frames reused'] }, cupboard] }));
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         await userEvent.click(within(l1).getByTestId('not-included-drop-card_1-0'));
         await userEvent.click(screen.getByTestId('send-quote'));
         await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
@@ -633,8 +678,7 @@ describe('P16 items 1 + 2: the money on the screen', () => {
     it('the materials editor shows the cost beside what she pays', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
-        await userEvent.click(within(l1).getByTestId('materials-toggle-card_1'));
+        const l1 = await openLine('card_1');
         const cost = within(l1).getByTestId('materials-cost-card_1');
         expect(cost).toHaveTextContent(`Cost ${gbp(108600)}`);
         expect(cost).toHaveTextContent(`she pays ${gbp(137922)} at 27%`);
@@ -651,6 +695,7 @@ describe('P16 item 3: add and delete a line on the screen', () => {
         // render. Wait for the prefill, not just the cards, or a slow runner reads the £0 frame.
         await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent(gbp(210000)));
 
+        await openLine('card_1');
         await userEvent.click(screen.getByTestId('line-delete-card_1'));
         expect(screen.getByTestId('line-deleted-card_1')).toHaveTextContent('Oak panelled doors, hung and finished');
         expect(screen.getByTestId('total')).toHaveTextContent(gbp(30000));
@@ -665,6 +710,7 @@ describe('P16 item 3: add and delete a line on the screen', () => {
         const f = screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await screen.findByTestId('price-line-card_1');
+        await openLine('card_1');
         await userEvent.click(screen.getByTestId('line-delete-card_1'));
         await userEvent.click(screen.getByTestId('send-quote'));
         await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
@@ -712,6 +758,7 @@ describe('P16 item 3: add and delete a line on the screen', () => {
         const f = screenFetch(payload(), { send: () => ({ status: 409, json: { ok: false, errors: ['That job is already dispatched, so its lines are locked (Oak panelled doors, hung and finished). Raise a variation instead of changing the quote.'] } }) });
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await screen.findByTestId('price-line-card_1');
+        await openLine('card_1');
         await userEvent.click(screen.getByTestId('line-delete-card_1'));
         await userEvent.click(screen.getByTestId('send-quote'));
         await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
@@ -792,21 +839,23 @@ describe('P16 item 5: the line cards read as cards', () => {
         // No contradictions, so card_1 is an ordinary line and card_2 is the check_this one.
         screenFetch(payload({ contradictions: [] }));
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        await screen.findByTestId('price-line-card_1');
-        expect(screen.getByTestId('price-and-send').className).toContain('bg-slate-100');
+        await openLine('card_2');
+        // B9: the dark header over a light sheet, as on Ben's phone and the desk.
+        expect(screen.getByTestId('price-and-send').className).toContain('bg-slate-900');
+        expect(screen.getByTestId('price-pane').closest('.bg-slate-50')).not.toBeNull();
 
-        // card_2 is check_this: amber. card_1 is ordinary: white on a slate border, with a shadow.
+        // card_2 is check_this: amber. card_1 is an ordinary closed row: white on a slate border, with a shadow.
         const plain = screen.getByTestId('price-line-card_1').className;
         expect(plain).toContain('bg-white');
-        expect(plain).toContain('border-slate-300');
-        expect(plain).toContain('shadow-md');
-        expect(screen.getByTestId('price-line-card_2').className).toContain('border-amber-300');
+        expect(plain).toContain('border-slate-200');
+        expect(plain).toContain('shadow-sm');
+        expect(screen.getByTestId('price-line-card_2').className).toContain('border-amber-400');
     });
 
     it('an accepted line keeps its green edge', async () => {
         screenFetch(payload({ contradictions: [] }));
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         await userEvent.click(within(l1).getByTestId('accept-card_1'));
         expect(screen.getByTestId('price-line-card_1').className).toContain('border-emerald-300');
     });
@@ -817,7 +866,7 @@ describe('P16 item 5: the line cards read as cards', () => {
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         await screen.findByTestId('price-line-card_1');
         expect(screen.getByTestId('price-and-send')).toHaveAttribute('data-layout', 'desktop');
-        expect(screen.getByTestId('price-and-send').className).toContain('bg-slate-100');
+        expect(screen.getByTestId('price-and-send').className).toContain('bg-slate-900');
     });
 });
 
@@ -825,7 +874,7 @@ describe('P18: labour and materials are the two inputs', () => {
     it('editing labour moves the line price and the running total; materials do not move', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         // The first render after the payload arrives already shows the line cards but reads £0: the
         // per-line states are filled by the prefill effect keyed on data.version, which runs after that
         // render. Wait for the prefill, not just the cards, or a slow runner reads the £0 frame.
@@ -840,8 +889,7 @@ describe('P18: labour and materials are the two inputs', () => {
     it("editing a material's cost moves materials, the line price and the total, and leaves labour alone", async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
-        await userEvent.click(within(l1).getByTestId('materials-toggle-card_1'));
+        const l1 = await openLine('card_1');
         // the doors go from £120 to £130 each: cost 8×13000 + 7×1800 = 116,600 → 148,082 at 27 %
         fireEvent.change(within(l1).getByTestId('material-cost-card_1-0'), { target: { value: '130' } });
         expect(within(l1).getByTestId('materials-input-card_1')).toHaveValue(1480.82);
@@ -853,8 +901,7 @@ describe('P18: labour and materials are the two inputs', () => {
     it('adding a material raises materials, the line price and the total', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
-        await userEvent.click(within(l1).getByTestId('materials-toggle-card_1'));
+        const l1 = await openLine('card_1');
         await userEvent.click(within(l1).getByTestId('material-add-card_1'));
         await userEvent.type(within(l1).getByTestId('material-name-card_1-2'), 'Hinges');
         fireEvent.change(within(l1).getByTestId('material-cost-card_1-2'), { target: { value: '10' } });
@@ -868,8 +915,7 @@ describe('P18: labour and materials are the two inputs', () => {
     it('removing the last material leaves labour standing and the line priced at labour alone', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l2 = await screen.findByTestId('price-line-card_2');
-        await userEvent.click(within(l2).getByTestId('materials-toggle-card_2'));
+        const l2 = await openLine('card_2');
         await userEvent.click(within(l2).getByTestId('material-remove-card_2-0'));
         expect(within(l2).getByTestId('materials-input-card_2')).toHaveValue(0);
         expect(within(l2).getByTestId('labour-input-card_2')).toHaveValue(109.5);
@@ -879,13 +925,12 @@ describe('P18: labour and materials are the two inputs', () => {
     it('typing in the materials box marks it by hand and the items stop driving it; revert restores the list', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         fireEvent.change(within(l1).getByTestId('materials-input-card_1'), { target: { value: '1500' } });
         expect(within(l1).getByTestId('materials-by-hand-card_1')).toHaveTextContent('advisory');
         expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£1,920.78');
 
         // an item edit must NOT overwrite the figure he typed
-        await userEvent.click(within(l1).getByTestId('materials-toggle-card_1'));
         fireEvent.change(within(l1).getByTestId('material-cost-card_1-0'), { target: { value: '130' } });
         expect(within(l1).getByTestId('materials-input-card_1')).toHaveValue(1500);
 
@@ -897,7 +942,7 @@ describe('P18: labour and materials are the two inputs', () => {
     it('accept as suggested restores BOTH halves from the basis, not just the price', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         fireEvent.change(within(l1).getByTestId('labour-input-card_1'), { target: { value: '900' } });
         fireEvent.change(within(l1).getByTestId('materials-input-card_1'), { target: { value: '50' } });
         expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('£950');
@@ -912,7 +957,7 @@ describe('P18: labour and materials are the two inputs', () => {
     it('negative labour is refused at the input rather than clamped, and blocks the send', async () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         fireEvent.change(within(l1).getByTestId('labour-input-card_1'), { target: { value: '-50' } });
         expect(within(l1).getByTestId('labour-invalid-card_1')).toHaveTextContent('£0 or more');
         expect(within(l1).getByTestId('line-total-card_1')).toHaveTextContent('—');
@@ -937,7 +982,7 @@ describe('P18: labour and materials are the two inputs', () => {
     it('the send body carries both halves on every line and they sum to the price', async () => {
         const f = screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
-        const l1 = await screen.findByTestId('price-line-card_1');
+        const l1 = await openLine('card_1');
         fireEvent.change(within(l1).getByTestId('labour-input-card_1'), { target: { value: '500' } });
         await userEvent.click(screen.getByTestId('send-quote'));
         await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
@@ -967,5 +1012,135 @@ describe('P18: the money helpers', () => {
         expect(lineTotalPence({ ...doors, materials: [], materialsPence: 5000 }, st, 27)).toBe(15000);
         expect(lineTotalPence(doors, { ...st, labour: '' }, 27)).toBeNull();
         expect(lineTotalPence({ ...doors, materials: [] }, { ...st, materialsByHand: '25' }, 27)).toBe(12500);
+    });
+});
+
+describe('B9: the restyle to Ben\'s design (direction A, the collapsed stack)', () => {
+    it('F3: the to-check count falls as lines are answered, and says so when nothing is left', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await waitFor(() => expect(screen.getByTestId('summary-total')).toHaveTextContent('£2,100'));
+        expect(screen.getByTestId('contradiction-count')).toHaveTextContent('2 to check');
+        const l2 = await openLine('card_2');
+        await userEvent.click(within(l2).getByTestId('accept-card_2'));
+        expect(screen.getByTestId('contradiction-count')).toHaveTextContent('1 to check');
+        const l1 = await openLine('card_1');
+        await userEvent.click(within(l1).getByTestId('resolve-card_1:a0-keep_materials'));
+        expect(screen.getByTestId('contradiction-count')).toHaveTextContent('nothing to check');
+        // the closed cupboard row reads accepted, with its price
+        expect(screen.getByTestId('line-row-card_2')).toHaveTextContent('accepted');
+        expect(screen.getByTestId('line-row-price-card_2')).toHaveTextContent('£300');
+    });
+
+    it('F3: the eyebrow says where this quote sits in the queue only once the queue has it', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await waitFor(() => expect(screen.getByTestId('readiness')).toHaveTextContent('Ready to price · 1 of 2'));
+        expect(screen.getByTestId('summary-waiting')).toHaveTextContent('WA · 4 days');
+    });
+
+    it('F3: with the queue down, the eyebrow names the stage and states no position', async () => {
+        screenFetch(payload(), { queue: () => ({ status: 500, json: { error: 'down' } }) });
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await screen.findByTestId('price-and-send');
+        expect(screen.getByTestId('readiness')).toHaveTextContent(/^Ready to price$/);
+        expect(screen.queryByTestId('summary-waiting')).toBeNull();
+    });
+
+    it('F4: the materials are a table with a header row, every field in view without a toggle', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const l1 = await openLine('card_1');
+        expect(within(l1).getByTestId('materials-head-card_1')).toHaveTextContent(/Name\s*Qty\s*Cost each/);
+        expect(within(l1).getByTestId('material-name-card_1-0')).toHaveValue('Oak panelled door');
+        expect(within(l1).getByTestId('material-qty-card_1-1')).toHaveValue(7);
+        expect(within(l1).getByTestId('material-cost-card_1-1')).toHaveValue(18);
+    });
+
+    it('F5: the message box starts at two rows and never offers a drag handle', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        const box = await screen.findByTestId('message-body');
+        expect(box).toHaveAttribute('rows', '2');
+        expect(box.className).toContain('resize-none');
+    });
+
+    it('F6: the header goes back to the desk and carries the postcode', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        expect(await screen.findByTestId('postcode')).toHaveTextContent('NG2 7QP');
+        expect(screen.getByTestId('back')).toHaveAttribute('href', '/admin/handy-desk');
+    });
+
+    it('F6: only the price-and-send route leaves the admin shell', () => {
+        expect(isPriceAndSendPath('/admin/price/z4p6t9mw')).toBe(true);
+        expect(isPriceAndSendPath('/admin/price/z4p6t9mw/')).toBe(true);
+        expect(isPriceAndSendPath('/admin/price')).toBe(false);
+        expect(isPriceAndSendPath('/admin/price/')).toBe(false);
+        expect(isPriceAndSendPath('/admin/price/variation/42')).toBe(false);
+        expect(isPriceAndSendPath('/admin/prices/z4p6t9mw')).toBe(false);
+    });
+});
+
+describe('B9: embedded as the Handy Desk\'s answer surface', () => {
+    it('drops the page header for the desk\'s, keeps the summary, the thread beside the price and the send in its footer', async () => {
+        const f = screenFetch(payload());
+        const onClose = vi.fn();
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" embedded onClose={onClose} />);
+        const root = await screen.findByTestId('price-and-send');
+        expect(root).toHaveAttribute('data-embedded', 'true');
+        expect(screen.queryByTestId('back')).toBeNull();
+        expect(screen.getByTestId('side-by-side')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId('summary-total')).toHaveTextContent('£2,100'));
+        expect(within(screen.getByTestId('price-footer')).getByTestId('send-quote')).toHaveTextContent('Send quote · £2,100');
+        expect(screen.queryByTestId('mic')).toBeNull();
+        await userEvent.click(screen.getByTestId('price-close'));
+        expect(onClose).toHaveBeenCalled();
+        await userEvent.click(screen.getByTestId('send-quote'));
+        await waitFor(() => expect(f.of('POST', '/send')).toHaveLength(1));
+    });
+
+    it('asks before its X throws away unsent changes, and closes straight away without any', async () => {
+        screenFetch(payload());
+        const onClose = vi.fn();
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" embedded onClose={onClose} />);
+        const message = await screen.findByTestId('message-body');
+        await userEvent.type(message, ' Thanks');
+
+        await userEvent.click(screen.getByTestId('price-close'));
+        expect(screen.getByRole('alertdialog')).toHaveTextContent("Close Sarah's quote? Your changes on it will be lost.");
+        expect(onClose).not.toHaveBeenCalled();
+        await userEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+        expect(screen.queryByRole('alertdialog')).toBeNull();
+        expect(screen.getByTestId('message-body')).toHaveValue(`${DESK} Thanks`);
+
+        await userEvent.click(screen.getByTestId('price-close'));
+        await userEvent.click(screen.getByRole('button', { name: 'Close and lose them' }));
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('stacks the thread under the price below xl, so the price column keeps its width in the desk', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" embedded />);
+        const grid = await screen.findByTestId('side-by-side');
+        expect(grid).toHaveClass('grid-cols-1', 'xl:grid-cols-[340px_minmax(0,1fr)]');
+    });
+});
+
+describe('the page on its own has a way back to the desk', () => {
+    it('on a quote that cannot be found', async () => {
+        mockFetch([{ url: '/api/spine/price/nope', reply: () => ({ status: 404, json: {} }) }, { url: '/api/spine/price-queue', reply: () => ({ json: { count: 0, items: [], oldestWaitingMs: null, at: new Date().toISOString() } }) }]);
+        renderWithQuery(<PriceAndSend slug="nope" />);
+        expect(await screen.findByTestId('not-found')).toBeInTheDocument();
+        expect(screen.getByTestId('back')).toHaveAttribute('href', HANDY_DESK_PATH);
+    });
+
+    it('after Send', async () => {
+        screenFetch(payload());
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await waitFor(() => expect(screen.getByTestId('send-quote')).toBeEnabled());
+        await userEvent.click(screen.getByTestId('send-quote'));
+        expect(await screen.findByTestId('confirm-screen')).toBeInTheDocument();
+        expect(screen.getByTestId('back')).toHaveAttribute('href', HANDY_DESK_PATH);
     });
 });

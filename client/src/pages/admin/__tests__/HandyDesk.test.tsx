@@ -526,30 +526,36 @@ describe('HandyDesk', () => {
         window.history.replaceState(null, '', '/');
     });
 
-    it('tapping a ready-to-price card anywhere opens Price and Send for that quote', async () => {
-        // Wide: the held card beside it docks its thread on the right. Below 1024px the same tap
-        // opens the sheet instead (covered by the phone tests above); the navigation under test is
-        // the same at either width.
-        stubWide();
+    it('tapping a ready-to-price card anywhere opens Price and Send for that quote: the page on a phone, beside the queue on a wide screen', async () => {
+        // Narrow: the whole card is the way in to the price screen, the page itself.
+        stubViewport(false);
         const { calls } = routes([
             priceRoute([SAM_ROW]),
             { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB], sandboxAvailable: true } }) },
+            { url: '/api/spine/price/sam123', reply: () => ({ status: 404, json: { available: false } }) },
         ]);
-        renderWithQuery(<HandyDesk />);
+        const { unmount } = renderWithQuery(<HandyDesk />);
         const card = await screen.findByTestId('queue-card-price:sam123');
-
-        // The card body, not the pill: the whole card is the way in to the price screen.
+        // The card body, not the pill.
         await userEvent.click(within(card).getByText('Sam Reid'));
         await waitFor(() => expect(window.location.pathname).toBe('/admin/price/sam123'));
         expect(casePosts(calls)).toEqual([]);
         window.history.replaceState(null, '', '/');
-
         // Its wait and badge still read off this quote, so Ben knows which one he opened.
         expect(screen.getByTestId('queue-card-badge-price:sam123')).toHaveTextContent('Ready to price · 3 h');
+        unmount();
 
-        // A held card next to it still selects its conversation rather than navigating.
+        // Wide (B9): the same tap opens the quote as the answer surface and the desk stays put.
+        stubWide();
+        renderWithQuery(<HandyDesk />);
+        await userEvent.click(within(await screen.findByTestId('queue-card-price:sam123')).getByText('Sam Reid'));
+        await waitFor(() => expect(screen.getByTestId('queue-card-price:sam123')).toHaveAttribute('data-active', 'true'));
+        expect(window.location.pathname).toBe('/');
+
+        // A held card next to it still selects its conversation rather than navigating, and closes the quote.
         await userEvent.click(within(screen.getByTestId('queue-card-case_rob')).getByText('Rob Hale'));
         expect(await screen.findByTestId('handy-desk-thread')).toBeInTheDocument();
+        expect(screen.getByTestId('queue-card-price:sam123')).not.toHaveAttribute('data-active');
         expect(window.location.pathname).toBe('/');
     });
 
