@@ -98,6 +98,8 @@ export interface TurnMedia {
     kind: 'image' | 'video';
     mime: string;
     url: string | null;
+    /** Whether the desk mirrored it to durable storage on arrival (server/comms-v2/desk/case-file.ts `TurnMedia.stored`); absent on older media. */
+    stored?: 'durable' | 'local_only';
     /** Set once the desk has described the photo or video (server/comms-v2/desk/case-file.ts `MediaDescriptionRecord`). */
     description?: { description: string; confidence: 'low' | 'medium' | 'high' } | null;
 }

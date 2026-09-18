@@ -11,6 +11,7 @@ import { answeredByReply, appendTurn, coveredByReply, messagesOf, open, partyOf,
 import { Identity, e164Of, type ResolveResult } from './identity';
 import { MemoryCaseFileStore, type CaseFileStore } from './store';
 import type { InboundTurn } from './whatsapp-adapter';
+import { keepDurably, mirrorToMediaStore, type MirrorMedia } from './media-durability';
 import type { DeskResult, DeskLike, GuardName, GuardVerdict } from './desk-types';
 import { carryOptOutHold } from './desk';
 import { customerTurnOf, waitsForQuiet } from './turn-window';
@@ -28,6 +29,8 @@ export interface GatewayDeps {
      * is 0, every message its own turn, which is what a test's scripted gateway wants.
      */
     quietMs?: number;
+    /** Where inbound media is mirrored before its turn lands; the old desk's S3 mirror unless a test passes one. */
+    mirrorMedia?: MirrorMedia;
 }
 
 /** What one message came to: the desk's result, and the ids of the messages the desk read as the one turn this message was part of. */
@@ -77,6 +80,7 @@ export class Gateway {
     protected readonly newId: (prefix: string) => string;
     protected readonly log: (line: string) => void;
     private readonly quietMs: number;
+    private readonly mirrorMedia: MirrorMedia;
     /** Who holds the waits this gateway records on a file (`TurnWait.holder`): new with every process, so a wait any other holder left is one a restart left behind. */
     private readonly holder = `gateway_${randomUUID()}`;
     private readonly waiting = new Map<string, Burst>();
@@ -91,9 +95,25 @@ export class Gateway {
         this.newId = deps.newId ?? ((prefix) => `${prefix}_${randomUUID()}`);
         this.log = deps.log ?? (() => undefined);
         this.quietMs = Math.max(0, deps.quietMs ?? 0);
+        this.mirrorMedia = deps.mirrorMedia ?? mirrorToMediaStore;
     }
 
     protected fileDeps(): CaseFileDeps { return { now: this.now, newId: this.newId }; }
+
+    /**
+     * A landed turn's media mirrored to durable storage, the result recorded on the turn's own media
+     * and the file put again. The turn lands first, in the order it came, so a slow mirror never puts
+     * it behind a later message; a failure is recorded rather than dropped. A text turn does not wait.
+     */
+    protected async keepLanded(file: CaseFile, landed: Turn, media: InboundTurn['media']): Promise<void> {
+        this.store.put(file);
+        const kept = await keepDurably(media, this.mirrorMedia, this.log);
+        for (const m of landed.media) {
+            const k = kept.find((x) => x.id === m.id);
+            if (k) m.stored = k.stored;
+        }
+        this.store.put(file);
+    }
 
     /** A customer WhatsApp turn: identity, the one file, then the desk. */
     async inbound(turn: InboundTurn, seed: SeedInput = {}): Promise<InboundOutcome> {
@@ -105,7 +125,7 @@ export class Gateway {
         }
         if (resolved.role === 'internal') return { kind: 'refused', reason: 'an internal number is not a customer; nothing to scope' };
         const address = e164Of(resolved.canonical) ?? turn.address;
-        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...failedMediaFields(turn.mediaFailures) };
+        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(turn.media.length && turn.providerMessageId ? { providerMessageId: turn.providerMessageId } : {}), ...failedMediaFields(turn.mediaFailures) };
         let file = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {
@@ -127,6 +147,7 @@ export class Gateway {
             const ch = partyOf(file, resolved.personId)!.channels.find((c) => c.kind === 'whatsapp');
             if (ch) ch.transport = turn.via;
         }
+        if (turn.media.length) await this.keepLanded(file, landed, turn.media);
         const { result, burst } = await this.handTurn(file, landed);
         return { kind: 'handled', file, turn: landed, result, burst };
     }

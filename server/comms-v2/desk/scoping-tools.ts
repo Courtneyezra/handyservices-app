@@ -11,6 +11,8 @@
  *   offer_call        not when the party prefers text, has already rung, or has been offered one.
  *   regulated         gas or asbestos only.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import { askedUnanswered, everAsked, factFor, isReady, ledgerEntry, type CaseFile, type ModelCallRecord, type Party, type Turn } from './case-file';
 import { parseLocation, regulatedMatch, type LocationParse } from './lexicon';
 import { recordFromUsage } from './models';
@@ -22,10 +24,18 @@ export interface DescribeDeps {
     now?: () => Date;
 }
 
-/** The surviving Gemini path, loaded on first use. Never throws. */
+/**
+ * The surviving Gemini path, loaded on first use. Never throws. A file a redeploy wiped from disk is
+ * restored from the durable mirror first (desk/media-durability.ts), under the same name.
+ */
 async function describeWithGemini(input: { path: string; kind: 'image' | 'video'; mimeType: string; mediaId: string; customerContext: string | null }) {
     const { describeMediaDetailed, formatDescription } = await import('../../spine/tools/describe-video');
-    const out = await describeMediaDetailed({ path: input.path, kind: input.kind, mimeType: input.mimeType, mediaId: input.mediaId, customerContext: input.customerContext });
+    let local = input.path;
+    if (!fs.existsSync(local)) {
+        const { ensureLocalMedia } = await import('../../media-store');
+        local = (await ensureLocalMedia(path.basename(local)).catch(() => null)) ?? local;
+    }
+    const out = await describeMediaDetailed({ path: local, kind: input.kind, mimeType: input.mimeType, mediaId: input.mediaId, customerContext: input.customerContext });
     if (!out.ok) return { ok: false as const, reason: out.failure.reason };
     const r = out.result;
     return { ok: true as const, description: formatDescription(r.description), confidence: r.description.confidence, model: r.model, usage: r.usage ? { inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } : null, durationMs: r.durationMs };

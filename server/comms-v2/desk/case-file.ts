@@ -95,6 +95,12 @@ export interface TurnMedia {
     url: string | null;
     /** Set once by describe_media. */
     description: MediaDescriptionRecord | null;
+    /**
+     * Whether the file was mirrored to durable storage on arrival (desk/media-durability.ts).
+     * `local_only` is lost on the next deploy and the thread shows it as a failure. Absent on
+     * media that landed before this was recorded, which was never mirrored.
+     */
+    stored?: 'durable' | 'local_only';
 }
 
 export interface MediaDescriptionRecord {
@@ -150,6 +156,12 @@ export interface Turn {
      * covering it (`coveredByReply`) goes to the desk again (channels/channel-gateway.ts).
      */
     handledBy?: string;
+    /**
+     * Inbound turns carrying media only: the provider's id for the message (Twilio's MessageSid, Meta's
+     * message id), so a photo or video that was not stored durably can be traced to the provider's
+     * copy and to the old desk's copy of the same message rather than matched by arrival time.
+     */
+    providerMessageId?: string;
     /**
      * Inbound only: how many photos or videos the customer sent that never reached us (an MMS on
      * SMS, a download that failed), so the desk knows they tried rather than reading an empty turn.

@@ -228,12 +228,14 @@ app.use('/api/media', express.static(MEDIA_DIR));
 app.get('/api/media/:file', async (req, res) => {
     try {
         const { ensureLocalMedia } = await import('./media-store');
+        // A miss says no-store: the edge stamped these 404s with a year's max-age, so a file
+        // restored to the durable store later still showed as broken in any browser that saw it missing.
         const filePath = await ensureLocalMedia(req.params.file);
-        if (!filePath) return res.status(404).json({ error: 'Media not found' });
+        if (!filePath) return res.status(404).set('Cache-Control', 'no-store').json({ error: 'Media not found' });
         res.sendFile(filePath);
     } catch (e) {
         console.error('[Media] S3 fallback failed:', e);
-        res.status(404).json({ error: 'Media not found' });
+        res.status(404).set('Cache-Control', 'no-store').json({ error: 'Media not found' });
     }
 });
 
