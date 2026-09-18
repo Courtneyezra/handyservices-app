@@ -111,7 +111,7 @@ export const PUSHOVER_EVENT_FOR = { ready_to_price: 'quote_prep_ready', chase: '
 const LINK_TITLE: Record<BenNoticeKind, string> = { ready_to_price: 'Price and send', chase: 'Open it', accepted: 'Open it' };
 
 export interface PushoverSink {
-    send(input: { event: (typeof PUSHOVER_EVENT_FOR)[BenNoticeKind]; title: string; message: string; linkUrl: string | null; linkUrlTitle: string; linkPhone: string | null }): Promise<{ sent: number; skipped: string | null }>;
+    send(input: { event: (typeof PUSHOVER_EVENT_FOR)[BenNoticeKind]; title: string; message: string; linkUrl: string | null; linkUrlTitle: string; linkPhone: string | null; html?: boolean }): Promise<{ sent: number; skipped: string | null }>;
 }
 
 /** server/pushover.ts, loaded on first use: it opens the notification settings. */
@@ -123,6 +123,8 @@ export interface LiveNotifierDeps {
     /** The switches, read at every notice (switch.ts). */
     liveState?: () => Promise<{ live: boolean; off: string[] }>;
     pushover?: PushoverSink;
+    /** B9: the ready-to-price push's queue line and one-tap send (server/spine/push-send.ts). */
+    extras?: (slug: string) => Promise<import('../../spine/push-send').ReadyToPriceExtras>;
 }
 
 /**
@@ -139,7 +141,13 @@ export function liveBenNotifier(deps: LiveNotifierDeps = {}): BenNotifier {
             const live = await readState().then((s) => s.live, () => false);
             if (!live) return recordingNotifier.notify(notice, ctx);
             try {
-                const r = await sink.send({ event: PUSHOVER_EVENT_FOR[notice.kind], title: notice.title, message: notice.message, linkUrl: notice.link, linkUrlTitle: LINK_TITLE[notice.kind], linkPhone: notice.kind === 'accepted' ? ctx?.phone ?? null : null });
+                // B9: the same extras as the old desk's ready-to-price push; the recorded fact keeps the plain words.
+                let message = notice.message, html = false;
+                if (notice.kind === 'ready_to_price' && ctx?.slug) {
+                    const { readyToPriceExtras, withReadyToPriceExtras } = await import('../../spine/push-send');
+                    ({ message, html } = withReadyToPriceExtras(notice.message, await (deps.extras ?? readyToPriceExtras)(ctx.slug)));
+                }
+                const r = await sink.send({ event: PUSHOVER_EVENT_FOR[notice.kind], title: notice.title, message, html, linkUrl: notice.link, linkUrlTitle: LINK_TITLE[notice.kind], linkPhone: notice.kind === 'accepted' ? ctx?.phone ?? null : null });
                 if (r.sent > 0) return { note: `sent to Ben's phone: ${notice.title}` };
                 return { note: `recorded, not sent (Pushover skipped: ${r.skipped ?? 'no recipient'}): ${notice.title}` };
             } catch (err: any) {

@@ -350,6 +350,10 @@ async function isSandboxQuoteSlug(slug: string): Promise<boolean> {
  * 3. draftQuoteSendMessage + deliverQuoteLink: the EXISTING quote-send path (the one the legacy
  *    card uses), approver human:<id>, one run id for the whole burst. The outcome (sent /
  *    template / queued for the window) is reported as it happened. Nothing sends without this tap.
+ * B9: `{ via: 'push', token }` is the same tap from the ready-to-price notification's "Send at £X".
+ *    The body is then built from the draft by server/spine/push-send.ts `pushSendBody` (the figures
+ *    the screen opens with, no line to check, the version and total the push was signed for, and
+ *    no opt-out of either scope), never taken from the page; everything after is this route as is.
  */
 spineRouter.post('/price/:slug/send', async (req, res) => {
     try {
@@ -360,9 +364,16 @@ spineRouter.post('/price/:slug/send', async (req, res) => {
         if (await isSandboxQuoteSlug(slug)) {
             return res.status(409).json({ ok: false, errors: ['This quote is on the comms sandbox number. Price and send it from /admin/sandbox; nothing on that number can be sent for real.'] });
         }
+        let sendBody = req.body;
+        if (req.body?.via === 'push') {
+            const { pushSendBody } = await import('./push-send');
+            const built = await pushSendBody(slug, req.body?.token);
+            if (!built.ok) return res.status(built.status).json({ ok: false, pushRefused: true, errors: [built.reason] });
+            sendBody = built.body;
+        }
         const { confirmPrices } = await import('./price-screen');
         const u = sessionUser(req);
-        const c = await confirmPrices(slug, req.body, { id: u.id ?? null, email: u.email ?? null });
+        const c = await confirmPrices(slug, sendBody, { id: u.id ?? null, email: u.email ?? null });
         if (!c.ok) return res.status(c.status).json({ ok: false, errors: c.errors, status: c.payload?.status ?? null, version: c.payload?.version ?? null });
         // The switch-over: while the new desk is the live desk, a quote an open case file of the new
         // desk carries is sent by the new desk's own sender under this approver, with the approved
@@ -386,7 +397,7 @@ spineRouter.post('/price/:slug/send', async (req, res) => {
         if (c.message) {
             body = withQuoteLink(c.message, c.payload.quoteUrl);
         } else {
-            const style = typeof req.body?.messageStyle === 'string' ? req.body.messageStyle : null;
+            const style = typeof sendBody?.messageStyle === 'string' ? sendBody.messageStyle : null;
             const drafted = await draftQuoteSendMessage(conversationId, slug, style);
             if (!drafted.ok) {
                 return res.status(drafted.status === 404 ? 422 : drafted.status).json({ ok: false, priced: true, errors: [`Prices are saved on the quote, but the message could not be drafted: ${drafted.error}`], quoteUrl: c.payload.quoteUrl });

@@ -99,6 +99,8 @@ interface DispatchOptions {
     onlyUserKey?: string;
     /** Force delivery even if the event is toggled off (used by test sends). */
     force?: boolean;
+    /** B9: the message is Pushover HTML (already escaped by the caller), for a link inside it. */
+    html?: boolean;
 }
 
 /**
@@ -133,8 +135,9 @@ export async function notifyDeskNotice(input: {
     linkUrl?: string | null;
     linkUrlTitle?: string;
     linkPhone?: string | null;
+    html?: boolean;
 }): Promise<{ sent: number; skipped: string | null }> {
-    return dispatch({ event: input.event, title: input.title, message: input.message, linkUrl: input.linkUrl ?? undefined, linkUrlTitle: input.linkUrlTitle, linkPhone: input.linkPhone ?? null });
+    return dispatch({ event: input.event, title: input.title, message: input.message, linkUrl: input.linkUrl ?? undefined, linkUrlTitle: input.linkUrlTitle, linkPhone: input.linkPhone ?? null, html: input.html });
 }
 
 async function dispatchInner(opts: DispatchOptions): Promise<{ sent: number; skipped: string | null }> {
@@ -197,6 +200,7 @@ async function dispatchInner(opts: DispatchOptions): Promise<{ sent: number; ski
         baseBody.url = url;
         if (urlTitle) baseBody.url_title = urlTitle;
     }
+    if (opts.html) baseBody.html = 1;
 
     let sent = 0;
     await Promise.all(
@@ -1006,10 +1010,14 @@ export async function notifyQuoteReadyToPrice(alert: QuoteReadyToPriceAlert): Pr
     if (alert.estimatorFailed) lines.push(`⚠️ Priced from reference rates, estimator failed (${truncate(alert.estimatorFailed, 120)}). Every line needs a check.`);
     else if (alert.checkThis > 0) lines.push(`⚠️ ${alert.checkThis} line${alert.checkThis === 1 ? '' : 's'} marked check this.`);
     lines.push('Nothing has been sent. Open, check, price, send.');
+    // B9: how many more wait (F7) and, when nothing is marked check this, "Send at £X" in one tap.
+    const { readyToPriceExtras, withReadyToPriceExtras } = await import('./spine/push-send');
+    const out = withReadyToPriceExtras(lines.join('\n'), await readyToPriceExtras(alert.slug));
     await dispatch({
         event: 'quote_prep_ready',
         title: `💷 Quote ready to price: ${who}`,
-        message: lines.join('\n'),
+        message: out.message,
+        html: out.html,
         linkUrl: link,
         linkUrlTitle: '💷 Price and send',
     });
