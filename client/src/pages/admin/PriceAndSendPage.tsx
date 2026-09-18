@@ -35,6 +35,7 @@ import { depositFor } from '@shared/pricing-settings';
 import { CATEGORY_OPTIONS } from '@/lib/quote-categories';
 import { usePriceQueue, invalidatePriceQueue, queueExcluding, ageLabel } from '@/hooks/usePriceQueue';
 import { HANDY_DESK_PATH } from '@/lib/handy-desk-path';
+import { PriceAsk, type PriceAskPhase, type PriceAskRequest, type SetLineResult } from '@/components/price-send/PriceAsk';
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -483,8 +484,10 @@ export function AutoGrowTextarea({ minRows, maxRows, value, className, textareaR
     );
 }
 
-export function PriceLineCard({ line, state, contradictions, resolutions, margin, disabled, open, onToggle, onChange, onResolve }: {
+export function PriceLineCard({ line, state, contradictions, resolutions, margin, disabled, open, onToggle, onChange, onResolve, note }: {
     line: PriceLine; state: LineState; contradictions: Contradiction[]; resolutions: Record<string, Resolution>; margin: number; disabled: boolean;
+    /** B9: what an ask changed on this line ("Changed from £155 by your ask."), shown as the desk's note. */
+    note?: string | null;
     /** B9 F1: one line open at a time; every other line is a one-row summary. */
     open: boolean;
     onToggle: () => void;
@@ -615,6 +618,13 @@ export function PriceLineCard({ line, state, contradictions, resolutions, margin
                 <div className="mt-2.5 flex items-start gap-2" data-testid="check-this">
                     <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] bg-slate-900 text-[8px] font-extrabold text-amber-400" aria-hidden>AI</span>
                     <span className="text-xs leading-relaxed text-slate-700"><span className="sr-only">Check this: </span>{line.checkReason ?? 'Check this line.'}</span>
+                </div>
+            )}
+
+            {note && (
+                <div className="mt-2.5 flex items-start gap-2" data-testid={`line-note-${line.lineId}`}>
+                    <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] bg-slate-900 text-[8px] font-extrabold text-amber-400" aria-hidden>AI</span>
+                    <span className="text-xs leading-relaxed text-slate-700">{note}</span>
                 </div>
             )}
 
@@ -889,7 +899,16 @@ export function cleanNotIncluded(items: string[]): string[] {
     return items.map((s) => s.replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 8);
 }
 
-export function PriceAndSend({ slug }: { slug: string }) {
+export function PriceAndSend({ slug, pushToken = null, embedded = false, onClose, onOpenQuote }: {
+    slug: string;
+    /** B9: the push's "Send at £X" token (?push=): the screen sends at the draft's figures on load, through the one send route. */
+    pushToken?: string | null;
+    /** B9: inside the Handy Desk's answer column on a wide screen: no page header, the bar inline. */
+    embedded?: boolean;
+    onClose?: () => void;
+    /** Embedded: open another quote in place rather than leaving the desk. */
+    onOpenQuote?: (slug: string) => void;
+}) {
     const qc = useQueryClient();
     const desktop = useIsDesktop();
     const { data, isLoading, error, refetch, isFetching } = useQuery<PricePayload>({
@@ -924,6 +943,14 @@ export function PriceAndSend({ slug }: { slug: string }) {
     const [superseded, setSuperseded] = useState<string | null>(null);
     const [hold, setHold] = useState<QuoteHold | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
+    /** B9: a line change said or typed, through the ask agent (components/price-send/PriceAsk.tsx). */
+    const [askReq, setAskReq] = useState<PriceAskRequest | null>(null);
+    const [askStop, setAskStop] = useState(0);
+    const [askPhase, setAskPhase] = useState<PriceAskPhase>('idle');
+    const [askText, setAskText] = useState('');
+    const [lineNotes, setLineNotes] = useState<Record<string, string>>({});
+    /** B9: the push's one-tap send: 'sending' while it runs, then its refusal if it had one. */
+    const [push, setPush] = useState<{ state: 'idle' | 'sending' | 'done' } & { refused?: string | null }>({ state: 'idle' });
 
     // Prefill whenever a fresh payload arrives (a reload after 409 re-prefills).
     useEffect(() => {
@@ -935,7 +962,33 @@ export function PriceAndSend({ slug }: { slug: string }) {
         setHold(data.hold ?? null);
         setSuperseded(null);
         setOpenId(orderByDoubt(data.lines, data.contradictions ?? [])[0]?.lineId ?? null);
+        setLineNotes({});
     }, [data?.version]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // B9: the push's "Send at £X". Once, on the first payload: the route builds the body from the
+    // draft and refuses anything that changed since the push; a refusal leaves the screen for Ben.
+    useEffect(() => {
+        if (!data || !pushToken || push.state !== 'idle') return;
+        const clearUrl = () => { try { if (typeof window !== 'undefined' && window.location.search.includes('push=')) window.history.replaceState(null, '', window.location.pathname); } catch { /* not a browser */ } };
+        if (data.status !== 'draft') { setPush({ state: 'done', refused: 'This quote is no longer a draft, so the notification sent nothing.' }); clearUrl(); return; }
+        setPush({ state: 'sending' });
+        setBusy('send');
+        void (async () => {
+            try {
+                const { status, json } = await post('send', { via: 'push', token: pushToken });
+                if (json?.pushRefused) { setPush({ state: 'done', refused: json.errors?.[0] ?? 'Nothing was sent. Check the quote and press Send.' }); return; }
+                if (status === 409) { setSuperseded(json.errors?.[0] ?? 'This draft changed since it loaded.'); setPush({ state: 'done' }); return; }
+                setResult({ ...json, ok: status >= 200 && status < 300 && json.ok !== false });
+                setPush({ state: 'done' });
+                if (status >= 200 && status < 300) {
+                    void qc.invalidateQueries({ queryKey: ['spine-price', data.slug] });
+                    void invalidatePriceQueue(qc);
+                }
+            } catch (e: any) {
+                setPush({ state: 'done', refused: `Nothing was sent: ${e?.message ?? 'the send could not be reached'}.` });
+            } finally { setBusy(null); clearUrl(); }
+        })();
+    }, [data?.version, pushToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const contradictions = data?.contradictions ?? [];
     const margin = data?.settings?.materialsMarginPercent ?? 0;
@@ -984,6 +1037,39 @@ export function PriceAndSend({ slug }: { slug: string }) {
         if (Object.keys(statePatch).length) {
             setStates((s) => ({ ...s, [lineId]: { ...(s[lineId] ?? { labour: '', materialsByHand: null, materials: [], assumptions: [], notIncluded: [], accepted: false }), ...statePatch } }));
         }
+    }
+
+    /**
+     * B9: a confirmed quote.set_line. The figure is the line's price: labour takes the change and the
+     * materials on the screen stand. Only this screen changes; Send is still Ben's. A refusal is returned
+     * for the ask card to show.
+     */
+    function applySetLine(r: SetLineResult): string | null {
+        const line = allLines.find((l) => l.lineId === r.lineId);
+        if (!line) return 'That line is not on the screen any more, so nothing changed.';
+        const st = states[r.lineId];
+        if (st?.deleted) return 'That line is removed on the screen. Undo it first, then ask again.';
+        if (locked) return 'This quote can no longer be changed here.';
+        const labour = r.linePence - stateMaterialsPence(line, st, margin);
+        if (labour < 0) return `That is below the line's materials (${gbp(stateMaterialsPence(line, st, margin))}), so nothing changed. Change the materials first.`;
+        const was = finals[r.lineId];
+        patch(r.lineId, { labour: penceToPoundsText(labour), accepted: false });
+        setOpenId(r.lineId);
+        setTab('price');
+        setLineNotes((n) => ({ ...n, [r.lineId]: `Changed from ${was == null ? 'no price' : gbp(was)} to ${gbp(r.linePence)} by your ask. Nothing is sent until you press Send.` }));
+        return null;
+    }
+
+    function startVoice() {
+        if (askPhase === 'listening') { setAskStop((n) => n + 1); return; }
+        setTab('price');
+        setAskReq((r) => ({ id: (r?.id ?? 0) + 1, via: 'voice' }));
+    }
+    function startTyped() {
+        const text = askText.trim();
+        if (!text) return;
+        setAskReq((r) => ({ id: (r?.id ?? 0) + 1, via: 'typed', text }));
+        setAskText('');
     }
 
     /** P16: one more card, empty, for something the estimate never saw. */
@@ -1119,7 +1205,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
                     {result.quoteUrl && <a className="mt-2 block truncate font-mono text-xs underline" href={result.quoteUrl}>{result.quoteUrl}</a>}
                 </div>
                 {next ? (
-                    <a href={`/admin/price/${next.slug}`} className="mt-4 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 text-lg font-black text-white" data-testid="next-waiting">
+                    <a href={`/admin/price/${next.slug}`} onClick={(e) => { if (onOpenQuote) { e.preventDefault(); onOpenQuote(next.slug); } }} className="mt-4 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 text-lg font-black text-white" data-testid="next-waiting">
                         Next quote waiting: {next.firstName}{'waitingMs' in next && next.waitingMs != null ? ` · ${ageLabel(next.waitingMs)}` : ''} <ArrowRight className="h-5 w-5" />
                     </a>
                 ) : (
@@ -1163,6 +1249,21 @@ export function PriceAndSend({ slug }: { slug: string }) {
 
     const pricePane = (
         <div className="space-y-2" data-testid="price-pane">
+            {push.state === 'sending' && (
+                <div className="flex items-center gap-2 rounded-[20px] border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-sm font-semibold text-amber-900" data-testid="push-sending">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Sending from your notification…
+                </div>
+            )}
+            {push.refused && (
+                <div className="rounded-[20px] border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-900" data-testid="push-refused">
+                    <div className="font-extrabold">Not sent from the notification</div>
+                    <p className="mt-0.5">{push.refused}</p>
+                </div>
+            )}
+            {askReq && (
+                <PriceAsk key="ask" slug={data.slug} request={askReq} stopSignal={askStop} onPhase={setAskPhase} onApply={applySetLine}
+                    onClose={() => { setAskReq(null); setAskPhase('idle'); }} />
+            )}
             {statusBanner && <div className={cn('rounded-[20px] border px-3.5 py-2.5 text-sm font-semibold', statusBanner.cls)} data-testid="status-banner">{statusBanner.text}</div>}
             {superseded && (
                 <div className="rounded-[20px] border border-amber-300 bg-amber-50 p-3.5 text-sm text-amber-900" data-testid="superseded-banner">
@@ -1192,7 +1293,7 @@ export function PriceAndSend({ slug }: { slug: string }) {
             {ordered.map((l) => (
                 <PriceLineCard key={l.lineId} line={l} state={states[l.lineId] ?? initialLineState(l)} contradictions={contradictions} resolutions={resolutions}
                     margin={margin} disabled={locked} open={openId === l.lineId} onToggle={() => setOpenId((o) => o === l.lineId ? null : l.lineId)}
-                    onChange={(p) => patch(l.lineId, p)} onResolve={resolve} />
+                    onChange={(p) => patch(l.lineId, p)} onResolve={resolve} note={lineNotes[l.lineId] ?? null} />
             ))}
 
             {/* P16: something the estimate never saw. The same card, empty. */}
@@ -1276,56 +1377,8 @@ export function PriceAndSend({ slug }: { slug: string }) {
 
     const exitRow = 'flex min-h-12 w-full items-center gap-2 rounded-full border border-slate-300 px-4 text-left text-[13px] font-bold text-slate-900 disabled:opacity-40';
 
-    return (
-        <div className="min-h-screen bg-slate-900" data-testid="price-and-send" data-layout={desktop ? 'desktop' : 'phone'}>
-            {/* F6: the page's own header, the only one on this route: name, stage and postcode, then F3's
-                summary of what is about to go out, then the queue. */}
-            <header className="sticky top-0 z-10 bg-slate-900 text-white" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
-                <div className={cn('mx-auto px-4 pb-2 pt-3', desktop ? 'max-w-6xl' : 'max-w-xl')}>
-                    <div className="flex items-center gap-2">
-                        <a href={HANDY_DESK_PATH} aria-label="Back to the desk" className="-ml-2 flex h-11 w-9 shrink-0 items-center justify-center text-white" data-testid="back">
-                            <ChevronLeft className="h-5 w-5" />
-                        </a>
-                        <div className="min-w-0 flex-1">
-                            <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-amber-400" data-testid="readiness">{eyebrow}</div>
-                            <h1 className="mt-0.5 truncate text-[26px] font-extrabold leading-none tracking-[-0.02em]" data-testid="customer-first-name">{first}</h1>
-                        </div>
-                        {data.customer.postcode && <span className="shrink-0 rounded-full border border-slate-700 px-2.5 py-1.5 font-mono text-[11px] font-bold" data-testid="postcode">{data.customer.postcode}</span>}
-                    </div>
-                    <div className="mt-2.5 flex flex-wrap items-center gap-2" data-testid="summary">
-                        <span className="rounded-full bg-amber-400 px-3 py-1 text-xs font-extrabold text-slate-900" data-testid="summary-total">{gbp(totals.totalPence)}</span>
-                        <span className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-300" data-testid="summary-lines">{kept.length} line{kept.length === 1 ? '' : 's'}</span>
-                        {toCheck > 0
-                            ? <span className="rounded-full border border-amber-400 px-3 py-1 text-[11px] font-bold text-amber-400" data-testid="contradiction-count">{toCheck} to check</span>
-                            : <span className="rounded-full border border-slate-700 px-3 py-1 text-[11px] font-semibold text-slate-400" data-testid="contradiction-count">nothing to check</span>}
-                        {queueItem && <span className="ml-auto text-[11px] text-slate-400" data-testid="summary-waiting">{channel ? `${channel} · ` : ''}{ageLabel(queueItem.waitingMs)}</span>}
-                    </div>
-                    <div className="mt-2">{queueStrip}</div>
-                </div>
-            </header>
-
-            <div className={cn('min-h-[calc(100vh-150px)] rounded-t-[28px] bg-slate-50 pb-28 pt-4', desktop && 'pb-32')}>
-                <div className={cn('mx-auto px-4', desktop ? 'max-w-6xl' : 'max-w-xl')}>
-                    {desktop ? (
-                        <div className="grid grid-cols-[340px_minmax(0,1fr)] gap-5" data-testid="side-by-side">
-                            <aside className="sticky top-40 max-h-[calc(100vh-11rem)] self-start overflow-y-auto rounded-[20px] border border-slate-200 bg-slate-100 p-3">
-                                <div className={cn(EYEBROW, 'mb-2')}>Thread{data.thread?.count ? ` · ${data.thread.count}` : ''}</div>
-                                {threadPane}
-                            </aside>
-                            <div className="space-y-2">{context}{pricePane}</div>
-                        </div>
-                    ) : (
-                        <div className="space-y-3">
-                            <div className="grid grid-cols-2 gap-1 rounded-full bg-slate-200/70 p-1 text-[13px] font-bold" role="tablist" data-testid="tabs">
-                                <button type="button" role="tab" aria-selected={tab === 'price'} onClick={() => setTab('price')} className={cn('min-h-9 rounded-full', tab === 'price' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500')} data-testid="tab-price">Price</button>
-                                <button type="button" role="tab" aria-selected={tab === 'thread'} onClick={() => setTab('thread')} className={cn('min-h-9 rounded-full', tab === 'thread' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500')} data-testid="tab-thread">Thread{data.thread?.count ? ` · ${data.thread.count}` : ''}</button>
-                            </div>
-                            {tab === 'thread' ? threadPane : <>{context}{pricePane}</>}
-                        </div>
-                    )}
-                </div>
-            </div>
-
+    const sheets = (
+        <>
             {/* Sheets: one question / why a visit */}
             {sheet && (
                 <div className="fixed inset-0 z-30 flex items-end justify-center bg-slate-900/50" onClick={() => !busy && setSheet(null)}>
@@ -1370,25 +1423,157 @@ export function PriceAndSend({ slug }: { slug: string }) {
                     </div>
                 </div>
             )}
+        </>
+    );
 
-            {/* F2: the thumb bar. Mic, the amber Send pill with the total, and ⋯. */}
+    const summaryPills = (dark: boolean) => (
+        <div className="flex flex-wrap items-center gap-2" data-testid="summary">
+            <span className="rounded-full bg-amber-400 px-3 py-1 text-xs font-extrabold text-slate-900" data-testid="summary-total">{gbp(totals.totalPence)}</span>
+            <span className={cn('rounded-full border px-3 py-1 text-[11px] font-semibold', dark ? 'border-slate-700 text-slate-300' : 'border-slate-300 text-slate-600')} data-testid="summary-lines">{kept.length} line{kept.length === 1 ? '' : 's'}</span>
+            {toCheck > 0
+                ? <span className={cn('rounded-full border border-amber-400 px-3 py-1 text-[11px] font-bold', dark ? 'text-amber-400' : 'bg-amber-50 text-amber-700')} data-testid="contradiction-count">{toCheck} to check</span>
+                : <span className={cn('rounded-full border px-3 py-1 text-[11px] font-semibold', dark ? 'border-slate-700 text-slate-400' : 'border-slate-300 text-slate-500')} data-testid="contradiction-count">nothing to check</span>}
+            {queueItem && <span className={cn('ml-auto text-[11px]', dark ? 'text-slate-400' : 'text-slate-500')} data-testid="summary-waiting">{channel ? `${channel} · ` : ''}{ageLabel(queueItem.waitingMs)}</span>}
+        </div>
+    );
+
+    // B9: a line change said or typed. The mic listens until it is tapped again; a wide screen also
+    // takes it typed. Either way it is a proposal Ben confirms on the ask card, never a send.
+    const listening = askPhase === 'listening';
+    const micButton = (
+        <button type="button" onClick={startVoice} disabled={locked || (!!askReq && (askPhase === 'hearing' || askPhase === 'thinking'))}
+            aria-label={listening ? 'Stop and send what you said' : 'Say a change to a line'} aria-pressed={listening}
+            className={cn('flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-400 text-slate-900 transition-shadow disabled:opacity-40', listening && 'bg-amber-500 shadow-[0_0_0_6px_rgba(251,191,36,0.3)]')} data-testid="mic">
+            <Mic className="h-5 w-5" />
+        </button>
+    );
+    const sendButton = (label: string) => (
+        <button type="button" onClick={send} disabled={!canSend}
+            className="inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-amber-400 px-4 text-sm font-bold text-slate-900 transition-colors hover:bg-amber-300 disabled:bg-slate-200 disabled:text-slate-400"
+            data-testid="send-quote">
+            {busy === 'send' && <Loader2 className="h-4 w-4 animate-spin" />}
+            <span className="truncate">{busy === 'send' ? 'Sending…' : `${label}${totals.totalPence > 0 ? ` · ${gbp(totals.totalPence)}` : ''}`}</span>
+        </button>
+    );
+    const moreButton = (
+        <button type="button" onClick={() => setOverflow(true)} aria-label="Other options: ask first, call, visit, full builder"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-900" data-testid="more-exits">
+            <MoreHorizontal className="h-5 w-5" />
+        </button>
+    );
+    const typedAsk = (
+        <form className="flex min-w-0 flex-1 items-center gap-2" onSubmit={(e) => { e.preventDefault(); startTyped(); }}>
+            <label htmlFor="price-ask-input" className="sr-only">Change a line</label>
+            <input id="price-ask-input" value={askText} onChange={(e) => setAskText(e.target.value)} disabled={locked} maxLength={500}
+                placeholder="Say or type “tap’s one-sixty-one”"
+                className="h-12 min-w-0 flex-1 rounded-full border border-slate-200 bg-slate-50 px-5 text-sm outline-none focus:border-slate-400" data-testid="price-ask-input" />
+            <button type="submit" disabled={locked || !askText.trim() || askPhase === 'thinking'}
+                className="inline-flex h-12 shrink-0 items-center rounded-full bg-slate-900 px-6 text-sm font-semibold text-white disabled:opacity-50" data-testid="price-ask-submit">Ask</button>
+        </form>
+    );
+
+    if (embedded) {
+        // B9 desktop: the quote as the Handy Desk's answer surface. The thread on the left, the price
+        // on the right, the confirm footer, and the ask bar under it; the desk's own header stays above.
+        return (
+            <div className="flex flex-col gap-3" data-testid="price-and-send" data-layout="desktop" data-embedded="true">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-amber-600" data-testid="readiness">{eyebrow}</div>
+                        <h2 className="mt-0.5 flex items-center gap-2 text-[22px] font-extrabold leading-tight tracking-[-0.02em] text-slate-900" data-testid="customer-first-name">
+                            {first}
+                            {data.customer.postcode && <span className="rounded-full border border-slate-300 px-2.5 py-1 font-mono text-[11px] font-bold text-slate-700" data-testid="postcode">{data.customer.postcode}</span>}
+                        </h2>
+                    </div>
+                    {onClose && (
+                        <button type="button" onClick={onClose} aria-label="Close the quote" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700" data-testid="price-close">
+                            <X className="h-5 w-5" />
+                        </button>
+                    )}
+                </div>
+                <div className="grid grid-cols-[340px_minmax(0,1fr)] gap-5" data-testid="side-by-side">
+                    <aside className="self-start rounded-[20px] border border-slate-200 bg-slate-100 p-3">
+                        <div className={cn(EYEBROW, 'mb-2')}>Thread{data.thread?.count ? ` · ${data.thread.count}` : ''}</div>
+                        {threadPane}
+                    </aside>
+                    <div className="space-y-2">
+                        {summaryPills(false)}
+                        {context}
+                        {pricePane}
+                    </div>
+                </div>
+                <div className="sticky bottom-0 z-10 -mx-1 flex flex-col gap-2 rounded-t-[20px] border-t border-slate-200 bg-white/95 px-3 py-3 backdrop-blur" data-testid="price-footer">
+                    <div className="flex items-center gap-2.5">
+                        <span className="min-w-0 flex-1 truncate text-[11px] text-slate-500">
+                            {data.settings.depositPercent}% deposit on labour, materials in full{data.followUpDays ? ` · follow-up in ${data.followUpDays} days if unviewed` : ''} · {stripCount === 0 && !stripNext ? 'nothing else waiting' : stripCount == null ? 'more waiting' : `${stripCount} more waiting`}
+                        </span>
+                        {moreButton}
+                        <div className="flex w-64">{sendButton('Send quote')}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {micButton}
+                        {typedAsk}
+                    </div>
+                    <span className="text-xs text-slate-500" data-testid="price-ask-context">Context · <span className="font-semibold text-slate-700">{first}</span></span>
+                </div>
+
+                {sheets}
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-slate-900" data-testid="price-and-send" data-layout={desktop ? 'desktop' : 'phone'}>
+            {/* F6: the page's own header, the only one on this route: name, stage and postcode, then F3's
+                summary of what is about to go out, then the queue. */}
+            <header className="sticky top-0 z-10 bg-slate-900 text-white" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+                <div className={cn('mx-auto px-4 pb-2 pt-3', desktop ? 'max-w-6xl' : 'max-w-xl')}>
+                    <div className="flex items-center gap-2">
+                        <a href={HANDY_DESK_PATH} aria-label="Back to the desk" className="-ml-2 flex h-11 w-9 shrink-0 items-center justify-center text-white" data-testid="back">
+                            <ChevronLeft className="h-5 w-5" />
+                        </a>
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-amber-400" data-testid="readiness">{eyebrow}</div>
+                            <h1 className="mt-0.5 truncate text-[26px] font-extrabold leading-none tracking-[-0.02em]" data-testid="customer-first-name">{first}</h1>
+                        </div>
+                        {data.customer.postcode && <span className="shrink-0 rounded-full border border-slate-700 px-2.5 py-1.5 font-mono text-[11px] font-bold" data-testid="postcode">{data.customer.postcode}</span>}
+                    </div>
+                    <div className="mt-2.5">{summaryPills(true)}</div>
+                    <div className="mt-2">{queueStrip}</div>
+                </div>
+            </header>
+
+            <div className={cn('min-h-[calc(100vh-150px)] rounded-t-[28px] bg-slate-50 pb-28 pt-4', desktop && 'pb-32')}>
+                <div className={cn('mx-auto px-4', desktop ? 'max-w-6xl' : 'max-w-xl')}>
+                    {desktop ? (
+                        <div className="grid grid-cols-[340px_minmax(0,1fr)] gap-5" data-testid="side-by-side">
+                            <aside className="sticky top-40 max-h-[calc(100vh-11rem)] self-start overflow-y-auto rounded-[20px] border border-slate-200 bg-slate-100 p-3">
+                                <div className={cn(EYEBROW, 'mb-2')}>Thread{data.thread?.count ? ` · ${data.thread.count}` : ''}</div>
+                                {threadPane}
+                            </aside>
+                            <div className="space-y-2">{context}{pricePane}</div>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-1 rounded-full bg-slate-200/70 p-1 text-[13px] font-bold" role="tablist" data-testid="tabs">
+                                <button type="button" role="tab" aria-selected={tab === 'price'} onClick={() => setTab('price')} className={cn('min-h-9 rounded-full', tab === 'price' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500')} data-testid="tab-price">Price</button>
+                                <button type="button" role="tab" aria-selected={tab === 'thread'} onClick={() => setTab('thread')} className={cn('min-h-9 rounded-full', tab === 'thread' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500')} data-testid="tab-thread">Thread{data.thread?.count ? ` · ${data.thread.count}` : ''}</button>
+                            </div>
+                            {tab === 'thread' ? threadPane : <>{context}{pricePane}</>}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {sheets}
+
+            {/* F2: the thumb bar. Mic, the amber Send pill with the total, and ⋯; a wide screen also types. */}
             <div className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
                 <div className={cn('mx-auto flex items-center gap-2.5 px-4 py-3', desktop ? 'max-w-6xl pl-[calc(340px+2.25rem)]' : 'max-w-xl')}>
-                    {/* Voice edits to a line are the ask agent's work, not this screen's yet: shown as the design has it, not wired. */}
-                    <button type="button" disabled aria-label="Voice input (coming soon)" title="Voice input is not wired yet"
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-400 text-slate-900 disabled:opacity-40" data-testid="mic">
-                        <Mic className="h-5 w-5" />
-                    </button>
-                    <button type="button" onClick={send} disabled={!canSend}
-                        className="inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-amber-400 px-4 text-sm font-bold text-slate-900 transition-colors hover:bg-amber-300 disabled:bg-slate-200 disabled:text-slate-400"
-                        data-testid="send-quote">
-                        {busy === 'send' && <Loader2 className="h-4 w-4 animate-spin" />}
-                        <span className="truncate">{busy === 'send' ? 'Sending…' : `Send${totals.totalPence > 0 ? ` · ${gbp(totals.totalPence)}` : ''}`}</span>
-                    </button>
-                    <button type="button" onClick={() => setOverflow(true)} aria-label="Other options: ask first, call, visit, full builder"
-                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-slate-300 text-slate-900" data-testid="more-exits">
-                        <MoreHorizontal className="h-5 w-5" />
-                    </button>
+                    {micButton}
+                    {desktop && typedAsk}
+                    <div className={cn('flex', desktop ? 'w-64' : 'min-w-0 flex-1')}>{sendButton('Send')}</div>
+                    {moreButton}
                 </div>
             </div>
         </div>
@@ -1398,6 +1583,10 @@ export function PriceAndSend({ slug }: { slug: string }) {
 export default function PriceAndSendPage() {
     const [, params] = useRoute('/admin/price/:slug');
     const slug = params?.slug ?? '';
+    // B9: the push's "Send at £X" arrives as ?push=<token>; the screen sends once and drops it from the address.
+    const [pushToken] = useState<string | null>(() => {
+        try { return new URLSearchParams(window.location.search).get('push'); } catch { return null; }
+    });
     if (!slug) return <div className="m-4 text-sm text-slate-600">No quote slug in the address.</div>;
-    return <PriceAndSend slug={slug} />;
+    return <PriceAndSend slug={slug} pushToken={pushToken} />;
 }

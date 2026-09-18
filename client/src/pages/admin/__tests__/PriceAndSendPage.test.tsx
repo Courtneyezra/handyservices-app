@@ -7,7 +7,7 @@
  * layout. Plus the P8 behaviours that must survive: 409 reload, sent / superseded lock, 404.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { screen, waitFor, within, fireEvent, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { mockFetch, renderWithQuery } from '@test-utils';
 import {
@@ -16,6 +16,8 @@ import {
     type PricePayload, type PriceLine, type Contradiction,
 } from '@/pages/admin/PriceAndSendPage';
 import { isPriceAndSendPath } from '@/lib/price-and-send-path';
+import { MockEventSource } from '../../../../test-setup';
+import type { AskMessageDTO } from '@shared/ops-types';
 
 const T = (h: number, m = 0, d = 4) => `2026-09-0${d}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00.000Z`;
 
@@ -1078,5 +1080,125 @@ describe('B9: the restyle to Ben\'s design (direction A, the collapsed stack)', 
         expect(isPriceAndSendPath('/admin/price/')).toBe(false);
         expect(isPriceAndSendPath('/admin/price/variation/42')).toBe(false);
         expect(isPriceAndSendPath('/admin/prices/z4p6t9mw')).toBe(false);
+    });
+});
+
+describe('B9: the push\'s "Send at £X"', () => {
+    const pushFetch = (json: PricePayload, send: () => { status?: number; json?: unknown }) => mockFetch([
+        { url: '/api/spine/price-queue', reply: () => ({ json: DEFAULT_QUEUE }) },
+        { url: '/api/spine/price/z4p6t9mw/send', method: 'POST', reply: send },
+        { url: '/api/spine/price/z4p6t9mw', reply: () => ({ json }) },
+    ]);
+
+    it('sends once through the screen\'s own send with only the token, never figures from the page, and shows what happened', async () => {
+        const f = pushFetch(payload(), () => ({ json: { ok: true, sent: true, mode: 'freeform', priced: true, nextSteps: 'Sent to Sarah. Deposit £630.' } }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" pushToken="tok.sig" />);
+        expect(await screen.findByTestId('confirm-screen')).toHaveTextContent('Sent on WhatsApp');
+        expect(f.of('POST', '/send')).toHaveLength(1);
+        expect(f.of('POST', '/send')[0].body).toEqual({ via: 'push', token: 'tok.sig' });
+    });
+
+    it('a refusal leaves the screen for Ben with the reason, sends nothing more and does not retry', async () => {
+        const f = pushFetch(payload(), () => ({ status: 409, json: { ok: false, pushRefused: true, errors: ['Nothing was sent: a line is marked check this. Check it and press Send.'] } }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" pushToken="tok.sig" />);
+        expect(await screen.findByTestId('push-refused')).toHaveTextContent('a line is marked check this');
+        await waitFor(() => expect(screen.getByTestId('send-quote')).toBeEnabled());
+        expect(screen.queryByTestId('confirm-screen')).toBeNull();
+        expect(f.of('POST', '/send')).toHaveLength(1);
+    });
+
+    it('a quote that is no longer a draft is not posted at all', async () => {
+        const f = pushFetch(payload({ status: 'sent' }), () => ({ json: { ok: true } }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" pushToken="tok.sig" />);
+        expect(await screen.findByTestId('push-refused')).toHaveTextContent('no longer a draft');
+        expect(f.of('POST', '/send')).toHaveLength(0);
+    });
+
+    it('without a token nothing is sent on load', async () => {
+        const f = pushFetch(payload(), () => ({ json: { ok: true } }));
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent('£2,100'));
+        expect(f.of('POST', '/send')).toHaveLength(0);
+    });
+});
+
+describe('B9: a line change said or typed goes through the ask agent and only changes the screen', () => {
+    const AT = '2026-09-18T09:00:00.000Z';
+    const SESSION = { id: 'sess_1', title: 'Handy Desk', createdBy: 'ben@example.test', status: 'active', createdAt: AT, updatedAt: AT };
+
+    function askFetch() {
+        let messages: AskMessageDTO[] = [];
+        const f = mockFetch([
+            { method: 'POST', url: '/api/comms-v2/ask/sessions/today', reply: () => ({ json: SESSION }) },
+            { method: 'POST', url: '/api/comms-v2/ask/sessions/sess_1/messages', reply: () => ({ status: 202, json: { runId: 'run_1' } }) },
+            { url: '/api/comms-v2/ask/sessions/sess_1', reply: () => ({ json: { session: SESSION, messages } }) },
+            { method: 'POST', url: '/api/comms-v2/ask/actions/act_1/confirm', reply: () => ({ json: { ok: true, repeat: false, action: { id: 'act_1', kind: 'quote.set_line', status: 'executed', previewText: 'x', result: { slug: 'z4p6t9mw', lineId: 'card_2', linePence: 32000, title: 'Airing cupboard door' } } } }) },
+            { method: 'POST', url: '/api/comms-v2/ask/actions/act_1/cancel', reply: () => ({ json: { ok: true, repeat: false, action: { id: 'act_1', status: 'cancelled' } } }) },
+            { url: '/api/comms-v2/ask/actions/act_1', reply: () => ({ json: { id: 'act_1', kind: 'quote.set_line', status: 'proposed', previewText: "On Sarah's price screen: Airing cupboard door to £320, suggested £300. Labour takes the change. Nothing is saved or sent: you press Send." } }) },
+            { url: '/api/spine/price-queue', reply: () => ({ json: DEFAULT_QUEUE }) },
+            { url: '/api/spine/price/z4p6t9mw/send', method: 'POST', reply: () => ({ json: { ok: true } }) },
+            { url: '/api/spine/price/z4p6t9mw', reply: () => ({ json: payload() }) },
+        ]);
+        return { ...f, setMessages: (m: AskMessageDTO[]) => { messages = m; } };
+    }
+    const answered = (text: string): AskMessageDTO[] => [
+        { id: 'u1', sessionId: 'sess_1', role: 'user', content: text, via: 'typed', createdAt: AT } as AskMessageDTO,
+        {
+            id: 'a1', sessionId: 'sess_1', role: 'assistant', content: 'Cupboard to £320.', runId: 'run_1', createdAt: AT,
+            answer: { finalText: 'Cupboard to £320. Confirm and it changes on your screen.', surface: { type: 'words' }, confirm: { label: 'Change the line', actionId: 'act_1', kind: 'quote.set_line' } },
+        } as AskMessageDTO,
+    ];
+    const emit = (evt: unknown) => act(() => { MockEventSource.last!.emit(evt); });
+
+    async function askTyped(f: ReturnType<typeof askFetch>, text: string) {
+        stubViewport(true);
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent('£2,100'));
+        await userEvent.type(screen.getByTestId('price-ask-input'), text);
+        await userEvent.click(screen.getByTestId('price-ask-submit'));
+        await waitFor(() => expect(f.of('POST', '/messages')).toHaveLength(1));
+        expect(f.of('POST', '/messages')[0].body).toEqual({ text, via: 'typed', context: { priceSlug: 'z4p6t9mw' } });
+        f.setMessages(answered(text));
+        emit({ type: 'ops_message', sessionId: 'sess_1', message: {}, at: AT });
+        emit({ type: 'ops_run_finished', sessionId: 'sess_1', runId: 'run_1', ok: true, at: AT });
+        expect(await screen.findByTestId('price-ask-preview')).toHaveTextContent('Nothing is saved or sent: you press Send.');
+    }
+
+    it('proposes, and on Ben\'s confirm puts the figure in the line\'s boxes with a note; nothing is sent', async () => {
+        const f = askFetch();
+        await askTyped(f, "cupboard's three-twenty");
+        expect(screen.getByTestId('price-ask-said')).toHaveTextContent("“cupboard's three-twenty”");
+        expect(screen.getByTestId('price-ask-answer')).toHaveTextContent('Cupboard to £320');
+        expect(screen.getByTestId('total')).toHaveTextContent('£2,100'); // nothing moved before the confirm
+
+        await userEvent.click(screen.getByTestId('price-ask-confirm'));
+        expect(await screen.findByTestId('price-ask-done')).toHaveTextContent('Nothing is sent until you press Send');
+        expect(f.of('POST', '/actions/act_1/confirm')).toHaveLength(1);
+        const card = screen.getByTestId('price-line-card_2');
+        expect(card).toHaveAttribute('data-open', 'true');
+        expect(within(card).getByTestId('labour-input-card_2')).toHaveValue(129.5);
+        expect(within(card).getByTestId('materials-input-card_2')).toHaveValue(190.5);
+        expect(within(card).getByTestId('line-note-card_2')).toHaveTextContent('Changed from £300 to £320 by your ask');
+        expect(screen.getByTestId('total')).toHaveTextContent('£2,120');
+        expect(f.of('POST', '/send')).toHaveLength(0);
+    });
+
+    it('"Not this" cancels the proposal and changes nothing', async () => {
+        const f = askFetch();
+        await askTyped(f, "cupboard's three-twenty");
+        await userEvent.click(screen.getByTestId('price-ask-cancel'));
+        await waitFor(() => expect(screen.queryByTestId('price-ask')).toBeNull());
+        expect(f.of('POST', '/actions/act_1/cancel')).toHaveLength(1);
+        expect(f.of('POST', '/actions/act_1/confirm')).toHaveLength(0);
+        expect(screen.getByTestId('total')).toHaveTextContent('£2,100');
+    });
+
+    it('the phone bar has the mic and no typed box; a screen nobody speaks to opens no ask session', async () => {
+        const f = askFetch();
+        renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
+        await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent('£2,100'));
+        expect(screen.getByTestId('mic')).toBeEnabled();
+        expect(screen.queryByTestId('price-ask-input')).toBeNull();
+        expect(f.of('POST', '/api/comms-v2/ask')).toHaveLength(0);
     });
 });

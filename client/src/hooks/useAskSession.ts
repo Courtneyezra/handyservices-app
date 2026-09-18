@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCommsEvents, type CommsEvent } from '@/hooks/useCommsEvents';
-import type { AskMessageDTO, AskVia, OpsSessionDTO } from '@shared/ops-types';
+import type { AskContext, AskMessageDTO, AskVia, OpsSessionDTO } from '@shared/ops-types';
 import type { DeskSelection } from '@/lib/handy-desk-queue';
 import {
     ASK_BASE, LIVE_RUN_POLL_MS, RUN_STALE_MS, applyAskEvent, askBody, askRefusal, currentExchange, openRun, settleRun,
@@ -96,8 +96,10 @@ export function useAskSession() {
         if (evt.type === 'ops_run_finished' && evt.sessionId === sessionId) invalidateHeldDrafts();
     }, [sessionId, queryClient, invalidateHeldDrafts]));
 
-    const ask = useCallback(async (text: string, via: AskVia, selection: DeskSelection | null): Promise<boolean> => {
+    /** `context` (B9: the Price and Send screen's `priceSlug`) stands in for the selected card's. */
+    const ask = useCallback(async (text: string, via: AskVia, selection: DeskSelection | null, context?: AskContext): Promise<boolean> => {
         const body = askBody(text, via, selection);
+        if (context) body.context = context;
         if (!body.text) return false;
         if (!sessionId) return false;
         setSending(true);
