@@ -93,7 +93,7 @@ export function fromFinishedCall(call: FinishedCall, deps: CallAdapterDeps = {})
     };
 }
 
-export interface DoorCall { outcome: CallOutcome; transcript?: string | null; durationSeconds?: number | null; name?: string | null; address: string; at?: string; summary?: string | null }
+export interface DoorCall { outcome: CallOutcome; transcript?: string | null; durationSeconds?: number | null; name?: string | null; address: string; at?: string; summary?: string | null; callId?: string | null }
 
 export type DoorCallCheck = { ok: true; input: DoorCall } | { ok: false; error: string };
 
@@ -102,7 +102,9 @@ export type DoorCallCheck = { ok: true; input: DoorCall } | { ok: false; error: 
  * (`POST /call` is Ben ringing them, so it passes `outcome: 'ben_rang'`). An answered call needs a
  * transcript long enough to read. A duration the door does not give stays null, and the turn's
  * header line simply omits it. `summary` stands in for the telephony side's one-line job summary, so
- * a door call's bubble on the board carries one the way a live call's does.
+ * a door call's bubble on the board carries one the way a live call's does. `callId` names a call row
+ * on the branch, as a live call's turn names its own, so a verdict the classifier stored on that row
+ * reads through to the door's file (api/sales-calls.ts); without one the turn names no call row.
  */
 export function validateDoorCall(body: unknown, defaults: { address: string; name?: string | null; outcome?: CallOutcome }): DoorCallCheck {
     const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
@@ -113,11 +115,12 @@ export function validateDoorCall(body: unknown, defaults: { address: string; nam
     const given = Number(b.durationSeconds);
     const durationSeconds = Number.isFinite(given) && given > 0 ? Math.min(3600, Math.round(given)) : null;
     const summary = typeof b.summary === 'string' && b.summary.trim() ? b.summary.trim() : null;
-    return { ok: true, input: { outcome, transcript: outcome === 'missed' ? null : transcript, durationSeconds, summary, name: typeof b.name === 'string' && b.name.trim() ? b.name.trim() : defaults.name ?? null, address: defaults.address } };
+    const callId = typeof b.callId === 'string' && b.callId.trim() ? b.callId.trim().slice(0, 100) : null;
+    return { ok: true, input: { outcome, transcript: outcome === 'missed' ? null : transcript, durationSeconds, summary, callId, name: typeof b.name === 'string' && b.name.trim() ? b.name.trim() : defaults.name ?? null, address: defaults.address } };
 }
 
 export function fromDoorCall(input: DoorCall, deps: CallAdapterDeps = {}): InboundEnvelope {
-    const env = fromFinishedCall({ phone: input.address, name: input.name, direction: input.outcome === 'ben_rang' ? 'outbound' : 'inbound', missed: input.outcome === 'missed', transcript: input.transcript, durationSeconds: input.durationSeconds, at: input.at, jobSummary: input.summary }, deps);
+    const env = fromFinishedCall({ phone: input.address, name: input.name, direction: input.outcome === 'ben_rang' ? 'outbound' : 'inbound', missed: input.outcome === 'missed', transcript: input.transcript, durationSeconds: input.durationSeconds, at: input.at, jobSummary: input.summary, callId: input.callId }, deps);
     if (!env) throw new Error('the door call never reaches the desk');
     env.via = 'door';
     return env;

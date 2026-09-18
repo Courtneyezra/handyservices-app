@@ -65,6 +65,14 @@
  * side never eats it. The mapping from a held file to the card's copy lives in
  * client/src/lib/handy-desk-queue.ts.
  *
+ * Below Needs you, and apart from it, the sales calls (GET /api/comms-v2/sales-calls): files whose
+ * every call the call classifier marked as someone selling to us, each with one tap, Close (the
+ * captain's ruling of 18 Sep 2026, "List them for one-tap close"). They are not in Needs you, and the
+ * list has no way to send anything: no reply, no draft, no template. The verdict only suggests, so a
+ * card that is really a customer is left where it is and answered from the comms board; a held one
+ * asks for the person's words before it closes, as every release does. A card is not selectable, so
+ * nothing on it puts a thread with a reply box on the right.
+ *
  * The ask bar (T2) asks the new desk's ask agent (/api/comms-v2/ask, useAskSession); while it runs
  * the answer surface shows the thinking card, then the answer, until Ben closes it. With no ask on
  * screen, the right-hand side shows the newest answer on the person's newest session until a card is
@@ -92,11 +100,14 @@ import {
     type DeskQueue, type DeskSelection, type HeldCard, type QueueAction, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
 import { usePriceQueue } from '@/hooks/usePriceQueue';
+import { BOARD_PATH, SALES_CALLS_KEY, salesCallCardCopy, salesCallsQuery, type SalesCallItem, type SalesCallList } from '@/lib/handy-desk-sales-calls';
 import { Link, useLocation } from 'wouter';
 import { QuickLinks } from '@/components/layout/QuickLinks';
 import handyLogo from '@/assets/handy-logo.webp';
 
 const QUEUE_REFETCH_MS = 15_000;
+/** The sales calls read the call rows, so on a gentler clock than the in-memory hold poll. */
+const SALES_CALLS_REFETCH_MS = 60_000;
 
 function getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('adminToken');
@@ -399,6 +410,80 @@ export function ReadyToPriceCard({ item, active = false, onSelect }: {
     );
 }
 
+// ---------------------------------------------------------------- sales-call card
+
+/**
+ * A file the call classifier marked as a sales call. One action, Close, and no way to send anything.
+ * A held file asks for the person's words first, because a close releases the hold and a release
+ * always carries words.
+ */
+export function SalesCallCard({ item, canAct, onHandled }: {
+    item: SalesCallItem;
+    canAct: boolean;
+    onHandled: (note: string) => void;
+}) {
+    const copy = salesCallCardCopy(item);
+    const [composing, setComposing] = useState(false);
+    const [words, setWords] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const close = async () => {
+        if (copy.needsWords && !composing) { setComposing(true); setError(null); return; }
+        setBusy(true);
+        setError(null);
+        const result = await post(item.id, 'close-sales-call', copy.needsWords ? { words: words.trim() } : {});
+        setBusy(false);
+        if (!result.ok) { setError(result.message); return; }
+        onHandled(`Closed ${copy.name} as a sales call. Nothing was sent.`);
+    };
+
+    return (
+        <article data-testid={`sales-call-card-${item.id}`} className="rounded-3xl border border-slate-800 bg-[#111c33] p-4">
+            <div className="flex w-full items-center gap-3">
+                <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-700 text-sm font-bold text-white">{copy.initials}</span>
+                <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-bold text-white">{copy.name}</span>
+                    {copy.sub && <span className="block truncate text-xs text-slate-400">{copy.sub}</span>}
+                </span>
+            </div>
+            <p data-testid={`sales-call-badge-${item.id}`} className={cn(EYEBROW, 'mt-3 text-slate-300')}>{copy.badge}</p>
+            <ul className="mt-2 space-y-1">
+                {copy.lines.map((line, i) => (
+                    <li key={i} className="line-clamp-3 text-[13px] text-slate-300">{line}</li>
+                ))}
+            </ul>
+            {copy.held && <p data-testid={`sales-call-held-${item.id}`} className="mt-2 text-xs text-amber-200/80">Held: {copy.held}</p>}
+            <p className="mt-2 text-xs text-slate-500">
+                The call classifier marked this as a sales call. If it is a customer, leave it and answer them from the <Link href={BOARD_PATH} className="text-slate-300 underline-offset-4 hover:text-amber-400 hover:underline">comms board</Link>.
+            </p>
+            {composing && (
+                <div className="mt-3">
+                    <label className="sr-only" htmlFor={`sales-call-words-${item.id}`}>Your words, for the file</label>
+                    <Textarea
+                        id={`sales-call-words-${item.id}`}
+                        value={words}
+                        onChange={(e) => setWords(e.target.value)}
+                        rows={2}
+                        placeholder="What you checked, and why this is closed"
+                        className="rounded-[14px] border-slate-700 bg-slate-900 text-sm text-white placeholder:text-slate-500"
+                    />
+                </div>
+            )}
+            {error && <p role="alert" data-testid={`sales-call-error-${item.id}`} className="mt-3 text-xs text-red-300">{error}</p>}
+            <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" className={PILL_SECONDARY} disabled={!canAct || busy || (composing && !words.trim())} onClick={close}>
+                    {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    Close
+                </button>
+                {composing && (
+                    <button type="button" className={cn(PILL, 'text-slate-400 hover:text-white')} disabled={busy} onClick={() => { setComposing(false); setError(null); }}>Cancel</button>
+                )}
+            </div>
+        </article>
+    );
+}
+
 // ---------------------------------------------------------------- latest answer
 
 /**
@@ -468,6 +553,15 @@ export default function HandyDesk() {
     // The quotes to price come off the price queue's own cached query, on its slower clock: this
     // page must not put that database read behind the 15-second hold poll.
     const prices = usePriceQueue();
+    const salesCalls = useQuery<SalesCallList>({
+        queryKey: SALES_CALLS_KEY,
+        queryFn: async () => {
+            const res = await fetch(salesCallsQuery(), { headers: getAuthHeaders() });
+            if (!res.ok) throw new Error(`Failed to load the sales calls (${res.status})`);
+            return res.json();
+        },
+        refetchInterval: SALES_CALLS_REFETCH_MS,
+    });
     const { data: oldComms } = useOldComms();
     const { data: latest } = useLatestAnswer();
     useEffect(() => {
@@ -494,6 +588,7 @@ export default function HandyDesk() {
     const handleHandled = (note: string) => {
         setDone((d) => [{ key: Date.now(), note }, ...d].slice(0, 3));
         queryClient.invalidateQueries({ queryKey: QUEUE_KEY });
+        queryClient.invalidateQueries({ queryKey: SALES_CALLS_KEY });
         queryClient.invalidateQueries({ queryKey: ['comms-v2-case-file'] });
     };
 
@@ -566,60 +661,79 @@ export default function HandyDesk() {
             />
 
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_minmax(0,1fr)] lg:overflow-hidden">
-                <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
-                    <p className={cn(EYEBROW, 'text-amber-400')}>Needs you</p>
-                    {view.countText && (
-                        <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
-                            {view.countText}
-                        </p>
-                    )}
-                    <p className="mt-1 text-[13px] text-slate-400">Held replies first, longest wait in working hours; then the quotes to price, oldest first.</p>
-                    {view.alerts.map((alert) => (
-                        <p
-                            key={alert.id}
-                            role="alert"
-                            data-testid={`handy-desk-alert-${alert.id}`}
-                            className={cn('mt-2 text-xs', alert.tone === 'error' ? 'text-red-300' : 'text-amber-300')}
-                        >
-                            {alert.text}
-                        </p>
-                    ))}
+                <div className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
+                    <section aria-label="Needs you" className="flex flex-col">
+                        <p className={cn(EYEBROW, 'text-amber-400')}>Needs you</p>
+                        {view.countText && (
+                            <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
+                                {view.countText}
+                            </p>
+                        )}
+                        <p className="mt-1 text-[13px] text-slate-400">Held replies first, longest wait in working hours; then the quotes to price, oldest first.</p>
+                        {view.alerts.map((alert) => (
+                            <p
+                                key={alert.id}
+                                role="alert"
+                                data-testid={`handy-desk-alert-${alert.id}`}
+                                className={cn('mt-2 text-xs', alert.tone === 'error' ? 'text-red-300' : 'text-amber-300')}
+                            >
+                                {alert.text}
+                            </p>
+                        ))}
 
-                    <div className="mt-5 space-y-3">
-                        {view.showSpinner && (
-                            <div data-testid="handy-desk-loading" className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
-                        )}
-                        {view.items.map((item) => isReadyToPrice(item) ? (
-                            <ReadyToPriceCard key={item.id} item={item} active={wide && priceSlug === item.slug}
-                                onSelect={wide ? () => openQuote(item.slug) : undefined} />
-                        ) : (
-                            <QueueCard
-                                key={item.id}
-                                item={item}
-                                active={item.id === selection?.caseFileId || (wide && item.readyToPrice != null && priceSlug === item.readyToPrice.slug)}
-                                showMode={sandbox}
-                                onSelect={() => select(item)}
-                                onHandled={handleHandled}
-                                onOpenQuote={wide && item.readyToPrice ? () => openQuote(item.readyToPrice!.slug) : undefined}
-                            />
-                        ))}
-                        {view.quotesLoading && (
-                            <p data-testid="handy-desk-quotes-loading" className="flex items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-700 p-4 text-sm text-slate-400">
-                                <Loader2 className="h-4 w-4 animate-spin" /> Loading the quotes to price…
-                            </p>
-                        )}
-                        {view.emptyText && (
-                            <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">
-                                {view.emptyText}
-                            </p>
-                        )}
-                        {done.map((d) => (
-                            <p key={d.key} data-testid="handy-desk-done" className="flex items-center gap-2 rounded-3xl border border-slate-800 p-4 text-sm text-slate-300">
-                                <Check className="h-4 w-4 text-green-500" /> {d.note}
-                            </p>
-                        ))}
-                    </div>
-                </section>
+                        <div className="mt-5 space-y-3">
+                            {view.showSpinner && (
+                                <div data-testid="handy-desk-loading" className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
+                            )}
+                            {view.items.map((item) => isReadyToPrice(item) ? (
+                                <ReadyToPriceCard key={item.id} item={item} active={wide && priceSlug === item.slug}
+                                    onSelect={wide ? () => openQuote(item.slug) : undefined} />
+                            ) : (
+                                <QueueCard
+                                    key={item.id}
+                                    item={item}
+                                    active={item.id === selection?.caseFileId || (wide && item.readyToPrice != null && priceSlug === item.readyToPrice.slug)}
+                                    showMode={sandbox}
+                                    onSelect={() => select(item)}
+                                    onHandled={handleHandled}
+                                    onOpenQuote={wide && item.readyToPrice ? () => openQuote(item.readyToPrice!.slug) : undefined}
+                                />
+                            ))}
+                            {view.quotesLoading && (
+                                <p data-testid="handy-desk-quotes-loading" className="flex items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-700 p-4 text-sm text-slate-400">
+                                    <Loader2 className="h-4 w-4 animate-spin" /> Loading the quotes to price…
+                                </p>
+                            )}
+                            {view.emptyText && (
+                                <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">
+                                    {view.emptyText}
+                                </p>
+                            )}
+                            {done.map((d) => (
+                                <p key={d.key} data-testid="handy-desk-done" className="flex items-center gap-2 rounded-3xl border border-slate-800 p-4 text-sm text-slate-300">
+                                    <Check className="h-4 w-4 text-green-500" /> {d.note}
+                                </p>
+                            ))}
+                        </div>
+                    </section>
+
+                    {(salesCalls.isError || (salesCalls.data?.items.length ?? 0) > 0) && (
+                        <section aria-label="Sales calls" data-testid="handy-desk-sales-calls" className="mt-8 flex flex-col">
+                            <p className={cn(EYEBROW, 'text-slate-400')}>Sales calls</p>
+                            <p className="mt-1 text-[13px] text-slate-400">Calls the classifier marked as someone selling to us. Nothing is sent to them; close each once you agree.</p>
+                            {salesCalls.isError && (
+                                <p role="alert" data-testid="handy-desk-sales-calls-error" className="mt-2 text-xs text-amber-300">
+                                    {salesCalls.data ? 'The sales calls may be out of date.' : 'Could not load the sales calls.'}
+                                </p>
+                            )}
+                            <div className="mt-4 space-y-3">
+                                {(salesCalls.data?.items ?? []).map((item) => (
+                                    <SalesCallCard key={item.id} item={item} canAct={canAct} onHandled={handleHandled} />
+                                ))}
+                            </div>
+                        </section>
+                    )}
+                </div>
 
                 <section aria-label="Answer" className="flex min-h-[50vh] min-w-0 flex-col bg-slate-50 lg:min-h-0">
                     <div className="flex-1 px-4 py-6 sm:px-8 lg:overflow-y-auto">

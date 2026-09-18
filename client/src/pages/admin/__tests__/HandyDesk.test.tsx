@@ -97,6 +97,7 @@ function routes(extra: Parameters<typeof mockFetch>[0] = []) {
         { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB, GEMMA], sandboxAvailable: true } }) },
         { url: '/api/spine/price-queue', reply: () => ({ json: { count: 0, items: [], oldestWaitingMs: null, at: new Date().toISOString() } }) },
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
+        { url: '/api/comms-v2/sales-calls', reply: () => ({ json: { items: [] } }) },
         { url: /\/api\/comms-v2\/case-files\/case_rob$/, reply: () => ({ json: detail('case_rob', 'Rob Hale') }) },
         { url: /\/api\/comms-v2\/case-files\/case_gemma$/, reply: () => ({ json: detail('case_gemma', 'Gemma Patel') }) },
         { url: '/api/comms-v2/ask/sessions', reply: () => ({ json: [] }) },

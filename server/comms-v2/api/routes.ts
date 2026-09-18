@@ -18,7 +18,14 @@
  *                                    read: the quotes waiting to be priced also show in Needs you, but
  *                                    the page reads those from /api/spine/price-queue on its own
  *                                    slower clock and merges them in below the holds, so this poll
- *                                    never touches the quotes table
+ *                                    never touches the quotes table. The sales calls are left out
+ *                                    (sales-calls.ts): one read of the call rows' stored verdicts for
+ *                                    the files that could be one; a failed read leaves them in, so a
+ *                                    fault never takes a file out of the column
+ * GET  /sales-calls               - the files whose every call the classifier already marked as
+ *                                    someone selling to us (sales-calls.ts), newest call first, each
+ *                                    with its calls' summaries; the Handy Desk lists them on their
+ *                                    own with a one-tap close. A suggestion only: nothing closes on it
  * GET  /case-files/:id            - one file's turns and facts, read-only, with the channel and
  *                                    window a reply from the thread would use
  * GET  /case-files/:id/template-offer - a dry run of send-template (desk/human-reply.ts
@@ -34,6 +41,11 @@
  *                                    nothing changes; an unheld file closes without words. A
  *                                    closed file takes no more turns; the customer's next message
  *                                    opens a new one
+ * POST /case-files/:id/close-sales-call - a person closes a file from the sales-call list: the same
+ *                                    close as /close (slot check, a hold released only with the
+ *                                    person's words), recorded as a close of a sales call, and
+ *                                    only while the stored verdicts still make it one (409
+ *                                    otherwise). Sends nothing; there is no reply route for this list
  * POST /case-files/:id/answer     - Ben answers the customer in his own words through the desk's
  *                                    one sender (desk/human-reply.ts): his words go as typed with
  *                                    the signed-in person as approver and clear the hold; the
@@ -85,6 +97,7 @@ import { closeByHand } from '../file-close';
 import { commsV2DatabaseCheck } from '../live-database';
 import { createAskRouter, type AskRouterDeps } from '../ask/routes';
 import { createMediaBackfillRouter } from './media-backfill-routes';
+import { isSalesCallFile, readCallKinds, salesCallIds, salesCallKinds, salesCallsOf, type ReadCallKinds } from './sales-calls';
 
 /**
  * Who is looking at the board, so it can show a read-only state before a write fails: the slot the
@@ -102,7 +115,7 @@ export function viewerOf(req: Request, assignments: ApproverAssignments): BoardV
     return { approver: slot?.id ?? null, canAct: !!slot };
 }
 
-export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames, sandboxAvailable: () => boolean = () => commsV2DatabaseCheck(process.env).ok, ask: Omit<AskRouterDeps, 'source' | 'approvers'> = {}, templates?: TemplateStatusSource): Router {
+export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), approvers: ReadApproverAssignments = readApproverAssignments, sourceFor: BoardSourceFor = boardSourceFor, retired: () => Promise<boolean> = () => oldCommsRetired(), names: ReadStaffNames = readStaffNames, sandboxAvailable: () => boolean = () => commsV2DatabaseCheck(process.env).ok, ask: Omit<AskRouterDeps, 'source' | 'approvers'> = {}, templates?: TemplateStatusSource, callKinds: ReadCallKinds = readCallKinds): Router {
     const router = Router();
     /** The store this request reads (api/store.ts): the live desk's while it is live, else the sandbox door's. Null once a 503 has been sent. */
     const source = async (res: Response): Promise<BoardSource | null> => {
@@ -136,8 +149,30 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const src = await source(res);
         if (!src) return;
         const assignments = await approvers();
-        const queue = queueOf(src.store.all(), { mode }, assignments, new Date());
+        const files = src.store.all();
+        // A failed read of the verdicts leaves every file in: the cost of a fault is an extra row, never a missing one.
+        const exclude = await salesCallIds(files, callKinds).catch((error: any) => {
+            console.error(`[comms-v2 queue] the sales-call verdicts could not be read; none left out: ${error?.message ?? error}`);
+            return new Set<string>();
+        });
+        const queue = queueOf(files, { mode, exclude }, assignments, new Date());
         res.json({ ...queue, sandboxAvailable: sandboxAvailable(), viewer: viewerOf(req, assignments) });
+    });
+
+    router.get('/sales-calls', async (req, res) => {
+        const mode = req.query.mode === 'sandbox' || req.query.mode === 'live' ? (req.query.mode as BoardMode) : undefined;
+        const src = await source(res);
+        if (!src) return;
+        const assignments = await approvers();
+        const files = src.store.all();
+        let kinds: Map<string, string>;
+        try {
+            kinds = await salesCallKinds(files, callKinds);
+        } catch (error: any) {
+            res.status(503).json({ error: `the call verdicts could not be read: ${error?.message ?? error}` });
+            return;
+        }
+        res.json({ ...salesCallsOf(files, kinds, { mode }, assignments), viewer: viewerOf(req, assignments) });
     });
 
     router.get('/case-files/:id', async (req, res) => {
@@ -202,6 +237,36 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
         const words = typeof req.body?.words === 'string' ? req.body.words : '';
         const outcome = closeByHand(file, { approver, person: String(user.email ?? user.id ?? ''), words });
+        if (!outcome.ok) { res.status(outcome.status).json({ error: outcome.reason }); return; }
+        src.store.put(file);
+        res.json({ ok: true, card: cardOf(file, assignments), change: outcome.change, release: outcome.release });
+    });
+
+    /**
+     * One tap from the sales-call list. The verdict suggested it; the person closing it decides, and
+     * the verdicts are read again first so a file that has since become a customer's (a text, a call
+     * marked otherwise) is never closed from a stale list. Nothing is sent.
+     */
+    router.post('/case-files/:id/close-sales-call', async (req, res) => {
+        const user = (req as any).user;
+        if (!user) { res.status(401).json({ error: 'a signed-in user is required to close a file' }); return; }
+        const assignments = await approvers();
+        const approver = slotOf(user, assignments);
+        if (!approver) { res.status(403).json({ error: 'no approver slot is assigned to this user' }); return; }
+        const src = await source(res);
+        if (!src) return;
+        const file = src.store.get(req.params.id);
+        if (!file) { res.status(404).json({ error: 'no such case file' }); return; }
+        let kinds: Map<string, string>;
+        try {
+            kinds = await salesCallKinds([file], callKinds);
+        } catch (error: any) {
+            res.status(503).json({ error: `the call verdicts could not be read: ${error?.message ?? error}` });
+            return;
+        }
+        if (!isSalesCallFile(file, kinds)) { res.status(409).json({ error: 'this file is not on the sales-call list any more; open it on the board' }); return; }
+        const words = typeof req.body?.words === 'string' ? req.body.words : '';
+        const outcome = closeByHand(file, { approver, person: String(user.email ?? user.id ?? ''), words, why: 'closed by hand from the sales-call list: the call classifier marked every call on it as a sales call' });
         if (!outcome.ok) { res.status(outcome.status).json({ error: outcome.reason }); return; }
         src.store.put(file);
         res.json({ ok: true, card: cardOf(file, assignments), change: outcome.change, release: outcome.release });
