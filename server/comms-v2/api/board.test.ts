@@ -82,6 +82,15 @@ describe('cardOf quoteReissue', () => {
     });
 });
 
+describe('cardOf quoteSlug', () => {
+    it('carries the file\'s job quote slug, null before a quote is on the file (N1: lets a held card merge onto its own ready-to-price card)', () => {
+        const file = openFile();
+        expect(cardOf(file).quoteSlug).toBeNull();
+        file.job.quoteRef = 'abcd1234';
+        expect(cardOf(file).quoteSlug).toBe('abcd1234');
+    });
+});
+
 describe('cardOf benToRequest', () => {
     it('shows a stored ben_to_request entry still missing from the file today', () => {
         const file = openFile();

@@ -32,6 +32,7 @@ function item(over: Partial<QueueItem> = {}): QueueItem {
         replyChannel: 'whatsapp',
         openedAt: '2026-09-11T09:00:00.000Z',
         benToRequest: [],
+        quoteSlug: null,
         draft: null,
         waitingWorkingHours: 3.2,
         ...over,
@@ -80,6 +81,18 @@ describe('queueCardCopy', () => {
         expect(copy.name).toBe('07700900942');
         expect(copy.sub).toBe('');
         expect(copy.badge).toBe('Held · 3 h');
+    });
+
+    it('N1: a merged card still badges the hold and its reason, and adds the quote\'s own line and link', () => {
+        const readyToPrice = { kind: 'ready_to_price' as const, id: 'price:rob123', slug: 'rob123', quoteId: 'q1', customerName: 'Rob Hale', job: 'leaking tap', postcode: 'NG1 1AA', createdAt: null, waitingMs: 0, pricePath: '/admin/price/rob123', signals: { checkThis: 0, unpriced: 1, contradictions: 0, lowConfidence: 0, estimateStatus: null } };
+        const copy = queueCardCopy({ ...item(), readyToPrice });
+        expect(copy.badge).toBe('money question · 3 h');
+        expect(copy.body).toBe('How much roughly?');
+        expect(copy.readyToPrice).toEqual({ text: 'Their quote is also waiting to be priced.', href: '/admin/price/rob123' });
+    });
+
+    it('a plain held card (no merge) carries no readyToPrice line', () => {
+        expect(queueCardCopy(item()).readyToPrice).toBeNull();
     });
 });
 
@@ -212,6 +225,28 @@ describe('withReadyToPrice (the client-side merge, Q12)', () => {
     it('lists the holds alone while the price read has not answered', () => {
         expect(withReadyToPrice(held, undefined).map((i) => i.id)).toEqual(['case_a', 'case_b']);
         expect(withReadyToPrice(held, { items: [] })).toHaveLength(2);
+    });
+
+    it('N1: a held file whose quote is a waiting draft merges onto its own held card instead of listing twice', () => {
+        const merged = withReadyToPrice(
+            [item({ id: 'case_rob', quoteSlug: 'rob123' })],
+            { items: [priceRow('rob123'), priceRow('other')] },
+        );
+        // One row for Rob, carrying both halves; the unmatched quote still lists on its own.
+        expect(merged.map((i) => i.id)).toEqual(['case_rob', 'price:other']);
+        expect(merged[0].kind).toBe('held');
+        expect((merged[0] as any).readyToPrice).toMatchObject({ slug: 'rob123' });
+    });
+
+    it('N1: a held file whose quote is not (yet) a waiting draft carries no readyToPrice', () => {
+        const merged = withReadyToPrice([item({ id: 'case_a', quoteSlug: 'not-waiting' })], { items: [priceRow('other')] });
+        expect((merged[0] as any).readyToPrice).toBeNull();
+        expect(merged.map((i) => i.id)).toEqual(['case_a', 'price:other']);
+    });
+
+    it('N1: a held file with no quote at all carries no readyToPrice', () => {
+        const merged = withReadyToPrice([item({ id: 'case_a', quoteSlug: null })], { items: [priceRow('other')] });
+        expect((merged[0] as any).readyToPrice).toBeNull();
     });
 
     it('turns a price-queue row into a card that opens Price and Send, carrying its wall-clock wait', () => {

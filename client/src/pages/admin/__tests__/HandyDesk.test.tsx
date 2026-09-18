@@ -559,6 +559,41 @@ describe('HandyDesk', () => {
         expect(window.location.pathname).toBe('/');
     });
 
+    it('N1: a held file whose own quote is waiting to be priced shows as one card, still held and why, with a link to price it', async () => {
+        const robsRow: PriceQueueItem = { ...SAM_ROW, slug: 'rob-quote', quoteId: 'q_rob', name: 'Rob Hale' };
+        routes([
+            priceRoute([robsRow, SAM_ROW]),
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ ...ROB, quoteSlug: 'rob-quote' }, GEMMA], sandboxAvailable: true } }) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+        // One card for Rob - no second "case_rob"-and-"price:rob-quote" pair - carrying the hold's own badge.
+        expect(await screen.findByTestId('queue-card-case_rob')).toBeInTheDocument();
+        expect(screen.queryByTestId('queue-card-price:rob-quote')).not.toBeInTheDocument();
+        const robCard = screen.getByTestId('queue-card-case_rob');
+        expect(within(robCard).getByTestId('queue-card-badge-case_rob')).toHaveTextContent('guard hold');
+        expect(within(robCard).getByText("Their quote is also waiting to be priced.")).toBeInTheDocument();
+        expect(within(robCard).getByRole('link', { name: 'Open & price' })).toHaveAttribute('href', '/admin/price/rob-quote');
+        // Sam's own quote, unmatched to any hold, still lists on its own.
+        expect(await screen.findByTestId('queue-card-price:sam123')).toBeInTheDocument();
+        // The header badge counts held customers, not rows: two holds, one merged, still two.
+        expect(screen.getByTestId('topbar-held-badge-desk')).toHaveTextContent('2');
+    });
+
+    it('N1: on a wide screen the merged card opens its quote beside the queue and stays on the desk', async () => {
+        stubWide();
+        const robsRow: PriceQueueItem = { ...SAM_ROW, slug: 'rob-quote', quoteId: 'q_rob', name: 'Rob Hale' };
+        routes([
+            priceRoute([robsRow]),
+            { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ ...ROB, quoteSlug: 'rob-quote' }], sandboxAvailable: true } }) },
+            { url: '/api/spine/price/rob-quote', reply: () => ({ status: 404, json: { available: false } }) },
+        ]);
+        renderWithQuery(<HandyDesk />);
+        const robCard = await screen.findByTestId('queue-card-case_rob');
+        await userEvent.click(within(robCard).getByRole('link', { name: 'Open & price' }));
+        await waitFor(() => expect(screen.getByTestId('queue-card-case_rob')).toHaveAttribute('aria-current', 'true'));
+        expect(window.location.pathname).toBe('/');
+    });
+
     it('still lists the holds when the quotes to price could not be read, and says so', async () => {
         routes([
             { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB], sandboxAvailable: true } }) },

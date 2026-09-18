@@ -69,6 +69,8 @@ export interface BoardCard {
     benToRequest: string[];
     /** The desk's newest automatic reissue of an expired quote (server/comms-v2/api/board.ts). */
     quoteReissue?: { amount: string; previous: string; automatic: true; sentAt: string | null; notSent: string | null; at: string } | null;
+    /** The quote slug the file's job names (server/comms-v2/api/board.ts); null while no quote is on the file. Lets a held card and its ready-to-price card merge on one row (always sent). */
+    quoteSlug?: string | null;
 }
 
 export interface Board {

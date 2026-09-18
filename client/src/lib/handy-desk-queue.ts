@@ -8,6 +8,12 @@
  * queue endpoint: that read costs the quotes table, so the page takes them from the price queue's
  * own cached query (`usePriceQueue`, 60s with a 30s staleTime) and `withReadyToPrice` merges the two
  * below the holds, leaving the 15-second queue poll a pure in-memory read.
+ *
+ * N1: when a held file's own quote (`quoteSlug`, board.ts) is itself one of those waiting drafts,
+ * the two rows for that one customer become one - `withReadyToPrice` folds the ready-to-price row
+ * into the held card as `readyToPrice`, and `queueCardCopy` adds its line and link rather than
+ * dropping it. The hold's own badge and reason are untouched, so nothing about why the customer is
+ * held is lost; only the second row goes.
  */
 import { ageLabel, type PriceQueueItem, type PriceQueuePayload } from '@/hooks/usePriceQueue';
 import type { BoardCard, BoardViewer } from '@/pages/admin/CommsV2BoardPage';
@@ -38,7 +44,16 @@ export interface ReadyToPriceItem {
 }
 
 /** The same hold once `withReadyToPrice` has tagged it for the merged list. */
-export type HeldCard = QueueItem & { kind: 'held' };
+export type HeldCard = QueueItem & {
+    kind: 'held';
+    /**
+     * The customer's own ready-to-price row, when their held file's quote is a waiting draft
+     * (`quoteSlug` matches a price-queue row); null otherwise. N1: the two rows become one card, so
+     * nobody sees the same customer twice, but the hold and its reason still say so on the card - see
+     * `queueCardCopy`.
+     */
+    readyToPrice: ReadyToPriceItem | null;
+};
 
 export type DeskQueueItem = HeldCard | ReadyToPriceItem;
 
@@ -68,10 +83,22 @@ export function readyToPriceOf(item: PriceQueueItem): ReadyToPriceItem {
  * price queue's own order - oldest draft first, which `PriceQueuePayload.items` guarantees. A person
  * waiting on a reply always outranks an unpriced draft, whatever the draft's age. With no price
  * payload yet (still loading, or the read failed) the holds stand alone.
+ *
+ * N1: when a held file's quote is itself a waiting draft (`quoteSlug` matches a price-queue row's
+ * `slug`), that row joins the held card as `readyToPrice` instead of also listing as its own card -
+ * one customer, one row. The held card still carries its own hold reason and wait untouched, so
+ * nothing about why the customer is held is lost; the merge only removes the second row.
  */
 export function withReadyToPrice(held: QueueItem[], prices?: Pick<PriceQueuePayload, 'items'>): DeskQueueItem[] {
-    const holds: DeskQueueItem[] = held.map((h) => ({ ...h, kind: 'held' }));
-    return prices ? [...holds, ...prices.items.map(readyToPriceOf)] : holds;
+    const bySlug = new Map((prices?.items ?? []).map((item) => [item.slug, item] as const));
+    const holds: HeldCard[] = held.map((h) => {
+        const row = h.quoteSlug ? bySlug.get(h.quoteSlug) : undefined;
+        if (row) bySlug.delete(h.quoteSlug!);
+        return { ...h, kind: 'held', readyToPrice: row ? readyToPriceOf(row) : null };
+    });
+    if (!prices) return holds;
+    const remaining = Array.from(bySlug.values(), readyToPriceOf);
+    return [...holds, ...remaining];
 }
 
 /**
@@ -201,7 +228,7 @@ export interface QueueCardCopy {
     name: string;
     /** Job, place and reply channel, whichever are known. */
     sub: string;
-    /** Hold reason and wait, rendered in caps. */
+    /** Hold reason and wait, rendered in caps. Always the hold's own words, whether or not a quote also merges onto this card. */
     badge: string;
     body: string | null;
     draft: string | null;
@@ -212,6 +239,12 @@ export interface QueueCardCopy {
     more: QueueButton[];
     /** Why nobody can act on the card yet, when that is so. */
     blocked: string | null;
+    /**
+     * N1: this customer's own quote is also waiting to be priced, so the row says both things -
+     * the link opens Price and Send for it. Null when the file carries no waiting draft, in which
+     * case nothing here changes what a plain held card says.
+     */
+    readyToPrice: { text: string; href: string } | null;
 }
 
 const CHANNEL_LABEL: Record<string, string> = { whatsapp: 'WhatsApp', sms: 'SMS', email: 'Email', call: 'Call', form: 'Web form' };
@@ -254,7 +287,7 @@ export function displayName(item: Pick<BoardCard, 'customerName' | 'customerAddr
     return item.customerName || item.customerAddress.replace(/^[a-z]+:/, '') || 'Unknown';
 }
 
-export function queueCardCopy(item: QueueItem): QueueCardCopy {
+export function queueCardCopy(item: QueueItem & { readyToPrice?: ReadyToPriceItem | null }): QueueCardCopy {
     const name = displayName(item);
     const sub = [item.jobType, item.location, channelLabel(item.replyChannel) || null]
         .filter(Boolean)
@@ -273,6 +306,7 @@ export function queueCardCopy(item: QueueItem): QueueCardCopy {
         blocked: item.holdApproverAssigned
             ? null
             : `No one is assigned to the ${item.holdApprover ?? 'approver'} slot, so nobody can act on this yet. Set the comms_v2_approvers row.`,
+        readyToPrice: item.readyToPrice ? { text: 'Their quote is also waiting to be priced.', href: item.readyToPrice.pricePath } : null,
     };
 }
 

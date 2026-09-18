@@ -89,7 +89,7 @@ import { useIsWideBoard } from '@/hooks/useIsWideBoard';
 import { exchangeOfAnswered, latestAnswered, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
     ACTION_ROUTE, QUEUE_KEY, isReadyToPrice, isShutWindow, needsWords, needsYouView, queueCardCopy, queueQuery, readStateOf, readyToPriceCardCopy, refusalMessage, selectionOf,
-    type DeskQueue, type DeskSelection, type QueueAction, type QueueItem, type ReadyToPriceItem,
+    type DeskQueue, type DeskSelection, type HeldCard, type QueueAction, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
 import { usePriceQueue } from '@/hooks/usePriceQueue';
 import { Link, useLocation } from 'wouter';
@@ -206,12 +206,14 @@ function DeskHeader({ sandbox, handled, deskLive, heldCount, updatedAt }: {
 
 // ---------------------------------------------------------------- queue card
 
-export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
-    item: QueueItem;
+export function QueueCard({ item, active, showMode, onSelect, onHandled, onOpenQuote }: {
+    item: HeldCard;
     active: boolean;
     showMode: boolean;
     onSelect: () => void;
     onHandled: (note: string) => void;
+    /** B9: on a wide screen, open the merged quote beside the queue instead of leaving the desk. */
+    onOpenQuote?: () => void;
 }) {
     const copy = queueCardCopy(item);
     const [composing, setComposing] = useState<QueueAction | null>(null);
@@ -276,6 +278,16 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
                 </div>
             )}
             {copy.blocked && <p data-testid={`queue-card-blocked-${item.id}`} className="mt-3 text-xs text-amber-200/80">{copy.blocked}</p>}
+            {copy.readyToPrice && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[14px] bg-white/5 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                    <p className="text-xs text-slate-300">{copy.readyToPrice.text}</p>
+                    <Link
+                        href={copy.readyToPrice.href}
+                        onClick={onOpenQuote ? (e) => { e.preventDefault(); onOpenQuote(); } : undefined}
+                        className="text-xs font-semibold text-amber-400 hover:underline"
+                    >Open &amp; price</Link>
+                </div>
+            )}
 
             {composing && (
                 <div className="mt-3" onClick={(e) => e.stopPropagation()}>
@@ -584,10 +596,11 @@ export default function HandyDesk() {
                             <QueueCard
                                 key={item.id}
                                 item={item}
-                                active={item.id === selection?.caseFileId}
+                                active={item.id === selection?.caseFileId || (wide && item.readyToPrice != null && priceSlug === item.readyToPrice.slug)}
                                 showMode={sandbox}
                                 onSelect={() => select(item)}
                                 onHandled={handleHandled}
+                                onOpenQuote={wide && item.readyToPrice ? () => openQuote(item.readyToPrice!.slug) : undefined}
                             />
                         ))}
                         {view.quotesLoading && (
