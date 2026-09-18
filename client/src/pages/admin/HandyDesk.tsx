@@ -50,7 +50,7 @@
  *
  * Selecting a card sets the selected conversation (`DeskSelection`): the answer surface opens that
  * customer's thread (client/src/components/comms-v2/ThreadView.tsx, B4), with the held draft and
- * Ben's own reply, docked on the right at 1024px and up and as a bottom sheet below; the ask bar
+ * Ben's own reply, docked on the right at 1024px and up and full screen below; the ask bar
  * takes it as context. A ready-to-price card has no conversation, so it selects nothing. Which of the two shows follows the window as it is now, so narrowing a window
  * with a card selected brings its thread with it. Leaving the sheet puts the card down with it, so
  * the queue, the ask bar's context and the answer surface always agree; "Ask about this" in its

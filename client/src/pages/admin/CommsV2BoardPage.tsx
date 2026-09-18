@@ -4,7 +4,7 @@
  * column per Contract 2 stage, read from GET /api/comms-v2/board. Held cards float to the top of
  * their column with the hold reason and approver visible. A tap opens the customer's thread
  * (client/src/components/comms-v2/ThreadView.tsx, Handy Desk B4): docked beside the board at 1024px
- * and up, a bottom sheet below, with the held draft, Ben's own reply, release and the shut-window
+ * and up, full screen below, with the held draft, Ben's own reply, release and the shut-window
  * template send. A session the server says holds no approver slot (`viewer.canAct`) sees the thread
  * without its actions.
  *
