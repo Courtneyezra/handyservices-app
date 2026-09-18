@@ -74,7 +74,11 @@ exactly `1` is on, anything else is off. Off: nothing runs and nothing old chang
 entry point also forwards its raw event here, fire and forget, and the matching adapter hands the
 turn to the channel gateway; the old handler still runs. The forwarding call is the one edit in old
 code: server/whatsapp-api.ts `/incoming` (Twilio, WhatsApp and SMS), server/meta-whatsapp.ts
-`/webhook`, server/leads.ts `POST /api/leads` (the web form), and server/call-logger.ts
+`/webhook`, server/leads.ts `POST /api/leads` (the web form, and only where the body is an enquiry
+someone wrote in with: that route also records a booking once Stripe has taken the money, the
+instant-quote card's booking and a slot reserved on a quote we already sent, and none of those is a
+new enquiry, so the forward asks `isWebFormEnquiry` there, the one rule the old ingest reads too),
+and server/call-logger.ts
 `finalizeCall` (a finished call; the call row is read for its outcome) and server/twilio-realtime.ts
 after the batch transcription (`call_transcribed`: the same call once its transcript and job summary
 are on the row). A call turn carries its call id (`Turn.callId`), so any later pass of that call,
