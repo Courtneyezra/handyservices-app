@@ -16,6 +16,8 @@
  *   - the thread held because the customer asked us to stop (`optOutHeld`), never; the sender's own
  *     gate asks the opt-out ledger about every address, phone and email, as it does for a first send;
  *   - a customer message still waiting on the file (`waits`): the desk answers it first;
+ *   - a customer message since the card was raised, even one the desk has answered: it may have
+ *     overtaken the quote ("I've found someone else"), so the send is left to Ben;
  *   - a price lock that has passed: the card is rewritten to say it needs pricing again;
  *   - no channel to answer on, or a shut WhatsApp window with no approved `quote_ready_link`: the
  *     card is rewritten to say so, so it never goes on naming a refusal that has cleared;
@@ -86,6 +88,9 @@ export async function redrivePricedQuote(file: CaseFile, deps: RedriveDeps): Pro
     const now = deps.now();
     const quoting = { ...deps.desk.quoting, now: deps.now, newId: deps.desk.newId };
     const skip = (why: string): RedriveOutcome => ({ note: `quote ${slug} not re-driven: ${why}`, result: null });
+    // The customer has written since the card was raised: what they said may have overtaken the quote, so it is Ben's to send.
+    const since = Date.parse(file.hold!.since);
+    if (file.turns.some((t) => t.direction === 'inbound' && t.partyId === party.personId && Date.parse(t.at) > since)) return skip('the customer has written since it was held');
 
     const attempts = attemptsOn(file, slug);
     if (attempts.length >= MAX_REDRIVES) {

@@ -136,6 +136,21 @@ describe('the re-drive does not drive into a refusal that still applies', () => 
         expect((await t.store.read(t.slug))?.isDraft).toBe(true);
     });
 
+    it('sends nothing once the customer has written since the card was raised, even after the desk answered them', async () => {
+        const t = await refusedDelivery();
+        t.wire.refusing = false;
+        const declined = appendTurn(t.file, { at: '2026-09-14T12:05:00.000Z', channel: 'whatsapp', kind: 'text', body: "actually I have found someone else, don't bother", media: [], partyId: 'p1', direction: 'inbound', runId: null, approver: null });
+        if (!declined.ok) throw new Error(declined.reason);
+        const answered = appendTurn(t.file, { at: '2026-09-14T12:05:30.000Z', channel: 'whatsapp', kind: 'text', body: 'No problem at all Sam, thanks for letting us know.', media: [], partyId: 'p1', direction: 'outbound', runId: 'run-answer', approver: 'comms_v2' });
+        if (!answered.ok) throw new Error(answered.reason);
+        expect(t.file.hold?.notedOn).toBe(false);
+        const result = await deskFor(t, t.wire, () => new Date(NOW.getTime() + 10 * 60_000), { client: silent }).clockPass(t.file);
+        expect(t.wire.calls).toHaveLength(0);
+        expect(t.file.facts.filter((f) => f.key === REDRIVE_FACT)).toHaveLength(0);
+        expect(result.note).toContain(`quote ${t.slug} not re-driven: the customer has written since it was held`);
+        expect((await t.store.read(t.slug))?.isDraft).toBe(true);
+    });
+
     it('on a passed price lock tries nothing and rewrites the card to say it needs pricing again', async () => {
         const t = await refusedDelivery();
         t.wire.refusing = false;
