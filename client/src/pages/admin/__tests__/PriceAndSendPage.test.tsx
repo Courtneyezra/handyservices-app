@@ -181,6 +181,10 @@ describe('PriceAndSend (phone)', () => {
         screenFetch(payload());
         renderWithQuery(<PriceAndSend slug="z4p6t9mw" />);
         const root = await screen.findByTestId('price-and-send');
+        // The first render after the payload arrives already shows the line cards but reads £0: the
+        // per-line states are filled by the prefill effect keyed on data.version, which runs after that
+        // render. Wait for the prefill, not just the cards, or a slow runner reads the £0 frame.
+        await waitFor(() => expect(screen.getByTestId('total')).toHaveTextContent('£2,100'));
         expect(root).toHaveAttribute('data-layout', 'phone');
         expect(screen.getByTestId('customer-first-name')).toHaveTextContent('Sarah');
         expect(screen.getByTestId('contradiction-count')).toHaveTextContent('1 to check');
