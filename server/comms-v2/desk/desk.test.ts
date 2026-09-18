@@ -11,7 +11,8 @@ import type { DeskResult } from './desk-types';
 import { ChannelGateway } from '../channels/channel-gateway';
 import { transcriptBody } from '../channels/call-adapter';
 import { fromWebForm } from '../channels/form-adapter';
-import { appendTurn, open, type CaseFile } from './case-file';
+import type { InboundEnvelope } from '../channels/envelope';
+import { appendTurn, closeFile, open, release, type CaseFile } from './case-file';
 import { customerTurnOf } from './turn-window';
 import { noFixedLineSource, DEFAULT_FIXED_LINES, type FixedLineSource } from './fixed-lines';
 import { Gateway } from './gateway';
@@ -475,6 +476,52 @@ describe('the desk', () => {
         expect(after.result.bubbles.length).toBeGreaterThan(0);
         expect(after.result.calls.map((c) => c.role)).toContain('router');
         expect(client.calls.filter((c) => c.role === 'composer').length).toBeGreaterThan(composedBefore);
+    });
+
+    const emailFrom = (text: string, at: string): InboundEnvelope => ({ channel: 'email', address: 'sam@example.invalid', name: 'Sam', text, media: [], at, providerMessageId: null, via: 'test', mediaFailures: [] });
+
+    it('a file that closes while the opt-out hold stands carries it onto the file the next message opens', async () => {
+        const { client, desk: d, now } = noModel();
+        const g = new ChannelGateway({ desk: d, now });
+        const stop = await g.inbound(emailFrom('Subject: Unsubscribe\n\nPlease unsubscribe me', '2026-09-11T10:00:00.000Z'));
+        if (stop.kind !== 'handled') throw new Error(stop.kind);
+        expect(stop.result.decision).toBe('hold');
+        expect(stop.file.hold?.reason).toContain('customer may have asked to stop by email');
+
+        // The job on that file is signed off, so the file closes (file-close.ts) and no later message lands on it.
+        const closed = closeFile(stop.file, 'done', { why: 'the job was signed off as complete' }, { now });
+        expect(closed.ok).toBe(true);
+
+        // Their next message opens a new file, and the hold is on it: nothing is read, composed or sent.
+        const next = await g.inbound(emailFrom('When is the invoice due?', '2026-09-11T11:00:00.000Z'));
+        if (next.kind !== 'handled') throw new Error(next.kind);
+        expect(next.file.id).not.toBe(stop.file.id);
+        expect(next.result.decision).toBe('hold');
+        expectSilent(next.result, next.file, client.calls, 'the file opened after the close');
+        expect(next.file.hold?.reason).toContain('customer may have asked to stop by email');
+        expect(next.file.hold?.approver).toEqual(stop.file.hold?.approver);
+        expect(next.result.note).toMatch(/the opt-out hold stands: no specialist read this turn/);
+    });
+
+    it('the hold released on the newest file is not raised again by the next message', async () => {
+        const { client, desk: d, now } = desk({
+            router: () => routeScoping(),
+            specialist: () => specialistFacts([{ key: 'job_type', value: 'sticking back door' }]),
+            composer: () => ({ reply: 'Hi Sam, a sticking back door, no problem.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
+        });
+        const g = new ChannelGateway({ desk: d, now });
+        const stop = await g.inbound(emailFrom('Subject: Unsubscribe\n\nPlease unsubscribe me', '2026-09-11T10:00:00.000Z'));
+        if (stop.kind !== 'handled') throw new Error(stop.kind);
+        const released = release(stop.file, stop.file.hold!.approver, 'recorded the opt-out and spoke to them; they want us to carry on', { now });
+        expect(released.ok).toBe(true);
+        expect(closeFile(stop.file, 'done', { why: 'the job was signed off as complete' }, { now }).ok).toBe(true);
+
+        const next = await g.inbound(emailFrom('Actually, my back door sticks', '2026-09-11T11:00:00.000Z'));
+        if (next.kind !== 'handled') throw new Error(next.kind);
+        expect(next.file.id).not.toBe(stop.file.id);
+        expect(next.file.hold).toBeNull();
+        expect(next.result.decision).toBe('send');
+        expect(client.calls.map((c) => c.role)).toEqual(['router', 'specialist', 'composer']);
     });
 
     it('a call with no opt-out in it is scoped as before: routed, gathered and composed, with no opt-out hold', async () => {

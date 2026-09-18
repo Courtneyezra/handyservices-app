@@ -169,14 +169,30 @@ export function optOutOnTurn(file: CaseFile, turn: Turn): { note: string; holdRe
 
 /**
  * Whether the thread is held because the customer asked us to stop. The hold's reason is the one
- * record of what a thread is held on (case-file.ts `hold`, `noteOnHold`, `supersede`), so the
- * opt-out is read back from it wherever it sits on that record: the reason the hold was raised
- * for, a reason added to a card Ben already had, or one a graver reason took over.
+ * record of what a thread is held on (case-file.ts `hold`, `noteOnHold`), so the opt-out is read
+ * back from it: the reason the hold was raised for, or one added to a card Ben already had, which
+ * is written after it and never over it.
  */
 export function optOutHeld(file: CaseFile): boolean {
-    const hold = file.hold;
-    if (!hold) return false;
-    return [hold.reason, ...hold.superseded.flatMap((s) => [s.from.reason, s.to.reason])].some((reason) => reason.includes(OPT_OUT_HOLD));
+    return !!file.hold && file.hold.reason.includes(OPT_OUT_HOLD);
+}
+
+/**
+ * The opt-out hold onto the file a person's next message opens. A file closes when the job is
+ * booked or done (file-close.ts) and the person's next message then opens a new one (store.ts
+ * `newestOpenFor`), so without this the silence would end with the close rather than with Ben.
+ * Their newest file alone is read, so the hold Ben has released is not raised again by an older
+ * file that still carries it, and the same card is raised with the same approver slot, since it is
+ * the same thing Ben has to do. A file opened already held carries nothing else over.
+ */
+export function carryOptOutHold(file: CaseFile, files: Iterable<CaseFile>, personId: string, deps: CaseFileDeps = {}): boolean {
+    if (file.hold) return false;
+    const previous = Array.from(files)
+        .filter((f) => f.id !== file.id && f.parties.some((p) => p.personId === personId))
+        .sort((a, b) => Date.parse(b.openedAt) - Date.parse(a.openedAt))[0];
+    if (!previous || !optOutHeld(previous)) return false;
+    const reason = `${previous.hold!.reason}; carried onto this file: the earlier one closed while the opt-out hold stood, and it stands until it is released`;
+    return setHold(file, { approver: previous.hold!.approver, reason, exception: null }, deps).ok;
 }
 
 /**

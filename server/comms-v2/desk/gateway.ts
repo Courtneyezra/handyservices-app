@@ -12,6 +12,7 @@ import { Identity, e164Of, type ResolveResult } from './identity';
 import { MemoryCaseFileStore, type CaseFileStore } from './store';
 import type { InboundTurn } from './whatsapp-adapter';
 import type { DeskResult, DeskLike, GuardName, GuardVerdict } from './desk-types';
+import { carryOptOutHold } from './desk';
 import { customerTurnOf, waitsForQuiet } from './turn-window';
 
 export interface GatewayDeps {
@@ -113,6 +114,7 @@ export class Gateway {
             file = opened.value;
             landed = file.turns[0];
             this.applySeed(file, seed);
+            this.carryHolds(file, resolved.personId);
             this.store.put(file);
         } else {
             const party = partyOf(file, resolved.personId)!;
@@ -343,6 +345,15 @@ export class Gateway {
         for (const w of file.waits ?? []) { w.dueAt = shift(w.dueAt)!; w.handedAt = shift(w.handedAt); }
         this.store.put(file);
         return file;
+    }
+
+    /**
+     * What a newly opened file carries over from the person's last one: the hold raised because
+     * they asked us to stop (desk.ts `carryOptOutHold`), so a file closing on a booked or a done
+     * job does not let the desk speak to them again before Ben has released it.
+     */
+    protected carryHolds(file: CaseFile, personId: string): void {
+        if (carryOptOutHold(file, this.store.all(), personId, this.fileDeps())) this.log(`case ${file.id} opens held: the opt-out hold on this person's last file stands`);
     }
 
     /** The door's seed (POST /start), honoured as facts and ledger rows on the file. */

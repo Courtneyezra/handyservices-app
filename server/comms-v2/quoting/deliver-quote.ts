@@ -12,11 +12,16 @@
  * The quote is never marked sent unless the text that went IS the quote: a shut window with no
  * approved template, a guard failure or a refused send each hold for Ben and leave the quote a draft
  * he can price again.
+ *
+ * A thread held because the customer asked us to stop (desk/desk.ts `optOutHeld`) is read before
+ * anything is written: the words here are the desk's own composer's, not the words of whoever
+ * pressed send, so nothing is composed and nothing goes. The quote stays a draft and the reason
+ * joins the card, which is what the price screen shows back to them.
  */
 import { hold as setHold, noteOnHold, release as releaseHold, type CaseFile, type ModelCallRecord, type Party, type RenderedBubble, type ReplyChannel, type Turn } from '../desk/case-file';
 import { compose } from '../desk/composer';
 import { fixedLine, knowledgeBaseFixedLines } from '../desk/fixed-lines';
-import type { DeskDeps } from '../desk/desk';
+import { optOutHeld, type DeskDeps } from '../desk/desk';
 import type { DeskResult, GuardName, GuardVerdict } from '../desk/desk-types';
 import { AnthropicModelClient } from '../desk/models';
 import { BEN, noReplyToCheck, runGuards, type GuardOutcome } from '../desk/guards';
@@ -171,6 +176,11 @@ export async function deliverPricedQuote(input: DeliverQuoteInput): Promise<Deli
         };
         return { ok: true, sent: true, record, result };
     };
+
+    // Someone who asked us to stop is not written to, whatever the opt-out ledger says yet: the
+    // delivery is the desk's own composed words, so it stops here, before the composer and before
+    // any template send.
+    if (optOutHeld(file)) return held(`${priceHold(slug)} the customer asked us to stop and the thread is held for Ben on it, so the quote is not sent and stays a draft`, null, []);
 
     if (window.state === 'shut') {
         // No freeform text on a shut window. The one approved wording that carries a quote link is

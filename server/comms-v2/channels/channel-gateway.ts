@@ -114,6 +114,7 @@ export class ChannelGateway extends Gateway {
             file = opened.value;
             landed = file.turns[0];
             this.applySeed(file, seed);
+            this.carryHolds(file, resolved.personId);
             await this.reach(file, resolved, env, address, seed);
         } else {
             const party = partyOf(file, resolved.personId)!;
