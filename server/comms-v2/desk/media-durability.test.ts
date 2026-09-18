@@ -119,6 +119,30 @@ describe('new-desk media survives a redeploy', () => {
         expect(await servedAfterRedeploy(media[0].url!)).toBeNull();
     });
 
+    it('a video whose mirror is slow and a text sent after it both land in arrival order, and the video ends up durable', async () => {
+        let release!: () => void;
+        const gate = new Promise<void>((r) => { release = r; });
+        const mirror = vi.fn(async () => { await gate; return true; });
+        const gw = new Gateway({ desk: fakeDesk, mirrorMedia: mirror });
+        const video = fromDoor({ address: '+447700900942', text: '', at: '2026-09-18T10:00:00.000Z', media: [{ bytes: VIDEO, mime: 'video/mp4' }] }, { mediaDir: diskDir });
+        const text = fromDoor({ address: '+447700900942', text: 'that is the leak', at: '2026-09-18T10:00:00.500Z' }, { mediaDir: diskDir });
+
+        const first = gw.inbound(video);
+        await vi.waitFor(() => expect(mirror).toHaveBeenCalled());
+        const second = await gw.inbound(text);
+        release();
+        const firstOut = await first;
+
+        expect(firstOut.kind).toBe('handled');
+        expect(second.kind).toBe('handled');
+        if (firstOut.kind !== 'handled' || second.kind !== 'handled') return;
+        expect(second.file.id).toBe(firstOut.file.id);
+        const inbound = firstOut.file.turns.filter((t) => t.direction === 'inbound');
+        expect(inbound.map((t) => t.id)).toEqual([firstOut.turn.id, second.turn.id]);
+        expect(inbound.map((t) => t.kind)).toEqual(['media', 'text']);
+        expect(firstOut.turn.media.map((m) => m.stored)).toEqual(['durable']);
+    });
+
     it('a text turn does not touch the mirror', async () => {
         const mirror = vi.fn(async () => true);
         const out = await new Gateway({ desk: fakeDesk, mirrorMedia: mirror }).inbound(fromDoor({ address: '+447700900942', text: 'just words' }, { mediaDir: diskDir }));

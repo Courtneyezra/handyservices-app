@@ -101,10 +101,20 @@ export class Gateway {
     protected fileDeps(): CaseFileDeps { return { now: this.now, newId: this.newId }; }
 
     /**
-     * A turn's media as it lands: mirrored to durable storage on arrival, a failure recorded rather
-     * than dropped. Called only for a turn carrying media, so a text turn still lands without waiting.
+     * A landed turn's media mirrored to durable storage, the result recorded on the turn's own media
+     * and the file put again. The turn lands first, in the order it came, so a slow mirror never puts
+     * it behind a later message; a failure is recorded rather than dropped. A text turn does not wait.
      */
-    protected keepMedia(media: InboundTurn['media']): Promise<Turn['media']> { return keepDurably(media, this.mirrorMedia, this.log); }
+    protected async keepLanded(file: CaseFile, landed: Turn, media: InboundTurn['media']): Promise<void> {
+        if (!media.length) return;
+        this.store.put(file);
+        const kept = await keepDurably(media, this.mirrorMedia, this.log);
+        for (const m of landed.media) {
+            const k = kept.find((x) => x.id === m.id);
+            if (k) m.stored = k.stored;
+        }
+        this.store.put(file);
+    }
 
     /** A customer WhatsApp turn: identity, the one file, then the desk. */
     async inbound(turn: InboundTurn, seed: SeedInput = {}): Promise<InboundOutcome> {
@@ -116,7 +126,7 @@ export class Gateway {
         }
         if (resolved.role === 'internal') return { kind: 'refused', reason: 'an internal number is not a customer; nothing to scope' };
         const address = e164Of(resolved.canonical) ?? turn.address;
-        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.length ? await this.keepMedia(turn.media) : [], ...(turn.media.length && turn.providerMessageId ? { providerMessageId: turn.providerMessageId } : {}), ...failedMediaFields(turn.mediaFailures) };
+        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.map((m) => ({ id: m.id, kind: m.kind, mime: m.mime, path: m.path, url: m.url, description: null })), ...(turn.media.length && turn.providerMessageId ? { providerMessageId: turn.providerMessageId } : {}), ...failedMediaFields(turn.mediaFailures) };
         let file = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {
@@ -138,6 +148,7 @@ export class Gateway {
             const ch = partyOf(file, resolved.personId)!.channels.find((c) => c.kind === 'whatsapp');
             if (ch) ch.transport = turn.via;
         }
+        await this.keepLanded(file, landed, turn.media);
         const { result, burst } = await this.handTurn(file, landed);
         return { kind: 'handled', file, turn: landed, result, burst };
     }

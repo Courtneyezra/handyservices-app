@@ -9,9 +9,10 @@
  * `ensureLocalMedia` restore it from there when the disk copy is gone. The file name is the one in
  * the turn's url, so the url the thread renders is the key the route restores.
  *
- * The gateway calls `keepDurably` before a turn lands on the file, so every channel's media is
- * mirrored on arrival. A file that could not be mirrored still lands (the customer's words and the
- * desk's run never wait on S3) but is recorded `stored: 'local_only'` and logged at error level, so
+ * The gateway lands the turn on the file first, in the order it came, then calls `keepDurably`
+ * and records the result on the landed turn's media before the desk reads it, so every channel's
+ * media is mirrored on arrival and a slow mirror never lets a later message land ahead of it. A file
+ * that could not be mirrored stays on the turn but is recorded `stored: 'local_only'` and logged at error level, so
  * the thread shows it as a failure rather than a photo that silently vanishes on the next deploy.
  */
 import fs from 'node:fs';
