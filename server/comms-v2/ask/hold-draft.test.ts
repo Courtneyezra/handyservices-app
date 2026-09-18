@@ -25,6 +25,7 @@ describe('holding a draft the ask agent wrote', () => {
         ['a figure', 'It would be about £85 fitted.', /figure/],
         ['a date', 'We can come on Friday 19 September.', /date/],
         ['a disclosure', 'I am an AI assistant, happy to help.', /disclosure/],
+        ['a promise to come back', "Leave it with me and I'll come back to you.", /promise to come back/],
     ])('refuses %s through the desk\'s guards and leaves the file as it was', (_label, words, failure) => {
         const file = whatsappFile();
         const before = snapshot(file);
@@ -54,9 +55,9 @@ describe('holding a draft the ask agent wrote', () => {
     it('adds the draft to a standing hold that has none, keeping the reason it was raised for', () => {
         const file = whatsappFile();
         setHold(file, { approver: BEN, reason: 'complaint: the last visit', exception: null }, { now: now() });
-        const out = holdDraft({ file, words: 'Sorry Sam, we will look into it.', requestedBy: BEN_PERSON, why: 'apologise' }, { now: now() });
+        const out = holdDraft({ file, words: 'Sorry Sam, that is not what we want to hear.', requestedBy: BEN_PERSON, why: 'apologise' }, { now: now() });
         expect(out.ok).toBe(true);
-        expect(file.hold?.draft).toBe('Sorry Sam, we will look into it.');
+        expect(file.hold?.draft).toBe('Sorry Sam, that is not what we want to hear.');
         expect(file.hold?.reason).toMatch(/^complaint: the last visit; Asked on the Handy Desk/);
         expect(file.hold?.notedOn).toBe(true);
     });

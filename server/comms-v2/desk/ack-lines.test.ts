@@ -1,7 +1,8 @@
 /**
- * The two acknowledgements that say what arrived and when, through the desk with a scripted model
- * client. A router that cannot read a turn holds for Ben, and the held acknowledgement names the
- * photo or video the turn brought, live as well as in dry run. A video whose reply never went
+ * What the desk says about what arrived and when, through the desk with a scripted model client. A
+ * router that cannot read a turn holds for Ben and sends nothing, live as well as in dry run: the
+ * held acknowledgement that named the photo or video ("leave it with me and I'll come back to you")
+ * was removed by the captain's ruling of 18 Sep 2026. A video whose reply never went
  * (live, 15 Sep 2026: held for Ben at 20:07, the customer next wrote at 06:38) is thanked for as
  * late, after the reply to what the customer has just said. A video that came in a minute before
  * the text is still thanked for in the one covering reply, as PR #85 allowed.
@@ -44,53 +45,39 @@ function videoLeftUnanswered(file: CaseFile, at: string): void {
     if (!out.ok) throw new Error(out.reason);
 }
 
-describe('the held acknowledgement after a failed router call', () => {
+describe('a failed router call holds silently', () => {
     const routerDown = { router: () => ({ error: '400 Your credit balance is too low to access the Anthropic API.' }) };
 
-    it('names the video the turn brought, holds for Ben, and sends live because it is not a line Ben reviews', async () => {
-        let delivered: string[] = [];
+    it('holds for Ben with the video the turn brought and sends nothing, live too: no promise to come back', async () => {
+        let delivered: string[] | null = null;
         const deliverer = { async deliver(req: { bubbles: Array<{ text: string }> }) { delivered = req.bubbles.map((b) => b.text); return { ok: true as const, sid: null }; } };
         const { client, gateway } = desk(routerDown, '2026-09-16T04:41:07.000Z', { mode: 'live', sender: { deliverer: deliverer as any } });
         const out = await gateway.inbound(message("My toilet won't flush", '2026-09-16T04:41:07.000Z', videoIn));
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(out.result.decision).toBe('hold');
-        expect(out.result.delivered).toBe(true);
-        expect(out.result.bubbles.map((b) => b.text)).toEqual(["Thanks for the video, leave it with me and I'll come back to you."]);
-        expect(delivered).toEqual(["Thanks for the video, leave it with me and I'll come back to you."]);
+        expect(out.result.delivered).toBe(false);
+        expect(out.result.bubbles).toEqual([]);
+        expect(delivered).toBeNull();
         expect(out.file.hold?.reason).toMatch(/^router_failed/);
-        expect(out.file.sends[0].mode).toBe('live');
+        expect(out.file.sends).toEqual([]);
+        expect(out.file.turns.filter((t) => t.direction === 'outbound')).toEqual([]);
         // No model saw the turn: the router was the only call.
         expect(client.calls.map((c) => c.role)).toEqual(['router']);
-        // The thanks went, so a later reply does not thank for the video again.
-        expect(out.file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
+        // Nothing thanked for the video, so the thanks is still owed to a later reply.
+        expect(out.file.ledger.find((l) => l.subject === 'media')?.thankedAt ?? null).toBeNull();
     });
 
-    it('names a photo', async () => {
+    it('a second turn on the held file is silent too, and the card still stands', async () => {
         const { gateway } = desk(routerDown, '2026-09-16T04:41:07.000Z');
-        const out = await gateway.inbound(message('here', '2026-09-16T04:41:07.000Z', photoIn));
-        if (out.kind !== 'handled') throw new Error(out.kind);
-        expect(out.result.bubbles.map((b) => b.text)).toEqual(["Thanks for the photo, leave it with me and I'll come back to you."]);
-    });
-
-    it('still sends, as the plain line, for a second media turn on a held file whose media was already thanked', async () => {
-        const { gateway } = desk(routerDown, '2026-09-16T04:41:07.000Z', { mode: 'live', sender: { deliverer: { async deliver() { return { ok: true as const, sid: null }; } } as any } });
         const first = await gateway.inbound(message('here', '2026-09-16T04:41:07.000Z', photoIn));
         if (first.kind !== 'handled') throw new Error(first.kind);
-        expect(first.file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
-        const second = await gateway.inbound(message('and the video', '2026-09-16T04:45:07.000Z', videoIn));
+        const second = await gateway.inbound(message('Do you cover Nottingham?', '2026-09-16T04:45:07.000Z'));
         if (second.kind !== 'handled') throw new Error(second.kind);
         expect(second.result.decision).toBe('hold');
-        expect(second.result.delivered).toBe(true);
-        expect(second.result.guards.ask_ledger.result).toBe('pass');
-        expect(second.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
-    });
-
-    it('falls back to the plain line for a turn with no media, and leaves the thanks owed', async () => {
-        const { gateway } = desk(routerDown, '2026-09-16T04:41:07.000Z');
-        const out = await gateway.inbound(message('Do you cover Nottingham?', '2026-09-16T04:41:07.000Z'));
-        if (out.kind !== 'handled') throw new Error(out.kind);
-        expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
-        expect(out.file.ledger.find((l) => l.subject === 'media')?.thankedAt ?? null).toBeNull();
+        expect(second.result.delivered).toBe(false);
+        expect(second.result.bubbles).toEqual([]);
+        expect(second.file.hold?.reason).toMatch(/^router_failed/);
+        expect(second.file.turns.filter((t) => t.direction === 'outbound')).toEqual([]);
     });
 });
 
@@ -186,7 +173,7 @@ describe('a thanks for media that is late', () => {
         expect(next.result.bubbles.map((b) => b.text)).toEqual(["Yes, that's fine."]);
     });
 
-    it('does not thank for an earlier video the plain held acknowledgement already followed', async () => {
+    it('a composer failure holds silently, so an earlier video nothing followed is still thanked for, as late, once the hold is released', async () => {
         const users: string[] = [];
         const { gateway, clock } = desk({
             router: () => routeScoping({ turnKind: 'answer' }),
@@ -206,14 +193,15 @@ describe('a thanks for media that is late', () => {
         const held = await gateway.inbound(message('any update?', '2026-09-15T20:07:00.000Z'));
         if (held.kind !== 'handled') throw new Error(held.kind);
         expect(held.result.decision).toBe('hold');
-        expect(held.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(held.result.delivered).toBe(false);
+        expect(held.result.bubbles).toEqual([]);
         if (!release(file, ben, 'carry on').ok) throw new Error('release refused');
 
         clock.t = Date.parse('2026-09-16T04:38:49.000Z');
         const next = await gateway.inbound(message('Can you come this week?', '2026-09-16T04:38:49.000Z'));
         if (next.kind !== 'handled') throw new Error(next.kind);
         expect(users.at(-1)).toContain('thank for media: no');
-        expect(next.result.bubbles.map((b) => b.text)).toEqual(["Yes, that's fine."]);
+        expect(next.result.bubbles.map((b) => b.text)).toEqual(["Yes, that's fine.", "Thanks for the video you sent yesterday, sorry I'm only getting back to you on it now."]);
     });
 
     it('sends the composer back once when it thanks for the late video itself', async () => {

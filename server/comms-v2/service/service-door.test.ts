@@ -122,7 +122,7 @@ describe('Goal 6 on the door', () => {
         const client = new FakeModelClient({
             router: () => ({ subjects: ['service'], proposedStage: 'scoping', party: 'customer', exception: null, turnKind: 'question' }),
             specialist: () => ({ answers: [{ asked: 'email on file', source: 'record', id: 'email' }], changeOfDetails: null, holdReason: null }),
-            composer: () => ({ reply: 'We have an email address on file for you.\n\nBen will confirm it.', factIds: [], kbIds: [] }),
+            composer: () => ({ reply: 'We have an email address on file for you.', factIds: [], kbIds: [] }),
         });
         const door = await serve(createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, kb: emptyKb, now: () => new Date(clock.t += 1000), scoping: { describe: async () => ({ ok: false, reason: 'none' }) }, approver: () => BEN }).router);
         try {

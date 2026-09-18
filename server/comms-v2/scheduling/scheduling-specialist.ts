@@ -182,8 +182,8 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
     const belt = changePossible ? textBelt : null;
     if ((belt || routed.dateChange) && !asks.includes('date_change')) asks.push('date_change');
     if (!changePossible && asks.includes('date_change')) {
-        // Nothing is booked for them to move, so nothing holds for Ben: a promise that he will come back on
-        // it would be one nobody keeps (the commitment guard refuses it). It is answered as when we could come.
+        // Nothing is booked for them to move, so nothing holds for Ben. It is answered as when we could come;
+        // the commitment guard refuses any promise to come back on it.
         brief.push('They asked to move a date, but nothing is booked for them to move: answer it as a question about when we could come. Never say you will come back to them on moving it or on the date, and never talk about moving or changing a booking.');
         asks = asks.filter((a) => a !== 'date_change').concat(asks.includes('availability') ? [] : ['availability']);
     }
@@ -208,17 +208,17 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         }
         if (!changing) {
             // Asked what day we are coming and the diary gave no date: a job nobody has taken on, one taken
-            // off them, or a diary that could not say. The reply promises that Ben will come back on it, so
-            // Ben is told; the hold's reason names which, since an unreadable diary may only need a retry.
-            // What it forbids is a day of the desk's own: a typical lead time this turn looked up for a
-            // second question they asked is the shelf's to give, and sits beside this without contradicting it.
-            findings.fixedLines.push('date_change_to_ben');
+            // off them, or a diary that could not say. It holds for Ben, and the reply says nothing about the
+            // day (the captain's ruling, 18 Sep 2026: no promise to come back); the hold's reason names which,
+            // since an unreadable diary may only need a retry. What it forbids is a day of the desk's own: a
+            // typical lead time this turn looked up for a second question they asked is the shelf's to give,
+            // and sits beside this without contradicting it.
             proposal.hold = { reason: 'date_unconfirmed', match: standing.reason };
-            brief.push('There is no date to confirm and they may be expecting one: include the fixed line that you will come back on the date, never say they are booked in, say nothing about why, and never name a day or a time of your own. Answer anything else they asked.');
+            brief.push('There is no date to confirm and they may be expecting one: it is held for Ben. Say nothing about the day at all: never say they are booked in, never that you will check, confirm or come back on it, and never name a day or a time of your own. Answer anything else they asked.');
             return;
         }
         // Why there is no date is Ben's to give, in his own words: a cancellation a customer reads from the desk is how a thread becomes a complaint.
-        brief.push('The diary has no booked date to confirm: say you will confirm the date, say nothing about why, and give no day, time or lead time.');
+        brief.push('The diary has no booked date to confirm: say nothing about the date or why, never that you will confirm or come back on it, and give no day, time or lead time.');
     };
 
     // A date change is Ben's, and nothing about how soon we could come belongs beside it: the job they
@@ -231,9 +231,8 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             const c = recordFact(file, { key: 'date_change_requested', value: requestedChange, source: { kind: 'thread', turnId: turn.id }, by }, fileDeps);
             if (c.ok) factIds.push(c.value.id);
         }
-        findings.fixedLines.push('date_change_to_ben');
         proposal.hold = { reason: 'date_change', match: findings.dateChange };
-        brief.push('They want to change the date of a job they already have: that is not settled in this reply. Include the fixed line that you will come back on the date, confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day, time or slot. Say nothing about how soon we could come, no typical lead time, and give no link for picking a date. Answer anything else they asked.');
+        brief.push('They want to change the date of a job they already have: that is held for Ben and not settled in this reply. Say nothing about the change, never that you will check or come back on it; confirm what is booked now if the diary gave it, and never offer, agree or suggest a new day, time or slot. Say nothing about how soon we could come, no typical lead time, and give no link for picking a date. Answer anything else they asked.');
     } else {
         // The confirmation decides first, and everything else reads from it. It runs when they asked for
         // the day, and whenever the picker would otherwise have gone to somebody who booked on it already:
@@ -247,8 +246,7 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
         if (confirming && !asks.includes('availability')) return { specialist: 'scheduling', factIds, proposal, brief, calls, error: erroring(), scheduling: findings };
         findings.leadTime = await typicalLeadTime(deps);
         if (!findings.leadTime.ok && findings.leadTime.detail) details.push(`${findings.leadTime.reason}: ${findings.leadTime.detail}`);
-        // No link while the date is Ben's: one reply must not say he will come back on it and then send
-        // them to the page where dates are picked.
+        // No link while the date is Ben's: the page where dates are picked would settle what he holds.
         if (file.job.quoteRef && !proposal.hold) findings.picker = await pickerLink(file, deps, standing);
         // A refusal the desk meant is not an error; every other one reaches the log and the run summary,
         // because an expired or missing quote nobody is told about is one nobody fixes.
@@ -274,10 +272,10 @@ export async function schedule(file: CaseFile, turn: Turn, _party: Party, client
             brief.push('The diary has no typical lead time to give: say nothing about how soon, and never guess a day, a time or a lead time.');
         } else {
             // Nothing left to say about dates at all: no day of theirs, no lead time, no page to pick on.
-            // A date question answered with silence is the one thing the desk may not do, so Ben answers it.
-            findings.fixedLines.push('date_change_to_ben');
+            // Ben answers it: it holds for him, and the reply says nothing about dates rather than promising
+            // to come back on them (the captain's ruling, 18 Sep 2026).
             proposal.hold = { reason: 'date_unconfirmed', match: findings.picker && !findings.picker.ok ? findings.picker.reason : 'nothing to say about dates' };
-            brief.push('There is nothing to say about dates: include the fixed line that you will come back on the date, say nothing about why, and never name a day, a time or a lead time of your own. Answer anything else they asked.');
+            brief.push('There is nothing to say about dates: it is held for Ben. Say nothing about dates at all, never that you will check or come back on them, and never name a day, a time or a lead time of your own. Answer anything else they asked.');
         }
         if (!findings.picker?.ok && file.job.quoteRef && findings.picker) brief.push('There is no link to give for picking a date: give none, and say nothing about why.');
     }

@@ -94,7 +94,7 @@ Three or four Meta templates; the desk picks one; freeform resumes on the custom
 
 **14. While a thread sits with Ben.** "Answer what it can, hand the rest to Ben." The assistant
 keeps replying to anything outside the exception and says, in Ben's first person, that he will
-come back on the rest.
+come back on the rest. Superseded in part by answer 96: the reply says nothing about the rest.
 
 **15. Ben's handset replies.** "No, Ben replies through the admin only." Nothing to build;
 a handset reply still leaves the thread with Ben. Training, not code.
@@ -363,7 +363,7 @@ Given on the bearings board, captured result lavish-d6356d3e6027f92c sequence 5,
 - complaint: "I'm sorry to hear that. Leave it with me, I'll look into it properly and come back to you personally. / Thanks / Ben"
 - refund: "Understood. Let me go through the job and the payment, and I'll come back to you on it personally. / Thanks / Ben"
 - trust: "That's a fair question. Let me get you a proper answer rather than a quick one, and I'll come back to you. / Thanks / Ben"
-No timeframe in any of them. Still open as follow-up: the desk's other fixed lines in code (money_to_ben, held_ack, no_source and the rest) also name Ben in the third person.
+No timeframe in any of them. The desk's other fixed lines in code were since rewritten in Ben's first person, and those that promised to come back (money_to_ben, date_change_to_ben, held_ack, no_source, not_converging) were removed by answer 96. These four stand as Ben reviewed them.
 
 ## Batch 11, answered 16 Sep (a live thread case study)
 
@@ -382,3 +382,7 @@ Also 16 Sep, superseding answer 88: the server was rescaled to 16 GB, and work i
 **94. The holding line is not an answer.** "Yes, offer it", 17 Sep 2026, answering the open question from PR #110. When the only outbound turn since the customer's question is the desk's holding line (or its photo or video variant) and the WhatsApp window has shut, the board offers answer_ready_reopen_v1. Refines answer 58. Settled by firstmate on 17 Sep 2026 in the same change, not part of the captain's answer: answer_ready_reopen_v1 is offered only on a hold for a question, never on a complaint or other exception hold, so that template never clears one; its subject is the recorded job type, else "your enquiry", never the customer's own words. quote_ready_link is unchanged by this change. Implemented in `sendWindowTemplate` (`server/comms-v2/desk/human-reply.ts`).
 
 **95. A stale quote closes itself.** "Close after 30 days", 17 Sep 2026 (answer 125), answering the gap the job-file close build (answer 110, "Both") left open: a customer quoted but never booked kept an open file forever, so a return months later with a different job landed on the old one and was refused with "a quote already stands". A file at `quoted`, whose quote has stood unanswered for 30 days, closes on its own as `done`; `accepted`, `booked` and a file held for Ben are never touched, and the customer's next message opens a fresh file. Settled by firstmate on 17 Sep 2026 in the same change, not part of the captain's answer: the 30 days are counted from the file's last activity, the newest quote send or automatic reissue and the newest turn either way, so a file with any conversation in the last 30 days never closes, and a file with a customer's burst waiting is left to the desk; and the stale close is the one close that reopens, since a payment, acceptance or booking on that quote afterwards puts the file back at `quoted` and is recorded there rather than lost. Implemented in `closeStaleQuotes`, run by the live clock tick (`server/comms-v2/file-close.ts`, "A stale quote closes itself after 30 days" in `server/comms-v2/README.md`).
+
+## Batch 13, answered 18 Sep
+
+**96. The promise to come back.** "remove that line entirely.", 18 Sep 2026. The desk had a line that promised to come back to people ("Let me check on that one and come straight back to you" and its kin), and nothing in the system owned the promise: a sales pitch was given it twice and still sat 42 hours later, a tenant was given it four times across 43 hours on a frozen thread, and a customer was told it in the same message as "We don't take on gas work". Not narrowed, not conditioned: removed. Where the desk cannot answer, it holds the thread for Ben and says nothing, rather than replacing one reassuring line with another. It supersedes, where they conflict, "almost never silent, always acknowledge" (design.md), answer 14's "says ... that he will come back on the rest", and the rule that a date question answered with silence is the one thing the desk may not do. Implemented in `server/comms-v2/`: the `no_source`, `not_converging`, `money_to_ben`, `date_change_to_ben` and `held_ack` fixed lines are gone, their holds stand with no line; a turn with nothing else to answer sends nothing; the commitment guard refuses any promise to come back (`RE_COMES_BACK`, desk/lexicon.ts). Ben's four reviewed lines (answer 89), the callback and change-of-details lines and "Dates come with your quote" are unchanged.

@@ -33,7 +33,8 @@ beforeAll(async () => {
     const client = new FakeModelClient({
         router: ({ user }) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: /how much/i.test(user.split('>>').pop() ?? '') ? 'money' : null, turnKind: 'enquiry' }),
         specialist: () => ({ facts: [{ key: 'job_type', value: 'leaking tap' }], jobUnknowns: [], answeredSubjects: [] }),
-        composer: () => ({ reply: 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
+        // Asks for the location once: a later turn, told not to ask it again, only acknowledges.
+        composer: ({ user }) => ({ reply: /Never ask again[^\n]*postcode/.test(user) ? 'Thanks Sam, noted.' : 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
     });
     const door = createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, approver: sessionApprover(async () => assignments) });
     const app = express();
@@ -272,7 +273,8 @@ describe('the board over the live desk\'s store', () => {
         const client = new FakeModelClient({
             router: ({ user }) => ({ subjects: ['scoping'], proposedStage: 'scoping', party: 'customer', exception: /how much/i.test(user.split('>>').pop() ?? '') ? 'money' : null, turnKind: 'enquiry' }),
             specialist: () => ({ facts: [{ key: 'job_type', value: 'leaking tap' }], jobUnknowns: [], answeredSubjects: [] }),
-            composer: () => ({ reply: 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
+            // Asks for the location once: a later turn, told not to ask it again, only acknowledges.
+        composer: ({ user }) => ({ reply: /Never ask again[^\n]*postcode/.test(user) ? 'Thanks Sam, noted.' : 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
         });
         const doorDeps = { client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb };
         const sandbox = createSandboxDoor({ ...doorDeps, quietMs: 0 });

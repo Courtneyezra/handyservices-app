@@ -9,7 +9,12 @@
  * splits it (Contract 5). The composer is called once per customer turn; a guard failure sends
  * it back once with the failures named, and a reply too long for its channel comes back once to
  * shorten, told in that channel's own measure: bubbles on WhatsApp, segments on SMS.
- * On a refusal or a transport failure the desk takes the fixed line, never a silent empty reply.
+ * On a refusal or a transport failure the desk holds for Ben and sends nothing.
+ *
+ * It never promises to come back (the captain's ruling, 18 Sep 2026). Where part of the thread is
+ * held for Ben (`held`), it says nothing of that part, and when nothing else on the turn needs an
+ * answer it returns an empty reply, which the desk sends as nothing. An empty reply anywhere else,
+ * or over a fixed line it was given, is a failure.
  */
 import { z } from 'zod/v4';
 import { ASK_SUBJECTS, customerVisibleFacts, isReadThisRunOnly, isSupersededFigure, type CaseFile, type Party, type ReplyChannel, type Turn, isTurnOf, mediaFailedNote, type TurnMedia, mediaCountLabel } from './case-file';
@@ -23,8 +28,8 @@ import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, type ShortenBrief } from './sender';
 import { withoutDashPunctuation } from './dashes';
 
 export const composerOutputSchema = z.object({
-    /** The one reply. A blank line separates bubbles. */
-    reply: z.string().min(1).max(2000),
+    /** The one reply. A blank line separates bubbles. Empty only where the input is `held` and nothing else needs an answer. */
+    reply: z.string().max(2000),
     /** Ids of the facts on the file the reply was written from. */
     factIds: z.array(z.string()).max(40),
     /** Knowledge-base row ids cited for any business claim. */
@@ -56,6 +61,11 @@ export interface ComposeInput {
      * says nothing about the gas work, and leaves room for the line's two bubbles.
      */
     after?: FixedLine | null;
+    /**
+     * Some of the thread is held for Ben (a hold raised this turn or standing on the file): the
+     * composer says nothing of it and may answer with nothing. Otherwise an empty reply is a failure.
+     */
+    held?: boolean;
     /** Second attempt only: the guard failures, named. */
     failures?: string[];
     /** Second attempt only: the reply was too long for the channel it is going out on. */
@@ -87,10 +97,12 @@ export const COMPOSER_SYSTEM = [
     '- Not a paragraph. Break the reply into bubbles the way a person separates messages: put a blank line between bubbles. Usually one to three bubbles, never more than three. Each bubble is one thought in one or two short sentences, about 160 characters at most.',
     '- Acknowledge what they said in a few words of your own before anything else. Sum the job up back to them once, the first time it is clear; never repeat a summary of the job you have already given in the thread.',
     '- Never say again what your last message already said, in any words. Never call a question the last one ("one last thing", "last bit from me"): just ask it.',
-    '- You are Ben, writing in the first person. Never mention Ben, the office, the team or a colleague in the third person: when an answer is not yours to give yet, say you will check and come back to them, naming nobody.',
+    '- You are Ben, writing in the first person. Never mention Ben, the office, the team or a colleague in the third person.',
+    '- Never promise to come back to them, check on something, find out, look into it, be in touch or let them know. When an answer is not yours to give, say nothing about it at all: do not mention it, do not say you are looking into it, do not acknowledge that you cannot answer.',
     '',
     'What to do this turn, from the proposal:',
-    '- Answer everything the customer asked in this turn, from the facts. If they asked something you have no fact for, say you will come back to them on it.',
+    '- Answer everything the customer asked in this turn that the facts answer. Anything you have no fact for, leave out entirely.',
+    '- When the brief says part of the thread is held, say nothing about that part. If nothing else in the turn needs an answer, return an empty reply ("") and nothing is sent: never fill it with a thanks, a holding line or a reassurance.',
     '- The brief says what this turn is: either one question to ask, or a wrap-up because nothing is left to ask, or an acknowledgement only. Do that one thing.',
     '- When it names a question, ask exactly that one question about the job and no other, and do not say that you have everything you need. One thing at a time: one question, about one thing, one question mark about the job in the whole reply. Never join two questions with "and" or "or".',
     '- If the proposal says offer a call, offer to give them a quick call (for example "happy to give you a quick call if that\'s easier"). If it says do not offer a call, do not mention calling or the phone at all.',
@@ -102,7 +114,7 @@ export const COMPOSER_SYSTEM = [
     '- When it is a wrap-up, say that is everything needed for now and that you will put the quote together and send it over. No timing. Say this only on a wrap-up turn, never beside a question, and only once: if your last message already said it, write one short acknowledgement instead.',
     '- An acknowledgement-only turn ("thanks", "ok") gets one short bubble, a brief human reply of a few words ("No worries 👍"). Nothing your last message already said, and not the quote news again.',
     '- When the brief says Ben has priced and sent the quote, you are writing the delivery, not a reply: tell them the quote is ready, give the link exactly as the brief spells it, and say to reply here with any questions. Do not answer their last message again, and give no figure, no timing and no other promise.',
-    '- Fixed lines: include each one given, keeping its meaning and its first-person words, woven into the reply naturally.',
+    '- Fixed lines: include each one given, keeping its meaning and its first-person words, woven into the reply naturally. A reply with a fixed line to carry is never empty.',
     '',
     'No dash as punctuation: never " - " between words, never an em dash or an en dash. Where a dash would join two thoughts, use a comma or a full stop instead. A hyphenated word (follow-up) is fine. Return the JSON object only: reply, factIds (the ids of the facts you used), kbIds (the knowledge-base ids you cited, usually none).',
 ].join('\n');
@@ -175,6 +187,7 @@ export function buildComposerUser(input: ComposeInput): string {
     const neverAsk = file.ledger.filter((l) => l.askedAt && (ASK_SUBJECTS as readonly string[]).includes(l.subject) && !(proposal?.nextQuestion?.subject === l.subject)).map((l) => l.subject);
     const declined = file.facts.filter((f) => f.key === 'media_declined' && /true/i.test(f.value)).length ? ['media'] : [];
     const lines: string[] = [];
+    if (input.held) lines.push('Part of this thread is held for a person, who will answer it themselves. Say nothing about the held part: no promise to check or come back, no mention that it is being looked at. Answer only what else the turn asks from the facts; if nothing else needs an answer, the reply is empty ("").', '');
     lines.push(`Customer: ${party.name ?? 'unknown name'}. Stage: ${file.stage}. Prefers text only: ${party.prefersText ? 'yes' : 'no'}.`);
     lines.push(...composerChannelLines(file, party, turn, input.now ?? new Date(), input.channel, input.reserved));
     lines.push('Thread, oldest first (the turn to reply to is marked >>):');
@@ -244,6 +257,8 @@ export async function compose(input: ComposeInput, client: ModelClient): Promise
         res.output.factIds = Array.from(new Set(res.output.factIds.filter((id) => known.has(id))));
         // The house rule holds whatever the model wrote: a dash used as punctuation becomes a comma.
         res.output.reply = withoutDashPunctuation(res.output.reply).trim();
+        // Nothing to say is an answer only where part of the thread is held for Ben; anywhere else it is a reply that did not come back.
+        if (!res.output.reply && (!input.held || input.fixedLines.length)) return { ...res, output: null, error: input.held ? 'the composer wrote an empty reply over a fixed line it was given' : 'the composer wrote an empty reply with nothing held', failure: 'output' };
     }
     return res;
 }

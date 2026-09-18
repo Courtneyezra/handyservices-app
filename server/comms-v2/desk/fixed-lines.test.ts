@@ -4,9 +4,9 @@
  * his "Thanks / Ben" sign-off, and `first_contact_ack` may introduce him in the first person.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_FIXED_LINES, KB_BACKED, fixedLine, heldAckLine, isHeldAckText, lateMediaAckLine, mediaNoun, type FixedLineKind } from './fixed-lines';
+import { DEFAULT_FIXED_LINES, FORMER_HELD_ACK, KB_BACKED, fixedLine, isHeldAckText, lateMediaAckLine, mediaNoun, type FixedLineKind } from './fixed-lines';
 import type { TurnMedia } from './case-file';
-import { RE_DATE_TIME_DURATION, RE_THANKS_MEDIA } from './lexicon';
+import { RE_COMES_BACK, RE_DATE_TIME_DURATION, RE_THANKS_MEDIA } from './lexicon';
 import { hasDashPunctuation } from './dashes';
 
 const SIGN_OFF = /\n\nThanks\nBen$/;
@@ -31,6 +31,11 @@ describe('the default fixed lines', () => {
         }
     });
 
+    it('no line the desk writes itself promises to come back (the captain\'s ruling, 18 Sep 2026); only Ben\'s four reviewed defaults are his own words', () => {
+        for (const kind of ['money_to_ben', 'date_change_to_ben', 'held_ack', 'no_source', 'not_converging']) expect(Object.keys(DEFAULT_FIXED_LINES), kind).not.toContain(kind);
+        for (const [kind, text] of entries) if (!KB_BACKED.has(kind)) expect(RE_COMES_BACK.test(text), kind).toBe(false);
+    });
+
     it('sends a reviewed row\'s words with its dashes made commas, and the row still cited', async () => {
         const line = await fixedLine('complaint', { async reviewed() { return { id: 'kb-complaint', words: "Sorry to hear that - leave it with me.\n\nThanks\nBen" }; } });
         expect(line).toEqual({ kind: 'complaint', text: "Sorry to hear that, leave it with me.\n\nThanks\nBen", kbId: 'kb-complaint' });
@@ -40,34 +45,18 @@ describe('the default fixed lines', () => {
 const photo = (id: string): TurnMedia => ({ id, kind: 'image', mime: 'image/jpeg', path: null, url: null, description: null });
 const video = (id: string): TurnMedia => ({ id, kind: 'video', mime: 'video/mp4', path: null, url: null, description: null });
 
-describe('the held acknowledgement names what arrived', () => {
-    const unthanked = { ledger: [] };
-    it('names a video, a photo, several, and both; a turn with no media gets the line as it stands', () => {
-        expect(heldAckLine({ media: [video('v')] }, unthanked).text).toBe("Thanks for the video, leave it with me and I'll come back to you.");
-        expect(heldAckLine({ media: [photo('p')] }, unthanked).text).toBe("Thanks for the photo, leave it with me and I'll come back to you.");
-        expect(heldAckLine({ media: [photo('p1'), photo('p2')] }, unthanked).text).toBe("Thanks for the photos, leave it with me and I'll come back to you.");
-        expect(heldAckLine({ media: [photo('p'), video('v')] }, unthanked).text).toBe("Thanks for the photo and the video, leave it with me and I'll come back to you.");
-        expect(heldAckLine({ media: [] }, unthanked)).toEqual({ kind: 'held_ack', text: DEFAULT_FIXED_LINES.held_ack, kbId: null });
+describe('the former held acknowledgement is known by its wording', () => {
+    it('recognises every line the desk used to send, naming what arrived, and nothing else', () => {
         expect(mediaNoun([])).toBeNull();
-    });
-
-    it('stays a line that sends without Ben\'s review', () => {
-        expect(KB_BACKED.has('held_ack')).toBe(false);
-        expect(heldAckLine({ media: [video('v')] }, unthanked).kbId).toBeNull();
-    });
-
-    it('names nothing once the file\'s media thanks is spent', () => {
-        const thanked = { ledger: [{ subject: 'media' as const, askedAt: null, answeredAt: null, thankedAt: '2026-09-16T04:41:08.000Z', askCount: 0 }] };
-        expect(heldAckLine({ media: [video('v')] }, thanked)).toEqual({ kind: 'held_ack', text: DEFAULT_FIXED_LINES.held_ack, kbId: null });
-    });
-});
-
-describe('the held acknowledgement is known by its wording', () => {
-    it('recognises every line heldAckLine writes, and nothing else', () => {
         const mixes = [[], [photo('p')], [video('v')], [photo('p1'), photo('p2')], [video('v1'), video('v2')], [photo('p'), video('v')], [photo('p1'), photo('p2'), video('v1'), video('v2')]];
-        for (const media of mixes) expect(isHeldAckText(heldAckLine({ media }, { ledger: [] }).text)).toBe(true);
-        expect(isHeldAckText(`${DEFAULT_FIXED_LINES.held_ack}\n`)).toBe(true);
-        for (const other of [DEFAULT_FIXED_LINES.no_source, DEFAULT_FIXED_LINES.money_to_ben, "Thanks for the quote, leave it with me and I'll come back to you.", `${DEFAULT_FIXED_LINES.held_ack} A new tap is about £120.`, `A new tap is about £120.\n${DEFAULT_FIXED_LINES.held_ack}`]) {
+        for (const media of mixes) {
+            const noun = mediaNoun(media);
+            const text = noun ? FORMER_HELD_ACK.replace(/^Thanks,/, `Thanks for the ${noun},`) : FORMER_HELD_ACK;
+            expect(isHeldAckText(text), text).toBe(true);
+        }
+        expect(isHeldAckText("Thanks for the video, leave it with me and I'll come back to you.")).toBe(true);
+        expect(isHeldAckText(`${FORMER_HELD_ACK}\n`)).toBe(true);
+        for (const other of ['Let me check on that one and come straight back to you.', "Thanks for the quote, leave it with me and I'll come back to you.", `${FORMER_HELD_ACK} A new tap is about £120.`, `A new tap is about £120.\n${FORMER_HELD_ACK}`]) {
             expect(isHeldAckText(other)).toBe(false);
         }
     });

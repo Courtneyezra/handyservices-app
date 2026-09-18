@@ -1,6 +1,6 @@
 /**
  * The hold vocabulary the Service specialist and its tools can raise (checklist 7.1, 7.2), each
- * with the fixed line the desk sends in Ben's words (desk/fixed-lines.ts). Two kinds of hold:
+ * with the fixed line the desk sends in Ben's words (desk/fixed-lines.ts), or none. Two kinds of hold:
  *
  *   fixed line only   one fixed line, no composer, and no specialist until Ben releases it. A
  *                     complaint, a refund, a trust doubt, and gas (answer 21: nothing else freezes).
@@ -8,8 +8,12 @@
  *                     ruling of 18 Sep 2026, which changes answer 21): the gas line goes in the
  *                     reply, the work we do is still scoped and quoted, and the hold still names
  *                     the gas item for Ben (`REGULATED_WITH_REST`).
- *   answer the rest   the reply still answers what it can and carries the fixed line for the
- *                     rest (answer 14). A question we have no source for, a change of details, a
+ *   answer the rest   the reply still answers what it can and is silent on the held part (answer
+ *                     14, and the captain's ruling of 18 Sep 2026 that the desk never promises to
+ *                     come back): a turn with nothing else to answer sends nothing, and the
+ *                     hold on Ben's card is the only record. A change of details and a call request
+ *                     still carry their line, which says what is being done, not that we will
+ *                     come back. A question we have no source for, a change of details, a
  *                     customer asking for a call, money (Goal 1's), and scoping that is not
  *                     converging, which keeps being scoped so the fact it lacked can still arrive
  *                     and the desk clears its own card when it does. A date change is one of these too,
@@ -30,18 +34,22 @@ export type ServiceHoldReason = Extract<HoldException, 'complaint' | 'refund' | 
 
 export interface ServiceHold { reason: ServiceHoldReason; match: string }
 
-/** The fixed line for every reason a hold can be raised for. */
-export const FIXED_LINE_FOR: Record<HoldException, FixedLineKind> = {
+/**
+ * The fixed line for every reason a hold can be raised for; null where the desk says nothing about
+ * the held part. Those five used to carry "Let me check on ... and come straight back to you" and
+ * its kin, a promise nothing in the system kept; the captain removed it (18 Sep 2026).
+ */
+export const FIXED_LINE_FOR: Record<HoldException, FixedLineKind | null> = {
     regulated: 'gas',
     complaint: 'complaint',
     refund: 'refund',
     trust_doubt: 'trust',
-    money: 'money_to_ben',
-    date_change: 'date_change_to_ben',
-    date_unconfirmed: 'date_change_to_ben',
+    money: null,
+    date_change: null,
+    date_unconfirmed: null,
     callback: 'callback_to_ben',
-    no_source: 'no_source',
-    not_converging: 'not_converging',
+    no_source: null,
+    not_converging: null,
     change_of_details: 'change_of_details',
 };
 
@@ -89,7 +97,7 @@ export function freezes(hold: { exception: HoldException | null; reason: string 
     return !(hold.exception === 'regulated' && hold.reason.includes(REGULATED_WITH_REST));
 }
 
-/** Reasons the reply still answers the rest for, carrying the fixed line. */
+/** Reasons the reply still answers the rest for, carrying the reason's fixed line where it has one. */
 export const ANSWER_THE_REST: ReadonlySet<HoldException> = new Set<HoldException>(['money', 'callback', 'no_source', 'change_of_details', 'not_converging']);
 
 /** How a card the convergence check raised opens (`${reason}: ${why}`), so the desk can restate or clear its own card. */

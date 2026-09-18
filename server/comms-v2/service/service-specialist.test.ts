@@ -117,7 +117,7 @@ describe('the Service specialist', () => {
         expect(out.factIds).toEqual([]);
         expect(file.facts).toHaveLength(factsBefore);
         expect(out.proposal.hold).toEqual({ reason: 'no_source', match: 'their email on file is masked from the desk; Ben to read it back' });
-        expect(out.brief.join(' ')).toMatch(/not read back here\. Say we have it on file and you will confirm it/);
+        expect(out.brief.join(' ')).toMatch(/not read back here, and reading it back is held for Ben\. Say we have it on file; do not state or guess it, and never say you will confirm it/);
     });
     it('a change of email or address is a fact naming the field alone and a hold carrying the value for Ben; the brief never carries the value; the record is not written; the raw value never reaches the model', async () => {
         for (const [field, value] of [['email', 'sam@example.org'], ['address', '12 Mill Lane, NG9 2AB']] as const) {
@@ -258,11 +258,11 @@ describe('the Service specialist', () => {
         const out = await serve(file, file.turns[0], file.parties[0], client, { kb }, { routed: true, scopingRan: true });
         expect(out.proposal.hold?.reason).toBe('complaint');
     });
-    it('a declined or failed model call is no source, never silence', async () => {
+    it('a declined or failed model call is a no_source hold for Ben, and the brief forbids any promise to come back', async () => {
         const file = fixture('Are you insured?');
         const out = await serve(file, file.turns[0], file.parties[0], new FakeModelClient({ specialist: () => ({ refused: true }) }), { kb }, routed);
         expect(out.proposal.hold?.reason).toBe('no_source');
         expect(out.error).toMatch(/declined/);
-        expect(out.brief.join(' ')).toMatch(/say you will check on it and come back to them/);
+        expect(out.brief.join(' ')).toMatch(/held for Ben: do not answer it and say nothing about it, not even that you will check or come back/);
     });
 });

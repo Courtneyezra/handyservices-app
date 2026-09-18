@@ -48,7 +48,8 @@ beforeAll(async () => {
             const booked = /Booked date from the diary: say exactly "([^"]+)" and cite fact (fact_[\w-]+)/.exec(user);
             const picker = /give this link exactly, (\S+) \(fact (fact_[\w-]+)\)/.exec(user);
             const ids = [lead?.[2], booked?.[2], picker?.[2]].filter((x): x is string => !!x);
-            if (user.includes(DEFAULT_FIXED_LINES.date_change_to_ben)) return { reply: `Right now you're booked in for ${booked?.[1] ?? 'the date on your quote'}.\n\n${DEFAULT_FIXED_LINES.date_change_to_ben}`, factIds: ids, kbIds: [] };
+            // A move is held for Ben: the reply confirms what stands if the diary gave it and says nothing of the change, or is nothing at all.
+            if (user.includes('They want to change the date')) return { reply: booked ? `Right now you're booked in for ${booked[1]}.` : '', factIds: ids, kbIds: [] };
             if (picker) return { reply: `You pick the day on your quote page: ${picker[1]}${lead ? `\n\nWe're usually booking in ${lead[1]}.` : ''}`, factIds: ids, kbIds: [] };
             if (lead) return { reply: `We're usually booking in ${lead[1]}, and Ben confirms the day with your quote.`, factIds: ids, kbIds: [] };
             if (user.includes(DEFAULT_FIXED_LINES.dates_with_quote)) return { reply: 'Dates come with your quote.', factIds: [], kbIds: [] };
@@ -164,7 +165,7 @@ describe('the scheduling fixture on the door', () => {
         expect(body.record.lines[0]).toMatchObject({ label: 'Repair leaking tap', pricePence: 12000 });
     });
 
-    it('5.5: changing a booked date holds for Ben, the reply confirms the booked date from the diary and carries the fixed line', async () => {
+    it('5.5: changing a booked date holds for Ben, the reply confirms the booked date from the diary and promises nothing about the move', async () => {
         await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
         const seeded = await post('/scheduling/fixture', { booked: true });
         expect(seeded.json.linked).toMatchObject({ stage: 'booked' });
@@ -174,7 +175,7 @@ describe('the scheduling fixture on the door', () => {
         expect(ps.delivered).toBe(true);
         expect(ps.hold).toMatchObject({ approver: 'ben' });
         expect(ps.hold?.reason).toMatch(/^date_change/);
-        expect(ps.bubbles.join(' ')).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(ps.bubbles.join(' ')).not.toMatch(/come (?:straight )?back|check on/);
         expect(ps.bubbles.join(' ')).toMatch(/\d{1,2} \w+ 2026/);
         expect(ps.guards.date_time_duration.result).toBe('pass');
         // The booked thread is closed: the move opened a new file, which found the booking by the customer's phone.
@@ -200,7 +201,7 @@ describe('the scheduling fixture on the door', () => {
         expect(r.json.diary).toBe('diary');
         expect(scheduling.diary.source.bookings).toHaveLength(0);
     });
-    it('link: false seeds the rows and links nothing; a thread holding the quote Quoting drafted still holds a move for Ben, found by the customer\'s phone', async () => {
+    it('link: false seeds the rows and links nothing; a thread holding the quote Quoting drafted still holds a move for Ben, found by the customer\'s phone, and says nothing', async () => {
         expect((await post('/scheduling/fixture', { booked: true, link: 'no' })).status).toBe(400);
         await post('/start', { door: 'whatsapp', text: 'Hi, my tap is leaking, NG9 2AB', name: 'Sam' });
         const seeded = await post('/scheduling/fixture', { booked: true, link: false });
@@ -209,10 +210,11 @@ describe('the scheduling fixture on the door', () => {
         expect(seeded.json.seeded.bookingRef).toBeTruthy();
         const r = await post('/message', { text: 'Can we move it to the week after?', channel: 'whatsapp' });
         const ps = plannedSendOfResponse(r.json);
-        expect(ps.delivered).toBe(true);
+        // The move was all the turn asked, it is Ben's, and no booked date is on this file to confirm: nothing goes, and the hold stands.
+        expect(ps.delivered).toBe(false);
+        expect(ps.bubbles).toEqual([]);
         expect(ps.hold).toMatchObject({ approver: 'ben' });
         expect(ps.hold?.reason).toMatch(/^date_change/);
-        expect(ps.bubbles.join(' ')).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
         // The file carries the quote Quoting drafted, so a booking made from some other quote is not written onto it as this job's.
         expect(r.json.state.caseFile.job.bookingRef).toBeNull();
         await post('/scheduling/fixture/reset');
@@ -223,7 +225,7 @@ describe('the scheduling fixture on the door', () => {
         const ps = plannedSendOfResponse(r.json);
         expect(ps.delivered).toBe(true);
         expect(ps.hold).toBeNull();
-        expect(ps.bubbles.join(' ')).not.toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(ps.bubbles.join(' ')).not.toMatch(/come (?:straight )?back|check on/);
         expect(r.json.state.caseFile.job.bookingRef).toBeNull();
     });
 });

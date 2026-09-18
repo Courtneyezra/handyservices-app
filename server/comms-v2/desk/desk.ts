@@ -5,27 +5,30 @@
  *   -> compose (Fable 5.1) -> guards -> render -> window and template -> the one sender -> the
  *   send recorded on the file.
  *
+ * The desk never promises to come back (the captain's ruling, 18 Sep 2026: "remove that line
+ * entirely"). Where it cannot answer, it holds the thread for Ben and says nothing about it: the
+ * hold on his card, and Ben's chase from the clock, are what keep the matter owned.
+ *
  * Exceptions (Contract 3): money, callbacks, date changes, a question with no source and a change
- * of details hold for Ben and the reply still answers the rest, saying Ben will come back on that.
- * A turn can raise more than one: each carries its own fixed line into the reply and the hold
- * records the gravest, so a price question that also asks for a call gets both lines. A reply that
- * puts a question off on a turn Service's model did not read holds as no source too (6b).
- * Complaints, refunds, trust doubts and gas: one fixed line in
- * Ben's words, no composer, and while the hold stands no specialist either: each later turn gets
- * the short acknowledgement that Ben will come back. Gas in a message that also asks for work we do
- * does not freeze that work (the ruling of 18 Sep 2026): the gas line goes, unchanged, after the
- * composer's reply to the rest, the work is scoped and quoted, and the hold names the gas item for
- * Ben. The vocabulary is server/comms-v2/service/hold-reasons.ts. A thread held because the customer asked us to stop gets not even that
- * acknowledgement: no specialist, no composer and nothing sent on any later turn while the hold
- * stands (`optOutHeld`), because someone who asked us to stop is not written to again whatever the
- * opt-out ledger says yet. A router that fails to read the turn holds for Ben with the fixed acknowledgement,
- * since nothing then rules out a complaint or a refund. The acknowledgement names a photo or video the turn
- * carried. A photo or video that arrived well before the turn and is still unthanked is thanked for in
- * a line that says so, after the reply to what the customer has just said. A guard failure goes back to the composer once, then holds with the fixed
- * acknowledgement. A composer refusal or failure takes the fixed acknowledgement, never a silent
- * empty reply; so does a reply the sender refuses, which live includes one of Ben's four fixed
- * lines he has not yet reviewed. Never silent otherwise; a clock pass never messages a customer
- * ("no chasing", "one acknowledgement, then quiet"); it is where Ben is chased instead (7.5).
+ * of details hold for Ben and the reply still answers the rest, saying nothing of the held part. A
+ * call request and a change of details carry their own fixed line (it says what is being done); the
+ * others carry none, and a turn with nothing else to answer sends nothing. A turn can raise more
+ * than one: the hold records the gravest. A reply that puts a question off fails the commitment
+ * guard, so it goes back to the composer and, failing again, holds silently.
+ * Complaints, refunds, trust doubts and gas: one fixed line in Ben's words, no composer, and while
+ * the hold stands no specialist either, and nothing is sent on a later turn. Gas in a message that
+ * also asks for work we do does not freeze that work (the ruling of 18 Sep 2026): the gas line goes,
+ * unchanged, after the composer's reply to the rest, the work is scoped and quoted, and the hold
+ * names the gas item for Ben. The vocabulary is
+ * server/comms-v2/service/hold-reasons.ts. A thread held because the customer asked us to stop is
+ * silent the same way (`optOutHeld`), whatever the opt-out ledger says yet. A router that fails to
+ * read the turn holds for Ben and sends nothing, since nothing then rules out a complaint or a
+ * refund. A photo or video that arrived well before the turn and is still unthanked is thanked for
+ * in a line that says so, after the reply to what the customer has just said. A guard failure goes
+ * back to the composer once, then holds silently; so does a composer refusal or failure, and a
+ * reply the sender refuses, which live includes one of Ben's four fixed lines he has not yet
+ * reviewed. A clock pass never messages a customer ("no chasing"); it is where Ben is chased
+ * instead (7.5).
  *
  * An expired quote is reissued automatically (quoting/reissue.ts) when the customer writes back and
  * nothing else on the turn or the thread is Ben's: the desk claims the reissue once every other hold
@@ -40,7 +43,7 @@ import { schedule } from '../scheduling/scheduling-specialist';
 import { dateChangeMatch, dateQuestionMatch, partyBookings, type PartyBookings, type SchedulingDeps } from '../scheduling/scheduling-tools';
 import { compose, type ComposeInput } from './composer';
 import type { DeskLike, DeskResult, Proposal, SpecialistReturn } from './desk-types';
-import { fixedLine, heldAckLine, knowledgeBaseFixedLines, lateMediaAckLine, LATE_MEDIA_MS, type FixedLine, type FixedLineSource } from './fixed-lines';
+import { fixedLine, knowledgeBaseFixedLines, lateMediaAckLine, LATE_MEDIA_MS, type FixedLine, type FixedLineSource } from './fixed-lines';
 import { approverFor, noReplyToCheck, runGuards, type GuardOutcome, type KbRow } from './guards';
 import { asksForCall, asksProposed, deferralMatch, offersCall, RE_THANKS_MEDIA, regulatedMatch, scopingQuestionCount, textAsks } from './lexicon';
 import { AnthropicModelClient, type ModelClient } from './models';
@@ -460,17 +463,16 @@ export class Desk implements DeskLike {
         // Ben's note of what the draft is missing, true as of this turn: a photo that has just landed is no longer his to request.
         refreshBenToRequest(file, this.fileDeps());
 
-        // 0. A thread held on a fixed line stays with Ben: no specialist, one acknowledgement per
-        // turn - and where it is held because the customer asked us to stop, not even that: they
-        // hear nothing while the hold stands, exactly as on the turn they asked (`optOutOnTurn`),
-        // whatever the opt-out ledger says yet. Read first, because that silence is graver than any
-        // exception's acknowledgement.
+        // 0. A thread held on a fixed line stays with Ben: no specialist, nothing sent while the hold
+        // stands. A thread held because the customer asked us to stop is silent the same way, exactly
+        // as on the turn they asked (`optOutOnTurn`), whatever the opt-out ledger says yet; read
+        // first, so its own card note is the one this turn writes.
         if (optOutHeld(file)) {
             this.holdFor(file, null, OPT_OUT_HELD, null, DESK_RUN_NOTE);
             return this.nothing(file, party.personId, runId, calls, OPT_OUT_HELD, 'hold');
         }
         if (file.hold && freezes(file.hold)) {
-            return this.heldAck(file, party.personId, turn, runId, calls, `held for Ben on ${file.hold.exception}: the desk does not scope this thread until he releases it`, null, 0, []);
+            return this.heldSilently(file, party.personId, turn, runId, calls, `held for Ben on ${file.hold.exception}: the desk does not scope this thread until he releases it`, null, 0, []);
         }
 
         // 1. Route. The quotes a figure may be read from now are read once for the turn: the
@@ -487,7 +489,7 @@ export class Desk implements DeskLike {
         // A reading that failed (out of schema, refused, unreachable) cannot rule out a complaint or a refund: fail closed to Ben.
         if (route.error) {
             log(`router: ${route.error} (held for Ben)`);
-            return this.heldAck(file, party.personId, turn, runId, calls, 'router_failed: the router could not read this turn, so a complaint or refund cannot be ruled out', null, 0, []);
+            return this.heldSilently(file, party.personId, turn, runId, calls, 'router_failed: the router could not read this turn, so a complaint or refund cannot be ruled out', null, 0, []);
         }
 
         // Whether Service's model read this turn: it raises no_source itself when it did.
@@ -516,6 +518,8 @@ export class Desk implements DeskLike {
         const withLateAck = (composed: string) => [composed, gasLine?.text, lateAck?.text].filter(Boolean).join('\n\n');
         const sentLines = () => [...fixedLines, ...(gasLine ? [gasLine] : []), ...(lateAck ? [lateAck] : [])];
         let composed: string | null = null;
+        // Whether the composer may answer with nothing: some of the thread is held for Ben, and no reissue sentence is waiting to go.
+        let held = false;
         // What goes ahead of the composer's words, and the facts it is written from: the reissue sentence, when this run reissued the quote.
         let prefix: string | null = null;
         let prefixFactIds: string[] = [];
@@ -526,7 +530,7 @@ export class Desk implements DeskLike {
         const fixedLineHold = async (reason: HoldException, match: string): Promise<string | null> => {
             const noLine = regulatedWithoutLine(reason, turn.body);
             if (noLine) { holdFor(reason, `${reason}: ${match}; ${noLine}`); return noLine; }
-            const line = await fixedLine(FIXED_LINE_FOR[reason], this.deps.fixedLines ?? knowledgeBaseFixedLines);
+            const line = await fixedLine(FIXED_LINE_FOR[reason]!, this.deps.fixedLines ?? knowledgeBaseFixedLines);
             fixedLines.push(line);
             if (line.kbId) fixedLineKbIds.push(line.kbId);
             holdFor(reason, `${reason}: ${match}`);
@@ -597,32 +601,30 @@ export class Desk implements DeskLike {
                     ctx.gasLine = gasLine.text;
                     holdFor('regulated', regulatedWithRestReason(regulatedRest.match, regulatedRest.rest));
                 }
-                // Every exception the turn raised carries its own fixed line; the hold records the gravest.
+                // Every exception the turn raised holds, the gravest recorded; one whose reason has a fixed line carries it, the rest are left unsaid.
+                const lineFor = async (reason: HoldException) => { const kind = FIXED_LINE_FOR[reason]; if (kind) fixedLines.push(await fixedLine(kind, this.deps.fixedLines ?? knowledgeBaseFixedLines)); };
                 for (const e of exceptions.filter((x) => ANSWER_THE_REST.has(x))) {
-                    fixedLines.push(await fixedLine(FIXED_LINE_FOR[e], this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                    await lineFor(e);
                     holdFor(e, `${e}: ${matchFor(route, e, turn.body)}`);
                 }
                 for (const h of holds.filter((x) => ANSWER_THE_REST.has(x.reason))) {
-                    // Still not converging on a thread already held for it: the customer has had the line, so it is not
-                    // sent again; the desk's own card is restated with what the file lacks now, and nothing is added to another's.
+                    // Still not converging on a thread already held for it: the desk's own card is restated with what the file lacks now, and nothing is added to another's.
                     if (h.reason === 'not_converging' && file.hold?.reason.includes(NOT_CONVERGING_CARD)) {
                         if (file.hold.reason.startsWith(NOT_CONVERGING_CARD) && !file.hold.notedOn) this.holdFor(file, h.reason, `${h.reason}: ${h.match}`, null, NOT_CONVERGING_CARD);
                         continue;
                     }
-                    fixedLines.push(await fixedLine(FIXED_LINE_FOR[h.reason], this.deps.fixedLines ?? knowledgeBaseFixedLines));
+                    await lineFor(h.reason);
                     holdFor(h.reason, `${h.reason}: ${h.match}`);
                 }
-                // Quoting's own holds. A money exception still on the route is Ben's and carried its line
-                // above; money the router handed to Quoting (5.3) that its reading did not answer is held here.
+                // Quoting's own holds. A money exception still on the route is Ben's and held above;
+                // money the router handed to Quoting (5.3) that its reading did not answer is held here.
                 if (!exceptions.includes('money')) {
                     if (quoting?.proposal.hold?.reason === 'money') {
-                        fixedLines.push(await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines));
                         holdFor('money', `money beyond a quote line: ${quoting.proposal.hold.match}`);
                     } else if (quoting?.proposal.hold?.reason === 'stale_quote') {
                         // Decided once every other hold on the turn is known (below): an expired quote may be reissued instead.
                         staleQuote = quoting.proposal.hold.match;
                     } else if (quoting?.proposal.hold?.reason === 'draft_failed') {
-                        fixedLines.push(await fixedLine('held_ack', this.deps.fixedLines ?? knowledgeBaseFixedLines));
                         holdFor(null, `${DRAFT_FAILED_HOLD} (${quoting.proposal.hold.match}): no quote exists for this job and Ben has had no notification, so the quote is his to build`, null, DRAFT_FAILED_HOLD);
                         if (scoping) { scoping.proposal.nextQuestion = null; scoping.proposal.mentionPhotos = false; scoping.proposal.ready = false; }
                     }
@@ -672,14 +674,13 @@ export class Desk implements DeskLike {
                             recordReissue(file, { slug: quoting.reissue!.slug, issue: claim.claimedButLost.issue, previousTotalPence: claim.claimedButLost.previousTotalPence, sentAt: null, notSent: claim.why }, this.quotingDeps());
                         }
                         if (route.moneyToQuoting) {
-                            fixedLines.push(await fixedLine('money_to_ben', this.deps.fixedLines ?? knowledgeBaseFixedLines));
                             holdFor('money', `money on an expired quote: ${matchFor(route, 'money', turn.body)}`);
                         }
                         const blockers = quoting.reissue?.blockers.length ? quoting.reissue.blockers.join('; ') : null;
                         const why = claim && !claim.ok && !blockers ? `; not reissued automatically: ${claim.why}` : '';
-                        // Restated on the desk's own card for this quote; on any other card it is a promise to keep, noted as ever.
+                        // Restated on the desk's own card for this quote; on any other card it is noted as ever.
                         const ownCard = file.hold?.reason.startsWith(STALE_HOLD) && !file.hold.notedOn ? STALE_HOLD : undefined;
-                        holdFor(null, `${STALE_HOLD} (${staleQuote}): no figure may be read from it and the customer has been told Ben will come back to them on it${why}`, null, ownCard);
+                        holdFor(null, `${STALE_HOLD} (${staleQuote}): no figure may be read from it and the customer has been told nothing about it${why}`, null, ownCard);
                         // What the customer asked Ben is noted as theirs, so the card is no longer the desk's to restate, clear or reissue over.
                         if (blockers) noteOnHold(file, { reason: `not reissued automatically: ${blockers}` });
                     }
@@ -705,14 +706,25 @@ export class Desk implements DeskLike {
                     if (owed !== 'followed' && !gasLine) lateAck = lateMediaAckLine(owed.media, owed.at, this.now());
                 }
                 // 4. Compose, once; a guard failure sends it back once; the ceiling sends it back once.
-                const input: ComposeInput = { file, party, turn, route, specialists, fixedLines, lateAck, after: gasLine, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 };
+                // Where part of the thread is held for Ben the composer says nothing of it, and a turn with nothing else to answer gets no reply at all.
+                held = (heldThisTurn || !!file.hold) && !prefix;
+                const input: ComposeInput = { file, party, turn, route, specialists, fixedLines, lateAck, after: gasLine, held, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 };
                 const first = await compose(input, client);
                 calls.push(first.record);
                 composerCalls++;
-                if (first.output) { composed = first.output.reply; reply = withLateAck(composed); factIds = first.output.factIds; citedKbIds = first.output.kbIds; }
+                if (first.output?.reply === '') return this.silentOnHold(file, party.personId, runId, calls, composerCalls, summarise(route, specialists));
+                if (first.output) {
+                    composed = first.output.reply; reply = withLateAck(composed); factIds = first.output.factIds; citedKbIds = first.output.kbIds;
+                    // A question the draft puts off ("I'll check and come back to you on that") reaches Ben. Service holds on no_source
+                    // itself when its model read the turn; when it did not, the draft's words are the only record of the question, so
+                    // it holds here, unless this turn already raised or noted a hold. The words themselves never go: the commitment
+                    // guard refuses a promise to come back, and the composer's retry is told the thread is held.
+                    const deferred = !serviceRead && !heldThisTurn ? deferralMatch(composed, turn.body) : null;
+                    if (deferred) { holdFor('no_source', `no_source: the draft said "${deferred}" and Service did not read the turn: ${turn.body.slice(0, 80)}`); held = !prefix; }
+                }
                 else {
                     log(`composer: ${first.refused ? 'refused' : first.error}`);
-                    return this.heldAck(file, party.personId, turn, runId, calls, `composer ${first.refused ? 'declined' : 'failed'}: ${first.error}`, null, composerCalls, specialists, undefined, summarise(route, specialists));
+                    return this.heldSilently(file, party.personId, turn, runId, calls, `composer ${first.refused ? 'declined' : 'failed'}: ${first.error}`, null, composerCalls, specialists, undefined, summarise(route, specialists));
                 }
             }
         }
@@ -754,19 +766,20 @@ export class Desk implements DeskLike {
         let kbIds: string[] = attempt.kbIds;
         let guards: GuardOutcome = withOneThing(attempt.guards, composed ?? reply!);
         if (!guards.ok && !fixedLineOnly) {
-            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, after: gasLine, failures: guards.failures, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 }, client);
+            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, after: gasLine, held, failures: guards.failures, now: this.now(), reserved: prefix ? prefix.length + 2 : 0 }, client);
             calls.push(again.record);
             composerCalls++;
+            if (again.output?.reply === '') return this.silentOnHold(file, party.personId, runId, calls, composerCalls, summary);
             if (again.output) {
                 const retry = await guardAttempt(withLateAck(again.output.reply), again.output.factIds, again.output.kbIds);
                 const g2 = withOneThing(retry.guards, again.output.reply);
                 if (g2.ok) { composed = again.output.reply; reply = withLateAck(composed); factIds = again.output.factIds; kbIds = retry.kbIds; guards = g2; }
-                else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed twice: ${g2.failures.join('; ')}`, again.output.reply, composerCalls, specialists, g2, summary);
-            } else return this.heldAck(file, party.personId, turn, runId, calls, `guards failed and the composer ${again.refused ? 'declined' : 'failed'} the retry`, reply, composerCalls, specialists, guards, summary);
+                else return this.heldSilently(file, party.personId, turn, runId, calls, `guards failed twice: ${g2.failures.join('; ')}`, again.output.reply, composerCalls, specialists, g2, summary);
+            } else return this.heldSilently(file, party.personId, turn, runId, calls, `guards failed and the composer ${again.refused ? 'declined' : 'failed'} the retry`, reply, composerCalls, specialists, guards, summary);
         }
         if (!guards.ok) {
-            // A fixed line that fails a guard is a contract failure in the line itself: hold with it named, send the acknowledgement.
-            return this.heldAck(file, party.personId, turn, runId, calls, `the fixed line failed the guards: ${guards.failures.join('; ')}`, reply, composerCalls, specialists, guards, summary);
+            // A fixed line that fails a guard is a contract failure in the line itself: hold with it named, send nothing.
+            return this.heldSilently(file, party.personId, turn, runId, calls, `the fixed line failed the guards: ${guards.failures.join('; ')}`, reply, composerCalls, specialists, guards, summary);
         }
 
         // 5b. Never a repeat of the previous message (behaviour.md answer 90). A reply that wraps up again when
@@ -778,10 +791,11 @@ export class Desk implements DeskLike {
         const repeatsOf = (text: string): string[] => repeatedSentences(text, previous).filter((r) => !sentLines().some((f) => f.text.includes(r)));
         let repeated = repeatsOf(reply!);
         if (repeated.length) {
-            const said = `said again: you have already said ${repeated.map((r) => `"${r}"`).join(' and ')}. Do not say that again in any words. If nothing new needs saying, write one short, warm acknowledgement of a few words and nothing else`;
-            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, after: gasLine, failures: [said], now: this.now() }, client);
+            const said = `said again: you have already said ${repeated.map((r) => `"${r}"`).join(' and ')}. Do not say that again in any words. ${held ? 'If nothing new needs saying, reply with nothing' : 'If nothing new needs saying, write one short, warm acknowledgement of a few words and nothing else'}`;
+            const again = await compose({ file, party, turn, route, specialists, fixedLines, lateAck, after: gasLine, held, failures: [said], now: this.now() }, client);
             calls.push(again.record);
             composerCalls++;
+            if (again.output?.reply === '') return this.silentOnHold(file, party.personId, runId, calls, composerCalls, summary);
             if (again.output) {
                 const retry = await guardAttempt(withLateAck(again.output.reply), again.output.factIds, again.output.kbIds);
                 const g = withOneThing(retry.guards, again.output.reply);
@@ -832,7 +846,7 @@ export class Desk implements DeskLike {
                 if (r4.ok) { rendered = r4; log(`render: the shorten gave no reply to send (${overflow}) and the reply went at ${BUBBLE_SOFT_MAX_CHARS}`); }
             }
         }
-        if (!rendered.ok) return this.heldAck(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `${overflow} stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten, even at ${BUBBLE_SOFT_MAX_CHARS} characters`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
+        if (!rendered.ok) return this.heldSilently(file, party.personId, turn, runId, calls, rendered.reason === 'ceiling' ? (choice.channel === 'sms' ? 'the reply stayed over two SMS segments after one shorten' : `${overflow} stayed over the ceiling of ${BUBBLE_CEILING} bubbles after one shorten, even at ${BUBBLE_SOFT_MAX_CHARS} characters`) : 'the reply rendered to nothing', reply, composerCalls, specialists, guards, summary);
         const window = windowOf(party, choice.channel, this.now());
         let template: TemplateSend | null = null;
         let templateWording: string | null = null;
@@ -863,19 +877,10 @@ export class Desk implements DeskLike {
             rendered = { ok: true, bubbles: [{ text: pick.body, gapMs: 0 }] };
         }
 
-        // 6b. A question the customer asked and the composed reply puts off reaches Ben. Service holds on no_source
-        // itself when its model read the turn; when it did not (the router sent the turn elsewhere), the reply's
-        // "I'll check and come back to you on that" is the only record of the question, so it holds here, unless
-        // this turn raised or noted a hold (a money or date line says the same words about its own hold). Read
-        // from the words going out, not a model: the composer is told to say it will come back on anything it
-        // has no fact for, and those words are the promise Ben has to keep. A template send carries none of them.
-        const deferred = !template && !serviceRead && !heldThisTurn && composed !== null ? deferralMatch(composed, turn.body) : null;
-        if (deferred) holdFor('no_source', `no_source: the reply said "${deferred}" and Service did not read the turn: ${turn.body.slice(0, 80)}`);
-
         // 7. The one sender.
         if (!template) factIds = Array.from(new Set([...prefixFactIds, ...factIds]));
         const sent = await send({ file, partyId: party.personId, channel: choice.channel, window, bubbles: rendered.bubbles, template, runId, approver: DESK_APPROVER, guards, factIds, kbIds: Array.from(new Set(kbIds)), fixedLines: sentLines(), calls, mode: this.deps.mode ?? 'dry_run', answers: messagesOf(turn) }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
-        if (!sent.ok) return this.heldAck(file, party.personId, turn, runId, calls, `send refused: ${sent.reason}`, words(reply!), composerCalls, specialists, undefined, summary);
+        if (!sent.ok) return this.heldSilently(file, party.personId, turn, runId, calls, `send refused: ${sent.reason}`, words(reply!), composerCalls, specialists, undefined, summary);
 
         // 8. The ledger and the stage, from what the business itself said.
         this.afterSend(file, party.personId, templateWording ?? words(reply!), templateWording ? null : scopingProposal(specialists), templateWording ? [] : sentLines());
@@ -908,8 +913,23 @@ export class Desk implements DeskLike {
         noteOnHold(file, { reason, draft, ownCard });
     }
 
-    /** Contract 4's second failure and the composer's fallback route: hold with the draft, and the customer still hears the fixed acknowledgement, naming any photo or video the turn brought. */
-    private async heldAck(file: CaseFile, partyId: string, turn: Turn, runId: string, calls: ModelCallRecord[], why: string, draft: string | null, composerCalls: number, specialists: SpecialistReturn[], failed?: GuardOutcome, summary: string | null = null): Promise<DeskResult> {
+    /**
+     * The composer found nothing on the turn to answer beside what is held for Ben: nothing goes, and
+     * the card says the customer wrote again, so the silence is his to break rather than nobody's.
+     */
+    private silentOnHold(file: CaseFile, partyId: string, runId: string, calls: ModelCallRecord[], composerCalls: number, summary: string): DeskResult {
+        const why = 'the customer wrote again and nothing on the turn is the desk\'s to answer beside what is held for Ben; nothing sent';
+        this.holdFor(file, null, why, null, DESK_RUN_NOTE);
+        return { ...this.nothing(file, partyId, runId, calls, why, 'hold'), composerCalls, summary };
+    }
+
+    /**
+     * Contract 4's second failure and the composer's fallback route: hold with the draft, and send
+     * nothing. The desk once sent "Thanks, leave it with me and I'll come back to you." here; the
+     * captain removed it (18 Sep 2026), so the hold on Ben's card is the only record. A turn that is
+     * positively gas still gets the gas line, which answers it rather than promising anything.
+     */
+    private async heldSilently(file: CaseFile, partyId: string, turn: Turn, runId: string, calls: ModelCallRecord[], why: string, draft: string | null, composerCalls: number, specialists: SpecialistReturn[], failed?: GuardOutcome, summary: string | null = null): Promise<DeskResult> {
         const party = partyOf(file, partyId)!;
         // A regulated turn that is not positively gas: the gas line would be untrue, and no other line is approved for it, so nothing goes.
         const regulatedTurn = !!regulatedMatch(turn.body);
@@ -917,20 +937,21 @@ export class Desk implements DeskLike {
         const held = { reason: noLine ? `${why}; ${noLine}` : why, draft, failures: failed?.failures ?? [] };
         if (file.hold) noteOnHold(file, { ...held, ownCard: DESK_RUN_NOTE });
         else setHold(file, { approver: approverFor(file, null), ...held }, this.fileDeps());
-        if (noLine) return { ...this.nothing(file, partyId, runId, calls, held.reason, 'hold'), summary, composerCalls };
-        const line = regulatedTurn ? await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines) : heldAckLine(turn, file);
+        // The failed attempt's verdicts stay on the result, so the run shows why nothing went.
+        const base = { ...this.nothing(file, partyId, runId, calls, why, 'hold' as const), summary, composerCalls, ...(failed ? { guards: failed.guards } : {}) };
+        if (!regulatedTurn || noLine) return base;
+        const line = await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines);
         const kbIds = line.kbId ? [line.kbId] : [];
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds, kbRows: await this.kbRows(kbIds, [line]), fixedLines: [line], proposedSubject: null, liveQuoteRefs: new Set() });
         const choice = chooseChannel(party, turn.channel, this.now());
         const window = choice.ok ? windowOf(party, choice.channel, this.now()) : null;
         const rendered = choice.ok ? render(choice.channel, line.text, { name: party.name, wideBubbles: true }) : null;
-        const base = { ...this.nothing(file, partyId, runId, calls, why, 'hold'), summary };
-        if (!choice.ok || !window || !rendered?.ok || !guards.ok || window.state === 'shut') return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement not sent: ${!choice.ok ? choice.reason : !rendered?.ok ? `no render for ${choice.channel}` : !guards.ok ? guards.failures.join('; ') : 'window shut'}` };
+        if (!choice.ok || !window || !rendered?.ok || !guards.ok || window.state === 'shut') return { ...base, guards: guards.guards, note: `${why}; gas line not sent: ${!choice.ok ? choice.reason : !rendered?.ok ? `no render for ${choice.channel}` : !guards.ok ? guards.failures.join('; ') : 'window shut'}` };
         const bubbles: RenderedBubble[] = rendered.bubbles;
         const sent = await send({ file, partyId, channel: choice.channel, window, bubbles, template: null, runId, approver: DESK_APPROVER, guards, factIds: [], kbIds, fixedLines: [line], calls, mode: this.deps.mode ?? 'dry_run', answers: messagesOf(turn) }, { ...this.deps.sender, now: this.now, newId: this.deps.newId });
-        if (!sent.ok) return { ...base, guards: guards.guards, composerCalls, note: `${why}; acknowledgement refused: ${sent.reason}` };
+        if (!sent.ok) return { ...base, guards: guards.guards, note: `${why}; gas line refused: ${sent.reason}` };
         this.afterSend(file, partyId, line.text, null, [line]);
-        return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, kbIds, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, composerCalls, note: why };
+        return { ...base, decision: 'hold', channel: choice.channel, windowState: window.state, bubbles, kbIds, guards: guards.guards, approver: DESK_APPROVER, hold: file.hold, delivered: true, stageAfter: file.stage, landedTurnId: sent.record.turnId, note: why };
     }
 
     /**
@@ -944,10 +965,9 @@ export class Desk implements DeskLike {
      * weave it in naturally, so the invitation to move to WhatsApp is spent here, on this send,
      * rather than looked for in the text of a later one (channels/channel-lines.ts).
      *
-     * The proposal is the composed reply's own: the held acknowledgement passes none. A fixed line
-     * that thanks for a photo or video (the held acknowledgement naming what the turn brought, the
-     * late thanks after a reply) spends the thanks itself; one that names none leaves it owed, so a
-     * later reply may still carry it.
+     * The proposal is the composed reply's own: the gas line a held turn sends passes none. A fixed
+     * line that thanks for a photo or video (the late thanks after a reply) spends the thanks itself;
+     * one that names none leaves it owed, so a later reply may still carry it.
      */
     private afterSend(file: CaseFile, partyId: string, said: string, proposal: Proposal | null, lines: FixedLine[]): void {
         const deps = this.fileDeps();

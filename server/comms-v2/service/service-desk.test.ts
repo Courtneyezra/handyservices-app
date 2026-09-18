@@ -1,11 +1,11 @@
 /**
  * Goal 6 through the desk, with a scripted model client: a business question is answered from a
  * reviewed row verbatim and cited (the guards pass on the citation); a question with no source
- * holds for Ben with the fixed line and still answers the rest (7.1); a customer asking for a call
- * holds for Ben (7.2), and a turn that asks a price and a call carries both fixed lines; a held thread still hears an acknowledgement on every turn (7.3); Ben's
+ * holds for Ben and the reply answers the rest, saying nothing of it (7.1); a customer asking for a call
+ * holds for Ben (7.2), and a turn that asks a price and a call carries the call line alone; a thread held on a fixed line hears nothing more while it stands (7.3); Ben's
  * reply from any surface releases the hold and the next customer turn is routed as normal (7.4);
- * scoping that is not converging holds for Ben and still answers the rest (answers 14 and 21), says
- * its line once, clears its own card when the customer then gives the fact it lacked, and lets the
+ * scoping that is not converging holds for Ben and still answers the rest (answers 14 and 21) with no
+ * line of its own, clears its own card when the customer then gives the fact it lacked, and lets the
  * thread go again once he has replied, a cooperative customer is never handed over for a fast burst, while a facts-and-aftercare thread with no job on it is answered
  * turn after turn and never handed over; a clock pass chases Ben, then the owner, and Ben's reply clears it
  * (7.5). No customer send on a clock pass. A held thread that turns to gas is still not left silent,
@@ -35,8 +35,6 @@ const route = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], 
 const scopingOut = (facts: Array<{ key: string; value: string }> = []) => ({ facts, jobUnknowns: [], answeredSubjects: [] });
 const serviceOut = (over: Record<string, unknown> = {}) => ({ answers: [], changeOfDetails: null, holdReason: null, ...over });
 const isService = (system: string) => /Service specialist/.test(system);
-/** Whether the composer was handed this fixed line to carry on this turn (not merely shown it in the thread). */
-const carries = (user: string, line: string) => user.slice(Math.max(0, user.indexOf('Fixed lines to include'))).split('\n').includes(`- ${line}`) && user.includes('Fixed lines to include');
 
 function turn(text: string, at: string): InboundTurn {
     return { channel: 'whatsapp', address: '+447700900942', name: 'Sam', text, media: [], at, providerMessageId: null, via: 'door', mediaFailures: [] };
@@ -51,14 +49,15 @@ function desk(handlers: ConstructorParameters<typeof FakeModelClient>[0], extra:
 }
 
 describe('the Service specialist on the desk', () => {
-    it('a router reading that fails validation holds for Ben with the acknowledgement, never scoping on: a refund is not dropped', async () => {
+    it('a router reading that fails validation holds for Ben and sends nothing, never scoping on: a refund is not dropped', async () => {
         const noModel = () => { throw new Error('no specialist or composer may run on an unread turn'); };
         const { client, gateway } = desk({ router: () => route({ turnKind: 'refund_request' }), specialist: noModel, composer: noModel });
         const out = await gateway.inbound(turn('I want a refund for the work you did, I am not happy paying for that.', '2026-09-11T10:00:00.000Z'));
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(out.result.decision).toBe('hold');
-        expect(out.result.delivered).toBe(true);
-        expect(out.result.bubbles.length).toBeGreaterThan(0);
+        expect(out.result.delivered).toBe(false);
+        expect(out.result.bubbles).toEqual([]);
+        expect(out.file.turns.filter((t) => t.direction === 'outbound')).toEqual([]);
         expect(out.file.hold?.reason).toMatch(/^router_failed: /);
         expect(out.file.hold?.approver).toEqual(BEN);
         expect(client.calls.map((c) => c.role)).toEqual(['router']);
@@ -176,11 +175,13 @@ describe('the Service specialist on the desk', () => {
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(1);
     });
-    describe('a question the reply puts off when Service did not read the turn', () => {
+    describe('a question the draft puts off when Service did not read the turn', () => {
+        // The draft puts something off; the retry, told the guard's failure (and, where a card was raised, that the thread is held), drops it.
+        const RETRY = 'A dripping kitchen tap, got it.\n\nIs it a mixer tap or two separate taps?';
         const scopingOnly = (reply: string, extra: Partial<DeskDeps> = {}) => desk({
             router: () => route({ subjects: ['scoping'], turnKind: 'enquiry' }),
             specialist: ({ system }) => { if (isService(system)) throw new Error('Service was not routed'); return scopingOut([{ key: 'job_type', value: 'dripping tap' }]); },
-            composer: () => ({ reply, factIds: [], kbIds: [] }),
+            composer: ({ user }) => ({ reply: user.includes('Your previous draft failed') ? RETRY : reply, factIds: [], kbIds: [] }),
         }, extra);
         const CHECKATRADE = 'Hi, my kitchen tap is dripping. Are you on Checkatrade?';
         for (const [reply, asked] of [
@@ -189,33 +190,49 @@ describe('the Service specialist on the desk', () => {
             ["A dripping kitchen tap, got it.\n\nOn weekends, I'll check and come back to you on that.\n\nIs it a mixer tap or two separate taps?", 'Hi, my kitchen tap is dripping. Do you work weekends?'],
             ["A dripping kitchen tap, got it.\n\nOn weekends, I'll check and come back to you on that.\n\nIs it a mixer tap or two separate taps?", 'Hi, can you fix my dripping tap and do you work weekends?'],
         ]) {
-            it(`holds on no_source so the promise reaches Ben's board: "${asked}"`, async () => {
+            it(`holds on no_source so the question reaches Ben's board, and the promise never goes: "${asked}"`, async () => {
                 const { client, gateway } = scopingOnly(reply);
                 const out = await gateway.inbound(turn(asked, '2026-09-11T10:00:00.000Z'));
                 if (out.kind !== 'handled') throw new Error(out.kind);
                 expect(client.calls.filter((c) => c.role === 'specialist')).toHaveLength(1);
                 expect(out.result.decision).toBe('send');
                 expect(out.result.delivered).toBe(true);
+                expect(out.result.composerCalls).toBe(2);
+                expect(client.calls.filter((c) => c.role === 'composer')[1].user).toContain('Part of this thread is held');
+                expect(out.result.bubbles.map((b) => b.text).join('\n\n')).toBe(RETRY);
                 expect(out.file.hold).toMatchObject({ exception: 'no_source', approver: BEN });
-                expect(out.file.hold?.reason).toMatch(/^no_source: the reply said ".+" and Service did not read the turn: /);
+                expect(out.file.hold?.reason).toMatch(/^no_source: the draft said ".+" and Service did not read the turn: /);
                 expect(out.file.hold?.reason).toContain(asked);
                 expect(out.result.hold?.exception).toBe('no_source');
             });
         }
-        it('an ordinary scoping-only job turn raises nothing: a question, a call offer, the wrap-up and a look at the photos are not a question put off', async () => {
+        it('an ordinary scoping-only job turn raises nothing: a question, a call offer, the wrap-up and a photo request are not a question put off, and go as written', async () => {
             for (const reply of [
                 "A dripping kitchen tap, got it.\n\nIs it a mixer tap or two separate taps?\n\nHappy to give you a quick call if that's easier.",
                 "Thanks, that's everything I need for now. I'll put the quote together and send it over.",
                 "Thanks, I'll get the quote over to you.",
+                'A dripping kitchen tap, got it. Could you send a photo of the tap?',
+            ]) {
+                const { gateway } = scopingOnly(reply);
+                const out = await gateway.inbound(turn('Hi, my kitchen tap is dripping, can you fix it?', '2026-09-11T10:00:00.000Z'));
+                if (out.kind !== 'handled') throw new Error(out.kind);
+                expect(out.result.decision).toBe('send');
+                expect(out.result.composerCalls).toBe(1);
+                expect(out.file.hold).toBeNull();
+            }
+        });
+        it('a promise to come back on the job itself is not a question put off, but it never goes: the retry drops it and no card is raised', async () => {
+            for (const reply of [
                 "A dripping kitchen tap, got it. If you can send a photo of it, I'll have a look and get back to you.",
                 "A dripping kitchen tap, got it. I'll let you know once I've seen the photos.",
-                'A dripping kitchen tap, got it. Could you send a photo of the tap?',
                 "If you can send a photo, I'll take a look and get back to you on it.",
             ]) {
                 const { gateway } = scopingOnly(reply);
                 const out = await gateway.inbound(turn('Hi, my kitchen tap is dripping, can you fix it?', '2026-09-11T10:00:00.000Z'));
                 if (out.kind !== 'handled') throw new Error(out.kind);
                 expect(out.result.decision).toBe('send');
+                expect(out.result.composerCalls).toBe(2);
+                expect(out.result.bubbles.map((b) => b.text).join('\n\n')).toBe(RETRY);
                 expect(out.file.hold).toBeNull();
             }
         });
@@ -232,6 +249,7 @@ describe('the Service specialist on the desk', () => {
                 const out = await gateway.inbound(turn(asked, '2026-09-11T10:00:00.000Z'));
                 if (out.kind !== 'handled') throw new Error(out.kind);
                 expect(out.result.decision).toBe('send');
+                expect(out.result.bubbles.map((b) => b.text).join('\n\n')).toBe(RETRY);
                 expect(out.file.hold?.exception, asked).toBe('no_source');
             }
         });
@@ -245,6 +263,7 @@ describe('the Service specialist on the desk', () => {
                 const out = await gateway.inbound(turn(asked, '2026-09-11T10:00:00.000Z'));
                 if (out.kind !== 'handled') throw new Error(out.kind);
                 expect(out.result.decision).toBe('send');
+                expect(out.result.bubbles.map((b) => b.text).join('\n\n')).toBe(RETRY);
                 expect(out.file.hold, asked).toBeNull();
             }
         });
@@ -255,7 +274,8 @@ describe('the Service specialist on the desk', () => {
             expect(out.result.decision).toBe('send');
             expect(out.file.hold).toBeNull();
         });
-        it('a template send raises nothing: the words that go out are the template\'s', async () => {
+        // The draft's put-off is read before the window is, so a question that only a template can follow still reaches Ben's board.
+        it('a template send on a shut window still holds the question the draft put off on no_source; only the template\'s words go', async () => {
             const { gateway, clock } = scopingOnly("A dripping kitchen tap, got it. On the Checkatrade question, I'll check and come back to you on that one.", { templates: { async approved() { return { contentSid: 'HX_any' }; } } });
             const first = await gateway.inbound(turn('Hi, my kitchen tap is dripping.', '2026-09-11T10:00:00.000Z'));
             if (first.kind !== 'handled') throw new Error(first.kind);
@@ -266,24 +286,25 @@ describe('the Service specialist on the desk', () => {
             expect(out.result.windowState).toBe('shut');
             expect(out.result.templateId).not.toBeNull();
             expect(out.result.decision).toBe('send');
-            expect(out.file.hold).toBeNull();
+            expect(out.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/come back/);
+            expect(out.file.hold?.exception).toBe('no_source');
         });
-        it('a turn whose own hold already carries the promise adds nothing: a price question holds on money alone', async () => {
+        it('a turn that already raised a hold adds no_source to nothing: a price question holds on money alone', async () => {
             const { gateway } = desk({
                 router: () => route({ subjects: ['quoting', 'scoping'], turnKind: 'question', exception: 'money' }),
                 specialist: ({ system }) => { if (isService(system)) throw new Error('Service was not routed'); return scopingOut([{ key: 'job_type', value: 'fence panel' }]); },
-                composer: () => ({ reply: `Fence panel, got it. ${DEFAULT_FIXED_LINES.money_to_ben}\n\nWhereabouts are you?`, factIds: [], kbIds: [] }),
+                composer: () => ({ reply: 'Fence panel, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
             });
             const out = await gateway.inbound(turn('Fence panel down. How much roughly?', '2026-09-11T10:00:00.000Z'));
             if (out.kind !== 'handled') throw new Error(out.kind);
             expect(out.file.hold).toMatchObject({ exception: 'money', notedOn: false });
             expect(out.file.hold?.reason).not.toContain('no_source');
         });
-        it('a price question on a thread already held on money re-notes nothing: the money line is not a question put off', async () => {
+        it('a price question on a thread already held on money re-notes nothing', async () => {
             const { gateway } = desk({
                 router: () => route({ subjects: ['quoting', 'scoping'], turnKind: 'question', exception: 'money' }),
                 specialist: ({ system }) => { if (isService(system)) throw new Error('Service was not routed'); return scopingOut([{ key: 'job_type', value: 'fence panel' }]); },
-                composer: () => ({ reply: `Fence panel, got it. ${DEFAULT_FIXED_LINES.money_to_ben}`, factIds: [], kbIds: [] }),
+                composer: () => ({ reply: 'Fence panel, got it.', factIds: [], kbIds: [] }),
             });
             const first = await gateway.inbound(turn('Fence panel down. How much roughly?', '2026-09-11T10:00:00.000Z'));
             if (first.kind !== 'handled') throw new Error(first.kind);
@@ -299,7 +320,7 @@ describe('the Service specialist on the desk', () => {
                 specialist: ({ system }) => isService(system)
                     ? serviceOut({ answers: [{ asked: 'areas covered', source: 'kb', id: 'kb-insured' }, { asked: 'fix a leaking tap?', source: 'job', id: null }] })
                     : scopingOut([{ key: 'job_type', value: 'leaking tap' }]),
-                composer: () => ({ reply: `${INSURED}\n\nLet me check what the tap needs: is it a mixer?`, factIds: [], kbIds: ['kb-insured'] }),
+                composer: () => ({ reply: `${INSURED}\n\nOn the tap, is it a mixer?`, factIds: [], kbIds: ['kb-insured'] }),
             });
             const out = await gateway.inbound(turn('Do you cover Nottingham, and can you fix a leaking tap?', '2026-09-11T10:00:00.000Z'));
             if (out.kind !== 'handled') throw new Error(out.kind);
@@ -347,12 +368,12 @@ describe('the Service specialist on the desk', () => {
         expect(out.result.decision).toBe('send');
         expect(out.result.bubbles[0].text).toBe(INSURED);
     });
-    it('7.1: a question with no source holds for Ben, carries the fixed line, and still answers the rest; the next turn is answered too (7.3)', async () => {
+    it('7.1: a question with no source holds for Ben, the reply answers the rest and says nothing of it; the next turn is answered too (7.3)', async () => {
         const { gateway } = desk({
             router: ({ n }) => n === 1 ? route({ subjects: ['service', 'scoping'], turnKind: 'question' }) : route({ turnKind: 'answer' }),
             specialist: ({ system }) => isService(system) ? serviceOut({ answers: [{ asked: 'weekends?', source: 'none', id: null }] }) : scopingOut([{ key: 'job_type', value: 'leaking tap' }]),
             composer: ({ user, n }) => {
-                if (n === 1) { expect(user).toContain(DEFAULT_FIXED_LINES.no_source); expect(user).toContain('we have no source'); return { reply: `A leaking tap, no problem. ${DEFAULT_FIXED_LINES.no_source}\n\nWhereabouts are you?`, factIds: [], kbIds: [] }; }
+                if (n === 1) { expect(user).not.toContain('Fixed lines to include'); expect(user).toContain('we have no source'); expect(user).toContain('Part of this thread is held'); return { reply: 'A leaking tap, no problem.\n\nWhereabouts are you?', factIds: [], kbIds: [] }; }
                 return { reply: 'NG9, lovely. Is there parking outside?', factIds: [], kbIds: [] };
             },
         });
@@ -361,7 +382,7 @@ describe('the Service specialist on the desk', () => {
         expect(a.result.decision).toBe('send');
         expect(a.file.hold).toMatchObject({ exception: 'no_source', approver: { kind: 'human', id: 'ben' } });
         expect(a.file.hold?.reason).toMatch(/weekends/);
-        expect(a.result.bubbles.map((b) => b.text).join(' ')).toContain(DEFAULT_FIXED_LINES.no_source);
+        expect(a.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/come (?:straight )?back|check on/i);
         const b = await gateway.inbound(turn('NG9 2AB', '2026-09-11T10:05:00.000Z'));
         if (b.kind !== 'handled') throw new Error(b.kind);
         expect(b.result.delivered).toBe(true);
@@ -379,21 +400,21 @@ describe('the Service specialist on the desk', () => {
         expect(out.file.hold).toMatchObject({ exception: 'callback' });
         expect(out.result.delivered).toBe(true);
     });
-    it('7.2: a turn that asks a price and a call carries both fixed lines, and the belt is not displaced by the router\'s reading', async () => {
+    it('7.2: a turn that asks a price and a call carries the call line alone, holds on money, and the belt is not displaced by the router\'s reading', async () => {
         const { gateway } = desk({
             router: () => route({ subjects: ['quoting', 'scoping'], turnKind: 'question', exception: 'callback' }),
             specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut([{ key: 'job_type', value: 'fence panel' }]),
             composer: ({ user }) => {
-                expect(user).toContain(DEFAULT_FIXED_LINES.money_to_ben);
                 expect(user).toContain(DEFAULT_FIXED_LINES.callback_to_ben);
+                expect(user).not.toMatch(/come straight back/);
                 expect(user).toContain('offer a call: no');
-                return { reply: `${DEFAULT_FIXED_LINES.money_to_ben} ${DEFAULT_FIXED_LINES.callback_to_ben}`, factIds: [], kbIds: [] };
+                return { reply: DEFAULT_FIXED_LINES.callback_to_ben, factIds: [], kbIds: [] };
             },
         });
         const out = await gateway.inbound(turn('Fence panel down. How much roughly, and can you ring me about it?', '2026-09-11T10:00:00.000Z'));
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(out.result.delivered).toBe(true);
-        // One record of what the thread is held on: the graver of the two, money, and the reply carried both lines.
+        // One record of what the thread is held on: the graver of the two, money; the reply carried the call line only.
         expect(out.file.hold).toMatchObject({ exception: 'money' });
         expect(out.result.summary).toContain('exception money+callback');
     });
@@ -433,7 +454,7 @@ describe('the Service specialist on the desk', () => {
         expect(prompts[16]).not.toContain('sam@example.org');
         expect(last.file.hold?.reason).toBe('change_of_details: email -> sam@example.org');
     });
-    it('7.3 and 7.4: a complaint sits with Ben and every turn is acknowledged; Ben\'s reply from the kanban releases it and the next turn is routed again', async () => {
+    it('7.3 and 7.4: a complaint sits with Ben and a later turn hears nothing; Ben\'s reply from the kanban releases it and the next turn is routed again', async () => {
         const { client, gateway, clock } = desk({
             router: ({ n }) => n === 1 ? route({ exception: 'complaint', turnKind: 'other' }) : route({ turnKind: 'acknowledgement' }),
             specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut(),
@@ -445,8 +466,9 @@ describe('the Service specialist on the desk', () => {
         expect(a.file.hold?.exception).toBe('complaint');
         const b = await gateway.inbound(turn('Hello? Anyone there?', '2026-09-11T10:10:00.000Z'));
         if (b.kind !== 'handled') throw new Error(b.kind);
-        expect(b.result.delivered).toBe(true);
-        expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(b.result.decision).toBe('hold');
+        expect(b.result.delivered).toBe(false);
+        expect(b.result.bubbles).toEqual([]);
         expect(client.calls).toHaveLength(1);
         clock.t = Date.parse('2026-09-11T10:15:00.000Z');
         const ben = await humanReply({ file: a.file, approver: BEN, person: 'ben', words: 'Sorry Sam, that is on me. I will come and put it right.' }, { now: () => new Date(clock.t += 1000) });
@@ -458,14 +480,13 @@ describe('the Service specialist on the desk', () => {
         expect(c.result.bubbles[0].text).toMatch(/Glad/);
         expect(client.calls.filter((x) => x.role === 'router')).toHaveLength(2);
         expect(c.result.guards.one_reply.result).toBe('pass');
-        expect(a.file.turns.map((t) => t.approver)).toEqual([null, 'agent.comms_v2', null, 'agent.comms_v2', 'human:ben', null, 'agent.comms_v2']);
+        expect(a.file.turns.map((t) => t.approver)).toEqual([null, 'agent.comms_v2', null, 'human:ben', null, 'agent.comms_v2']);
     });
-    it('scoping that is not converging holds for Ben and answers the rest: the thread is not frozen, and the line goes once', async () => {
-        const NC = DEFAULT_FIXED_LINES.not_converging;
+    it('scoping that is not converging holds for Ben and answers the rest: the thread is not frozen, and no line promises anything', async () => {
         const { client, gateway } = desk({
             router: () => route({ turnKind: 'answer' }),
             specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut(),
-            composer: ({ n, user }) => ({ reply: carries(user, NC) ? `Right, no worries at all. (${n}) ${NC}` : `Right, no worries at all. (${n})`, factIds: [], kbIds: [] }),
+            composer: ({ n, user }) => { expect(user).not.toContain('Fixed lines to include'); return { reply: `Right, no worries at all. (${n})`, factIds: [], kbIds: [] }; },
         });
         let last: Awaited<ReturnType<typeof gateway.inbound>> | null = null;
         for (let i = 0; i < 7; i++) {
@@ -477,21 +498,19 @@ describe('the Service specialist on the desk', () => {
         expect(last.file.hold?.exception).toBe('not_converging');
         expect(last.file.hold?.reason).toMatch(/^not_converging: 6 replies .*\(no job type\)$/);
         expect(last.result.decision).toBe('send');
-        expect(last.result.bubbles.map((b) => b.text).join(' ')).toContain(NC);
+        expect(last.result.bubbles.map((b) => b.text).join(' ')).toBe(`Right, no worries at all. (${client.calls.filter((c) => c.role === 'composer').length})`);
         const composerCalls = client.calls.filter((c) => c.role === 'composer').length;
         const again = await gateway.inbound(turn('so what now', '2026-09-11T10:30:00.000Z'));
         if (again.kind !== 'handled') throw new Error(again.kind);
-        // Still scoped and composed, not the held acknowledgement; the customer is not told the same line twice.
+        // Still scoped and composed: the thread is not frozen.
         expect(again.result.decision).toBe('send');
         expect(client.calls.filter((c) => c.role === 'composer').length).toBeGreaterThan(composerCalls);
-        expect(again.result.bubbles.map((b) => b.text).join(' ')).not.toContain(NC);
         // The desk's own card is restated with the count now, never a second reason beside it.
         expect(again.file.hold?.reason).toMatch(/^not_converging: 7 replies [^;]*$/);
         expect(again.file.hold?.notedOn).toBe(false);
     });
     it('a not-converging card clears itself when the customer supplies the missing location right after it is raised', async () => {
         const ADDRESS = '14 Wollaton Road, Beeston NG9 2AB';
-        const NC = DEFAULT_FIXED_LINES.not_converging;
         const quotes = new MemoryQuoteStore();
         const { gateway } = desk({
             router: () => route({ turnKind: 'answer' }),
@@ -502,7 +521,7 @@ describe('the Service specialist on the desk', () => {
                     ? scopingOut([{ key: 'location', value: 'NG9 2AB' }])
                     : scopingOut([{ key: 'job_type', value: 'leaking tap' }]);
             },
-            composer: ({ n, user }) => ({ reply: carries(user, NC) ? `Right. (${n}) ${NC}` : `Thanks, that is everything I need. (${n})`, factIds: [], kbIds: [] }),
+            composer: ({ n }) => ({ reply: `Thanks, that is everything I need. (${n})`, factIds: [], kbIds: [] }),
         }, { quoting: { store: quotes, drafter: new FakeDrafter(quotes), notifier: recordingNotifier } });
         // Six stalled exchanges on a job with no location: the first reply's turn gave the job, the rest gave nothing new.
         const first = await gateway.inbound(turn('I have a leaking tap', '2026-09-11T10:00:00.000Z'));
@@ -525,11 +544,9 @@ describe('the Service specialist on the desk', () => {
         expect(rel.words).toMatch(/^scoping converged on a later turn \(the file now has the job type and the location\)/);
         expect(rel.approver).toEqual(BEN);
         expect(answered.result.decision).toBe('send');
-        expect(answered.result.bubbles.map((b) => b.text).join(' ')).not.toContain(NC);
     });
     it('a not-converging card that also carries a callback stays held for the callback, labelled with it, once the location arrives', async () => {
         const ADDRESS = '14 Wollaton Road, Beeston NG9 2AB';
-        const NC = DEFAULT_FIXED_LINES.not_converging;
         const quotes = new MemoryQuoteStore();
         const { gateway } = desk({
             router: ({ user }) => />>.*anyone going to come out/.test(user) ? route({ turnKind: 'question', exception: 'callback' }) : route({ turnKind: 'answer' }),
@@ -540,7 +557,7 @@ describe('the Service specialist on the desk', () => {
                     ? scopingOut([{ key: 'location', value: 'NG9 2AB' }])
                     : />>.*leaking tap/.test(user) ? scopingOut([{ key: 'job_type', value: 'leaking tap' }]) : scopingOut();
             },
-            composer: ({ n, user }) => ({ reply: carries(user, NC) ? `Right. (${n}) ${NC}` : `Right. (${n})`, factIds: [], kbIds: [] }),
+            composer: ({ n }) => ({ reply: `Right. (${n})`, factIds: [], kbIds: [] }),
         }, { quoting: { store: quotes, drafter: new FakeDrafter(quotes), notifier: recordingNotifier } });
         let last = await gateway.inbound(turn('I have a leaking tap', '2026-09-11T10:00:00.000Z'));
         for (let i = 1; i < 10 && last.kind === 'handled' && !last.file.hold; i++) last = await gateway.inbound(turn('erm not sure', `2026-09-11T10:0${i}:00.000Z`));
@@ -578,7 +595,6 @@ describe('the Service specialist on the desk', () => {
         expect(last.file.hold?.reason).toMatch(/^not_converging: 6 replies .*\(no location\)$/);
     });
     it('a card raised on the job asks clears with the job type named when it arrives, and says the location is still missing', async () => {
-        const NC = DEFAULT_FIXED_LINES.not_converging;
         const { gateway } = desk({
             router: () => route({ turnKind: 'answer' }),
             specialist: ({ system, user }) => {
@@ -587,7 +603,8 @@ describe('the Service specialist on the desk', () => {
                     ? scopingOut([{ key: 'job_type', value: 'leaking tap' }])
                     : { facts: [], jobUnknowns: ['what the job is'], answeredSubjects: ['job'] };
             },
-            composer: ({ n, user }) => ({ reply: carries(user, NC) ? `Right. (${n}) ${NC}` : `What is the job, roughly? (${n})`, factIds: [], kbIds: [] }),
+            // The turn that raises the card is told the thread is held and asks nothing.
+            composer: ({ n, user }) => ({ reply: user.includes('Part of this thread is held') ? `Right. (${n})` : `What is the job, roughly? (${n})`, factIds: [], kbIds: [] }),
         });
         let last: Awaited<ReturnType<typeof gateway.inbound>> | null = null;
         for (let i = 0; i < 7; i++) {
@@ -626,7 +643,7 @@ describe('the Service specialist on the desk', () => {
         const { client, gateway } = desk({
             router: ({ n }) => n === 8 ? route({ exception: 'complaint', turnKind: 'other' }) : route({ turnKind: 'answer' }),
             specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut(),
-            composer: ({ n }) => ({ reply: `Right, no worries at all. (${n}) ${DEFAULT_FIXED_LINES.not_converging}`, factIds: [], kbIds: [] }),
+            composer: ({ n }) => ({ reply: `Right, no worries at all. (${n})`, factIds: [], kbIds: [] }),
         });
         let last: Awaited<ReturnType<typeof gateway.inbound>> | null = null;
         for (let i = 0; i < 7; i++) {
@@ -647,7 +664,8 @@ describe('the Service specialist on the desk', () => {
         const composerCalls = client.calls.filter((c) => c.role === 'composer').length;
         const next = await gateway.inbound(turn('Hello?', '2026-09-11T10:50:00.000Z'));
         if (next.kind !== 'handled') throw new Error(next.kind);
-        expect(next.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(next.result.delivered).toBe(false);
+        expect(next.result.bubbles).toEqual([]);
         expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(composerCalls);
     });
     it('a facts-and-aftercare thread with no job on it is never handed over as scoping: seven answered questions, no hold', async () => {
@@ -722,7 +740,7 @@ describe('the Service specialist on the desk', () => {
             specialist: ({ system }) => isService(system) ? serviceOut({ answers: [{ asked: 'insured?', source: 'kb', id: 'kb-insured' }] }) : scopingOut(),
             composer: ({ n }) => n === 1
                 ? { reply: `${INSURED} A job like that is usually about £80.`, factIds: [], kbIds: ['kb-insured'] }
-                : { reply: DEFAULT_FIXED_LINES.no_source, factIds: [], kbIds: [] },
+                : { reply: 'Happy to help with that.', factIds: [], kbIds: [] },
         });
         const out = await gateway.inbound(turn('Are you insured, and what would it cost?', '2026-09-11T10:00:00.000Z'));
         if (out.kind !== 'handled') throw new Error(out.kind);
@@ -774,7 +792,8 @@ describe('the Service specialist on the desk', () => {
         const composerCalls = client.calls.filter((c) => c.role === 'composer').length;
         const c = await gateway.inbound(turn('Are you going to sort this or not', '2026-09-11T10:10:00.000Z'));
         if (c.kind !== 'handled') throw new Error(c.kind);
-        expect(c.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(c.result.delivered).toBe(false);
+        expect(c.result.bubbles).toEqual([]);
         expect(client.calls.filter((x) => x.role === 'composer')).toHaveLength(composerCalls);
         expect(c.file.hold?.exception).toBe('refund');
     });

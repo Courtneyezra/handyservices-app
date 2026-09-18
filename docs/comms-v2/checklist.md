@@ -96,7 +96,7 @@ Written 8 Sep 2026 against `941f467` plus PRs 17, 19 and 20 pending.
 |---|---|---|
 | 7.1 | A thread goes to Ben for: unhappiness or doubt, regulated or high-risk work, a question we have no source for, or scoping that is not converging **[O]** (§6.1) | Trigger each |
 | 7.2 | Plus, for now: money, refunds, and a customer asking for a call **[O]** (§6.2) | |
-| 7.3 | The customer is not left silent while it sits with Ben **[C]** | Leave a flagged thread and watch |
+| 7.3 | While it sits with Ben the desk never promises to come back: what it can answer it answers, the held part it says nothing about, and a turn with nothing else to answer gets nothing (behaviour.md answer 96, which supersedes "not left silent") **[C]** | Leave a flagged thread and watch |
 | 7.4 | A thread comes back to automation when any human replies, from any surface **[C]** | Reply as Ben |
 | 7.5 | Ben is chased if he does not act, and it escalates to the owner **[O]** (S15 rec A) | Leave it |
 

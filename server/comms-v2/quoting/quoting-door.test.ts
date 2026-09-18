@@ -48,7 +48,7 @@ beforeAll(async () => {
             return { facts: [{ key: 'job_type', value: 'leaking kitchen tap' }, { key: 'location', value: 'NG9 2AB' }], jobUnknowns: [], answeredSubjects: ['job', 'postcode'] };
         },
         composer: ({ user }) => {
-            if (/they accepted the quote on the quote page/.test(user)) return { reply: 'Brilliant, thank you Sam.\n\nBen has been told and will be in touch about the day.', factIds: [], kbIds: [] };
+            if (/they accepted the quote on the quote page/.test(user)) return { reply: 'Brilliant, thank you Sam.\n\nThat has come through to me.', factIds: [], kbIds: [] };
             // The composer thanks in its own words, without naming the photo: the ledger's mark
             // comes from the desk's instruction, not from the sentence that went.
             if (/thank for media: yes/.test(user)) return { reply: 'Thanks for sending that over, that is the one.\n\nBen has everything he needs now.', factIds: [], kbIds: [] };
@@ -242,7 +242,7 @@ describe('the quoting door', () => {
         expect(r.json.state.conversation.stage).toBe('accepted');
         const ps = plannedSendOfResponse(r.json);
         expect(ps.delivered).toBe(true);
-        expect(ps.bubbles.join(' ')).toMatch(/Ben has been told/);
+        expect(ps.bubbles.join(' ')).toMatch(/That has come through to me/);
         expect(Object.values(ps.guards).every((g) => g.result === 'pass')).toBe(true);
         expect(r.json.state.quote.notifications.map((n: any) => n.kind)).toEqual(['ready_to_price', 'chase', 'accepted']);
         const state = await get('/quote');

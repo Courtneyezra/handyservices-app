@@ -34,7 +34,8 @@ beforeAll(async () => {
             : { facts: [{ key: 'job_type', value: 'bathroom extractor fan' }], jobUnknowns: [], answeredSubjects: [] },
         composer: ({ user }) => {
             if (user.includes('goes by SMS')) return { reply: `A dead fan, got it. Whereabouts are you? ${DEFAULT_FIXED_LINES.move_to_whatsapp}`, factIds: [], kbIds: [] };
-            if (user.includes('goes by email')) return { reply: 'Thanks for the detail on the fan.\n\nWhereabouts are you?', factIds: [], kbIds: [] };
+            // The location is asked once: a later letter, told not to ask it again, only acknowledges.
+            if (user.includes('goes by email')) return { reply: /Never ask again[^\n]*postcode/.test(user) ? 'Thanks, noted.' : 'Thanks for the detail on the fan.\n\nWhereabouts are you?', factIds: [], kbIds: [] };
             if (user.includes('thank for media: yes')) return { reply: 'Thanks for the photo.\n\nIs there parking outside?', factIds: [], kbIds: [] };
             return { reply: 'Hi, a dead bathroom fan, got it.\n\nWhereabouts are you?\n\nHappy to give you a quick call if easier.', factIds: [], kbIds: [] };
         },

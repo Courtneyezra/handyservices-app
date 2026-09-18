@@ -11,8 +11,8 @@
  * two rules: the verbatim rail, which every cited knowledge-base row passes through whatever it is
  * about, and the claim lexicon under it. Pass goes to the sender with the
  * fact ids attached; a first failure goes back to the composer once with the failures named; a
- * second failure holds for the approver with the draft and the failures, and the customer still
- * gets the fixed acknowledgement (the desk does that, desk.ts).
+ * second failure holds for the approver with the draft and the failures, and nothing is sent
+ * (desk.ts). The commitment guard refuses any promise to come back to the customer.
  *
  * The approver slot is one function so the landlord service can attach without touching the
  * guards: Ben for a homeowner; for a tenant issue, later, the landlord's rules, then the landlord,
@@ -22,7 +22,7 @@ import { askedUnanswered, customerTurnUnanswered, everAsked, isReadThisRunOnly, 
 import type { GuardName, GuardVerdict } from './desk-types';
 import type { FixedLine } from './fixed-lines';
 import { withoutDashPunctuation } from './dashes';
-import { RE_BEN_COMES_BACK, RE_BUSINESS_CLAIM, RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_DISCLOSURE, RE_FIGURE, RE_THANKS_MEDIA, ordinalDays, regulatedMatch, sentencesOf, textAsks } from './lexicon';
+import { RE_BEN_COMES_BACK, RE_BUSINESS_CLAIM, RE_COMES_BACK, RE_COMMITMENT_OR_FAULT, RE_DATE_TIME_DURATION, RE_DISCLOSURE, RE_FIGURE, RE_THANKS_MEDIA, ordinalDays, regulatedMatch, sentencesOf, textAsks } from './lexicon';
 import { dateChangeMatch } from '../scheduling/scheduling-tools';
 
 export const GUARD_NAMES: readonly GuardName[] = ['figure', 'date_time_duration', 'commitment_fault', 'business_claim', 'disclosure', 'one_reply', 'ask_ledger', 'regulated'];
@@ -124,6 +124,12 @@ export function checkDate(input: GuardInput): GuardVerdict {
 export function checkCommitment(input: GuardInput): GuardVerdict {
     const m = RE_COMMITMENT_OR_FAULT.exec(input.reply);
     if (m) return fail(`a commitment or an admission of fault appears: "${m[0]}"`);
+    // Never a promise to come back (the captain's ruling, 18 Sep 2026: "remove that line entirely"):
+    // nothing keeps it, so where the desk cannot answer it holds for Ben and says nothing. A fixed line
+    // is Ben's own reviewed words and is read as it stands, so only the words around them are checked.
+    const own = input.fixedLines.reduce((t, f) => t.split(f.text).join(' '), input.reply);
+    const back = RE_COMES_BACK.exec(own);
+    if (back) return fail(`a promise to come back to them ("${back[0]}"): say nothing about what you cannot answer, it is held for a person; if nothing else needs saying, reply with nothing`);
     // A request to move a date that nothing holds for Ben is not his to come back on: the gate only holds
     // a change to a booked job (checklist 5.5), so a promise that he will is one nobody keeps. The desk
     // raises every hold before the guards run, so the file's hold is this turn's, or a standing one.

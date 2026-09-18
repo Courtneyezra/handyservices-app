@@ -222,18 +222,18 @@ function sentQuoteLink(file: CaseFile): string | null {
  * "I don't know how you found us"). A literal question mark is the one unambiguous signal that the
  * customer asked something, which is what this template's wording ("you asked us about...") claims.
  *
- * The desk's held acknowledgement ("Thanks, leave it with me and I'll come back to you.", or its
- * variant naming a photo or video) is not an answer: it only says one is coming (captain's answer
- * of 17 Sep 2026, "Yes, offer it"). The file records no fixed-line kind, so it is known by its
- * sender (the desk) and its exact wording (`isHeldAckText`).
+ * The desk's former held acknowledgement ("Thanks, leave it with me and I'll come back to you.", or
+ * its variant naming a photo or video) is not an answer: it only said one was coming (captain's
+ * answer of 17 Sep 2026, "Yes, offer it"). The desk no longer sends it (the ruling of 18 Sep 2026
+ * removed every promise to come back), but threads written before still carry it. The file records
+ * no fixed-line kind, so it is known by its sender (the desk) and its exact wording (`isHeldAckText`).
  *
- * The desk's other holding line says the same thing through the composer: on a `no_source` hold the
- * reply carries the fixed `no_source` line ("Let me check on that one and come straight back to
- * you.") woven into a composed turn, so its wording is not fixed and cannot be matched. That hold is
- * itself the desk's record that nothing on file answered what they asked, so while it stands the
- * desk's own sends are holding lines rather than answers -- read from the recorded exception, never
- * the words, the same way `heldOnQuestion` reads it. A person's own words, a template or a quote
- * link still answer the question, as does any desk send once the hold has gone.
+ * On a `no_source` hold the desk's own sends are not answers either: the hold is the desk's record
+ * that nothing on file answered what they asked, and a reply sent beside it answered something else
+ * (or, before that ruling, carried the removed `no_source` line), so while it stands the desk's own
+ * sends do not count, read from the recorded exception, never the words, the same way
+ * `heldOnQuestion` reads it. A person's own words, a template or a quote link still answer the
+ * question, as does any desk send once the hold has gone.
  */
 function unansweredQuestion(file: CaseFile, turn: Turn): boolean {
     const idx = file.turns.findIndex((t) => t.id === turn.id);

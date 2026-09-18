@@ -1,8 +1,8 @@
 /**
  * The desk end to end with a scripted model client: exactly one composer call per customer turn
- * on the plain path; a guard failure goes back to the composer once, then holds with the fixed
- * acknowledgement; a composer refusal takes the fixed line, never silence; money holds for Ben
- * and still answers the rest; gas gets the fixed line and no composer; a clock pass sends
+ * on the plain path; a guard failure goes back to the composer once, then holds for Ben and sends
+ * nothing; so does a composer refusal (the held acknowledgement, a promise to come back, was
+ * removed on 18 Sep 2026); money holds for Ben and still answers the rest, saying nothing of the price; gas gets the fixed line and no composer; a clock pass sends
  * nothing; the ledger is written from what went; cost is recorded per call on the send.
  */
 import { describe, expect, it } from 'vitest';
@@ -77,7 +77,7 @@ describe('the desk', () => {
         expect(file.sends[0].calls.every((c) => typeof c.costPence === 'number')).toBe(true);
     });
 
-    it('a guard failure goes back to the composer once with the failures named; a second failure holds with the fixed acknowledgement', async () => {
+    it('a guard failure goes back to the composer once with the failures named; a second failure holds for Ben and sends nothing', async () => {
         const { gateway } = desk({
             router: () => routeScoping(),
             specialist: () => specialistFacts([]),
@@ -90,8 +90,11 @@ describe('the desk', () => {
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(out.result.composerCalls).toBe(2);
         expect(out.result.decision).toBe('hold');
-        expect(out.result.delivered).toBe(true);
-        expect(out.result.bubbles[0].text).toBe(DEFAULT_FIXED_LINES.held_ack);
+        expect(out.result.delivered).toBe(false);
+        expect(out.result.bubbles).toEqual([]);
+        expect(out.file.turns.filter((t) => t.direction === 'outbound')).toEqual([]);
+        // The failed attempt's verdicts stay on the result, so the run shows why nothing went.
+        expect(out.result.guards.figure.result).toBe('fail');
         expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
         expect(out.file.hold?.draft).toContain('£80');
         expect(out.file.hold?.failures.length).toBeGreaterThan(0);
@@ -157,23 +160,29 @@ describe('the desk', () => {
         for (const s of ["Please don't call me", 'Please don’t call me', 'never ring me', "Don't bother to ring me", 'text only please']) expect(asksForCall(s), s).toBe(false);
     });
 
-    it('a composer refusal takes the fixed acknowledgement and a hold, never a silent empty reply', async () => {
+    it('a composer refusal holds for Ben and sends nothing: no promise to come back fills the silence', async () => {
         const { gateway } = desk({ router: () => routeScoping(), specialist: () => specialistFacts([]), composer: () => ({ refused: true }) });
         const out = await gateway.inbound(turn('Hi', '2026-09-11T10:00:00.000Z'));
         if (out.kind !== 'handled') throw new Error(out.kind);
-        expect(out.result.delivered).toBe(true);
+        expect(out.result.delivered).toBe(false);
+        expect(out.result.bubbles).toEqual([]);
+        expect(out.file.hold?.reason).toMatch(/declined/);
         expect(out.result.decision).toBe('hold');
         expect(out.result.note).toMatch(/declined/);
     });
 
-    it('money holds for Ben, answers the rest, and never a figure', async () => {
+    it('money holds for Ben, answers the rest, says nothing of the price, and never a figure', async () => {
         const { gateway } = desk({
             router: ({ n }) => n === 1 ? routeScoping() : routeScoping({ exception: 'money', turnKind: 'question' }),
             specialist: ({ system }) => (/lines of a quote/.test(system)
                 ? { lines: [{ title: 'Fit the new kitchen tap', category: 'plumbing', qty: 1, detail: 'the customer supplies the tap', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
                 : specialistFacts([{ key: 'job_type', value: 'fit a kitchen tap' }, { key: 'location', value: 'NG7 1AA' }])),
             composer: ({ user, n }) => {
-                if (n === 2) { expect(user).toContain(DEFAULT_FIXED_LINES.money_to_ben); return { reply: `${DEFAULT_FIXED_LINES.money_to_ben}\n\nIs the old tap still connected?`, factIds: [], kbIds: [] }; }
+                if (n === 2) {
+                    expect(user).toContain('Part of this thread is held for a person');
+                    expect(user).not.toContain('Let me check on the price and come straight back to you');
+                    return { reply: 'Is the old tap still connected?', factIds: [], kbIds: [] };
+                }
                 return { reply: 'Hi Nina, fitting a tap you have already bought, lovely.\n\nWill someone be in?', factIds: [], kbIds: [] };
             },
         });
@@ -186,6 +195,26 @@ describe('the desk', () => {
         expect(second.result.hold?.reason).toMatch(/money/);
         expect(second.result.delivered).toBe(true);
         expect(second.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/£/);
+        expect(second.result.bubbles.map((b) => b.text)).toEqual(['Is the old tap still connected?']);
+    });
+
+    it('a money question with nothing else to answer is held for Ben and sends nothing, where it used to promise to check on the price', async () => {
+        const { client, gateway } = desk({
+            router: ({ n }) => n === 1 ? routeScoping() : routeScoping({ exception: 'money', turnKind: 'question' }),
+            specialist: ({ system }) => (/lines of a quote/.test(system)
+                ? { lines: [{ title: 'Fit the new kitchen tap', category: 'plumbing', qty: 1, detail: 'the customer supplies the tap', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
+                : specialistFacts([{ key: 'job_type', value: 'fit a kitchen tap' }, { key: 'location', value: 'NG7 1AA' }])),
+            composer: ({ n }) => (n === 2 ? { reply: '', factIds: [], kbIds: [] } : { reply: 'Hi Nina, fitting a tap you have already bought, lovely.\n\nWill someone be in?', factIds: [], kbIds: [] }),
+        });
+        await gateway.inbound(turn('Hi, can you fit a new kitchen tap? NG7 1AA', '2026-09-11T10:00:00.000Z'));
+        const second = await gateway.inbound(turn('How much roughly?', '2026-09-11T10:05:00.000Z'));
+        if (second.kind !== 'handled') throw new Error(second.kind);
+        expect(second.result.decision).toBe('hold');
+        expect(second.result.delivered).toBe(false);
+        expect(second.result.bubbles).toEqual([]);
+        expect(second.file.hold?.exception).toBe('money');
+        expect(second.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
+        expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(2);
     });
 
     it('gas gets one fixed line in Ben\'s words, a hold, and no composer call; a clock pass sends nothing', async () => {
@@ -725,7 +754,7 @@ describe('the desk', () => {
         expect(file.hold?.exception).toBe('complaint');
         expect(file.hold?.reason).toContain('customer may have asked to stop by email');
 
-        // From here the thread is silent: the exception's acknowledgement does not go either.
+        // From here the thread is silent, as any thread held on a complaint now is.
         const outboundBefore = file.turns.filter((t) => t.direction === 'outbound').length;
         const next = await d.handleTurn(file, followUp(file, 'email', 'So what happens now?', '2026-09-11T10:10:00.000Z'));
         expect(next.decision).toBe('hold');
@@ -735,7 +764,7 @@ describe('the desk', () => {
         expect(client.calls.filter((c) => c.role === 'router')).toHaveLength(1);
     });
 
-    it('a held thread that is not an opt-out is unaffected: an exception hold still acknowledges each later turn', async () => {
+    it('a thread held on a complaint is silent on each later turn, with no promise to come back, and its card is not an opt-out', async () => {
         const { client, gateway } = desk({
             router: ({ n }) => { if (n > 1) throw new Error('the router must not be called on a held thread'); return routeScoping({ exception: 'complaint', turnKind: 'other' }); },
             specialist: () => { throw new Error('the specialist must not be called'); },
@@ -747,8 +776,10 @@ describe('the desk', () => {
         const b = await gateway.inbound(turn('So what happens now?', '2026-09-11T10:05:00.000Z'));
         if (b.kind !== 'handled') throw new Error(b.kind);
         expect(b.result.decision).toBe('hold');
-        expect(b.result.delivered).toBe(true);
-        expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(b.result.delivered).toBe(false);
+        expect(b.result.bubbles).toEqual([]);
+        expect(b.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
+        expect(b.file.hold?.exception).toBe('complaint');
         expect(b.file.hold?.reason).not.toMatch(/asked us to stop|may have asked to stop/);
         expect(client.calls).toHaveLength(1);
     });
@@ -757,7 +788,7 @@ describe('the desk', () => {
         const { client, gateway } = desk({
             router: ({ n }) => n === 2 ? routeScoping({ exception: 'money', turnKind: 'question' }) : routeScoping(),
             specialist: () => specialistFacts([{ key: 'job_type', value: 'sticking back door' }]),
-            composer: ({ n }) => ({ reply: n === 2 ? `${DEFAULT_FIXED_LINES.money_to_ben}\n\nIs the door still closing?` : 'Hi Sam, a sticking back door, no problem.\n\nWhereabouts are you?', factIds: [], kbIds: [] }),
+            composer: ({ n }) => ({ reply: n === 2 ? 'Is the door still closing?' : n === 1 ? 'Hi Sam, a sticking back door, no problem.\n\nWhereabouts are you?' : 'Thanks, catching at the top, that helps.', factIds: [], kbIds: [] }),
         });
         const first = await gateway.inbound(turn('Hi, my back door sticks', '2026-09-11T10:00:00.000Z'));
         if (first.kind !== 'handled') throw new Error(first.kind);
@@ -893,7 +924,7 @@ describe('the desk', () => {
         }
     });
 
-    it('a complaint holds the thread on its fixed line: the next turn gets the acknowledgement, no router, no specialist, no composer', async () => {
+    it('a complaint holds the thread on its fixed line: the next turn gets nothing, no router, no specialist, no composer', async () => {
         const { client, gateway } = desk({
             router: ({ n }) => { if (n > 1) throw new Error('the router must not be called on a held thread'); return routeScoping({ exception: 'complaint', turnKind: 'other' }); },
             specialist: () => { throw new Error('the specialist must not be called'); },
@@ -906,15 +937,15 @@ describe('the desk', () => {
         const b = await gateway.inbound(turn('So what happens now?', '2026-09-11T10:05:00.000Z'));
         if (b.kind !== 'handled') throw new Error(b.kind);
         expect(b.result.decision).toBe('hold');
-        expect(b.result.delivered).toBe(true);
-        expect(b.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(b.result.delivered).toBe(false);
+        expect(b.result.bubbles).toEqual([]);
         expect(b.result.calls).toHaveLength(0);
         expect(client.calls).toHaveLength(1);
         expect(b.file.hold?.exception).toBe('complaint');
-        expect(b.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(2);
+        expect(b.file.turns.filter((t) => t.direction === 'outbound')).toHaveLength(1);
     });
 
-    it('live, a complaint with no reviewed line still gets the acknowledgement on the same turn, with the hold in place; a reviewed line goes as Ben wrote it', async () => {
+    it('live, a complaint with no reviewed line is held for Ben and sends nothing, with no promise to come back in its place; a reviewed line goes as Ben wrote it', async () => {
         const wire: string[] = [];
         const deliverer = { async deliver(i: { bubbles: Array<{ text: string }> }) { wire.push(...i.bubbles.map((b) => b.text)); return { ok: true as const, sid: 'SM1' }; } };
         const handlers = { router: () => routeScoping({ exception: 'complaint', turnKind: 'other' }), specialist: () => { throw new Error('the specialist must not be called'); }, composer: () => { throw new Error('the composer must not be called'); } };
@@ -922,14 +953,14 @@ describe('the desk', () => {
         const a = await unreviewed.gateway.inbound(turn('Your last job was rubbish, I want it redone', '2026-09-11T10:00:00.000Z'));
         if (a.kind !== 'handled') throw new Error(a.kind);
         expect(a.result.decision).toBe('hold');
-        expect(a.result.delivered).toBe(true);
-        expect(a.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(a.result.delivered).toBe(false);
+        expect(a.result.bubbles).toEqual([]);
         expect(a.result.note).toMatch(/send refused/);
-        expect(wire).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(wire).toEqual([]);
         expect(a.file.hold?.exception).toBe('complaint');
         expect(a.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
-        expect(a.file.turns.filter((t) => t.direction === 'outbound').map((t) => t.body)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
-        expect(a.file.sends).toHaveLength(1);
+        expect(a.file.turns.filter((t) => t.direction === 'outbound')).toEqual([]);
+        expect(a.file.sends).toHaveLength(0);
 
         wire.length = 0;
         const reviewed: FixedLineSource = { async reviewed(kind) { return kind === 'complaint' ? { id: 'kb_complaint', words: 'Sorry about that. Ben will ring you himself today.' } : null; } };
@@ -984,7 +1015,8 @@ describe('the desk', () => {
         const c = await again.gateway.inbound(turn("Thanks, I'll get back to you next month", '2026-09-11T10:05:00.000Z'));
         if (c.kind !== 'handled') throw new Error(c.kind);
         expect(c.result.decision).toBe('hold');
-        expect(c.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        expect(c.result.delivered).toBe(false);
+        expect(c.result.bubbles).toEqual([]);
         expect(c.file.hold?.failures.join(' ')).toMatch(/no question/);
     });
 
@@ -1043,7 +1075,7 @@ describe('the desk', () => {
             specialist: ({ system }) => (/lines of a quote/.test(system)
                 ? { lines: [{ title: 'Replace kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
                 : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
-            composer: ({ user }) => { composerUser = user; return { reply: 'Hi Sam, a dripping mixer tap in NG9, got it.\n\nBen will come back to you himself.', factIds: [], kbIds: [] }; },
+            composer: ({ user }) => { composerUser = user; return { reply: 'Hi Sam, a dripping mixer tap in NG9, got it.', factIds: [], kbIds: [] }; },
         }, undefined, { quoting: { store, drafter, notifier: recordingNotifier, baseUrl: 'https://test.local' } });
 
         const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -1053,10 +1085,11 @@ describe('the desk', () => {
         expect(first.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
         expect(composerUser).toContain('quoting: draft failed (estimator down)');
         expect(composerUser).not.toMatch(/with Ben to price|put the quote together|send it over/);
-        // No question on the turn the draft failed, and Ben's acknowledgement to carry instead.
+        // No question on the turn the draft failed, and no promise to come back: the thread is held, and the composer is told so.
         expect(composerUser).toContain('an acknowledgement only');
         expect(composerUser).not.toMatch(/ask one question about/);
-        expect(composerUser).toContain(DEFAULT_FIXED_LINES.held_ack);
+        expect(composerUser).toContain('Part of this thread is held for a person');
+        expect(composerUser).not.toContain("leave it with me and I'll come back to you");
         expect(first.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/quote/i);
 
         const second = await gateway.inbound(turn('any news?', '2026-09-11T10:05:00.000Z'));
@@ -1082,7 +1115,7 @@ describe('the desk', () => {
             specialist: ({ system }) => (/lines of a quote/.test(system)
                 ? { lines: [{ title: 'Replace kitchen mixer tap', category: 'plumbing', qty: 1, detail: 'dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] }
                 : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
-            composer: () => ({ reply: 'Hi Sam, a dripping mixer tap in NG9, got it.\n\nBen will come back to you himself.', factIds: [], kbIds: [] }),
+            composer: () => ({ reply: 'Hi Sam, a dripping mixer tap in NG9, got it.', factIds: [], kbIds: [] }),
         }, undefined, { quoting: { store, drafter, notifier: recordingNotifier, baseUrl: 'https://test.local' } });
 
         const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -1230,41 +1263,49 @@ describe('the desk', () => {
         return { gateway, clock, store, slug: first.file.job.quoteRef!, user: () => composerUser };
     }
 
-    it('a question about a revoked quote holds the thread for Ben, so the callback the reply promises is one he is asked for', async () => {
-        const { gateway, clock, store, slug, user } = await expiredQuote('Let me check on that and come straight back to you.');
+    it('a question about a revoked quote holds the thread for Ben and sends nothing, where it used to promise to come back on the quote', async () => {
+        const { gateway, clock, store, slug, user } = await expiredQuote('');
         store.rows.get(slug)!.revokedAt = '2026-09-12T11:00:00.000Z';
         const out = await gateway.inbound(turn('what does that include again?', new Date(clock.t).toISOString()));
         if (out.kind !== 'handled') throw new Error(out.kind);
         expect(user()).toContain(`quoting: ${slug} is revoked`);
-        expect(user()).toContain('say you will come back to them on the quote');
+        expect(user()).toContain('it is held for Ben, so say nothing about the quote or its price');
+        expect(user()).toContain('Part of this thread is held for a person');
         expect(out.file.hold?.reason).toContain(`the quote is no longer live (${slug} is revoked)`);
+        expect(out.file.hold?.reason).toContain('the customer has been told nothing about it');
+        expect(out.result.decision).toBe('hold');
+        expect(out.result.delivered).toBe(false);
+        expect(out.result.bubbles).toEqual([]);
         expect(store.rows.get(slug)!.basePrice).toBe(12000);
         expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
         expect(out.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/£/);
     });
 
-    it('money on an expired quote goes back to Ben: the fixed line and the money hold, because no line is left to answer from', async () => {
-        const { gateway, clock, store, slug, user } = await expiredQuote(DEFAULT_FIXED_LINES.money_to_ben);
+    it('money on an expired quote goes back to Ben: the money hold and nothing sent, because no line is left to answer from', async () => {
+        const { gateway, clock, store, slug, user } = await expiredQuote('');
         const out = await gateway.inbound(turn('can you do it any cheaper?', new Date(clock.t).toISOString()));
         if (out.kind !== 'handled') throw new Error(out.kind);
         // Money is Ben's, so the quote is not reissued behind his back.
         expect(store.rows.get(slug)!.basePrice).toBe(12000);
         expect(out.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/expired/);
-        expect(user()).toContain(DEFAULT_FIXED_LINES.money_to_ben);
+        expect(user()).not.toContain('come straight back to you');
+        expect(user()).toContain('Part of this thread is held for a person');
         expect(out.file.hold?.exception).toBe('money');
         expect(out.file.hold?.reason).toContain('money');
-        expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
+        expect(out.result.delivered).toBe(false);
+        expect(out.result.bubbles).toEqual([]);
     });
 
     it('a haggle the router model misses on an expired quote still goes to Ben as money, with no reissue', async () => {
-        const { gateway, clock, slug, user } = await expiredQuote(DEFAULT_FIXED_LINES.money_to_ben);
+        const { gateway, clock, slug, user } = await expiredQuote('');
         const out = await gateway.inbound(turn('Is that the best you can do?', new Date(clock.t).toISOString()));
         if (out.kind !== 'handled') throw new Error(out.kind);
-        expect(user()).toContain(DEFAULT_FIXED_LINES.money_to_ben);
+        expect(user()).toContain('Part of this thread is held for a person');
         expect(out.file.hold?.exception).toBe('money');
         expect(out.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
         expect(out.file.job.quoteRef).toBe(slug);
-        expect(out.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
+        expect(out.result.delivered).toBe(false);
+        expect(out.result.bubbles).toEqual([]);
     });
 
     it('a quote read that fails leaves the turn answered instead of taking it down, with no figure readable', async () => {
@@ -1288,7 +1329,7 @@ describe('the desk', () => {
                 : /what it concerns/.test(system)
                     ? { concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }
                     : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
-            composer: () => ({ reply: 'Hi Sam, got it.\n\nBen will be in touch.', factIds: [], kbIds: [] }),
+            composer: () => ({ reply: 'Hi Sam, got it.', factIds: [], kbIds: [] }),
         }, undefined, { quoting: { store: flaky, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' }, log: (m) => logs.push(m) });
 
         const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -1307,7 +1348,7 @@ describe('the desk', () => {
         expect(second.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/£/);
     });
 
-    it('a money question while the quote is still with Ben carries his fixed line and holds the thread, so the brief is telling the truth', async () => {
+    it('a money question while the quote is still with Ben holds the thread and sends nothing, so the brief is telling the truth', async () => {
         const store = new MemoryQuoteStore({ baseUrl: 'https://test.local' });
         let composerUser = '';
         const { gateway } = desk({
@@ -1318,7 +1359,7 @@ describe('the desk', () => {
                     // The wording belt and the router model both missed it; this read catches it.
                     ? { concerns: [], beyondQuoteLine: true, acceptanceInChat: false, notReady: false }
                     : specialistFacts([{ key: 'job_type', value: 'dripping kitchen mixer tap' }, { key: 'location', value: 'NG9 2AB' }], ['job', 'postcode'])),
-            composer: ({ user, n }) => { composerUser = user; return { reply: n === 1 ? 'Thanks, that is everything for now. I will put the quote together and send it over.' : DEFAULT_FIXED_LINES.money_to_ben, factIds: [], kbIds: [] }; },
+            composer: ({ user, n }) => { composerUser = user; return { reply: n === 1 ? 'Thanks, that is everything for now. I will put the quote together and send it over.' : '', factIds: [], kbIds: [] }; },
         }, undefined, { quoting: { store, drafter: new FakeDrafter(store, { materialsPence: 2000 }), notifier: recordingNotifier, baseUrl: 'https://test.local' } });
 
         const first = await gateway.inbound(turn('my kitchen mixer tap is dripping at the base and needs replacing, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -1329,10 +1370,11 @@ describe('the desk', () => {
         if (second.kind !== 'handled') throw new Error(second.kind);
         expect(second.file.hold?.exception).toBe('money');
         expect(second.file.hold?.approver).toEqual({ kind: 'human', id: 'ben' });
-        // The brief tells the composer the fixed line covers it, and the desk put that line there.
-        expect(composerUser).toMatch(/beyond a line of the quote: give no figure and do not answer it/);
-        expect(composerUser).toContain(DEFAULT_FIXED_LINES.money_to_ben);
-        expect(second.result.bubbles.map((b) => b.text)).toEqual([DEFAULT_FIXED_LINES.money_to_ben]);
+        // The brief tells the composer it is held for Ben and to say nothing of it, and the hold is there.
+        expect(composerUser).toMatch(/beyond a line of the quote: give no figure and do not answer it or mention it, it is held for Ben/);
+        expect(composerUser).not.toContain('come straight back to you');
+        expect(second.result.delivered).toBe(false);
+        expect(second.result.bubbles).toEqual([]);
     });
 
     it('a video nobody could describe is thanked for without a detail the desk never saw', async () => {
@@ -1354,34 +1396,33 @@ describe('the desk', () => {
         expect(composerUser).toMatch(/thank for media: yes, but .*not seen.*do not say what it shows/);
     });
 
-    it('the held acknowledgement names the photo the turn brought and spends its one thanks, so the next turn is told not to thank again', async () => {
+    it('a reply held after two guard failures sends nothing and spends no thanks, so the next turn still thanks for the photo', async () => {
         const photo = [{ id: 'm1', kind: 'image' as const, mime: 'image/jpeg', path: '/tmp/m1.jpg', url: 'https://example.test/m1.jpg', bytes: 1024 }];
         let composerUser = '';
         const { gateway } = desk({
             router: () => routeScoping(),
             specialist: () => specialistFacts([{ key: 'job_type', value: 'leaking kitchen tap' }]),
-            // The first turn's reply carries a figure, so the guards refuse it twice and the desk
-            // falls to the held acknowledgement, which names the photo the turn brought.
+            // The first turn's reply carries a figure, so the guards refuse it twice and the desk holds for Ben with nothing sent.
             composer: ({ user, n }) => {
                 composerUser = user;
                 return n <= 2
                     ? { reply: 'Thanks for the photo. That will be about £80.', factIds: [], kbIds: [] }
-                    : { reply: 'Got it, that is the one.\n\nWhereabouts are you?', factIds: [], kbIds: [] };
+                    : { reply: 'Thanks for the photo, got it.\n\nWhereabouts are you?', factIds: [], kbIds: [] };
             },
         });
 
         const first = await gateway.inbound(turn('here is the tap', '2026-09-11T10:00:00.000Z', photo));
         if (first.kind !== 'handled') throw new Error(first.kind);
         expect(first.result.decision).toBe('hold');
-        expect(first.result.bubbles[0].text).toBe("Thanks for the photo, leave it with me and I'll come back to you.");
-        // The words that went thanked for the photo, so the thanks is spent.
-        expect(first.file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
+        expect(first.result.delivered).toBe(false);
+        expect(first.result.bubbles).toEqual([]);
+        // Nothing went, so the thanks is still owed.
+        expect(first.file.ledger.find((l) => l.subject === 'media')?.thankedAt ?? null).toBeNull();
 
         const second = await gateway.inbound(turn('NG9 2AB', '2026-09-11T10:05:00.000Z'));
         if (second.kind !== 'handled') throw new Error(second.kind);
         expect(second.result.decision).toBe('send');
-        expect(composerUser).toContain('thank for media: no');
-        expect(composerUser).not.toContain('came in earlier');
-        expect(second.result.bubbles.map((b) => b.text).join(' ')).not.toMatch(/thanks for the photo/i);
+        expect(composerUser).toContain('thank for media: yes');
+        expect(second.file.ledger.find((l) => l.subject === 'media')?.thankedAt).toBeTruthy();
     });
 });
