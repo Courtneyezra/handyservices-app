@@ -12,6 +12,10 @@
 import { describe, expect, it } from 'vitest';
 import { Desk, type DeskDeps } from '../desk/desk';
 import { DEFAULT_FIXED_LINES, noFixedLineSource } from '../desk/fixed-lines';
+
+/** The line the desk used to send on a held date ("remove that line entirely", 18 Sep 2026): it never goes now. */
+const FORMER_DATE_LINE = 'Let me check on the date and come straight back to you.';
+const HELD_BRIEF = 'Part of this thread is held for a person';
 import { Gateway } from '../desk/gateway';
 import { FakeModelClient } from '../desk/models';
 import { emptyKb } from '../desk/scoping-tools';
@@ -84,7 +88,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
                 expect(user).toContain('Notes from scheduling');
                 expect(user).toMatch(/say exactly "about 3 days"/);
                 leadFactId = /cite fact (fact_[\w-]+)/.exec(user)![1];
-                return { reply: "We're usually booking in about 3 days, and Ben will confirm the day with your quote.", factIds: [leadFactId], kbIds: [] };
+                return { reply: "We're usually booking in about 3 days, and the day itself is picked with your quote.", factIds: [leadFactId], kbIds: [] };
             },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -179,16 +183,17 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(second.file.ledger.find((l) => l.subject === 'access')?.askCount).toBe(1);
     });
 
-    it('5.5: changing a booked date goes to Ben; the reply carries the fixed line, confirms what stands, answers the rest, and offers no new day', async () => {
+    it('5.5: changing a booked date goes to Ben; the reply says nothing about the change, confirms what stands, answers the rest, and offers no new day', async () => {
         const { diary, seeded } = await seededDiary(6, { booked: true });
         const { gateway } = desk({
             router: ({ n }) => n === 1 ? scoping() : scheduling({ proposedStage: 'booked', exception: 'date_change' }),
             specialist: specialists(['date_change'], 'the week after'),
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
-                expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+                expect(user).toContain(HELD_BRIEF);
+                expect(user).not.toContain(FORMER_DATE_LINE);
                 const date = /say exactly "([^"]+)" and cite fact (fact_[\w-]+)/.exec(user)!;
-                return { reply: `No problem. Right now you're booked in for ${date[1]}.\n\n${DEFAULT_FIXED_LINES.date_change_to_ben}\n\nAnd yes, bring the old tap out if you can.`, factIds: [date[2]], kbIds: [] };
+                return { reply: `Right now you're booked in for ${date[1]}.\n\nAnd yes, bring the old tap out if you can.`, factIds: [date[2]], kbIds: [] };
             },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -203,7 +208,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(r.hold).toMatchObject({ approver: { kind: 'human', id: 'ben' }, exception: 'date_change' });
         expect(r.hold?.reason).toMatch(/^date_change: move it/);
         expect(r.guards.date_time_duration.result).toBe('pass');
-        expect(r.bubbles.map((b) => b.text).join(' ')).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(r.bubbles.map((b) => b.text).join(' ')).not.toMatch(/come (?:straight )?back|check on/);
         expect(r.bubbles.map((b) => b.text).join(' ')).toContain('25 September 2026');
         expect(second.file.facts.find((f) => f.key === 'booked_date')?.source).toEqual({ kind: 'diary', rowId: `booking:${seeded.bookingRef}` });
         expect(second.file.facts.find((f) => f.key === 'date_change_requested')?.value).toBe('the week after');
@@ -228,10 +233,10 @@ describe('the desk with Scheduling (Goal 5)', () => {
             specialist: specialists(['date_change'], 'the week after'),
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
-                expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+                expect(user).toContain(HELD_BRIEF);
                 expect(user).not.toMatch(/about 3 days|usually booking|quote page/);
                 expect(user).not.toContain(DEFAULT_FIXED_LINES.dates_with_quote);
-                return { reply: `${DEFAULT_FIXED_LINES.date_change_to_ben}\n\nAnd yes, bring the old tap out if you can.`, factIds: [], kbIds: [] };
+                return { reply: 'Yes, bring the old tap out if you can.', factIds: [], kbIds: [] };
             },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -247,7 +252,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(r.hold?.reason).toMatch(/^date_change: move the appointment/);
         expect(r.guards.date_time_duration.result).toBe('pass');
         const said = r.bubbles.map((b) => b.text).join(' ');
-        expect(said).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(said).not.toMatch(/come (?:straight )?back|check on/);
         expect(said).toContain('bring the old tap out');
         // The diary holds a lead time, and a job the customer is asking to move is not a job to quote a lead time about.
         expect(second.file.facts.filter((f) => f.key === 'lead_time' || f.key === 'picker_link')).toEqual([]);
@@ -265,7 +270,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
             specialist: specialists(['date_change'], 'the week after'),
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
-                expect(user).not.toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+                expect(user).not.toContain(FORMER_DATE_LINE);
                 const lead = /say exactly "(about [^"]+)" and cite fact (fact_[\w-]+)/.exec(user)!;
                 return { reply: `We're usually booking in ${lead[1]}.\n\nAnd yes, bring the old tap out if you can.`, factIds: [lead[2]], kbIds: [] };
             },
@@ -279,7 +284,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(r.delivered).toBe(true);
         expect(r.hold).toBeNull();
         expect(r.guards.date_time_duration.result).toBe('pass');
-        expect(r.bubbles.map((b) => b.text).join(' ')).not.toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(r.bubbles.map((b) => b.text).join(' ')).not.toContain(FORMER_DATE_LINE);
         expect(second.file.facts.find((f) => f.key === 'date_change_requested')).toBeUndefined();
         expect(second.file.job.bookingRef).toBeNull();
     });
@@ -308,7 +313,9 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(hold.reason).toMatch(/guards failed twice/);
         expect(hold.draft).toContain('next Friday');
         expect(hold.failures.join(' ')).toMatch(/date, time or duration/);
-        expect(second.result.bubbles.map((b) => b.text).join(' ')).toContain(DEFAULT_FIXED_LINES.held_ack);
+        // Nothing goes: the desk no longer sends a holding line in its place.
+        expect(second.result.bubbles).toEqual([]);
+        expect(second.result.delivered).toBe(false);
     });
 
     it('a diary date from an earlier turn is not one this turn looked up: the guard refuses it and the thread holds', async () => {
@@ -342,8 +349,8 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(third.result.decision).toBe('hold');
         expect(third.result.note).toMatch(/guards failed twice/);
         expect(third.file.hold?.failures.join(' ')).toContain('did not look up');
-        expect(third.result.bubbles.map((b) => b.text).join(' ')).toContain(DEFAULT_FIXED_LINES.held_ack);
-        expect(third.result.bubbles.map((b) => b.text).join(' ')).not.toContain('25 September 2026');
+        expect(third.result.bubbles).toEqual([]);
+        expect(third.result.delivered).toBe(false);
         expect(third.file.hold?.draft).toContain('25 September 2026');
     });
 
@@ -354,9 +361,9 @@ describe('the desk with Scheduling (Goal 5)', () => {
             specialist: specialists(['date_change'], 'the week after'),
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
-                expect(user).toContain(DEFAULT_FIXED_LINES.money_to_ben);
-                expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
-                return { reply: `${DEFAULT_FIXED_LINES.money_to_ben} ${DEFAULT_FIXED_LINES.date_change_to_ben}`, factIds: [], kbIds: [] };
+                // Both halves are held and nothing else was asked, so the reply is nothing at all.
+                expect(user).toContain(HELD_BRIEF);
+                return { reply: '', factIds: [], kbIds: [] };
             },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -369,6 +376,9 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(hold.exception).toBe('money');
         expect(hold.reason).toMatch(/^money: /);
         expect(hold.reason).toContain('date_change: move it');
+        expect(second.result.decision).toBe('hold');
+        expect(second.result.delivered).toBe(false);
+        expect(second.result.bubbles).toEqual([]);
     });
 
     it('both halves of a two-part question are answered when there is no date to confirm: the lead time goes, no day does', async () => {
@@ -381,9 +391,9 @@ describe('the desk with Scheduling (Goal 5)', () => {
             specialist: specialists(['booked_date', 'availability']),
             composer: ({ user, n }) => {
                 if (n === 1) return { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] };
-                expect(user).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+                expect(user).toContain(HELD_BRIEF);
                 const lead = /say exactly "about 3 days" and cite fact (fact_[\w-]+)/.exec(user)!;
-                return { reply: `${DEFAULT_FIXED_LINES.date_change_to_ben}\n\nOn the fence panel, we're usually booking in about 3 days.`, factIds: [lead[1]], kbIds: [] };
+                return { reply: 'On the fence panel, we\'re usually booking in about 3 days.', factIds: [lead[1]], kbIds: [] };
             },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
@@ -397,7 +407,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
         expect(r.guards.date_time_duration.result).toBe('pass');
         const said = r.bubbles.map((b) => b.text).join(' ');
         expect(said).toContain('about 3 days');
-        expect(said).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(said).not.toMatch(/come (?:straight )?back|check on/);
         expect(said).not.toMatch(/September|\d{1,2}(?:st|nd|rd|th)\b/);
         expect(r.hold).toMatchObject({ exception: null });
         expect(r.hold?.reason).toMatch(/^date_unconfirmed: /);
@@ -435,7 +445,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
             // The opening enquiry is scoped; only the turn under test is the one the router sent to service (Goal 6 leaves a service-only turn unscoped).
             router: ({ n }: { n: number }) => n === 1 ? scoping() : scoping({ turnKind: 'question', subjects: ['service'] }),
             specialist: specialists([]),
-            composer: ({ n }) => n === 1 ? { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] } : { reply: DEFAULT_FIXED_LINES.date_change_to_ben, factIds: [], kbIds: [] },
+            composer: ({ n }) => n === 1 ? { reply: 'Hi Sam, got it.\n\nWill someone be in?', factIds: [], kbIds: [] } : { reply: '', factIds: [], kbIds: [] },
         }, diary);
         const first = await gateway.inbound(turn('Hi, my kitchen tap is leaking, NG9 2AB', '2026-09-11T10:00:00.000Z'));
         if (first.kind !== 'handled') throw new Error(first.kind);
@@ -443,7 +453,9 @@ describe('the desk with Scheduling (Goal 5)', () => {
         const second = await gateway.inbound(turn('Could we push it back a week?', '2026-09-11T10:05:00.000Z'));
         if (second.kind !== 'handled') throw new Error(second.kind);
         expect(second.result.hold).toMatchObject({ approver: { kind: 'human', id: 'ben' }, exception: 'date_change' });
-        expect(second.result.bubbles.map((b) => b.text).join(' ')).toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        // The move was all the turn asked, and it is Ben's: the desk holds silently rather than promising to come back.
+        expect(second.result.delivered).toBe(false);
+        expect(second.result.bubbles).toEqual([]);
     });
 
     it('on a booked thread an ordinary question about the job is not a date change: no hold, and Ben is not told the date is moving', async () => {
@@ -461,7 +473,7 @@ describe('the desk with Scheduling (Goal 5)', () => {
         if (second.kind !== 'handled') throw new Error(second.kind);
         expect(client.calls.filter((c) => c.role === 'specialist' && c.system.includes('Scheduling specialist'))).toHaveLength(0);
         expect(second.result.hold).toBeNull();
-        expect(second.result.bubbles.map((b) => b.text).join(' ')).not.toContain(DEFAULT_FIXED_LINES.date_change_to_ben);
+        expect(second.result.bubbles.map((b) => b.text).join(' ')).not.toContain(FORMER_DATE_LINE);
         expect(second.file.hold).toBeNull();
     });
 

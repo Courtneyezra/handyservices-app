@@ -175,7 +175,7 @@ describe('after the quote', () => {
         // No half of a line is on the file to quote back.
         expect(file.facts.some((f) => /labour|materials/i.test(f.key))).toBe(false);
         expect(ret?.brief?.join('\n')).toMatch(/quote link is fact/);
-        expect(ret?.brief?.join('\n')).toMatch(/say you will come back to them on it/);
+        expect(ret?.brief?.join('\n')).toMatch(/anything about money beyond these figures: say nothing about it, it is held for Ben/);
     });
 
     it('holds money beyond a quote line for Ben, and acceptance in chat', async () => {
@@ -396,7 +396,7 @@ describe('after the quote', () => {
         const client = new FakeModelClient({ specialist: () => { throw new Error('no model call on acceptance'); } });
         const turn = later(file, 'Accepted quote on the quote page.', 'portal_action', 'form');
         const ret = await quote(file, turn, file.parties[0], routeOf({ turnKind: 'acknowledgement' }), client, d);
-        expect(ret?.brief?.join('\n')).toMatch(/say you have it and will be in touch about the day/);
+        expect(ret?.brief?.join('\n')).toMatch(/thank them and say you have it; no date, no time, no promise, no question/);
         expect(ret?.calls).toHaveLength(0);
     });
 
@@ -410,7 +410,7 @@ describe('after the quote', () => {
         const ret = await quote(file, later(file, 'How much was the total again?'), file.parties[0], routeOf(), client, d);
         expect(ret?.brief?.[0]).toMatch(/is expired/);
         expect(ret?.proposal.hold).toMatchObject({ reason: 'stale_quote', match: `${file.job.quoteRef} is expired` });
-        expect(ret?.brief?.join('\n')).toMatch(/say you will come back to them on the quote/);
+        expect(ret?.brief?.join('\n')).toMatch(/it is held for Ben, so say nothing about the quote or its price/);
         expect(file.facts.filter((f) => f.key.startsWith('quote_line:')).length).toBe(before);
         expect(file.facts.find((f) => f.key === QUOTE_FACT.status && /expired/.test(f.value))).toBeTruthy();
         // The status is the only fact this turn records: no figure, and no fresh link either.
@@ -446,7 +446,7 @@ describe('after the quote', () => {
         gone.store.rows.get(gone.file.job.quoteRef!)!.revokedAt = '2026-09-11T12:00:00.000Z';
         const revoked = await quote(gone.file, later(gone.file, 'is that still ok?'), gone.file.parties[0], routeOf(), client, gone.d);
         expect(revoked?.proposal.hold).toMatchObject({ reason: 'stale_quote', match: `${gone.file.job.quoteRef} is revoked` });
-        expect(revoked?.brief?.join('\n')).toMatch(/say you will come back to them on the quote/);
+        expect(revoked?.brief?.join('\n')).toMatch(/it is held for Ben, so say nothing about the quote or its price/);
         expect(revoked?.reissue).toBeUndefined();
 
         const old = await sentQuote();

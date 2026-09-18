@@ -245,7 +245,7 @@ describe('the acknowledgement through the live desk', () => {
         router: () => ({ subjects: ['quoting'], proposedStage: 'accepted', party: 'customer', exception: null, turnKind: 'acknowledgement' }),
         specialist: () => ({ concerns: [], beyondQuoteLine: false, acceptanceInChat: false, notReady: false }),
         composer: ({ user }) => {
-            if (/they accepted the quote on the quote page/.test(user)) return { reply: 'Brilliant, thank you Sam.\n\nBen has been told and will be in touch about the day.', factIds: [], kbIds: [] };
+            if (/they accepted the quote on the quote page/.test(user)) return { reply: 'Brilliant, thank you Sam.\n\nThat has come through to me.', factIds: [], kbIds: [] };
             throw new Error('only the acceptance is composed here');
         },
     });

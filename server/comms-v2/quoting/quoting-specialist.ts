@@ -166,16 +166,16 @@ export function briefLines(p: QuotingProposal): string[] {
             out.push('the quote is with Ben to price: nothing about a price exists yet, so no figure; if this turn is a wrap-up, you will put the quote together and send it over, no timing');
         } else {
             out.push(`quoting: draft failed (${p.draftError ?? 'unknown'})`);
-            out.push('nothing has been built for this job and Ben has the thread now: promise nothing about a price, a document or when anything happens, and give no figure; acknowledge what they said in one line and say you will come back to them yourself');
+            out.push('nothing has been built for this job and Ben has the thread now: promise nothing about a price, a document or when anything happens, and give no figure; answer anything else they asked from the facts, and say nothing about the quote: it is held for Ben');
         }
     } else if (p.phase === 'with_ben') {
         out.push(`quoting: ${p.quoteRef} with Ben to price`);
         if (ids.scope.length && p.concerns.some((c) => c.kind === 'scope' || c.kind === 'not_included' || c.kind === 'on_the_day')) {
-            out.push(`answer what is included from the draft's scope facts (${ids.scope.join(', ')})${ids.notIncluded.length ? ` and what is not included (${ids.notIncluded.join(', ')})` : ''}; no figure, the quote is not priced yet; Ben confirms it when he sends the quote`);
+            out.push(`answer what is included from the draft's scope facts (${ids.scope.join(', ')})${ids.notIncluded.length ? ` and what is not included (${ids.notIncluded.join(', ')})` : ''}; no figure, the quote is not priced yet, and no promise about when it comes`);
         } else out.push(`if they ask about the quote: it is with Ben and on its way (fact ${ids.status ?? 'none'}); no figure, no timing`);
     } else if (p.phase === 'stale') {
         out.push(`quoting: ${p.quoteRef} is ${p.status}`);
-        out.push(`the quote is ${p.status} (fact ${ids.status ?? 'none'}): no figure may be read from it; say you will come back to them on the quote`);
+        out.push(`the quote is ${p.status} (fact ${ids.status ?? 'none'}): no figure may be read from it; it is held for Ben, so say nothing about the quote or its price`);
     } else {
         out.push(p.reissued
             ? `quoting: ${p.quoteRef} expired and was reissued at ${p.reissued.amount} (fact ${p.reissued.factId}); ${ids.figures.length} figures on the file`
@@ -184,26 +184,26 @@ export function briefLines(p: QuotingProposal): string[] {
             out.push(`the reply already opens with a fixed line saying their previous quote expired, that the new price is ${p.reissued.amount} and giving the link ${p.reissued.link}: do not repeat the expiry, the price or the link, and do not apologise for it; answer anything else they asked from the facts below, and if they asked nothing else, one short line saying to reply here with any questions`);
         }
         if (p.acceptedNow) {
-            out.push(`they accepted the quote on the quote page (fact ${ids.status ?? 'none'}) and Ben has been told: thank them, say you have it and will be in touch about the day; no date, no time, no other promise, no question`);
+            out.push(`they accepted the quote on the quote page (fact ${ids.status ?? 'none'}) and Ben has been told: thank them and say you have it; no date, no time, no promise, no question`);
         } else if (p.acceptanceInChat || p.beyondQuoteLine) {
             // One turn can do both - "yes, go ahead, any chance of a discount for cash?" - and each
             // is owed its own instruction: the card carries the money question to Ben, and the yes
             // is still answered by pointing them at the quote page, where acceptance happens.
             if (p.acceptanceInChat) out.push(`they said yes in chat: acceptance happens on the quote page, so point them to the quote link (fact ${ids.link ?? 'none'}) to accept and pick a date; Ben has been told; no date, no time`);
-            if (p.beyondQuoteLine) out.push(`their money question is beyond a line of the quote: give no figure and do not answer it, Ben's fixed line in this reply covers it; answer anything else they asked from the quote's scope facts (${ids.scope.join(', ') || 'none'})`);
+            if (p.beyondQuoteLine) out.push(`their money question is beyond a line of the quote: give no figure and do not answer it or mention it, it is held for Ben; answer anything else they asked from the quote's scope facts (${ids.scope.join(', ') || 'none'})`);
         } else {
             const asked = p.concerns.filter((c) => c.kind === 'line_amount' || c.kind === 'total' || c.kind === 'deposit').map((c) => c.label ?? c.kind);
             out.push(`answer from the quote only. Figures on it, each copied exactly as written on its fact and its fact id cited: ${figureList || 'none'}${asked.length ? `; they asked about: ${asked.join(', ')}` : ''}`);
             for (const title of sharedTitles) {
                 const facts = ids.figures.filter((f) => f.shared && f.label === title).map((f) => `fact ${f.factId}`);
-                out.push(`"${title}" is the title of ${facts.length} lines on the quote: the title is shared, so no figure may be read for it; give none of ${facts.join(', ')} and say you will come back to them on it`);
+                out.push(`"${title}" is the title of ${facts.length} lines on the quote: the title is shared, so no figure may be read for it; give none of ${facts.join(', ')} and say nothing about its price, it is held for Ben`);
             }
             if (ids.scope.length) out.push(`what each line covers: facts ${ids.scope.join(', ')}${ids.notIncluded.length ? `; not included: ${ids.notIncluded.join(', ')}` : ''}${ids.assumptions.length ? `; what happens on the day (the quote's assumptions): ${ids.assumptions.join(', ')}` : ''}`);
             if (ids.link) out.push(`the quote link is fact ${ids.link}; dates are picked on it`);
-            out.push('anything about money beyond these figures: say you will come back to them on it');
+            out.push('anything about money beyond these figures: say nothing about it, it is held for Ben');
         }
     }
-    if (p.beyondQuoteLine && p.phase !== 'sent' && p.phase !== 'accepted') out.push('their money question is beyond a line of the quote: give no figure and do not answer it, Ben\'s fixed line in this reply covers it');
+    if (p.beyondQuoteLine && p.phase !== 'sent' && p.phase !== 'accepted') out.push('their money question is beyond a line of the quote: give no figure and do not answer it or mention it, it is held for Ben');
     if (p.notReady) out.push('they are not ready: one short acknowledgement, no question, and the desk will not chase');
     return out;
 }

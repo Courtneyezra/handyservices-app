@@ -4,50 +4,45 @@
  * Four are the threads the desk does not scope (behaviour.md answer 21): gas, a complaint, a
  * refund, a trust doubt. Their reviewed wording lives in the knowledge base (server/spine/
  * knowledge-base.ts getFixedLine, reviewed rows only); the defaults here stand in dry run until
- * Ben has reviewed one, because the captain's rule is "almost never silent, always acknowledge".
- * Live, the sender refuses a default for those four: only words from the four sources reach a
- * customer. The Goal 1 lines below them are the checklist's own wording and send live.
- * The rest are Goal 1's: money goes to Ben (checklist 2.7), a booked date change goes to Ben too
- * (`date_change_to_ben`, the Scheduling specialist's line), dates come with the quote (2.6), and
- * the acknowledgement a guard hold sends (Contract 4, second failure). `first_contact_ack` is
- * Goal 4's: the quote delivery carries it where the acknowledgement a web-form enquiry was owed
- * held for Ben and never went, so the first message that ever reaches them names us and the
- * enquiry it follows rather than being a bare link (`quoting/quoting-door.ts`).
+ * Ben has reviewed one. Live, the sender refuses a default for those four: only words from the
+ * four sources reach a customer. The Goal 1 lines below them are the checklist's own wording and
+ * send live: dates come with the quote (2.6), the invitation to move to WhatsApp, and
+ * `first_contact_ack`, Goal 4's: the quote delivery carries it where the acknowledgement a
+ * web-form enquiry was owed held for Ben and never went, so the first message that ever reaches
+ * them names us and the enquiry it follows rather than being a bare link (`quoting/quoting-door.ts`).
  *
- * Goal 6 (server/comms-v2/service) adds the Service specialist's hold vocabulary: a question we
- * have no source for, scoping that is not converging, a requested change of details, and a
- * customer asking for a call (checklist 7.1, 7.2). Those are the checklist's own wording and send
- * live; the knowledge base is not read for them.
+ * No line promises to come back to the customer (the captain's ruling, 18 Sep 2026: "remove that
+ * line entirely"). Where the desk cannot answer something (money, a date change, a question we have
+ * no source for, scoping that is not converging, a reply that could not be written) the thread is
+ * held for Ben and the desk says nothing about it: the hold is on his card, and the customer hears
+ * only what the reply can answer, or nothing (service/hold-reasons.ts `FIXED_LINE_FOR`, desk.ts).
+ *
+ * Goal 6 (server/comms-v2/service) adds the Service specialist's lines: a requested change of
+ * details and a customer asking for a call (checklist 7.1, 7.2). Those are the checklist's own
+ * wording and send live; the knowledge base is not read for them.
  *
  * Every line is Ben's own voice, because the desk is Ben (brand-voice/whatsapp-comms.md, "Who you
- * are"): none names Ben, the office or the team in the third person, and a line that needs an
- * answer the desk does not have says so in the first person. The four knowledge-base defaults close
- * with his "Thanks / Ben" sign-off; the short lines are woven into a reply and carry none.
- * `first_contact_ack` introduces him in the first person ("Ben here"), which is not the third person.
+ * are"): none names Ben, the office or the team in the third person. The four knowledge-base
+ * defaults close with his "Thanks / Ben" sign-off; the short lines are woven into a reply and carry
+ * none. `first_contact_ack` introduces him in the first person ("Ben here"), which is not the third person.
  *
- * Two lines say what arrived and when, from the turns themselves, so no model is needed to write
- * them: the held acknowledgement names a photo or video the turn carried (`heldAckLine`), and a
- * thanks for media that arrived well before the turn being answered says it is late and goes
+ * One line says what arrived and when, from the turns themselves, so no model is needed to write
+ * it: a thanks for media that arrived well before the turn being answered says it is late and goes
  * after the reply to what the customer has just said (`lateMediaAckLine`).
  */
-import type { CaseFile, Turn, TurnMedia } from './case-file';
+import type { TurnMedia } from './case-file';
 import { withoutDashPunctuation } from './dashes';
 
-export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'money_to_ben' | 'dates_with_quote' | 'date_change_to_ben' | 'held_ack' | 'move_to_whatsapp' | 'first_contact_ack' | 'no_source' | 'not_converging' | 'change_of_details' | 'callback_to_ben' | 'late_media_ack';
+export type FixedLineKind = 'gas' | 'complaint' | 'refund' | 'trust' | 'dates_with_quote' | 'move_to_whatsapp' | 'first_contact_ack' | 'change_of_details' | 'callback_to_ben' | 'late_media_ack';
 
 export const DEFAULT_FIXED_LINES: Record<FixedLineKind, string> = {
     gas: "Thanks for getting in touch. We don't take on gas work, so a Gas Safe registered engineer is the one to call for this.\n\nThanks\nBen",
     complaint: "I'm sorry to hear that. Leave it with me, I'll look into it properly and come back to you personally.\n\nThanks\nBen",
     refund: "Understood. Let me go through the job and the payment, and I'll come back to you on it personally.\n\nThanks\nBen",
     trust: "That's a fair question. Let me get you a proper answer rather than a quick one, and I'll come back to you.\n\nThanks\nBen",
-    money_to_ben: 'Let me check on the price and come straight back to you.',
     dates_with_quote: 'Dates come with your quote.',
-    date_change_to_ben: 'Let me check on the date and come straight back to you.',
-    held_ack: "Thanks, leave it with me and I'll come back to you.",
     move_to_whatsapp: "If it's easier, you can message us on WhatsApp on this same number.",
     first_contact_ack: 'Thanks for your enquiry, Ben here from Handy Services.',
-    no_source: 'Let me check on that one and come straight back to you.',
-    not_converging: 'Let me look at this properly and come back to you.',
     change_of_details: "Thanks, I've noted that and I'll update your details.",
     callback_to_ben: "No problem, I'll give you a call back.",
     late_media_ack: "Thanks for what you sent earlier, sorry I'm only getting back to you on it now.",
@@ -109,28 +104,23 @@ export function mediaNoun(media: readonly TurnMedia[]): string | null {
 }
 
 /**
- * The held acknowledgement for a turn: the fixed line, naming the photo or video the turn carried
- * ("Thanks for the video, leave it with me and I'll come back to you."). A turn with no media, or a
- * file whose media thanks is already spent, gets the line as it stands, so the ask-ledger guard
- * never stops it. It stays a Goal 1 line, not one of the four Ben reviews, so it sends live.
+ * The held acknowledgement the desk sent before the captain's ruling of 18 Sep 2026, when a reply
+ * could not be written or a thread was held: "Thanks, leave it with me and I'll come back to you.",
+ * or naming what the turn brought ("Thanks for the video, leave it with me..."). The desk no longer
+ * sends it (a held turn is silent), but threads still carry it, so it is kept only to read them.
  */
-export function heldAckLine(turn: Pick<Turn, 'media'>, file: Pick<CaseFile, 'ledger'>): FixedLine {
-    const noun = file.ledger.find((l) => l.subject === 'media')?.thankedAt ? null : mediaNoun(turn.media);
-    const text = noun ? DEFAULT_FIXED_LINES.held_ack.replace(/^Thanks,/, `Thanks for the ${noun},`) : DEFAULT_FIXED_LINES.held_ack;
-    return { kind: 'held_ack', text, kbId: null };
-}
+export const FORMER_HELD_ACK = "Thanks, leave it with me and I'll come back to you.";
 
 /**
- * Whether an outbound text is the held acknowledgement and nothing else: the fixed line as it stands,
- * or naming what the turn brought ("Thanks for the photos and the video, leave it with me..."). A
- * send record keeps no fixed-line kind, so the wording `heldAckLine` writes is the only record; it
- * says nothing about the customer's question, so a template send does not count it as an answer
- * (human-reply.ts `unansweredQuestion`).
+ * Whether an outbound text is that former held acknowledgement and nothing else. A send record
+ * keeps no fixed-line kind, so the wording is the only record; it says nothing about the
+ * customer's question, so a template send does not count it as an answer (human-reply.ts
+ * `unansweredQuestion`).
  */
 export function isHeldAckText(text: string): boolean {
     const t = text.trim();
-    if (t === DEFAULT_FIXED_LINES.held_ack) return true;
-    const rest = DEFAULT_FIXED_LINES.held_ack.replace(/^Thanks,/, '');
+    if (t === FORMER_HELD_ACK) return true;
+    const rest = FORMER_HELD_ACK.replace(/^Thanks,/, '');
     const m = /^Thanks for the (.+?),(.*)$/s.exec(t);
     return !!m && m[2] === rest && /^(?:photos?|videos?)(?: and the videos?)?$/.test(m[1]);
 }

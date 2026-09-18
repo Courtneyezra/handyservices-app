@@ -8,7 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { open, type CaseFile, type Party } from './case-file';
-import { DEFAULT_FIXED_LINES, heldAckLine, lateMediaAckLine, type FixedLine } from './fixed-lines';
+import { DEFAULT_FIXED_LINES, lateMediaAckLine, type FixedLine } from './fixed-lines';
 import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, DESK_APPROVER, GAP_MAX_MS, GAP_MIN_MS, typingGap, chooseChannel, initiate, liveDeliverer, noTemplateApproved, outboundLabelFor, pickTemplate, render, renderWhatsApp, send, shortenBriefFor, templateWire, windowOf, type Deliverer, type SendInput, type TemplateSend } from './sender';
 import { renderSms, UCS2_MULTI, GSM7_MULTI, SMS_MAX_SEGMENTS } from '../channels/sms-adapter';
 import { memoryOptOutStore, type MemoryOptOutStore } from '../../__tests__/opt-out-memory-store';
@@ -303,10 +303,10 @@ describe('send', () => {
     });
     const defaultGas: FixedLine = { kind: 'gas', text: DEFAULT_FIXED_LINES.gas, kbId: null };
     const reviewedGas: FixedLine = { kind: 'gas', text: 'Gas is not us, Ben will ring you.', kbId: 'kb_gas' };
-    const goal1Lines: FixedLine[] = (['money_to_ben', 'dates_with_quote', 'held_ack'] as const).map((kind) => ({ kind, text: DEFAULT_FIXED_LINES[kind], kbId: null }));
-    // The acknowledgements that name what arrived are Goal 1 lines too, not ones Ben reviews: they send live.
+    const goal1Lines: FixedLine[] = (['dates_with_quote', 'change_of_details', 'callback_to_ben'] as const).map((kind) => ({ kind, text: DEFAULT_FIXED_LINES[kind], kbId: null }));
+    // The late thanks that names what arrived is a Goal 1 line too, not one Ben reviews: it sends live.
     const video = [{ id: 'v1', kind: 'video' as const, mime: 'video/mp4', path: null, url: null, description: null }];
-    goal1Lines.push(heldAckLine({ media: video }, { ledger: [] }), lateMediaAckLine(video, new Date('2026-09-10T19:06:00.000Z'), new Date('2026-09-11T11:00:00.000Z')));
+    goal1Lines.push(lateMediaAckLine(video, new Date('2026-09-10T19:06:00.000Z'), new Date('2026-09-11T11:00:00.000Z')));
 
     it('refuses without approver, run id, passed guards, a template on a shut window, a party on the file, or a run id already sent', async () => {
         const { file, party } = fixture();

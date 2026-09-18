@@ -195,7 +195,9 @@ open. The three landlord questions are parked in their own section above.
 **Send by default, hold on exceptions** - *Settled*
 "Send everything; hold on exceptions." Every reply type sends on its own. Money, complaints,
 regulated work, trust doubts and guard hits stop for Ben. If a customer writes, they hear
-something back: "almost never silent, always acknowledge."
+something back: "almost never silent, always acknowledge." Superseded where it conflicts by the
+ruling of 18 Sep 2026 (behaviour.md answer 96, "remove that line entirely."): where the desk cannot
+answer, it holds for Ben and says nothing rather than promising to come back.
 
 **What an agent may claim** - *Settled*
 Sources are "the quotes, thread, knowledge base, CRM" and nothing else. A price appears in chat
@@ -302,7 +304,7 @@ rules already settled, run end to end.
 | Ben | Ben reviews the draft on his price screen, adjusts what he likes, and sends the quote. Quote acceptance and editing stay human, permanently. The **case file** now carries a live quote with lines and figures. | The quote link, with the booking picker on it. |
 | 3 - after the quote | Customer asks "what does that include, and how much is that line?" **Router**: subject is quoting, stage post-quote. **Quoting**: *read a quote line* returns that line in pence with its label. Returns two facts with their sources. **Composer** voices them. **Guards** verify the figure equals one line of the live quote to the penny, cited as that line, and that nothing else numeric appears. Pass. A question about the labour or materials half of a line is money beyond a quote line and goes to Ben, because the quote does not state either as a line. | What is included, read back from the quote, and the line's figure exactly as it appears on it. |
 | 3 - two subjects | Customer asks "and when could you come?" in the same turn. **Router** sees two subjects. **Scheduling** (Goal 5): *typical lead time* from the diary, and a pointer to the picker; it never offers a slot. With nothing in the diary to give, the reply holds for Ben rather than guessing (the ask-by-diary-state grid in `contracts.md`). **Composer** writes one reply from both specialists. | One reply, two bubbles: the quote answer, then lead time and the picker link. |
-| Exceptions | "Can you do it for less?" is a money question beyond a quote line: the **approver slot** holds it for Ben and the composer says, in Ben's first person, that he will come back on that. A complaint, a refund, a trust doubt or gas: one fixed line in Ben's words, then Ben only. "I'll get back to you next month": one acknowledgement, then nothing, "no chasing." The desk pursues within a conversation, one question at a time, never across silence. | Let me check on that and come straight back to you. Or: no problem, whenever you are ready. |
+| Exceptions | "Can you do it for less?" is a money question beyond a quote line: the **approver slot** holds it for Ben and the composer says nothing about it, never that he will come back on it (behaviour.md answer 96). A complaint, a refund, a trust doubt or gas: one fixed line in Ben's words, then Ben only. "I'll get back to you next month": one acknowledgement, then nothing, "no chasing." The desk pursues within a conversation, one question at a time, never across silence. | Nothing about the held part. Or: no problem, whenever you are ready. |
 
 The quote engine, the price book and Ben's price screen are not comms and are not deleted. The
 new Quoting tool server wraps them. Everything that talks to the customer is new.

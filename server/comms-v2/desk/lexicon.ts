@@ -169,9 +169,9 @@ export function ordinalDays(text: string): string[] {
 
 /**
  * A promise that Ben will come back to the customer, in the third person or in his own first person
- * ("I'll come back to you", "let me check and come straight back to you"). Allowed wherever a hold
- * reaches Ben to keep it; the commitment guard refuses it on a request to move a date when no hold
- * does (guards.ts).
+ * ("I'll come back to you", "let me check and come straight back to you"), or will call or confirm.
+ * The commitment guard refuses it on a request to move a date when no hold reaches Ben (guards.ts);
+ * every promise to come back is refused anyway, by RE_COMES_BACK below.
  */
 export const RE_BEN_COMES_BACK = /\b(?:ben|he|she|i|someone|one of (?:us|the team)|the team|we)\b[^.?!\n]{0,40}\b(?:will|['’]ll|can|is going to)\b[^.?!\n]{0,40}\b(?:be in touch|come back|get back|let you know|confirm|call|ring|phone)\b|\blet me\b[^.?!\n]{0,40}\b(?:come (?:straight )?back|get back|confirm)\b/i;
 
@@ -181,6 +181,20 @@ export const RE_BEN_COMES_BACK = /\b(?:ben|he|she|i|someone|one of (?:us|the tea
  * quote together and send it over" are not a question left open, so they are not read as one.
  */
 export const RE_DEFERS = /\b(?:i|we)\b[^.?!\n]{0,40}\b(?:will|['’]ll|am going to|['’]m going to)\b[^.?!\n]{0,40}\b(?:check|find out|come (?:straight )?back|get back|be in touch|let you know)\b|\blet me\b[^.?!\n]{0,40}\b(?:check|find out|come (?:straight )?back|get back)\b/i;
+
+/**
+ * A promise to come back to the customer in any of its house phrasings: the put-off above, the third
+ * person's "Ben will be in touch", and "leave it with me". The desk never sends one (the captain's
+ * ruling, 18 Sep 2026: "remove that line entirely"): nothing in the system keeps it, so where the desk
+ * cannot answer it holds for Ben and says nothing (guards.ts checkCommitment). An offer to call and
+ * the wrap-up's "I'll put the quote together and send it over" are not this.
+ */
+export const RE_COMES_BACK = new RegExp([
+    RE_DEFERS.source,
+    `\\b(?:ben|he|she|someone|one of (?:us|the team)|the team)\\b[^.?!\\n]{0,40}\\b(?:will|['’]ll|is going to)\\b[^.?!\\n]{0,40}\\b(?:be in touch|come (?:straight )?back|get back|let you know|look into|confirm)\\b`,
+    `\\b(?:i|we)\\b[^.?!\\n]{0,40}\\b(?:will|['’]ll|am going to|['’]m going to)\\b[^.?!\\n]{0,40}\\b(?:look into|confirm)\\b`,
+    `\\bleave (?:it|this|that) with (?:me|us)\\b`,
+].join('|'), 'i');
 
 /**
  * Words that tie a put-off to a question rather than to the job: "on that", "on the Checkatrade
