@@ -240,6 +240,21 @@ describe('the desk', () => {
         expect(clock?.delivered, body).toBe(false);
     });
 
+    it('a turn the router raises as regulated that no pattern recognises is held for Ben and sends nothing: unknown is never assumed to be gas', async () => {
+        for (const body of ['Could you remove the artex from my ceiling?', 'my ceiling is artexed', 'is there absestos in my shed roof?']) {
+            const { client, gateway } = desk({ router: () => routeScoping({ exception: 'regulated', turnKind: 'question' }), specialist: () => specialistFacts([]), composer: () => { throw new Error('the composer must not be called'); } });
+            const out = await gateway.inbound(turn(body, '2026-09-11T10:00:00.000Z'));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(client.calls.filter((c) => c.role === 'composer'), body).toHaveLength(0);
+            expect(out.result.decision, body).toBe('hold');
+            expect(out.result.delivered, body).toBe(false);
+            expect(out.result.bubbles, body).toEqual([]);
+            expect(out.file.turns.filter((t) => t.direction === 'outbound'), body).toHaveLength(0);
+            expect(out.file.hold?.exception, body).toBe('regulated');
+            expect(out.file.hold?.reason, body).toMatch(/^regulated: .*nothing sent: the turn is regulated but not identified as gas/);
+        }
+    });
+
     it('electrical work is ours: a socket or a rewire is scoped and answered, with no regulated hold and no gas line', async () => {
         for (const body of ['A double socket in my kitchen has stopped working, can you fix it? NG7 1AA', 'Could you quote for rewiring the lights in my hallway?']) {
             const { client, gateway } = desk({

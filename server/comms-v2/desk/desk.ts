@@ -827,13 +827,14 @@ export class Desk implements DeskLike {
     /** Contract 4's second failure and the composer's fallback route: hold with the draft, and the customer still hears the fixed acknowledgement, naming any photo or video the turn brought. */
     private async heldAck(file: CaseFile, partyId: string, turn: Turn, runId: string, calls: ModelCallRecord[], why: string, draft: string | null, composerCalls: number, specialists: SpecialistReturn[], failed?: GuardOutcome, summary: string | null = null): Promise<DeskResult> {
         const party = partyOf(file, partyId)!;
-        // Regulated work that is not gas: the gas line would be untrue, and no other line is approved for it, so nothing goes.
-        const noLine = regulatedWithoutLine('regulated', turn.body);
+        // A regulated turn that is not positively gas: the gas line would be untrue, and no other line is approved for it, so nothing goes.
+        const regulatedTurn = !!regulatedMatch(turn.body);
+        const noLine = regulatedTurn ? regulatedWithoutLine('regulated', turn.body) : null;
         const held = { reason: noLine ? `${why}; ${noLine}` : why, draft, failures: failed?.failures ?? [] };
         if (file.hold) noteOnHold(file, { ...held, ownCard: DESK_RUN_NOTE });
         else setHold(file, { approver: approverFor(file, null), ...held }, this.fileDeps());
         if (noLine) return { ...this.nothing(file, partyId, runId, calls, held.reason, 'hold'), summary, composerCalls };
-        const line = regulatedMatch(turn.body) ? await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines) : heldAckLine(turn, file);
+        const line = regulatedTurn ? await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines) : heldAckLine(turn, file);
         const kbIds = line.kbId ? [line.kbId] : [];
         const guards = runGuards({ file, party, turn, reply: line.text, factIds: [], kbIds, kbRows: await this.kbRows(kbIds, [line]), fixedLines: [line], proposedSubject: null, liveQuoteRefs: new Set() });
         const choice = chooseChannel(party, turn.channel, this.now());
