@@ -8,8 +8,13 @@
  * registered approver, and only once its switch has been turned on by hand: the desk is
  * sandbox-only until cutover. SMS and email render through server/comms-v2/channels (Goal 3); a
  * form or a call cannot carry a reply, so `chooseChannel` opens a real channel. Live delivery is
- * WhatsApp and SMS only, because the surviving outbound send is the one path that consults the
- * opt-out ledger; a live email send is refused rather than routed around it.
+ * WhatsApp and SMS only, because the surviving outbound send carries those two and there is no
+ * outbound email path; a live email send is refused rather than routed around it. Ahead of that
+ * refusal the deliverer asks the opt-out ledger itself, about every address the party has written
+ * to us on, phone and email, so an opt-out on any one of them stops a send on every channel and an
+ * email to an opted-out address is refused as an opt-out. An address nobody wrote from —
+ * one typed into the web form, a number a call came from — is never one of them (answer 126): it
+ * may be somebody else's, and their opt-out is not this customer's.
  *
  * Invariants: one run id sends once; every send has an approver; nothing the desk composed reaches
  * a customer without passing the guards, while a person's own words from Ben's board carry their
@@ -30,6 +35,7 @@ import { isHumanApprover, type Approver } from '../../approver';
 import { renderEmail } from '../channels/email-adapter';
 import { firstNameOf } from '../channels/envelope';
 import { nonGsmChars, renderSms, smsCost, smsSegmentCount, SMS_MAX_SEGMENTS, GSM7_MULTI, UCS2_MULTI } from '../channels/sms-adapter';
+import { PROVEN_CHANNELS } from './identity';
 import type { ChannelReplyPurpose } from '../channels/templates';
 import type { OutboundPurpose } from '../../opt-out';
 import { isOutOfHours, ukHour } from '../../working-hours';
@@ -475,7 +481,8 @@ export async function pickTemplate(purpose: ReplyPurpose, vars: TemplateVars, st
 // ---------------------------------------------------------------- send
 
 export interface Deliverer {
-    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver; purpose: DeliveryPurpose }): Promise<DeliveryOutcome>;
+    /** `knownAs`: every other address the recipient has written to us on, so an opt-out recorded against any of them stops the send. */
+    deliver(input: { to: string; channel: ReplyChannel; transport: WhatsAppTransport; bubbles: RenderedBubble[]; template: TemplateSend | null; runId: string; approver: Approver; purpose: DeliveryPurpose; knownAs?: string[] }): Promise<DeliveryOutcome>;
 }
 
 /** A failure names the bubbles that had already reached the customer, so the file can record them. Both carry the label the delivery was, or would have been, sent under. */
@@ -506,7 +513,21 @@ export const liveDeliverer: Deliverer = {
         const switches = [registryEntryFor(DESK_APPROVER)?.switchKey ?? null, ...(entry.switchKey ? [entry.switchKey] : [])];
         const off = switches.find((key) => !key || cfg.senders?.[key]?.enabled !== true);
         if (off !== undefined) return { ok: false, reason: `spine.senders.${off}.enabled is not true; the new desk stays in the sandbox until it is`, delivered, label };
-        if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send, which is the only path that checks the opt-out ledger, carries WhatsApp and SMS only`, delivered, label };
+        // The opt-out ledger, asked about every address the party wrote to us on, phone and email alike,
+        // so an opt-out that arrived on one channel stops a send on any other. It runs before the
+        // channel rule, so an email to an opted-out address is refused as that even while email is
+        // refused outright. The outbound send below asks again about the number it sends to.
+        const addresses = [input.to, ...(input.knownAs ?? [])];
+        const { blockedByOptOut, optOutRefusalMessage } = await import('../../opt-out');
+        let suppression;
+        try {
+            suppression = await blockedByOptOut({ phones: addresses.filter((a) => !a.includes('@')), emails: addresses.filter((a) => a.includes('@')) }, label.purpose);
+        } catch (error: any) {
+            console.error('[comms-v2 sender] Opt-out lookup failed; refusing the send:', error?.message);
+            return { ok: false, reason: 'the opt-out ledger could not be read, so the send was refused', delivered, label };
+        }
+        if (suppression) return { ok: false, reason: optOutRefusalMessage(suppression), delivered, label };
+        if (input.channel !== 'whatsapp' && input.channel !== 'sms') return { ok: false, reason: `live delivery on ${input.channel} is refused: the one outbound send carries WhatsApp and SMS only, and there is no outbound email path`, delivered, label };
         const { sendCustomerMessage } = await import('../../outbound');
         let sid: string | null = null;
         for (const b of input.bubbles) {
@@ -561,6 +582,15 @@ export interface SenderDeps extends CaseFileDeps {
  * four fixed lines Ben has not yet reviewed. A live delivery that fails part way records the
  * bubbles that went, marked partial, before the failure is returned.
  */
+/**
+ * The addresses the party proved by writing to us on them, which are the ones an opt-out of theirs
+ * can be recorded against. An address only typed into the web form, or a number a call arrived
+ * from, is not one: it binds no identity (answer 126), so a suppression on it is somebody else's.
+ */
+function provenAddresses(party: Party): string[] {
+    return party.channels.filter((c) => PROVEN_CHANNELS.has(c.kind) && c.lastInboundAt !== null).map((c) => c.address);
+}
+
 export async function send(input: SendInput, deps: SenderDeps = {}): Promise<SendOutcome> {
     const now = deps.now ?? (() => new Date());
     if (!input.approver?.trim()) return { ok: false, reason: 'no approver' };
@@ -599,7 +629,7 @@ export async function send(input: SendInput, deps: SenderDeps = {}): Promise<Sen
     };
 
     if (input.mode === 'live') {
-        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, purpose: input.purpose ?? 'service_reply' });
+        const delivered = await (deps.deliverer ?? liveDeliverer).deliver({ to: channel.address, channel: input.channel, transport: channel.transport ?? 'twilio', bubbles: input.bubbles, template: input.template, runId: input.runId, approver: input.approver, purpose: input.purpose ?? 'service_reply', knownAs: provenAddresses(party).filter((a) => a !== channel.address) });
         if (!delivered.ok) {
             if (delivered.delivered.length) land(delivered.delivered, true);
             return { ok: false, reason: delivered.reason };

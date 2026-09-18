@@ -241,7 +241,9 @@ describe('the draft goes out only through the board\'s human send path', () => {
     });
 
     describe('live, at the opt-out ledger', () => {
-        afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.resetModules(); });
+        // The deliverer's own ledger read finds nobody; the refusal comes from the outbound send's check.
+        beforeEach(() => { vi.doMock('../../opt-out', () => ({ blockedByOptOut: async () => null, optOutRefusalMessage: () => '' })); });
+        afterEach(() => { vi.doUnmock('../../spine/config'); vi.doUnmock('../../outbound'); vi.doUnmock('../../opt-out'); vi.resetModules(); });
 
         it('is refused with the ledger\'s own words, as the desk\'s held draft is, and nothing is recorded as sent', async () => {
             const outbox: string[] = [];
