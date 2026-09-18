@@ -8,12 +8,14 @@
  * POST /media-backfill/plan   - reads only: the lost items in scope, each one ready (with its
  *                               old-desk twin and the new url it would get), left for a person (with
  *                               its candidates, which a person looks at and names in `choices`) or
- *                               without a twin, and the plan's `digest`. Body, all optional:
+ *                               without a twin, the plan's `digest`, and `notRepaired`: the rows it
+ *                               never re-points (contractor briefs, old message records), counted. Body, all optional:
  *                               `arrivedBefore` (ISO instant), `choices` ({ media id: message id })
  * POST /media-backfill/apply  - the same body plus `digest` (from the plan the person read) and
  *                               `expect` (how many lost items they expect in scope). Plans again and
  *                               writes nothing unless both still hold; then copies each ready twin to
- *                               its new name and re-links the item and its quote rows. Only a session
+ *                               its new name and re-links the item and its quote rows; its result
+ *                               carries `notRepaired` counted after the run. Only a session
  *                               the `comms_v2_approvers` row lists for a slot may apply
  *
  * The router is mounted under /api/comms-v2, behind requireAdmin.
@@ -60,6 +62,7 @@ export function planView(plan: BackfillPlan) {
         digest: plan.digest,
         counts: { lost: plan.lost, ready: ready.length, needsPerson: needsPerson.length, noTwin: noTwin.length, outOfScope: plan.outOfScope, alive: plan.alive, alreadyRestored: plan.alreadyRestored },
         ready, needsPerson, noTwin, refusedChoices: plan.refusedChoices,
+        notRepaired: plan.notRepaired,
     };
 }
 

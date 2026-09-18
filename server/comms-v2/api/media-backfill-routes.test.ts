@@ -29,7 +29,7 @@ const io: BackfillIo = {
     copyObject: async (from, to) => { if (objects.has(to)) throw new Error('overwrite'); objects.set(to, objects.get(from)!); },
     quotesCarrying: async () => [],
     replaceQuoteUrls: async () => false,
-    otherReferences: async () => ({ dispatches: 0, messages: 0 }),
+    otherReferences: async () => ({ dispatches: 1, dispatchTasks: 2, messages: 3 }),
 };
 
 const assignments: ApproverAssignments = { ben: ['user_ben@example.test'] };
@@ -64,6 +64,8 @@ describe('the media backfill routes', () => {
         const text = JSON.stringify(json);
         expect(text).not.toContain('the leak');
         expect(text).not.toContain(NUMBER.replace(/\D/g, ''));
+        expect(json.notRepaired).toMatchObject({ dispatches: 1, dispatchTasks: 2, messages: 3 });
+        expect(json.notRepaired.statement).toContain('Contractor briefs and the old message records are NOT re-pointed');
     });
 
     it('applies only for a session with an approver slot, and only with the digest and the expected count', async () => {
@@ -76,7 +78,8 @@ describe('the media backfill routes', () => {
 
         const applied = await post('/apply', { digest: plan.digest, expect: 1 }, 'ben@example.test');
         expect(applied.status).toBe(200);
-        expect(applied.json.result).toMatchObject({ restored: 1, failed: [], stillPointingAtLost: { caseFileItems: 0 } });
+        expect(applied.json.result).toMatchObject({ restored: 1, failed: [], stillPointingAtLost: { caseFileItems: 0 }, notRepaired: { dispatches: 1, dispatchTasks: 2, messages: 3 } });
+        expect(applied.json.result.notRepaired.statement).toContain('Office threads and quotes are repaired');
         expect(objects.get(`${MEDIA_S3_PREFIX}v2_r-restored.mp4`)).toBe(2048);
     });
 });

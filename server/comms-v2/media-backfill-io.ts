@@ -6,7 +6,8 @@
  * S3 is asked for object metadata (HEAD) and a server-side copy between two keys in the same private
  * bucket; no object's bytes pass through this process, and nothing is deleted or overwritten here.
  * The copy keeps the source object's content type. The database is read, and written only where a
- * quote row's `customer_photo_urls` still holds exactly what was read.
+ * quote row's `customer_photo_urls` and `customer_video_urls` still hold exactly what was read.
+ * `job_dispatches` and `messages` are only counted, never written.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -69,18 +70,29 @@ export function backfillIoFor(purpose: DatabasePurpose, mediaDir: string = DEFAU
 
         async quotesCarrying(urls) {
             const db = await commsV2Db(READER, purpose);
+            const carries = (column: string) => sql`(jsonb_typeof(${sql.raw(column)}) = 'array'
+                  and exists (select 1 from jsonb_array_elements_text(${sql.raw(column)}) u where u = any(${sql.param(urls)}::text[])))`;
             const found = await db.execute(sql`
-                select id, customer_photo_urls from personalized_quotes
-                where jsonb_typeof(customer_photo_urls) = 'array'
-                  and exists (select 1 from jsonb_array_elements_text(customer_photo_urls) u where u = any(${sql.param(urls)}::text[]))`);
-            return rowsOf(found).map((r) => ({ id: String(r.id), urls: Array.isArray(r.customer_photo_urls) ? r.customer_photo_urls.map(String) : [] }));
+                select id,
+                       case when jsonb_typeof(customer_photo_urls) = 'array' then customer_photo_urls end as photos,
+                       case when jsonb_typeof(customer_video_urls) = 'array' then customer_video_urls end as videos
+                from personalized_quotes
+                where ${carries('customer_photo_urls')} or ${carries('customer_video_urls')}`);
+            const list = (v: unknown) => (Array.isArray(v) ? v.map(String) : null);
+            return rowsOf(found).map((r) => ({ id: String(r.id), photos: list(r.photos), videos: list(r.videos) }));
         },
 
-        async replaceQuoteUrls(id, before, after) {
+        async replaceQuoteUrls(before, after) {
             const db = await commsV2Db(READER, purpose);
+            const json = (v: string[] | null) => (v ? JSON.stringify(v) : null);
+            const unchanged = (column: string, v: string[] | null) => (v
+                ? sql`${sql.raw(column)} = ${json(v)}::jsonb`
+                : sql`jsonb_typeof(${sql.raw(column)}) is distinct from 'array'`);
             const found = await db.execute(sql`
-                update personalized_quotes set customer_photo_urls = ${JSON.stringify(after)}::jsonb
-                where id = ${id} and customer_photo_urls = ${JSON.stringify(before)}::jsonb
+                update personalized_quotes
+                set customer_photo_urls = ${after.photos ? sql`${json(after.photos)}::jsonb` : sql`customer_photo_urls`},
+                    customer_video_urls = ${after.videos ? sql`${json(after.videos)}::jsonb` : sql`customer_video_urls`}
+                where id = ${before.id} and ${unchanged('customer_photo_urls', before.photos)} and ${unchanged('customer_video_urls', before.videos)}
                 returning id`);
             return rowsOf(found).length === 1;
         },
@@ -88,8 +100,15 @@ export function backfillIoFor(purpose: DatabasePurpose, mediaDir: string = DEFAU
         async otherReferences(urls) {
             const db = await commsV2Db(READER, purpose);
             const dispatches = rowsOf(await db.execute(sql`select count(*)::int as n from job_dispatches where media_urls && ${sql.param(urls)}::text[]`));
+            const dispatchTasks = rowsOf(await db.execute(sql`
+                select count(*)::int as n from job_dispatches d
+                where jsonb_typeof(d.tasks) = 'array'
+                  and exists (
+                    select 1 from jsonb_array_elements(d.tasks) t
+                    cross join lateral jsonb_array_elements_text(case when jsonb_typeof(t->'mediaUrls') = 'array' then t->'mediaUrls' else '[]'::jsonb end) u
+                    where u = any(${sql.param(urls)}::text[]))`));
             const messages = rowsOf(await db.execute(sql`select count(*)::int as n from messages where media_url = any(${sql.param(urls)}::text[])`));
-            return { dispatches: Number(dispatches[0]?.n ?? 0), messages: Number(messages[0]?.n ?? 0) };
+            return { dispatches: Number(dispatches[0]?.n ?? 0), dispatchTasks: Number(dispatchTasks[0]?.n ?? 0), messages: Number(messages[0]?.n ?? 0) };
         },
     };
 }

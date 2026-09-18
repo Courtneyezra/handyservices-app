@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CaseFile } from './desk/case-file';
 import { MemoryCaseFileStore } from './desk/store';
-import { applyBackfill, ISOLATION_MS, MEDIA_S3_PREFIX, pairLost, planBackfill, restoredFileName, type BackfillIo, type LostMedia, type MediaRef, type OldDeskCopy } from './media-backfill';
+import { applyBackfill, ISOLATION_MS, MEDIA_S3_PREFIX, pairLost, planBackfill, restoredFileName, type BackfillIo, type LostMedia, type MediaRef, type OldDeskCopy, type QuoteMediaRow } from './media-backfill';
 
 const T0 = Date.parse('2026-09-16T10:00:00.000Z');
 const at = (s: number) => new Date(T0 + s * 1000).toISOString();
@@ -39,6 +39,10 @@ class FakeIo implements BackfillIo {
     objects = new Map<string, number>();
     old: OldDeskCopy[] = [];
     quotes = new Map<string, string[]>();
+    quoteVideos = new Map<string, string[]>();
+    dispatchMedia: string[][] = [];
+    dispatchTaskMedia: string[][][] = [];
+    messageMedia: string[] = [];
     copies: Array<[string, string]> = [];
     async resolves(file: string) { return this.local.has(file) || this.objects.has(MEDIA_S3_PREFIX + file); }
     async oldDeskCopies(customers: string[], from: Date, to: Date) {
@@ -52,16 +56,27 @@ class FakeIo implements BackfillIo {
         this.objects.set(toKey, size);
         this.copies.push([fromKey, toKey]);
     }
-    async quotesCarrying(urls: string[]) {
-        return Array.from(this.quotes).filter(([, u]) => u.some((x) => urls.includes(x))).map(([id, u]) => ({ id, urls: [...u] }));
+    async quotesCarrying(urls: string[]): Promise<QuoteMediaRow[]> {
+        const ids = new Set([...this.quotes.keys(), ...this.quoteVideos.keys()]);
+        const carries = (u: string[] | undefined) => !!u?.some((x) => urls.includes(x));
+        return Array.from(ids).filter((id) => carries(this.quotes.get(id)) || carries(this.quoteVideos.get(id)))
+            .map((id) => ({ id, photos: this.quotes.has(id) ? [...this.quotes.get(id)!] : null, videos: this.quoteVideos.has(id) ? [...this.quoteVideos.get(id)!] : null }));
     }
-    async replaceQuoteUrls(id: string, before: string[], after: string[]) {
-        const current = this.quotes.get(id);
-        if (!current || JSON.stringify(current) !== JSON.stringify(before)) return false;
-        this.quotes.set(id, [...after]);
+    async replaceQuoteUrls(before: QuoteMediaRow, after: QuoteMediaRow) {
+        const same = (a: string[] | undefined, b: string[] | null) => JSON.stringify(a ?? null) === JSON.stringify(b);
+        if (!same(this.quotes.get(before.id), before.photos) || !same(this.quoteVideos.get(before.id), before.videos)) return false;
+        if (after.photos) this.quotes.set(before.id, [...after.photos]);
+        if (after.videos) this.quoteVideos.set(before.id, [...after.videos]);
         return true;
     }
-    async otherReferences() { return { dispatches: 0, messages: 0 }; }
+    async otherReferences(urls: string[]) {
+        const hit = (u: string[]) => u.some((x) => urls.includes(x));
+        return {
+            dispatches: this.dispatchMedia.filter(hit).length,
+            dispatchTasks: this.dispatchTaskMedia.filter((tasks) => tasks.some(hit)).length,
+            messages: this.messageMedia.filter((u) => urls.includes(u)).length,
+        };
+    }
 }
 
 /**
@@ -216,7 +231,61 @@ describe('the backfill run', () => {
         expect(mediaOf(store, 'case_a', 'v2_burst1').url).toBe('/api/media/v2_burst1.jpg');
         expect(io.quotes.get('quote_a')).toEqual([`/api/media/${newFile}`, '/api/media/v2_burst1.jpg']);
         // What still points at a lost url is exactly what was left for a person.
-        expect(out.result.stillPointingAtLost).toEqual({ caseFileItems: 2, quoteRows: 1, dispatches: 0, messages: 0 });
+        expect(out.result.stillPointingAtLost).toEqual({ caseFileItems: 2, quoteRows: 1, dispatches: 0, dispatchTasks: 0, messages: 0 });
+    });
+
+    it('re-links a quote\'s customer_video_urls exactly as its customer_photo_urls, and leaves a changed row alone', async () => {
+        const { store, io } = scene();
+        store.put(caseFile('case_v', CUSTOMER_B, [{ id: 't5', atS: 120.2, body: 'the leak', media: [{ id: 'v2_video', kind: 'video', url: '/api/media/v2_video.mp4' }] }]));
+        io.old.push(oldCopy('MMvideo', CUSTOMER_B, 'video', 120, 'the leak'));
+        io.objects.set(`${MEDIA_S3_PREFIX}MMvideo.mp4`, 4096);
+        io.quoteVideos.set('quote_a', ['/api/media/v2_video.mp4', '/api/media/other.mp4']);
+        io.quoteVideos.set('quote_v', ['/api/media/v2_video.mp4']);
+        const plan = await planBackfill(store, io);
+        const out = await applyBackfill(store, io, { digest: plan.digest, expect: plan.lost });
+        if (!out.ok) throw new Error(out.error);
+        expect(out.result).toMatchObject({ restored: 2, failed: [], quoteRowsUpdated: 2 });
+        expect(io.quotes.get('quote_a')).toEqual(['/api/media/v2_single-restored.jpeg', '/api/media/v2_burst1.jpg']);
+        expect(io.quoteVideos.get('quote_a')).toEqual(['/api/media/v2_video-restored.mp4', '/api/media/other.mp4']);
+        expect(io.quoteVideos.get('quote_v')).toEqual(['/api/media/v2_video-restored.mp4']);
+        expect(io.quotes.has('quote_v')).toBe(false);
+        expect(out.result.stillPointingAtLost.quoteRows).toBe(1);
+
+        const { store: s2, io: io2 } = scene();
+        s2.put(caseFile('case_v', CUSTOMER_B, [{ id: 't5', atS: 120.2, body: 'the leak', media: [{ id: 'v2_video', kind: 'video', url: '/api/media/v2_video.mp4' }] }]));
+        io2.old.push(oldCopy('MMvideo', CUSTOMER_B, 'video', 120, 'the leak'));
+        io2.objects.set(`${MEDIA_S3_PREFIX}MMvideo.mp4`, 4096);
+        io2.quoteVideos.set('quote_v', ['/api/media/v2_video.mp4']);
+        const replace = io2.replaceQuoteUrls.bind(io2);
+        io2.replaceQuoteUrls = async (before, after) => { io2.quoteVideos.set('quote_v', ['/api/media/v2_video.mp4', '/api/media/added.mp4']); return replace(before, after); };
+        const plan2 = await planBackfill(s2, io2);
+        const out2 = await applyBackfill(s2, io2, { digest: plan2.digest, expect: plan2.lost });
+        expect(out2.ok && out2.result.failed).toContainEqual({ mediaId: '(quote quote_v)', reason: expect.stringContaining('changed') });
+        expect(io2.quoteVideos.get('quote_v')).toEqual(['/api/media/v2_video.mp4', '/api/media/added.mp4']);
+        expect(out2.ok && out2.result.stillPointingAtLost.quoteRows).toBe(2);
+    });
+
+    it('counts, never re-points, contractor briefs and old message records, and says so in the plan and the apply', async () => {
+        const { store, io } = scene();
+        io.dispatchMedia = [['/api/media/v2_single.jpg'], ['/api/media/unrelated.jpg']];
+        io.dispatchTaskMedia = [[['/api/media/v2_burst1.jpg'], []], [['/api/media/v2_single.jpg']], [['/api/media/unrelated.jpg']]];
+        io.messageMedia = ['/api/media/v2_burst2.jpg', '/api/media/unrelated.jpg'];
+        const briefsBefore = JSON.stringify([io.dispatchMedia, io.dispatchTaskMedia, io.messageMedia]);
+
+        const plan = await planBackfill(store, io);
+        expect(plan.notRepaired).toMatchObject({ dispatches: 1, dispatchTasks: 2, messages: 1 });
+        for (const words of ['Office threads and quotes are repaired', 'Contractor briefs and the old message records are NOT re-pointed',
+            '1 contractor brief row(s) (job_dispatches.media_urls)', '2 contractor brief row(s) with per-task media (job_dispatches.tasks)',
+            '1 old message record(s) (messages.media_url)', 'Follow-up: re-point contractor briefs and the old message records in a separate change']) {
+            expect(plan.notRepaired.statement).toContain(words);
+        }
+
+        const out = await applyBackfill(store, io, { digest: plan.digest, expect: plan.lost });
+        if (!out.ok) throw new Error(out.error);
+        expect(out.result.restored).toBe(1);
+        expect(out.result.notRepaired).toEqual(plan.notRepaired);
+        expect(out.result.stillPointingAtLost).toMatchObject({ dispatches: 1, dispatchTasks: 2, messages: 1 });
+        expect(JSON.stringify([io.dispatchMedia, io.dispatchTaskMedia, io.messageMedia])).toBe(briefsBefore);
     });
 
     it('run twice: the second run copies nothing, changes nothing and makes no duplicate', async () => {

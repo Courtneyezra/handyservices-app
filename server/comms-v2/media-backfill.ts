@@ -1,6 +1,13 @@
 /**
  * Putting back the new desk's photos and videos that a deploy took (18 Sep 2026).
  *
+ * What it repairs and what it does not: office threads (new-desk case-file media items) and quotes
+ * (`personalized_quotes.customer_photo_urls` and `customer_video_urls`) are repaired. Contractor
+ * briefs (`job_dispatches.media_urls` and the per-task media in `job_dispatches.tasks`) and the old
+ * message records (`messages.media_url`) are NOT re-pointed: the plan and the apply both say so in
+ * plain words, with how many rows of each still point at a lost url (`NotRepaired`). Follow-up:
+ * re-point contractor briefs and the old message records in a separate change.
+ *
  * The new desk wrote each inbound photo and video only to the container's local disk
  * (desk/whatsapp-adapter.ts `writeMedia`, channels/media.ts `writeInboundMedia`) and never mirrored
  * it to S3 the way the old desk does (server/media-store.ts). Production has no volume, so every
@@ -18,7 +25,8 @@
  *            over an existing object: a copy already there with the twin's size is used as it is,
  *            any other object at that name is a failure and nothing is written.
  *   re-link  the item's `url` and `path` to the new file, with `restored` recording what it
- *            replaced, and every quote row whose `customer_photo_urls` carries the lost url.
+ *            replaced, and every quote row whose `customer_photo_urls` or `customer_video_urls`
+ *            carries the lost url.
  *
  * Why a new URL, not the lost one put back: until 18 Sep the edge served /api/media 404s with
  * `max-age=31536000`, so a browser that already asked for a lost URL keeps its 404 for a year and
@@ -208,12 +216,38 @@ export interface BackfillIo {
     objectSize(key: string): Promise<number | null>;
     /** A server-side copy inside the bucket; the bytes never pass through this process. */
     copyObject(fromKey: string, toKey: string): Promise<void>;
-    /** Quote rows whose `customer_photo_urls` carry any of these urls. */
-    quotesCarrying(urls: string[]): Promise<Array<{ id: string; urls: string[] }>>;
-    /** Replaces the row's urls, only if they are still `before`; false when the row changed since it was read. */
-    replaceQuoteUrls(id: string, before: string[], after: string[]): Promise<boolean>;
-    /** How many dispatch and message rows carry any of these urls; read only. */
-    otherReferences(urls: string[]): Promise<{ dispatches: number; messages: number }>;
+    /** Quote rows whose `customer_photo_urls` or `customer_video_urls` carry any of these urls. */
+    quotesCarrying(urls: string[]): Promise<QuoteMediaRow[]>;
+    /** Replaces both of the row's url lists, only if both are still as in `before`; false when the row changed since it was read. */
+    replaceQuoteUrls(before: QuoteMediaRow, after: QuoteMediaRow): Promise<boolean>;
+    /** How many rows this backfill never re-points still carry any of these urls; read only. */
+    otherReferences(urls: string[]): Promise<Omit<NotRepaired, 'statement'>>;
+}
+
+/** A quote row's two customer media lists; null where the column holds no array. */
+export interface QuoteMediaRow { id: string; photos: string[] | null; videos: string[] | null }
+
+/** The places this backfill counts but never re-points, and the plain-words statement of that gap. */
+export interface NotRepaired {
+    /** `job_dispatches` rows whose `media_urls` carry a lost url. */
+    dispatches: number;
+    /** `job_dispatches` rows whose per-task media in `tasks` carry a lost url. */
+    dispatchTasks: number;
+    /** `messages` rows whose `media_url` is a lost url. */
+    messages: number;
+    statement: string;
+}
+
+export function notRepaired(counts: Omit<NotRepaired, 'statement'>): NotRepaired {
+    const statement = 'Office threads and quotes are repaired. Contractor briefs and the old message records are NOT re-pointed: '
+        + `${counts.dispatches} contractor brief row(s) (job_dispatches.media_urls) and ${counts.dispatchTasks} contractor brief row(s) with per-task media (job_dispatches.tasks) `
+        + `and ${counts.messages} old message record(s) (messages.media_url) still point at a lost url. `
+        + 'Follow-up: re-point contractor briefs and the old message records in a separate change.';
+    return { ...counts, statement };
+}
+
+async function notRepairedFor(io: BackfillIo, urls: string[]): Promise<NotRepaired> {
+    return notRepaired(urls.length ? await io.otherReferences(urls) : { dispatches: 0, dispatchTasks: 0, messages: 0 });
 }
 
 export interface BackfillOptions {
@@ -239,6 +273,8 @@ export interface BackfillPlan {
     digest: string;
     /** The size of each ready item's old-desk copy, by media id. */
     twinBytes: Record<string, number>;
+    /** What this backfill will not re-point, counted over the lost urls in scope. */
+    notRepaired: NotRepaired;
 }
 
 /** Finds and pairs the lost items. Reads only: the store, the old desk's rows and S3 object metadata. */
@@ -277,7 +313,8 @@ export async function planBackfill(store: CaseFileStore, io: BackfillIo, opts: B
 
     const summary = pairings.map((p) => [p.item.mediaId, p.outcome, p.outcome === 'ready' ? `${p.twin.messageId}:${p.by}` : '']).sort((a, b) => a[0].localeCompare(b[0]));
     const digest = createHash('sha256').update(JSON.stringify({ lost: inScope.length, summary })).digest('hex').slice(0, 16);
-    return { lost: inScope.length, outOfScope: lost.length - inScope.length, alive, alreadyRestored, pairings, refusedChoices, digest, twinBytes };
+    const notRepairedNow = await notRepairedFor(io, inScope.map((m) => m.url));
+    return { lost: inScope.length, outOfScope: lost.length - inScope.length, alive, alreadyRestored, pairings, refusedChoices, digest, twinBytes, notRepaired: notRepairedNow };
 }
 
 export interface ApplyRequest extends BackfillOptions {
@@ -298,7 +335,9 @@ export interface ApplyResult {
     outOfScope: number;
     quoteRowsUpdated: number;
     /** After the run: how many places still carry a lost url in scope (items left for a person, or failed, carry theirs). */
-    stillPointingAtLost: { caseFileItems: number; quoteRows: number; dispatches: number; messages: number };
+    stillPointingAtLost: { caseFileItems: number; quoteRows: number; dispatches: number; dispatchTasks: number; messages: number };
+    /** What this backfill never re-points, counted after the run, with the plain-words statement. */
+    notRepaired: NotRepaired;
 }
 
 export type ApplyOutcome = { ok: true; plan: BackfillPlan; result: ApplyResult } | { ok: false; status: number; error: string; plan: BackfillPlan };
@@ -316,7 +355,8 @@ export async function applyBackfill(store: CaseFileStore, io: BackfillIo, req: A
     const mediaDir = req.mediaDir ?? DEFAULT_MEDIA_DIR;
     const result: ApplyResult = {
         restored: 0, copiesReused: 0, failed: [], needsPerson: [], noTwin: [], alreadyRestored: plan.alreadyRestored, outOfScope: plan.outOfScope, quoteRowsUpdated: 0,
-        stillPointingAtLost: { caseFileItems: 0, quoteRows: 0, dispatches: 0, messages: 0 },
+        stillPointingAtLost: { caseFileItems: 0, quoteRows: 0, dispatches: 0, dispatchTasks: 0, messages: 0 },
+        notRepaired: notRepaired({ dispatches: 0, dispatchTasks: 0, messages: 0 }),
     };
     const relinked = new Map<string, string>();
     const touched = new Set<string>();
@@ -366,9 +406,10 @@ export async function applyBackfill(store: CaseFileStore, io: BackfillIo, req: A
     }
 
     if (relinked.size) {
+        const relink = (urls: string[] | null) => urls && urls.map((u) => relinked.get(u) ?? u);
         for (const row of await io.quotesCarrying(Array.from(relinked.keys()))) {
-            const after = row.urls.map((u) => relinked.get(u) ?? u);
-            if (await io.replaceQuoteUrls(row.id, row.urls, after)) result.quoteRowsUpdated++;
+            const after = { id: row.id, photos: relink(row.photos), videos: relink(row.videos) };
+            if (await io.replaceQuoteUrls(row, after)) result.quoteRowsUpdated++;
             else result.failed.push({ mediaId: `(quote ${row.id})`, reason: 'the quote row changed while it was being updated; run again' });
         }
     }
@@ -376,11 +417,10 @@ export async function applyBackfill(store: CaseFileStore, io: BackfillIo, req: A
     const lostUrls = plan.pairings.map((p) => p.item.url);
     const lostSet = new Set(lostUrls);
     result.stillPointingAtLost.caseFileItems = mediaRefsOf(store.all()).filter((m) => m.url && lostSet.has(m.url)).length;
-    if (lostUrls.length) {
-        result.stillPointingAtLost.quoteRows = (await io.quotesCarrying(lostUrls)).length;
-        const others = await io.otherReferences(lostUrls);
-        result.stillPointingAtLost.dispatches = others.dispatches;
-        result.stillPointingAtLost.messages = others.messages;
-    }
+    if (lostUrls.length) result.stillPointingAtLost.quoteRows = (await io.quotesCarrying(lostUrls)).length;
+    result.notRepaired = await notRepairedFor(io, lostUrls);
+    result.stillPointingAtLost.dispatches = result.notRepaired.dispatches;
+    result.stillPointingAtLost.dispatchTasks = result.notRepaired.dispatchTasks;
+    result.stillPointingAtLost.messages = result.notRepaired.messages;
     return { ok: true, plan, result };
 }
