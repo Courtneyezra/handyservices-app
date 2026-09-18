@@ -4,7 +4,7 @@
  * records a fact and a hold and never writes the record, with its refusals; convergence hands a
  * thread to Ben after the job has been asked JOB_ASKS_MAX times with no type, or after
  * SCOPING_REPLIES_MAX replies with the file still not ready, both counted since the last release,
- * and never hands over a facts-and-aftercare thread with no job on it.
+ * never counts a reply to a customer turn that gave the file a fact, and never hands over a facts-and-aftercare thread with no job on it.
  */
 import { describe, expect, it } from 'vitest';
 import { appendTurn, ask, hold, open, recordFact, release, type CaseFile } from '../desk/case-file';
@@ -278,6 +278,33 @@ describe('convergence', () => {
         expect(convergence(file).converging).toBe(true);
         appendTurn(file, { at: '2026-09-11T11:09:01.000Z', channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: 'sN', approver: 'agent.comms_v2' });
         expect(convergence(file)).toMatchObject({ converging: false, replies: SCOPING_REPLIES_MAX });
+    });
+    it('a reply to a customer turn that gave the file a fact is not counted: a fast cooperative burst converges', () => {
+        const file = fixture();
+        recordFact(file, { key: 'job_type', value: 'tap', source: thread(file), by: 'scoping' });
+        expect(convergence(file).converging).toBe(true);
+        const inbound = (i: number, body: string) => appendTurn(file, { at: `2026-09-11T10:00:${String(i * 2).padStart(2, '0')}.000Z`, channel: 'whatsapp', direction: 'inbound', partyId: 'p1', kind: 'text', body, media: [] });
+        const reply = (i: number) => appendTurn(file, { at: `2026-09-11T10:00:${String(i * 2 + 1).padStart(2, '0')}.000Z`, channel: 'whatsapp', direction: 'outbound', partyId: 'p1', kind: 'text', body: 'x', media: [], runId: `r${i}`, approver: 'agent.comms_v2' });
+        // Ten exchanges inside twenty seconds, each answer recorded: nothing to hand to Ben.
+        for (let i = 0; i < 10; i++) {
+            inbound(i, `detail ${i}`);
+            recordFact(file, { key: 'job_detail', value: `detail ${i}`, source: { kind: 'thread', turnId: file.turns[file.turns.length - 1].id }, by: 'scoping' });
+            reply(i);
+        }
+        expect(convergence(file)).toMatchObject({ converging: true, replies: 0 });
+        // A photo the customer sent counts as an answer too.
+        inbound(10, '');
+        recordFact(file, { key: 'media_photo', value: 'a dripping tap', source: { kind: 'media_description', turnId: file.turns[file.turns.length - 1].id, mediaId: 'm1' }, by: 'scoping' });
+        reply(10);
+        expect(convergence(file).replies).toBe(0);
+        // Replies to turns that gave nothing about the job still count, a first-time name included, and SCOPING_REPLIES_MAX of them is not converging.
+        for (let i = 11; i < 11 + SCOPING_REPLIES_MAX; i++) {
+            inbound(i, 'erm not sure');
+            if (i === 11) recordFact(file, { key: 'customer_name', value: 'Sam', source: { kind: 'thread', turnId: file.turns[file.turns.length - 1].id }, by: 'scoping' });
+            reply(i);
+        }
+        expect(convergence(file)).toMatchObject({ converging: false, replies: SCOPING_REPLIES_MAX });
+        expect(convergence(file).why).toMatch(/nothing new from the customer .*\(no location\)$/);
     });
     it('SCOPING_REPLIES_MAX replies with the file still not ready is not converging; one fewer converges', () => {
         const file = fixture();

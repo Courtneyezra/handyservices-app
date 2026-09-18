@@ -3,10 +3,12 @@
  * with the fixed line the desk sends in Ben's words (desk/fixed-lines.ts). Two kinds of hold:
  *
  *   fixed line only   one fixed line, no composer, and no specialist until Ben releases it. A
- *                     complaint, a refund, a trust doubt, gas, and scoping that is not converging.
+ *                     complaint, a refund, a trust doubt, and gas (answer 21: nothing else freezes).
  *   answer the rest   the reply still answers what it can and carries the fixed line for the
- *                     rest. A question we have no source for, a change of details, a customer
- *                     asking for a call, and money (Goal 1's). A date change is one of these too,
+ *                     rest (answer 14). A question we have no source for, a change of details, a
+ *                     customer asking for a call, money (Goal 1's), and scoping that is not
+ *                     converging, which keeps being scoped so the fact it lacked can still arrive
+ *                     and the desk clears its own card when it does. A date change is one of these too,
  *                     but the Scheduling specialist raises its own (server/comms-v2/scheduling),
  *                     so the desk does not raise it here as well.
  *
@@ -55,7 +57,10 @@ export function regulatedWithoutLine(reason: HoldException | null, body: string)
 }
 
 /** Reasons the desk sends one fixed line for and keeps every specialist off the thread until Ben releases it. */
-export const FIXED_LINE_ONLY: ReadonlySet<HoldException> = new Set<HoldException>(['complaint', 'refund', 'trust_doubt', 'regulated', 'not_converging']);
+export const FIXED_LINE_ONLY: ReadonlySet<HoldException> = new Set<HoldException>(['complaint', 'refund', 'trust_doubt', 'regulated']);
 
 /** Reasons the reply still answers the rest for, carrying the fixed line. */
-export const ANSWER_THE_REST: ReadonlySet<HoldException> = new Set<HoldException>(['money', 'callback', 'no_source', 'change_of_details']);
+export const ANSWER_THE_REST: ReadonlySet<HoldException> = new Set<HoldException>(['money', 'callback', 'no_source', 'change_of_details', 'not_converging']);
+
+/** How a card the convergence check raised opens (`${reason}: ${why}`), so the desk can restate or clear its own card. */
+export const NOT_CONVERGING_CARD = 'not_converging:';

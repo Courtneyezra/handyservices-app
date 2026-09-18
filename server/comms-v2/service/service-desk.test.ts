@@ -4,8 +4,9 @@
  * holds for Ben with the fixed line and still answers the rest (7.1); a customer asking for a call
  * holds for Ben (7.2), and a turn that asks a price and a call carries both fixed lines; a held thread still hears an acknowledgement on every turn (7.3); Ben's
  * reply from any surface releases the hold and the next customer turn is routed as normal (7.4);
- * scoping that is not converging goes to Ben on its fixed line with no composer and lets the thread
- * go again once he has replied, while a facts-and-aftercare thread with no job on it is answered
+ * scoping that is not converging holds for Ben and still answers the rest (answers 14 and 21), says
+ * its line once, clears its own card when the customer then gives the fact it lacked, and lets the
+ * thread go again once he has replied, a cooperative customer is never handed over for a fast burst, while a facts-and-aftercare thread with no job on it is answered
  * turn after turn and never handed over; a clock pass chases Ben, then the owner, and Ben's reply clears it
  * (7.5). No customer send on a clock pass. A held thread that turns to gas is still not left silent,
  * and a turn the router sends to Service alongside another subject is still scoped. A graver reason
@@ -24,6 +25,9 @@ import { noTemplateApproved } from '../desk/sender';
 import type { InboundTurn } from '../desk/whatsapp-adapter';
 import { CHASE_TEMPLATES, chaseRecordOf, clearChaseRecord, createChaseState } from './chase';
 import { humanReply } from '../desk/human-reply';
+import { recordingNotifier } from '../quoting/ben-notifier';
+import { FakeDrafter } from '../quoting/draft-quote';
+import { MemoryQuoteStore } from '../quoting/quote-store';
 
 const INSURED = "Yes, we're fully insured, with public liability cover in place for every job.";
 const kb = { async list() { return [{ id: 'kb-insured', topic: 'Are you insured?', approvedWords: INSURED }]; } };
@@ -31,6 +35,8 @@ const route = (over: Record<string, unknown> = {}) => ({ subjects: ['scoping'], 
 const scopingOut = (facts: Array<{ key: string; value: string }> = []) => ({ facts, jobUnknowns: [], answeredSubjects: [] });
 const serviceOut = (over: Record<string, unknown> = {}) => ({ answers: [], changeOfDetails: null, holdReason: null, ...over });
 const isService = (system: string) => /Service specialist/.test(system);
+/** Whether the composer was handed this fixed line to carry on this turn (not merely shown it in the thread). */
+const carries = (user: string, line: string) => user.slice(Math.max(0, user.indexOf('Fixed lines to include'))).split('\n').includes(`- ${line}`) && user.includes('Fixed lines to include');
 
 function turn(text: string, at: string): InboundTurn {
     return { channel: 'whatsapp', address: '+447700900942', name: 'Sam', text, media: [], at, providerMessageId: null, via: 'door', mediaFailures: [] };
@@ -454,11 +460,12 @@ describe('the Service specialist on the desk', () => {
         expect(c.result.guards.one_reply.result).toBe('pass');
         expect(a.file.turns.map((t) => t.approver)).toEqual([null, 'agent.comms_v2', null, 'agent.comms_v2', 'human:ben', null, 'agent.comms_v2']);
     });
-    it('scoping that is not converging goes to Ben on its fixed line with no composer, and stays with him', async () => {
+    it('scoping that is not converging holds for Ben and answers the rest: the thread is not frozen, and the line goes once', async () => {
+        const NC = DEFAULT_FIXED_LINES.not_converging;
         const { client, gateway } = desk({
             router: () => route({ turnKind: 'answer' }),
             specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut(),
-            composer: ({ n }) => ({ reply: `Right, no worries at all. (${n})`, factIds: [], kbIds: [] }),
+            composer: ({ n, user }) => ({ reply: carries(user, NC) ? `Right, no worries at all. (${n}) ${NC}` : `Right, no worries at all. (${n})`, factIds: [], kbIds: [] }),
         });
         let last: Awaited<ReturnType<typeof gateway.inbound>> | null = null;
         for (let i = 0; i < 7; i++) {
@@ -468,12 +475,179 @@ describe('the Service specialist on the desk', () => {
         }
         if (!last || last.kind !== 'handled') throw new Error('not handled');
         expect(last.file.hold?.exception).toBe('not_converging');
-        expect(last.result.bubbles[0].text).toBe(DEFAULT_FIXED_LINES.not_converging);
-        expect(last.result.delivered).toBe(true);
+        expect(last.file.hold?.reason).toMatch(/^not_converging: 6 replies .*\(no job type\)$/);
+        expect(last.result.decision).toBe('send');
+        expect(last.result.bubbles.map((b) => b.text).join(' ')).toContain(NC);
         const composerCalls = client.calls.filter((c) => c.role === 'composer').length;
         const again = await gateway.inbound(turn('so what now', '2026-09-11T10:30:00.000Z'));
         if (again.kind !== 'handled') throw new Error(again.kind);
-        expect(again.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
+        // Still scoped and composed, not the held acknowledgement; the customer is not told the same line twice.
+        expect(again.result.decision).toBe('send');
+        expect(client.calls.filter((c) => c.role === 'composer').length).toBeGreaterThan(composerCalls);
+        expect(again.result.bubbles.map((b) => b.text).join(' ')).not.toContain(NC);
+        // The desk's own card is restated with the count now, never a second reason beside it.
+        expect(again.file.hold?.reason).toMatch(/^not_converging: 7 replies [^;]*$/);
+        expect(again.file.hold?.notedOn).toBe(false);
+    });
+    it('a not-converging card clears itself when the customer supplies the missing location right after it is raised', async () => {
+        const ADDRESS = '14 Wollaton Road, Beeston NG9 2AB';
+        const NC = DEFAULT_FIXED_LINES.not_converging;
+        const quotes = new MemoryQuoteStore();
+        const { gateway } = desk({
+            router: () => route({ turnKind: 'answer' }),
+            specialist: ({ system, user }) => {
+                if (isService(system)) return serviceOut();
+                if (/lines of a quote/.test(system)) return { lines: [{ title: 'Replace kitchen tap', category: 'plumbing', qty: 1, detail: 'mixer tap, dripping at the base', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] };
+                return new RegExp(`>>.*${ADDRESS}`).test(user)
+                    ? scopingOut([{ key: 'location', value: 'NG9 2AB' }])
+                    : scopingOut([{ key: 'job_type', value: 'leaking tap' }]);
+            },
+            composer: ({ n, user }) => ({ reply: carries(user, NC) ? `Right. (${n}) ${NC}` : `Thanks, that is everything I need. (${n})`, factIds: [], kbIds: [] }),
+        }, { quoting: { store: quotes, drafter: new FakeDrafter(quotes), notifier: recordingNotifier } });
+        // Six stalled exchanges on a job with no location: the first reply's turn gave the job, the rest gave nothing new.
+        const first = await gateway.inbound(turn('I have a leaking tap', '2026-09-11T10:00:00.000Z'));
+        if (first.kind !== 'handled') throw new Error(first.kind);
+        let last: Awaited<ReturnType<typeof gateway.inbound>> = first;
+        for (let i = 1; i < 10 && !last.file.hold; i++) {
+            last = await gateway.inbound(turn('erm not sure', `2026-09-11T10:0${i}:00.000Z`));
+            if (last.kind !== 'handled') throw new Error(last.kind);
+        }
+        if (last.kind !== 'handled') throw new Error(last.kind);
+        expect(last.file.hold?.exception).toBe('not_converging');
+        expect(last.file.hold?.reason).toMatch(/\(no location\)$/);
+        // Eighteen seconds later the customer types the address. The thread is not frozen, Scoping reads it, and the card clears.
+        const answered = await gateway.inbound(turn(ADDRESS, '2026-09-11T10:09:18.000Z'));
+        if (answered.kind !== 'handled') throw new Error(answered.kind);
+        expect(answered.file.job.location).toBe('NG9 2AB');
+        expect(answered.file.hold).toBeNull();
+        const rel = answered.file.releases[answered.file.releases.length - 1];
+        expect(rel.reason).toMatch(/^not_converging: .*\(no location\)$/);
+        expect(rel.words).toMatch(/^scoping converged on a later turn \(the file now has the job type and the location\)/);
+        expect(rel.approver).toEqual(BEN);
+        expect(answered.result.decision).toBe('send');
+        expect(answered.result.bubbles.map((b) => b.text).join(' ')).not.toContain(NC);
+    });
+    it('a not-converging card that also carries a callback stays held for the callback, labelled with it, once the location arrives', async () => {
+        const ADDRESS = '14 Wollaton Road, Beeston NG9 2AB';
+        const NC = DEFAULT_FIXED_LINES.not_converging;
+        const quotes = new MemoryQuoteStore();
+        const { gateway } = desk({
+            router: ({ user }) => />>.*anyone going to come out/.test(user) ? route({ turnKind: 'question', exception: 'callback' }) : route({ turnKind: 'answer' }),
+            specialist: ({ system, user }) => {
+                if (isService(system)) return serviceOut();
+                if (/lines of a quote/.test(system)) return { lines: [{ title: 'Replace kitchen tap', category: 'plumbing', qty: 1, detail: 'mixer tap', assumptions: [], notIncluded: [] }], customerType: 'homeowner', missing: [] };
+                return new RegExp(`>>.*${ADDRESS}`).test(user)
+                    ? scopingOut([{ key: 'location', value: 'NG9 2AB' }])
+                    : />>.*leaking tap/.test(user) ? scopingOut([{ key: 'job_type', value: 'leaking tap' }]) : scopingOut();
+            },
+            composer: ({ n, user }) => ({ reply: carries(user, NC) ? `Right. (${n}) ${NC}` : `Right. (${n})`, factIds: [], kbIds: [] }),
+        }, { quoting: { store: quotes, drafter: new FakeDrafter(quotes), notifier: recordingNotifier } });
+        let last = await gateway.inbound(turn('I have a leaking tap', '2026-09-11T10:00:00.000Z'));
+        for (let i = 1; i < 10 && last.kind === 'handled' && !last.file.hold; i++) last = await gateway.inbound(turn('erm not sure', `2026-09-11T10:0${i}:00.000Z`));
+        if (last.kind !== 'handled') throw new Error(last.kind);
+        expect(last.file.hold?.exception).toBe('not_converging');
+        const call = await gateway.inbound(turn('is anyone going to come out or not', '2026-09-11T10:20:00.000Z'));
+        if (call.kind !== 'handled') throw new Error(call.kind);
+        expect(call.file.hold?.reason).toMatch(/; callback: /);
+        const answered = await gateway.inbound(turn(ADDRESS, '2026-09-11T10:21:00.000Z'));
+        if (answered.kind !== 'handled') throw new Error(answered.kind);
+        expect(answered.file.job.location).toBe('NG9 2AB');
+        // The callback still stands, so the card does; it no longer reads as not converging.
+        expect(answered.file.hold?.exception).toBe('callback');
+        expect(answered.file.hold?.reason).toMatch(/scoping converged on a later turn \(the file now has the job type and the location\)/);
+    });
+    it('a customer who withholds the location still reaches Ben when each turn restates a fact already on the file', async () => {
+        const { gateway } = desk({
+            router: () => route({ turnKind: 'answer' }),
+            specialist: ({ system, user }) => {
+                if (isService(system)) return serviceOut();
+                // The Scoper re-records the customer's name from every turn; only the first turn names the job.
+                return /leaking tap/.test(user.split('\n').filter((l) => l.startsWith('>>')).pop() ?? '')
+                    ? scopingOut([{ key: 'customer_name', value: 'Sam' }, { key: 'job_type', value: 'leaking tap' }])
+                    : scopingOut([{ key: 'customer_name', value: 'Sam' }]);
+            },
+            composer: ({ n }) => ({ reply: `Right, no worries at all. (${n})`, factIds: [], kbIds: [] }),
+        });
+        let last = await gateway.inbound(turn('Hi, Sam here, I have a leaking tap', '2026-09-11T10:00:00.000Z'));
+        for (let i = 1; i < 10 && last.kind === 'handled' && !last.file.hold; i++) {
+            last = await gateway.inbound(turn(`Sam here, rather not say where (${i})`, `2026-09-11T10:0${i}:00.000Z`));
+        }
+        if (last.kind !== 'handled') throw new Error(last.kind);
+        expect(last.file.facts.filter((f) => f.key === 'customer_name').length).toBeGreaterThan(1);
+        expect(last.file.hold?.exception).toBe('not_converging');
+        expect(last.file.hold?.reason).toMatch(/^not_converging: 6 replies .*\(no location\)$/);
+    });
+    it('a card raised on the job asks clears with the job type named when it arrives, and says the location is still missing', async () => {
+        const NC = DEFAULT_FIXED_LINES.not_converging;
+        const { gateway } = desk({
+            router: () => route({ turnKind: 'answer' }),
+            specialist: ({ system, user }) => {
+                if (isService(system)) return serviceOut();
+                return />>.*leaking tap/.test(user)
+                    ? scopingOut([{ key: 'job_type', value: 'leaking tap' }])
+                    : { facts: [], jobUnknowns: ['what the job is'], answeredSubjects: ['job'] };
+            },
+            composer: ({ n, user }) => ({ reply: carries(user, NC) ? `Right. (${n}) ${NC}` : `What is the job, roughly? (${n})`, factIds: [], kbIds: [] }),
+        });
+        let last: Awaited<ReturnType<typeof gateway.inbound>> | null = null;
+        for (let i = 0; i < 7; i++) {
+            last = await gateway.inbound(turn('it is hard to say', `2026-09-11T10:0${i}:00.000Z`));
+            if (last.kind !== 'handled') throw new Error(last.kind);
+            if (last.file.hold) break;
+        }
+        if (!last || last.kind !== 'handled') throw new Error('not handled');
+        expect(last.file.hold?.reason).toMatch(/^not_converging: asked about the job \d+ times with no job type on the file$/);
+        const answered = await gateway.inbound(turn('a leaking tap', '2026-09-11T10:09:18.000Z'));
+        if (answered.kind !== 'handled') throw new Error(answered.kind);
+        expect(answered.file.job.type).toBe('leaking tap');
+        expect(answered.file.hold).toBeNull();
+        const rel = answered.file.releases[answered.file.releases.length - 1];
+        expect(rel.words).toMatch(/^scoping converged on a later turn \(the job type has arrived; the file still has no location\)/);
+    });
+    it('a cooperative customer answering every question is not handed to Ben however fast the replies go', async () => {
+        const answers = ['a leaking tap', 'kitchen', 'mixer tap', 'drips constantly', 'about a week', 'yes parking outside', 'weekday mornings', 'no pets'];
+        const { gateway } = desk({
+            router: () => route({ turnKind: 'answer' }),
+            specialist: ({ system, user }) => {
+                if (isService(system)) return serviceOut();
+                const said = answers.find((a) => new RegExp(`>>.*${a}`).test(user))!;
+                return scopingOut([{ key: said === answers[0] ? 'job_type' : 'job_detail', value: said }]);
+            },
+            composer: ({ n }) => ({ reply: `Got it, thanks. (${n})`, factIds: [], kbIds: [] }),
+        });
+        for (let i = 0; i < answers.length; i++) {
+            const out = await gateway.inbound(turn(answers[i], `2026-09-11T10:0${i}:30.000Z`));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.result.decision).toBe('send');
+            expect(out.file.hold).toBeNull();
+        }
+    });
+    it('a complaint still freezes a thread held on not converging: the graver reason takes the card over', async () => {
+        const { client, gateway } = desk({
+            router: ({ n }) => n === 8 ? route({ exception: 'complaint', turnKind: 'other' }) : route({ turnKind: 'answer' }),
+            specialist: ({ system }) => isService(system) ? serviceOut() : scopingOut(),
+            composer: ({ n }) => ({ reply: `Right, no worries at all. (${n}) ${DEFAULT_FIXED_LINES.not_converging}`, factIds: [], kbIds: [] }),
+        });
+        let last: Awaited<ReturnType<typeof gateway.inbound>> | null = null;
+        for (let i = 0; i < 7; i++) {
+            last = await gateway.inbound(turn('erm not sure really', `2026-09-11T10:${String(i).padStart(2, '0')}:00.000Z`));
+            if (last.kind !== 'handled') throw new Error(last.kind);
+            if (last.file.hold) break;
+        }
+        if (!last || last.kind !== 'handled') throw new Error('not handled');
+        expect(last.file.hold?.exception).toBe('not_converging');
+        for (let n = client.calls.filter((c) => c.role === 'router').length; n < 7; n++) {
+            const pad = await gateway.inbound(turn('hmm', `2026-09-11T10:2${n}:00.000Z`));
+            if (pad.kind !== 'handled') throw new Error(pad.kind);
+        }
+        const angry = await gateway.inbound(turn('This is useless, I am not happy with how this is going', '2026-09-11T10:40:00.000Z'));
+        if (angry.kind !== 'handled') throw new Error(angry.kind);
+        expect(angry.file.hold?.exception).toBe('complaint');
+        expect(angry.result.bubbles.map((x) => x.text)).toEqual(DEFAULT_FIXED_LINES.complaint.split('\n\n'));
+        const composerCalls = client.calls.filter((c) => c.role === 'composer').length;
+        const next = await gateway.inbound(turn('Hello?', '2026-09-11T10:50:00.000Z'));
+        if (next.kind !== 'handled') throw new Error(next.kind);
+        expect(next.result.bubbles.map((x) => x.text)).toEqual([DEFAULT_FIXED_LINES.held_ack]);
         expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(composerCalls);
     });
     it('a facts-and-aftercare thread with no job on it is never handed over as scoping: seven answered questions, no hold', async () => {

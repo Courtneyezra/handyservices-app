@@ -145,12 +145,13 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
     const notes: string[] = [];
     const fileDeps = { now: deps.now, newId: deps.newId };
 
-    // The tool server first: convergence, every turn, no model.
+    // The tool server first: convergence, every turn, no model. Not converging answers the rest
+    // (hold-reasons.ts): a question routed here is still answered, and the hold stands behind any the answer raises.
     const conv = convergence(file, opts.scopingRan);
-    if (!conv.converging) {
-        return { specialist: 'service', factIds, proposal: emptyProposal(file, { reason: 'not_converging', match: conv.why! }), calls, error: null, brief, note: `service: not converging (${conv.why})` };
-    }
-    if (!opts.routed || !turn.body.trim()) return { specialist: 'service', factIds, proposal: emptyProposal(file, null), calls, error: null, brief, note: null };
+    const slow: ServiceHold | null = conv.converging ? null : { reason: 'not_converging', match: conv.why! };
+    const slowNote = slow ? `not converging (${conv.why})` : null;
+    if (!opts.routed || !turn.body.trim()) return { specialist: 'service', factIds, proposal: emptyProposal(file, slow), calls, error: null, brief, note: slowNote && `service: ${slowNote}` };
+    if (slowNote) notes.push(slowNote);
 
     const rows: KbRowVerbatim[] = await kbLookup(asksAboutOurArea(turn.body) ? `${turn.body}\n${AREA_QUERY}` : turn.body, deps.kb ?? reviewedKb);
     const record: RecordEntry[] = customerRecord(file, party);
@@ -281,5 +282,5 @@ export async function serve(file: CaseFile, turn: Turn, party: Party, client: Mo
         hold = { ...moneyHold(), match: `${moneyHold().match}${also}` };
         notes.push('invoice money question not answered from an invoice');
     }
-    return { specialist: 'service', factIds, proposal: emptyProposal(file, hold), calls, error: null, brief, note: notes.length ? `service: ${notes.join('; ')}` : 'service: nothing to answer' };
+    return { specialist: 'service', factIds, proposal: emptyProposal(file, hold ?? slow), calls, error: null, brief, note: notes.length ? `service: ${notes.join('; ')}` : 'service: nothing to answer' };
 }
