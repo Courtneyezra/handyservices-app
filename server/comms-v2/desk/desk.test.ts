@@ -352,6 +352,45 @@ describe('the desk', () => {
             expect(again.file.hold?.exception).toBe('regulated');
         });
 
+        it('the gas item added after the job: a job type Scoping reads again as the one on the file is still this message\'s work, so the ceiling is not frozen', async () => {
+            const { client, gateway } = desk({
+                router: ({ n }) => routeScoping({ turnKind: n === 1 ? 'enquiry' : 'answer' }),
+                specialist: () => specialistFacts([{ key: 'job_type', value: 'ceiling repair' }], ['job']),
+                composer: ({ n }) => ({ reply: n === 1 ? 'Hi Sam, a ceiling repair, no problem. Whereabouts are you?' : 'Thanks Sam, the ceiling is still on.', factIds: [], kbIds: [] }),
+            });
+            await gateway.inbound(turn('ceiling repair please', '2026-09-11T10:00:00.000Z'));
+            const second = await gateway.inbound(turn('also need the old boiler taken out, plus the ceiling as said', '2026-09-11T10:05:00.000Z'));
+            if (second.kind !== 'handled') throw new Error(second.kind);
+            expect(second.result.note).toBeNull();
+            expect(second.result.decision).toBe('send');
+            expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(2);
+            expect(second.result.bubbles.map((b) => b.text).join('\n\n')).toBe(`Thanks Sam, the ceiling is still on.\n\n${gasLineText}`);
+            expect(second.file.hold?.exception).toBe('regulated');
+            expect(second.file.hold?.reason).toMatch(/^regulated: boiler; the same message asks for work we do \(ceiling repair\), so the gas line goes with the reply/);
+        });
+
+        it('a reply beside the gas line that does not go leaves Ben\'s card saying the gas line has not gone', async () => {
+            const clock = { t: Date.parse('2026-09-11T10:00:00.000Z') };
+            const { gateway } = desk({
+                router: () => routeScoping(),
+                specialist: ({ n }) => specialistFacts(n === 1 ? [] : [{ key: 'job_type', value: 'ceiling crack repair' }]),
+                composer: ({ n }) => ({ reply: n === 1 ? 'Hi there.\n\nWhat is the job?' : 'Hi Sam, the ceiling crack is no problem.', factIds: [], kbIds: [] }),
+            }, clock);
+            const a = await gateway.inbound(turn('hello', '2026-09-11T10:00:00.000Z'));
+            if (a.kind !== 'handled') throw new Error(a.kind);
+            gateway.age(a.file.id, 30);
+            clock.t = Date.parse('2026-09-11T10:00:00.000Z');
+            const out = await gateway.inbound(turn('Can you remove my boiler and fix a ceiling crack?', new Date(clock.t - 29 * 3_600_000).toISOString()));
+            if (out.kind !== 'handled') throw new Error(out.kind);
+            expect(out.result.windowState).toBe('shut');
+            expect(out.result.delivered).toBe(false);
+            expect(out.file.hold?.exception).toBe('regulated');
+            expect(out.file.hold?.reason).toMatch(/^regulated: boiler; the same message asks for work we do \(ceiling crack repair\), so the gas line goes with the reply/);
+            expect(out.file.hold?.reason).toMatch(/the gas line has not gone to the customer \(.*no approved template.*\): tell them about the gas item yourself/);
+            expect(out.result.hold?.reason).toBe(out.file.hold?.reason);
+            expect(out.file.hold?.superseded).toEqual([]);
+        });
+
         it('gas alone still freezes the thread: a job type Scoping reads as the gas work itself is never taken as work we do', async () => {
             for (const [body, jobType] of [
                 ['My gas boiler needs servicing', 'boiler service'],

@@ -73,8 +73,11 @@ export const REGULATED_WITH_REST = 'the same message asks for work we do';
 
 /** The reason a gas hold beside work we do is raised with: the gas item for Ben, and the work the desk carries on with. */
 export function regulatedWithRestReason(match: string, rest: string): string {
-    return `regulated: ${match}; ${REGULATED_WITH_REST} (${rest}), so the gas line went and the desk keeps scoping that; the ${match} is Ben's`;
+    return `regulated: ${match}; ${REGULATED_WITH_REST} (${rest}), so the gas line goes with the reply and the desk keeps scoping that; the ${match} is Ben's`;
 }
+
+/** Noted on the gas hold when the reply that was to carry the gas line did not go (desk.ts `settleGasLine`). */
+export const GAS_LINE_NOT_SENT = 'the gas line has not gone to the customer';
 
 /**
  * Whether a hold keeps every specialist off the thread: a fixed-line-only reason, except a gas hold

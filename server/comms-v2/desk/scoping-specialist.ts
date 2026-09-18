@@ -121,7 +121,7 @@ export async function scope(file: CaseFile, turn: Turn, party: Party, client: Mo
                     else if (loc.outward) value = loc.outward + (loc.text ? ` (${loc.text})` : '');
                     else if (loc.confidence === 'low' && !loc.text && !/[a-z]/i.test(value)) continue;
                 }
-                if (f.key === 'job_type' && file.job.type && file.job.type.toLowerCase() === value.toLowerCase()) continue;
+                if (f.key === 'job_type' && file.job.type && file.job.type.toLowerCase() === value.toLowerCase()) { jobTypeThisTurn = file.job.type; continue; }
                 const rec = recordFact(file, { key: f.key, value, source: { kind: 'thread', turnId: turn.id }, by }, deps);
                 if (rec.ok) factIds.push(rec.value.id);
                 if (rec.ok && f.key === 'job_type') jobTypeThisTurn = value;

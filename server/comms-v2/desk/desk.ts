@@ -49,7 +49,7 @@ import type { Exception, HoldException, Route } from './router';
 import { HOLD_EXCEPTIONS, matchFor, route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
 import { chaseIfDue, clearChaseRecord, type ChaseState } from '../service/chase';
-import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY, NOT_CONVERGING_CARD, freezes, regulatedWithRestReason, regulatedWithoutLine } from '../service/hold-reasons';
+import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY, GAS_LINE_NOT_SENT, NOT_CONVERGING_CARD, freezes, regulatedWithRestReason, regulatedWithoutLine } from '../service/hold-reasons';
 import { serve, type ServiceSpecialistDeps } from '../service/service-specialist';
 import { asksAboutOurArea, asksToChangeDetails, convergence } from '../service/service-tools';
 import { asksAboutInvoice } from '../service/customer-record';
@@ -239,7 +239,7 @@ interface ClaimedReissue {
 }
 
 /** What one run carries beside the file: the reissue it claimed, if any. */
-interface RunContext { reissue: ClaimedReissue | null }
+interface RunContext { reissue: ClaimedReissue | null; gasLine: string | null }
 
 export class Desk implements DeskLike {
     private readonly client: ModelClient;
@@ -364,8 +364,8 @@ export class Desk implements DeskLike {
 
     async handleTurn(file: CaseFile, turn: Turn): Promise<DeskResult> {
         const watch = new TurnModelWatch(this.client);
-        const ctx: RunContext = { reissue: null };
-        const result = this.settleReissue(file, ctx, await this.runTurn(file, turn, watch, ctx));
+        const ctx: RunContext = { reissue: null, gasLine: null };
+        const result = this.settleGasLine(file, ctx, this.settleReissue(file, ctx, await this.runTurn(file, turn, watch, ctx)));
         const report = this.deps.modelHealth;
         if (report && turn.direction === 'inbound') {
             try {
@@ -392,6 +392,17 @@ export class Desk implements DeskLike {
         recordReissue(file, { slug: r.slug, issue: r.issue, previousTotalPence: r.previousTotalPence, sentAt, notSent }, this.quotingDeps());
         if (!told) this.holdFor(file, null, `${REISSUE_NOT_TOLD} ${r.slug} at ${pounds(r.issue.totalPence)} (was ${pounds(r.previousTotalPence)}), but the message telling the customer did not go (${notSent}): tell them the new price and the link ${r.link}`);
         return told ? result : { ...result, hold: file.hold };
+    }
+
+    /**
+     * Whether the gas line this run put beside the reply to the work we do went: in that reply, or as the held
+     * acknowledgement a gas turn gets. Otherwise Ben's card says it has not gone, so he tells the customer.
+     */
+    private settleGasLine(file: CaseFile, ctx: RunContext, result: DeskResult): DeskResult {
+        const flat = (text: string) => text.replace(/\s+/g, '');
+        if (!ctx.gasLine || (result.delivered && !result.templateId && flat(result.bubbles.map((b) => b.text).join('')).includes(flat(ctx.gasLine)))) return result;
+        this.holdFor(file, null, `${GAS_LINE_NOT_SENT} (${result.note ?? 'the reply carrying it did not go'}): tell them about the gas item yourself`);
+        return { ...result, hold: file.hold };
     }
 
     /**
@@ -575,6 +586,7 @@ export class Desk implements DeskLike {
                 if (regulatedRest) {
                     gasLine = await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines);
                     if (gasLine.kbId) fixedLineKbIds.push(gasLine.kbId);
+                    ctx.gasLine = gasLine.text;
                     holdFor('regulated', regulatedWithRestReason(regulatedRest.match, regulatedRest.rest));
                 }
                 // Every exception the turn raised carries its own fixed line; the hold records the gravest.
@@ -871,16 +883,17 @@ export class Desk implements DeskLike {
      * thread (hold-reasons.ts `freezes`) takes over a standing hold that does not, so the graver reason is the one Ben's card
      * shows and the one step 0 reads. A second reason of the same weight, a price and a call
      * request in one message, is added to the card rather than dropped, with `ownCard` marking a
-     * note that is the desk's own run speaking rather than a new question for Ben (case-file.ts noteOnHold).
+     * note that is the desk's own run speaking rather than a new question for Ben (case-file.ts noteOnHold),
+     * which never takes a card over.
      */
     private holdFor(file: CaseFile, exception: HoldException | null, reason: string, draft: string | null = null, ownCard?: string): void {
         if (!file.hold) { setHold(file, { approver: approverFor(file, exception), reason, exception, draft }, this.fileDeps()); return; }
-        if (freezes({ exception, reason }) && !freezes(file.hold)) {
+        if (!ownCard && freezes({ exception, reason }) && !freezes(file.hold)) {
             supersedeHold(file, { approver: approverFor(file, exception), reason, exception }, this.fileDeps());
             return;
         }
         // Gas beside work we do labels the card as regulated, so Ben sees the gas item, and keeps what the card already said, since the rest is still answered.
-        if (exception === 'regulated' && file.hold.exception !== 'regulated') {
+        if (!ownCard && exception === 'regulated' && file.hold.exception !== 'regulated') {
             supersedeHold(file, { approver: approverFor(file, exception), reason: `${reason}; ${file.hold.reason}`, exception }, this.fileDeps());
             return;
         }
