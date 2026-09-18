@@ -14,6 +14,7 @@
 import fs from 'fs';
 import path from 'path';
 import puppeteer from 'puppeteer';
+import type { JobSheetPay } from './job-sheet-pay';
 
 // ---------- Shared helpers ----------
 
@@ -292,6 +293,12 @@ export function renderInvoiceHtml(invoice: any): string {
 interface JobSheetRenderOpts {
     sheet?: any;   // job_sheets row (lineItems, accessInstructions, parkingNotes, materialsChecklist, specialEquipmentNeeded)
     quote?: any;   // personalized_quotes row (address, jobDescription)
+    /**
+     * The contractor's OWN pay (jobSheetPayFromQuote). When set, the work items
+     * are its lines, each with its pay, and the foot carries the total. It holds
+     * no customer figure; the sheet never shows the customer's price.
+     */
+    pay?: JobSheetPay;
 }
 
 /**
@@ -300,7 +307,7 @@ interface JobSheetRenderOpts {
  * (navy header, yellow ribbon, dark customer card, numbered plan).
  */
 export function renderJobSheetHtml(job: any, opts: JobSheetRenderOpts = {}): string {
-    const { sheet, quote } = opts;
+    const { sheet, quote, pay } = opts;
 
     const address = quote?.address || quote?.postcode || job.customerAccessNotes || null;
     const scheduledDate = job.scheduledDate ? formatDate(job.scheduledDate) : 'To be confirmed';
@@ -309,15 +316,16 @@ export function renderJobSheetHtml(job: any, opts: JobSheetRenderOpts = {}): str
         : [job.scheduledStartTime, job.scheduledEndTime].filter(Boolean).join(' \u2013 ') || null;
 
     const sheetItems: any[] = Array.isArray(sheet?.lineItems) ? sheet.lineItems : [];
-    const workItems = sheetItems.length > 0
+    const workItems: Array<{ description: string; minutes: number | null; materials: string[]; payPence?: number }> = pay
+        ? pay.lines.map((li) => ({ description: li.description, minutes: li.minutes, materials: [], payPence: li.payPence }))
+        : sheetItems.length > 0
         ? sheetItems.map((li) => ({
             description: li.description || 'Task',
             minutes: li.estimatedMinutes || null,
             materials: Array.isArray(li.materialsRequired) ? li.materialsRequired : [],
-            status: li.status || null,
         }))
         : (job.description || quote?.jobDescription)
-            ? [{ description: job.description || quote?.jobDescription, minutes: null, materials: [], status: null }]
+            ? [{ description: job.description || quote?.jobDescription, minutes: null, materials: [] }]
             : [];
 
     const planRows = workItems.map((item) => `
@@ -327,6 +335,7 @@ export function renderJobSheetHtml(job: any, opts: JobSheetRenderOpts = {}): str
                 ${item.minutes ? `<div class="mins">Est. ${escapeHtml(item.minutes)} min${item.materials.length ? ` \u00b7 Materials: ${escapeHtml(item.materials.join(', '))}` : ''}</div>`
                     : item.materials.length ? `<div class="mins">Materials: ${escapeHtml(item.materials.join(', '))}</div>` : ''}
             </div>
+            ${item.payPence != null ? `<div class="pay">Your pay ${formatPence(item.payPence)}</div>` : ''}
         </li>`).join('\n');
 
     const materialsChecklist: any[] = Array.isArray(sheet?.materialsChecklist) ? sheet.materialsChecklist : [];
@@ -345,6 +354,9 @@ export function renderJobSheetHtml(job: any, opts: JobSheetRenderOpts = {}): str
         ol.plan li::before { content: counter(p); flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; background: ${BRAND.navy}; color: white; font-weight: 700; font-size: 12px; display: flex; align-items: center; justify-content: center; }
         ol.plan li:last-child { border-bottom: none; }
         ol.plan .mins { color: ${BRAND.muted}; font-size: 11px; margin-top: 2px; }
+        ol.plan li > div:first-child { flex: 1 1 auto; }
+        ol.plan .pay { flex: 0 0 auto; margin-left: auto; font-weight: 700; color: ${BRAND.navy}; white-space: nowrap; }
+        .pay-total { display: flex; justify-content: space-between; align-items: baseline; margin-top: 4mm; padding: 12px 17px; border-radius: 8px; background: ${BRAND.yellowSoft}; border-top: 1.5px solid ${BRAND.navy}; border-bottom: 2px solid ${BRAND.yellow}; color: ${BRAND.navy}; font-weight: 700; font-size: 15px; break-inside: avoid; }
         .note-box { background: #F0F2F8; border-left: 6px solid ${BRAND.navy}; border-radius: 8px; padding: 13px 17px; margin-top: 5mm; font-size: 12.5px; break-inside: avoid; }
         .note-box.warn2 { background: ${BRAND.yellowSoft}; border-left-color: ${BRAND.yellow}; }
         .note-box b.title { display: block; margin-bottom: 4px; font-size: 13.5px; }
@@ -375,6 +387,7 @@ export function renderJobSheetHtml(job: any, opts: JobSheetRenderOpts = {}): str
         </div>
         <h2 class="section">Work to Complete</h2>
         ${planRows ? `<ol class="plan">${planRows}</ol>` : `<p class="note">No line items on file \u2014 see the job description with dispatch.</p>`}
+        ${pay ? `<div class="pay-total"><span>Your pay for this job</span><span>${formatPence(pay.totalPayPence)}</span></div>` : ''}
         ${sheet?.accessInstructions ? `<div class="note-box"><b class="title">\ud83d\udd11 Access</b>${escapeHtml(sheet.accessInstructions)}</div>` : ''}
         ${sheet?.parkingNotes ? `<div class="note-box"><b class="title">\ud83d\ude97 Parking</b>${escapeHtml(sheet.parkingNotes)}</div>` : ''}
         ${materialsHtml ? `<div class="note-box warn2"><b class="title">Materials checklist</b>${materialsHtml}</div>` : ''}
