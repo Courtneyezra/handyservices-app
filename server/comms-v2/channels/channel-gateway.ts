@@ -105,7 +105,7 @@ export class ChannelGateway extends Gateway {
 
         const address = env.channel === 'email' ? resolved.canonical.replace(/^email:/, '') : (e164Of(resolved.canonical) ?? env.address);
         const kind: Turn['kind'] = env.kind ?? (env.media.length ? 'media' : 'text');
-        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: env.at, channel: env.channel, kind, body: env.text, media: env.media.length ? await this.keepMedia(env.media) : [], ...(callId ? { callId } : {}), ...(opts.deliveryId ? { deliveryId: opts.deliveryId } : {}), ...failedMediaFields(env.mediaFailures) };
+        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: env.at, channel: env.channel, kind, body: env.text, media: env.media.length ? await this.keepMedia(env.media) : [], ...(env.media.length && env.providerMessageId ? { providerMessageId: env.providerMessageId } : {}), ...(callId ? { callId } : {}), ...(opts.deliveryId ? { deliveryId: opts.deliveryId } : {}), ...failedMediaFields(env.mediaFailures) };
         let file: CaseFile | null = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {

@@ -116,7 +116,7 @@ export class Gateway {
         }
         if (resolved.role === 'internal') return { kind: 'refused', reason: 'an internal number is not a customer; nothing to scope' };
         const address = e164Of(resolved.canonical) ?? turn.address;
-        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.length ? await this.keepMedia(turn.media) : [], ...failedMediaFields(turn.mediaFailures) };
+        const turnBody = { ...(resolved.customerId ? { customerId: resolved.customerId } : {}), at: turn.at, channel: 'whatsapp' as const, kind: (turn.media.length ? 'media' : 'text') as Turn['kind'], body: turn.text, media: turn.media.length ? await this.keepMedia(turn.media) : [], ...(turn.media.length && turn.providerMessageId ? { providerMessageId: turn.providerMessageId } : {}), ...failedMediaFields(turn.mediaFailures) };
         let file = this.store.findOpenFor(resolved.personId);
         let landed: Turn;
         if (!file) {

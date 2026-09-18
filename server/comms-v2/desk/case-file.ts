@@ -157,6 +157,12 @@ export interface Turn {
      */
     handledBy?: string;
     /**
+     * Inbound turns carrying media only: the provider's id for the message (Twilio's MessageSid, Meta's
+     * message id), so a photo or video that was not stored durably can be traced to the provider's
+     * copy and to the old desk's copy of the same message rather than matched by arrival time.
+     */
+    providerMessageId?: string;
+    /**
      * Inbound only: how many photos or videos the customer sent that never reached us (an MMS on
      * SMS, a download that failed), so the desk knows they tried rather than reading an empty turn.
      */

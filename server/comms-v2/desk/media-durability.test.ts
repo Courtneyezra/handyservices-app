@@ -79,8 +79,11 @@ function landedMedia(out: Awaited<ReturnType<Gateway['inbound']>>): Turn['media'
 describe('new-desk media survives a redeploy', () => {
     it('a WhatsApp photo and video from the Twilio webhook are mirrored on arrival and served after the disk is wiped', async () => {
         const fetch = (async (url: string) => new Response(url.endsWith('/0') ? PHOTO : VIDEO, { status: 200 })) as unknown as typeof globalThis.fetch;
-        const turn = await fromTwilio({ From: 'whatsapp:+447700900942', Body: 'the leak', NumMedia: '2', MediaUrl0: 'https://api.twilio.test/Media/0', MediaContentType0: 'image/jpeg', MediaUrl1: 'https://api.twilio.test/Media/1', MediaContentType1: 'video/mp4' }, { fetch, mediaDir: diskDir, twilio: null });
-        const media = landedMedia(await new Gateway({ desk: fakeDesk }).inbound(turn));
+        const turn = await fromTwilio({ From: 'whatsapp:+447700900942', Body: 'the leak', MessageSid: 'SM_test_1', NumMedia: '2', MediaUrl0: 'https://api.twilio.test/Media/0', MediaContentType0: 'image/jpeg', MediaUrl1: 'https://api.twilio.test/Media/1', MediaContentType1: 'video/mp4' }, { fetch, mediaDir: diskDir, twilio: null });
+        const out = await new Gateway({ desk: fakeDesk }).inbound(turn);
+        const media = landedMedia(out);
+        // The provider's id rides on the turn, so the message can be traced to the provider's copy.
+        expect(out.kind === 'handled' && out.turn.providerMessageId).toBe('SM_test_1');
         expect(media.map((m) => [m.kind, m.stored])).toEqual([['image', 'durable'], ['video', 'durable']]);
         expect([...bucket.keys()].sort()).toEqual(media.map((m) => `chat-media/${path.basename(m.url!)}`).sort());
 
