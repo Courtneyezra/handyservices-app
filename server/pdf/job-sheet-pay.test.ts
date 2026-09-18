@@ -82,3 +82,50 @@ describe('renderJobSheetHtml with pay', () => {
     expect(html).not.toContain('£');
   });
 });
+
+describe('renderJobSheetHtml never emits the customer price', () => {
+  // Every form a price in pence could be printed in: the integer, whole pounds with and
+  // without a thousands comma, and pounds and pence with and without one.
+  function priceForms(pence: number): string[] {
+    const pounds = pence / 100;
+    const whole = String(Math.floor(pounds));
+    return [
+      String(pence),
+      whole,
+      Math.floor(pounds).toLocaleString('en-GB'),
+      pounds.toFixed(2),
+      pounds.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    ];
+  }
+
+  // A customer price whose digits match no pay, line or date on the sheet.
+  const customerPence = 1262179;
+  const labourLines = [
+    { lineId: 'p1', category: 'plumbing_minor', description: 'Replace basin trap', guardedPricePence: 242550, timeEstimateMinutes: 240, materialsWithMarginPence: 341880 },
+    { lineId: 'c1', category: 'carpentry', description: 'Hang internal door', guardedPricePence: 88200, timeEstimateMinutes: 60, materialsWithMarginPence: 82688 },
+  ];
+  const priced = { pricingLineItems: labourLines, basePrice: customerPence, address: '1 Test Road', jobDescription: 'Bathroom and doors' };
+  const job = { id: 'job-2', customerName: 'Sam Example', customerPhone: '07700900000', description: 'Bathroom and doors' };
+
+  function expectNoCustomerPrice(html: string) {
+    for (const form of priceForms(customerPence)) expect(html, `customer price as "${form}"`).not.toContain(form);
+  }
+
+  it('with pay on the sheet', () => {
+    const r = jobSheetPayFromQuote(priced);
+    if (!r.ok) throw new Error('expected pay');
+    const html = renderJobSheetHtml(job, { quote: priced, pay: r.pay });
+    expect(html).toContain('Your pay for this job');
+    expectNoCustomerPrice(html);
+  });
+
+  it('without pay, and with job-sheet lines that carry the price', () => {
+    const sheet = { lineItems: [{ description: 'Replace basin trap', pricePence: customerPence, contractorRatePence: 133403 }] };
+    expectNoCustomerPrice(renderJobSheetHtml(job, { sheet, quote: priced }));
+  });
+
+  it('the check itself catches a price that is printed', () => {
+    const leaked = `<p>Total £${(customerPence / 100).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</p>`;
+    expect(() => expectNoCustomerPrice(leaked)).toThrow();
+  });
+});
