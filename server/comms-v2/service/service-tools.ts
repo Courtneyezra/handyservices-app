@@ -180,16 +180,20 @@ export function asksAboutOurArea(text: string): boolean {
 
 // ---------------------------------------------------------------- convergence
 
-/** Replies the desk may send while scoping before the thread is handed to Ben as not converging. */
+/** Replies that bought nothing the desk may send while scoping before the thread is handed to Ben as not converging. */
 export const SCOPING_REPLIES_MAX = 6;
 
 export interface Convergence { converging: boolean; why: string | null; replies: number; jobAsks: number }
 
 /**
  * Scoping that is not converging goes to Ben (checklist 7.1): the desk has asked about the job
- * JOB_ASKS_MAX times and still has no job type, or has replied SCOPING_REPLIES_MAX times while
- * scoping, and the file is still not ready. A ready file, or one past scoping, always converges,
- * and so does a thread nothing is scoping. A thread is being scoped once a turn is routed to the
+ * JOB_ASKS_MAX times and still has no job type, or has sent SCOPING_REPLIES_MAX replies while
+ * scoping that the customer's answers put nothing new on the file for, and the file is still not
+ * ready. A reply counts only when no customer turn since the reply before it gave the file a fact
+ * (a thread fact or a media description sourced from that turn): a customer answering question
+ * after question is converging however fast the replies go, and six of those inside a few minutes
+ * is what tripped the old count on threads whose address arrived seconds later. A ready file, or
+ * one past scoping, always converges, and so does a thread nothing is scoping. A thread is being scoped once a turn is routed to the
  * Scoper, the job has been asked, or the file holds a job detail; the first check that finds it so
  * records the turns then standing on the file (scopingFrom), and only the replies after that count,
  * so a facts-and-aftercare thread that later turns to a job starts its count at the job. Both the
@@ -202,10 +206,24 @@ export function convergence(file: CaseFile, scopingRouted = false): Convergence 
     if (beingScoped && file.scopingFrom == null) file.scopingFrom = file.turns.length;
     const last = file.releases[file.releases.length - 1];
     const from = Math.max(last?.turnsBefore ?? 0, file.scopingFrom ?? file.turns.length);
-    const replies = file.turns.slice(from).filter((t) => t.direction === 'outbound' && t.kind !== 'system').length;
+    const replies = stalledReplies(file, from);
     const jobAsks = (ledgerEntry(file, 'job')?.askCount ?? 0) - (last?.asksBefore?.job ?? 0);
     if (isReady(file) || (file.stage !== 'first_contact' && file.stage !== 'scoping')) return { converging: true, why: null, replies, jobAsks };
     if (!file.job.type && jobAsks >= JOB_ASKS_MAX) return { converging: false, why: `asked about the job ${jobAsks} times with no job type on the file`, replies, jobAsks };
-    if (beingScoped && replies >= SCOPING_REPLIES_MAX) return { converging: false, why: `${replies} replies while scoping and the file is still not ready (${!file.job.type ? 'no job type' : 'no location'})`, replies, jobAsks };
+    if (beingScoped && replies >= SCOPING_REPLIES_MAX) return { converging: false, why: `${replies} replies while scoping with nothing new from the customer and the file is still not ready (${!file.job.type ? 'no job type' : 'no location'})`, replies, jobAsks };
     return { converging: true, why: null, replies, jobAsks };
+}
+
+/** The desk's replies from turn `from` on that no customer turn since the reply before them gave the file a fact. */
+function stalledReplies(file: CaseFile, from: number): number {
+    const factTurns = new Set(file.facts.flatMap((f) => (f.source.kind === 'thread' || f.source.kind === 'media_description' ? [f.source.turnId] : [])));
+    let replies = 0;
+    let progressed = false;
+    for (const t of file.turns.slice(from)) {
+        if (t.direction === 'inbound') { if (factTurns.has(t.id)) progressed = true; continue; }
+        if (t.kind === 'system') continue;
+        if (!progressed) replies++;
+        progressed = false;
+    }
+    return replies;
 }

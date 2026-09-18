@@ -10,6 +10,7 @@ import { open, recordFact, type CaseFile } from '../desk/case-file';
 import { FakeModelClient } from '../desk/models';
 import { emptyKb } from '../desk/scoping-tools';
 import { serve, serviceOutputSchema } from './service-specialist';
+import { convergence } from './service-tools';
 
 function fixture(text: string): CaseFile {
     const r = open({
@@ -218,7 +219,7 @@ describe('the Service specialist', () => {
         const out = await serve(file, file.turns[0], file.parties[0], client, { kb: emptyKb }, routed);
         expect(out.proposal.hold?.reason).toBe('refund');
     });
-    it('runs no model when the router did not send the turn here, and none when the thread being scoped is not converging', async () => {
+    it('runs no model when the router did not send the turn here; a thread being scoped that is not converging holds without one', async () => {
         const file = fixture('hi');
         const client = new FakeModelClient({ specialist: () => { throw new Error('no model call expected'); } });
         const quiet = await serve(file, file.turns[0], file.parties[0], client, { kb }, { routed: false, scopingRan: true });
@@ -226,10 +227,31 @@ describe('the Service specialist', () => {
         expect(quiet.proposal.hold).toBeNull();
         expect(quiet.brief).toEqual([]);
         for (let i = 0; i < 6; i++) file.turns.push({ ...file.turns[0], id: `o${i}`, direction: 'outbound', runId: `r${i}`, approver: 'agent.comms_v2' });
-        const stuck = await serve(file, file.turns[0], file.parties[0], client, { kb }, { routed: true, scopingRan: true });
+        const stuck = await serve(file, file.turns[0], file.parties[0], client, { kb }, { routed: false, scopingRan: true });
         expect(stuck.calls).toHaveLength(0);
         expect(stuck.proposal.hold?.reason).toBe('not_converging');
         expect(stuck.note).toMatch(/not converging/);
+    });
+    it('a thread that is not converging still has its question answered (answer 14), and the hold stands behind it', async () => {
+        const file = fixture('Are you insured?');
+        file.scopingFrom = 1; // scoping began at the first reply
+        for (let i = 0; i < 6; i++) file.turns.push({ ...file.turns[0], id: `o${i}`, direction: 'outbound', runId: `r${i}`, approver: 'agent.comms_v2' });
+        const client = new FakeModelClient({ specialist: () => ({ answers: [{ asked: 'insured?', source: 'kb', id: 'kb-insured' }], changeOfDetails: null, holdReason: null }) });
+        const out = await serve(file, file.turns[0], file.parties[0], client, { kb }, { routed: true, scopingRan: true });
+        expect(out.calls).toHaveLength(1);
+        expect(out.brief.join(' ')).toContain(INSURED);
+        expect(out.proposal.hold?.reason).toBe('not_converging');
+        expect(out.note).toMatch(/not converging/);
+    });
+    it('a complaint read on a thread that is not converging is the hold: the graver reason is never lost behind slow scoping', async () => {
+        const file = fixture('This is taking forever and I am not happy');
+        file.scopingFrom = 1; // scoping began at the first reply
+        file.scopingFrom = 1;
+        for (let i = 0; i < 6; i++) file.turns.push({ ...file.turns[0], id: `o${i}`, direction: 'outbound', runId: `r${i}`, approver: 'agent.comms_v2' });
+        const client = new FakeModelClient({ specialist: () => ({ answers: [], changeOfDetails: null, holdReason: 'complaint' }) });
+        expect(convergence(file, true).converging).toBe(false);
+        const out = await serve(file, file.turns[0], file.parties[0], client, { kb }, { routed: true, scopingRan: true });
+        expect(out.proposal.hold?.reason).toBe('complaint');
     });
     it('a declined or failed model call is no source, never silence', async () => {
         const file = fixture('Are you insured?');

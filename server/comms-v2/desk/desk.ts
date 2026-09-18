@@ -47,9 +47,9 @@ import type { Exception, HoldException, Route } from './router';
 import { matchFor, route as routeTurn } from './router';
 import { scope, type ScopingDeps } from './scoping-specialist';
 import { chaseIfDue, clearChaseRecord, type ChaseState } from '../service/chase';
-import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY, regulatedWithoutLine } from '../service/hold-reasons';
+import { ANSWER_THE_REST, FIXED_LINE_FOR, FIXED_LINE_ONLY, NOT_CONVERGING_CARD, regulatedWithoutLine } from '../service/hold-reasons';
 import { serve, type ServiceSpecialistDeps } from '../service/service-specialist';
-import { asksAboutOurArea, asksToChangeDetails } from '../service/service-tools';
+import { asksAboutOurArea, asksToChangeDetails, convergence } from '../service/service-tools';
 import { asksAboutInvoice } from '../service/customer-record';
 import { BUBBLE_CEILING, BUBBLE_MAX_CHARS, BUBBLE_SOFT_MAX_CHARS, DESK_APPROVER, chooseChannel, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type SenderDeps, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { reviewedKb, type KbReader } from './scoping-tools';
@@ -210,6 +210,9 @@ const OPT_OUT_HELD = 'the opt-out hold stands: no specialist read this turn, no 
 /** The opening of the hold reason the desk writes when the clerk could not build the quote, and the one it reads back to answer that hold once a quote exists. */
 const DRAFT_FAILED_HOLD = 'the quote draft failed';
 
+/** The opening of the desk's words when scoping it held as not converging has converged since. */
+const CONVERGED = 'scoping converged';
+
 /**
  * What the desk calls a note about its own run - a shut window, no approved template, a reply the
  * guards refused. It opens no card of its own, so it never restates one; saying it marks the note
@@ -272,6 +275,22 @@ export class Desk implements DeskLike {
         if (!file.hold?.reason.startsWith(DRAFT_FAILED_HOLD) || file.hold.notedOn || !file.job.quoteRef) return;
         const priceScreen = quoteStateOf(file)?.priceScreen;
         releaseHold(file, file.hold.approver, `the desk drafted quote ${file.job.quoteRef} on a later turn and Ben has been notified${priceScreen ? `: ${priceScreen}` : ''}`, this.fileDeps());
+    }
+
+    /**
+     * The desk's own not-converging card, answered: scoping has since given the file what it lacked,
+     * so the card would tell Ben something the file contradicts ("no location" once the address is
+     * on it). Read after Scoping has read the turn, so the fact the customer has just typed counts.
+     * A card the desk raised and nobody has written on since is released in the desk's own words;
+     * where the reason sits beside someone else's, the desk says on the card that it no longer holds.
+     */
+    private releaseConvergedHold(file: CaseFile): void {
+        // Read as a thread being scoped, which it was when the card was raised, whatever this turn was routed to.
+        if (!file.hold?.reason.includes(NOT_CONVERGING_CARD) || file.hold.reason.includes(CONVERGED) || !convergence(file, true).converging) return;
+        const why = isReady(file) ? 'the file now has the job type and the location' : file.stage !== 'first_contact' && file.stage !== 'scoping' ? `the thread has moved on to ${file.stage}` : 'the replies it counted no longer stand';
+        const words = `${CONVERGED} on a later turn (${why}), so the not-converging card is done`;
+        if (file.hold.exception === 'not_converging' && file.hold.reason.startsWith(NOT_CONVERGING_CARD) && !file.hold.notedOn) releaseHold(file, file.hold.approver, words, this.fileDeps());
+        else noteOnHold(file, { reason: words, ownCard: NOT_CONVERGING_CARD });
     }
 
     /**
@@ -525,12 +544,19 @@ export class Desk implements DeskLike {
                 if (quoting) { calls.push(...quoting.calls); specialists.push(quoting); if (quoting.error) log(`quoting: ${quoting.error}`); }
                 let staleQuote: string | null = null;
                 this.releaseDraftFailedHold(file);
+                this.releaseConvergedHold(file);
                 // Every exception the turn raised carries its own fixed line; the hold records the gravest.
                 for (const e of exceptions.filter((x) => ANSWER_THE_REST.has(x))) {
                     fixedLines.push(await fixedLine(FIXED_LINE_FOR[e], this.deps.fixedLines ?? knowledgeBaseFixedLines));
                     holdFor(e, `${e}: ${matchFor(route, e, turn.body)}`);
                 }
                 for (const h of holds.filter((x) => ANSWER_THE_REST.has(x.reason))) {
+                    // Still not converging on a thread already held for it: the customer has had the line, so it is not
+                    // sent again; the desk's own card is restated with what the file lacks now, and nothing is added to another's.
+                    if (h.reason === 'not_converging' && file.hold?.reason.includes(NOT_CONVERGING_CARD)) {
+                        if (file.hold.reason.startsWith(NOT_CONVERGING_CARD) && !file.hold.notedOn) this.holdFor(file, h.reason, `${h.reason}: ${h.match}`, null, NOT_CONVERGING_CARD);
+                        continue;
+                    }
                     fixedLines.push(await fixedLine(FIXED_LINE_FOR[h.reason], this.deps.fixedLines ?? knowledgeBaseFixedLines));
                     holdFor(h.reason, `${h.reason}: ${h.match}`);
                 }

@@ -441,7 +441,7 @@ used, raises no hold of its own and leaves Scoping to run on a mixed turn's job 
 | `customer_record` | the case file and the party | the party's own details: name, the phone and email addresses on the file, and facts whose source is the customer record; the specialist's model sees the email and address only as held, never their values | another party's record is never read |
 | `customer_history` | the client id the turn's own proven key bound | read-only: the client's leads, quotes (status and date, never a figure), jobs with their visit days (only once a contractor has taken the job on, or it is done), and invoices once sent (status, total, deposit paid, balance due unless paid, sent, due and paid dates, lines), as items by ref; never an email, address or postcode column, never a property-header invoice line, free text masked for the model | a turn with no bound client (a web form, a call, a key linked only through a form); a draft or void invoice; a draft quote; the database any purpose but the one it was built for allows |
 | `change_of_details` | a field, the new value, the turn | a fact `change_of_details` with the turn as its source, and a hold for Ben; for the email or address the fact names only the field and the value rides on the hold alone | a field not on the record; an empty value; a figure; a value the record already holds. The record itself is never written here. |
-| `convergence` | the case file | converging, or not with why | not converging when the job has been asked JOB_ASKS_MAX times with no job type, or SCOPING_REPLIES_MAX replies have gone since the last release and since the job began being scoped (the turn routed to the Scoper, the job asked, or a job detail on the file; the file's `scopingFrom` records when) and the file is not ready; a ready file, or one past scoping, always converges |
+| `convergence` | the case file | converging, or not with why | not converging when the job has been asked JOB_ASKS_MAX times with no job type, or SCOPING_REPLIES_MAX replies have gone since the last release and since the job began being scoped (the turn routed to the Scoper, the job asked, or a job detail on the file; the file's `scopingFrom` records when) and the file is not ready; a reply counts only when no customer turn since the reply before it gave the file a fact, so a cooperative burst of answers never trips it; a ready file, or one past scoping, always converges |
 
 **What the specialist returns.** Facts: each answer as a fact whose value is the reviewed row's
 body verbatim (source `knowledge_base` by id), the record's own name or phone (source `customer_record`),
@@ -459,10 +459,14 @@ is no source. A question about the customer's own job is Scoping's: when Scoping
 left to it, so a mixed turn never holds the job half as `no_source`. Never a sentence for the customer.
 
 **Holds and what the customer hears.** Fixed line only, no composer, no specialist until Ben
-releases: complaint, refund, trust doubt, gas, not converging. Answer the rest, with the fixed line
-in the reply: money, a date change, a customer asking for a call (`callback`, the router's own
+releases: complaint, refund, trust doubt, gas (answer 21). Answer the rest, with the fixed line
+in the reply (answer 14): money, a date change, a customer asking for a call (`callback`, the router's own
 reading: "call round", "call in" and "call out" ask for a visit in this trade, which no matcher
-separated reliably from a phone call), no source, a change of details. A turn can raise more than
+separated reliably from a phone call), no source, a change of details, and scoping that is not
+converging. Not converging goes once: while the desk's own card for it stands the line is not sent
+again and the card is restated with what the file lacks now, and the desk releases that card in its
+own words once the file converges (the location or job type it lacked has arrived), or says on
+another's card that the reason no longer holds. A turn can raise more than
 one exception: each carries its own fixed line into the reply, and the hold records the gravest. Every later turn on a held thread is
 acknowledged (checklist 7.3), except one held because the customer asked us to stop, which gets
 nothing at all while that hold stands (`optOutHeld`; server/comms-v2/README.md, the desk), and one whose own words are regulated work not identified as gas, which gets nothing (`regulatedWithoutLine`; server/comms-v2/README.md, the hold vocabulary). A question the customer asked and the reply puts off still reaches Ben when
