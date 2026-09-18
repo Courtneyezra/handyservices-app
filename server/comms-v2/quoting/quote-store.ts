@@ -79,7 +79,7 @@ export interface QuoteStore {
     /** The strongest standing opt-out for a contact, or null. Optional: a store without it is read as unknown, and nothing is reissued. */
     optedOut?(contact: string): Promise<OptOutScope | null>;
     /** Every contact the sandbox customer is reachable on: the row's `phone` column holds whichever one the thread ran on, so an email thread writes its address there. */
-    deleteSandbox(contacts: string[]): Promise<{ quotes: number; estimates: number; verdicts: number; runs: number }>;
+    deleteSandbox(contacts: string[]): Promise<{ quotes: number; invoices: number; estimates: number; verdicts: number; runs: number }>;
 }
 
 /** The columns the live read selects, which must cover every field `quoteRecordOf` reads from a row. */
@@ -277,14 +277,19 @@ export const databaseQuoteStore = (purpose: DatabasePurpose): QuoteStore => ({
         const { sql } = await import('drizzle-orm');
         const list = (values: string[]) => sql.join(values.map((v) => sql`${v}`), sql`, `);
         const matches = await contactMatches(contacts);
-        if (!matches) return { quotes: 0, estimates: 0, verdicts: 0, runs: 0 };
+        if (!matches) return { quotes: 0, invoices: 0, estimates: 0, verdicts: 0, runs: 0 };
         const found: any = await db.execute(sql`select id, short_slug from personalized_quotes where created_by = ${CREATED_BY} and (${matches})`);
         const rows: Array<{ id: string; short_slug: string }> = Array.isArray(found) ? found : (found?.rows ?? []);
-        if (!rows.length) return { quotes: 0, estimates: 0, verdicts: 0, runs: 0 };
+        if (!rows.length) return { quotes: 0, invoices: 0, estimates: 0, verdicts: 0, runs: 0 };
         const ids = rows.map((r) => r.id);
         const slugs = rows.map((r) => r.short_slug);
         const count = (r: any): number => (typeof r?.rowCount === 'number' ? r.rowCount : Array.isArray(r) ? r.length : 0);
-        let estimates = 0; let verdicts = 0; let runs = 0;
+        let invoices = 0; let estimates = 0; let verdicts = 0; let runs = 0;
+        // An invoice raised against one of these quotes holds a foreign key on it
+        // (invoices_quote_id_personalized_quotes_id_fk), so leaving it behind makes the quote delete
+        // below throw and the whole reset fail: every sandbox quote then survives /reset and the next
+        // drive starts on the last one's rows. The sandbox's own invoice goes with its own quote.
+        try { invoices = count(await db.execute(sql`delete from invoices where quote_id in (${list(ids)})`)); } catch { /* absent table, or a row something else points at: the quote delete below says so */ }
         try {
             const convs: any = await db.execute(sql`select distinct conversation_id from quote_estimates where draft_quote_id in (${list(ids)}) and conversation_id like 'case_%'`);
             const caseIds: string[] = (Array.isArray(convs) ? convs : (convs?.rows ?? [])).map((r: any) => String(r.conversation_id));
@@ -295,7 +300,7 @@ export const databaseQuoteStore = (purpose: DatabasePurpose): QuoteStore => ({
         } catch { /* the estimate table may be absent on a branch; the quote rows still go */ }
         try { verdicts = count(await db.execute(sql`delete from quote_price_verdicts where slug in (${list(slugs)})`)); } catch { /* absent table */ }
         const quotes = count(await db.execute(sql`delete from personalized_quotes where id in (${list(ids)})`));
-        return { quotes, estimates, verdicts, runs };
+        return { quotes, invoices, estimates, verdicts, runs };
     },
 });
 
@@ -422,6 +427,6 @@ export class MemoryQuoteStore implements QuoteStore {
             const key = contactKey(String(row.phone ?? ''));
             if (key && wanted.has(key)) { this.rows.delete(slug); quotes++; }
         }
-        return { quotes, estimates: 0, verdicts: 0, runs: 0 };
+        return { quotes, invoices: 0, estimates: 0, verdicts: 0, runs: 0 };
     }
 }

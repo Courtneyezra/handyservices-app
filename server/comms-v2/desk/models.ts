@@ -101,9 +101,23 @@ export class AnthropicModelClient implements ModelClient {
             if (output == null) return { output: null, record, refused: false, error: `no parseable output (stop_reason ${res.stop_reason ?? 'none'})`, failure: 'output' };
             return { output, record, refused: false, error: null };
         } catch (err: any) {
-            return { output: null, record: emptyRecord(call.role, call.model, call.effort, Date.now() - t0), refused: false, error: err?.message ?? String(err), failure: 'provider' };
+            return { output: null, record: emptyRecord(call.role, call.model, call.effort, Date.now() - t0), refused: false, error: err?.message ?? String(err), failure: await failureKindOf(err) };
         }
     }
+}
+
+/**
+ * What a throw from the client was: `provider` when the request never came back with an answer
+ * (every HTTP status, auth, a spend cap, an outage, a timeout, an abort: each is an `APIError`),
+ * `output` when an answer did come back and could not be used (the SDK's own structured-output
+ * parse throws a plain `AnthropicError` when the model's JSON does not fit the schema, which is a
+ * fight with our own schema, not a provider that cannot answer). Structural, never a reading of the
+ * error's words, which is what model-health.ts asks of it: a specialist's unusable answer must not
+ * page as a desk that cannot answer.
+ */
+export async function failureKindOf(err: unknown): Promise<'provider' | 'output'> {
+    const { APIError } = await import('@anthropic-ai/sdk');
+    return err instanceof APIError ? 'provider' : 'output';
 }
 
 /** A scripted client for tests: one handler per role, or a queue of outputs. A handler's `{ error }` is a provider failure. */

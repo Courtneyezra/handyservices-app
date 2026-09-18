@@ -90,6 +90,37 @@ async function searchMaterials(input: { query: string; limit?: number }): Promis
 }
 
 /**
+ * What a `web_search` reply carries: the model's own text, the sources of every result block, and
+ * the search errors it hit. A result block that errored carries an object in `content`
+ * (`web_search_tool_result_error`, with an `error_code` such as `max_uses_exceeded` or a rate
+ * limit) rather than the array of results, so the shape is checked before it is read: iterating
+ * that object threw, and the catch around the request then reported the whole call as
+ * "Web search failed: results is not iterable", throwing away the prices the model had already
+ * written in its text. An error is named to the estimator instead, beside whatever was found.
+ */
+export function webSearchAnswer(content: readonly unknown[]): { summary: string; sources: { title: string; url: string }[]; errors: string[] } {
+    let summary = '';
+    const sources: { title: string; url: string }[] = [];
+    const errors: string[] = [];
+    for (const raw of content ?? []) {
+        const block = raw as { type?: string; text?: string; content?: unknown; error_code?: string };
+        if (block?.type === 'text' && typeof block.text === 'string') summary += block.text;
+        if (block?.type !== 'web_search_tool_result') continue;
+        const results = block.content;
+        if (Array.isArray(results)) {
+            for (const r of results as Array<{ title?: unknown; url?: unknown; type?: string; error_code?: string }>) {
+                if (typeof r?.url === 'string' && typeof r?.title === 'string') sources.push({ title: r.title, url: r.url });
+                else if (r?.error_code) errors.push(r.error_code);
+            }
+        } else if (results && typeof results === 'object') {
+            const err = results as { error_code?: string; type?: string };
+            errors.push(err.error_code ?? err.type ?? 'web_search_tool_result_error');
+        }
+    }
+    return { summary, sources, errors };
+}
+
+/**
  * search_web — uses Anthropic client with native web_search server tool.
  *
  * 0.4 (8 Sep 2026): this is site A5 of the spend audit (S12 §3.3) and the one that mattered — a
@@ -126,24 +157,8 @@ async function searchWeb(
             ],
         });
 
-        // Extract text and any sources from the response
-        let summary = '';
-        const sources: { title: string; url: string }[] = [];
-
-        for (const block of response.content) {
-            if (block.type === 'text') {
-                summary += block.text;
-            }
-            // Web search results may include citations
-            if ((block as any).type === 'web_search_tool_result') {
-                const results = (block as any).content || [];
-                for (const result of results) {
-                    if (result.url && result.title) {
-                        sources.push({ title: result.title, url: result.url });
-                    }
-                }
-            }
-        }
+        const { summary, sources, errors } = webSearchAnswer(response.content);
+        if (errors.length) console.warn('[Estimator] Web search partly refused:', errors.join(', '));
 
         void recordModelSpend({
             agent: 'estimator-web-search', trigger: 'search_web', model,
@@ -153,7 +168,7 @@ async function searchWeb(
             detail: { query: input.query.slice(0, 200), sources: sources.length },
         });
 
-        return { summary: summary || 'No results found', sources };
+        return { summary: summary || (errors.length ? `No results found (${errors.join(', ')})` : 'No results found'), sources };
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn('[Estimator] Web search failed:', msg);

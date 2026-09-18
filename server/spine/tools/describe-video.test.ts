@@ -6,7 +6,7 @@ import { describe, it, expect, vi } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { describeMedia, describeMediaDetailed, classifyFailure, failureLabel, geminiErrorDetail, GeminiHttpError, GEMINI_MODEL, MediaDescriptionSchema, formatDescription, extractJson, mimeTypeFor, type DescribeDeps } from './describe-video';
+import { describeMedia, describeMediaDetailed, classifyFailure, failureLabel, geminiErrorDetail, GeminiHttpError, GEMINI_MODEL, MAX_OUTPUT_TOKENS, MediaDescriptionSchema, formatDescription, extractJson, mimeTypeFor, type DescribeDeps } from './describe-video';
 
 /** The body the owner's server printed on 7 Sep 2026, verbatim in substance (BRIEF-T14). */
 const RETIRED_404 = JSON.stringify({ error: { code: 404, message: 'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use models/gemini-3.6-flash for the latest features and improvements. We recommend you to use the Interactions API.', status: 'NOT_FOUND' } });
@@ -234,5 +234,52 @@ describe('T14: a retired model is a configuration failure — classified, not re
         expect(geminiErrorDetail(RETIRED_404)).toMatch(/^This model models\/gemini-2\.5-flash is no longer available to new users\./);
         expect(geminiErrorDetail('  <html>Service Unavailable</html>\n')).toBe('<html>Service Unavailable</html>');
         expect(geminiErrorDetail('{"error":{"code":429}}')).toBe('{"error":{"code":429}}');
+    });
+});
+
+/**
+ * 17 Sep 2026, driven on the comms-v2 sandbox door: a leaking-tap photo on a WhatsApp enquiry was
+ * never described. Gemini 3 Flash thinks on every call (T14) and Google counts those tokens
+ * against `maxOutputTokens`, so at the old ceiling of 1024 the thinking (650-1000 on an ordinary
+ * photo) left too little for the answer: the reply came back `MAX_TOKENS`, cut mid-object, and the
+ * desk read it as "no JSON object in model reply" — 3 of 5 live calls on the same photo.
+ */
+describe('the output ceiling leaves room for the thinking Gemini 3 does anyway', () => {
+    /** Google's own shape for a reply cut at the ceiling: a truncated JSON string and MAX_TOKENS. */
+    function cutReply(thoughts: number) {
+        const truncated = JSON.stringify(GOOD).slice(0, 120);
+        return new Response(JSON.stringify({
+            candidates: [{ content: { parts: [{ text: truncated }] }, finishReason: 'MAX_TOKENS' }],
+            usageMetadata: { promptTokenCount: 1455, candidatesTokenCount: 129, thoughtsTokenCount: thoughts },
+        }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+
+    it('asks for more room than a photo\'s thinking costs, so the JSON is not starved', async () => {
+        const dir = await tmpDir();
+        const file = await tmpFile(dir, 'tap.png', 400);
+        let ceiling = 0;
+        const fetch = vi.fn(async (_url: string, init: any) => { ceiling = JSON.parse(init.body).generationConfig.maxOutputTokens; return geminiReply(GOOD); });
+        expect(await describeMedia({ path: file, kind: 'image' }, deps({ cacheDir: dir, fetch: fetch as any }))).not.toBeNull();
+        expect(ceiling).toBe(MAX_OUTPUT_TOKENS);
+        // The live measurement: thinking alone reached 979 tokens on one ordinary photo, and the
+        // description itself is ~250. A ceiling that does not clear both is the fault above.
+        expect(MAX_OUTPUT_TOKENS).toBeGreaterThan(979 + 250);
+    });
+
+    it('a reply cut at the ceiling says so, is a `reply` failure, is retried once and is never cached', async () => {
+        const dir = await tmpDir();
+        const file = await tmpFile(dir, 'tap.png', 401);
+        const logs: string[] = [];
+        const cut = vi.fn(async () => cutReply(891));
+        const out = await describeMediaDetailed({ path: file, kind: 'image', mediaId: 'v2_tap' }, deps({ cacheDir: dir, fetch: cut as any, log: (l) => logs.push(l) }));
+        expect(out.ok).toBe(false);
+        if (out.ok) throw new Error('unreachable');
+        expect(out.failure).toMatchObject({ kind: 'reply', permanent: false, attempts: 2, status: null });
+        expect(out.failure.reason).toBe(`gemini reply was cut at maxOutputTokens (${MAX_OUTPUT_TOKENS}); thinking tokens count against it`);
+        expect(cut).toHaveBeenCalledTimes(2);
+        // Not the old "no JSON object in model reply", which blamed the reply's shape rather than
+        // the ceiling that cut it off mid-sentence.
+        expect(logs.at(-1)).toMatch(/v2_tap: no description after 2 attempt\(s\): gemini reply was cut at maxOutputTokens/);
+        expect((await fs.readdir(dir)).filter((f) => f.endsWith('.json'))).toEqual([]);
     });
 });

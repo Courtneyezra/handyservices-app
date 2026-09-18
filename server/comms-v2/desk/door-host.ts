@@ -19,6 +19,8 @@
  * release.
  */
 import { isProductionDatabaseUrl } from '../../worker-gate';
+import type { ApproverForRequest } from '../service/service-door';
+import type { DoorDeps } from './sandbox-door';
 
 export const DOOR_MOUNT = '/api/comms-v2-sandbox';
 
@@ -68,6 +70,19 @@ export interface DoorHostOptions {
 }
 
 /**
+ * The deps the door builds the sandbox router with, beside the approver: the desk's own log, on the
+ * door's stdout, one line prefixed `[desk]`.
+ *
+ * The desk says why it held a turn only through that log (desk.ts: a router reading that failed, a
+ * guard that failed twice, a repeat it dropped); no response field carries it. Left unset it is a
+ * no-op, so a drive on this door saw `router_failed` with no way to tell a provider outage from a
+ * fault in the desk. Exported so the wiring is pinned by a test rather than only by a live drive.
+ */
+export function doorRouterDeps(approver: ApproverForRequest, write: (line: string) => void = (line) => console.log(line)): Pick<DoorDeps, 'approver' | 'log'> {
+    return { approver, log: (line) => write(`[desk] ${line}`) };
+}
+
+/**
  * Check the environment and put the branch string where the database module reads it. Split out
  * so the refusal rules are testable without opening a port; `openDoorHost` calls it first.
  */
@@ -87,7 +102,7 @@ export async function openDoorHost(opts: DoorHostOptions = {}): Promise<DoorHost
     try {
         const { commsV2SandboxRouter } = await import('./sandbox-door');
         const { BEN } = await import('./guards');
-        router = commsV2SandboxRouter({ approver: () => BEN });
+        router = commsV2SandboxRouter(doorRouterDeps(() => BEN));
     } catch (err: any) {
         throw new DoorHostError('unreachable', `the desk's sandbox router could not be loaded in-process: ${err?.message ?? err}. This process needs the branch database string and the model keys.`);
     }

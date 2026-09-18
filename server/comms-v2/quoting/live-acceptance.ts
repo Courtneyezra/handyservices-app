@@ -28,7 +28,7 @@ import type { CaseFileStore } from '../desk/store';
 import type { BenNotice } from './ben-notifier';
 import { recloseStaleQuote } from '../file-close';
 import { liveQuoteFile } from './price-screen-send';
-import { QUOTE_FACT, factsWithPrefix } from './quote-record';
+import { acceptanceRecorded } from './quote-record';
 import { recordAcceptance, type PaidWitness, type QuotingDeps } from './quoting-tools';
 
 /** The fields of a `payment_intent.succeeded` event's payment intent read here. */
@@ -90,7 +90,7 @@ export async function recordLiveAcceptance(slug: string, intent: PaidIntent, dep
     const found = await liveQuoteFile(slug, { liveState: deps.liveState, gateway, now: deps.now, reopenStale: `Stripe payment ${intent.id}` });
     if (!found) return null;
     const { file, store } = found;
-    if (factsWithPrefix(file, QUOTE_FACT.accepted).some((f) => f.source.kind === 'quote_line' && f.source.quoteRef === slug)) {
+    if (acceptanceRecorded(file, slug)) {
         log(`quote ${slug} is already accepted on case file ${file.id}; payment ${intent.id} delivered again, nothing recorded`);
         return { caseId: file.id, repeat: true };
     }

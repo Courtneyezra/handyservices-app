@@ -1,7 +1,8 @@
 /**
  * The new desk's sandbox door: start, message, run, age, reset, state, and the planned send, for
  * the desk under server/comms-v2/desk. The surface the pipeline's end-to-end test step and Ben's
- * sandbox drive.
+ * sandbox drive. A run is the live tick's pass, close and all (channels/live-clock.ts), so what the
+ * worker does to a quiet file is drivable here.
  *
  * Everything up to delivery runs for real: identity, the case file, the router, the Scoping
  * specialist and its tools (Gemini for a photo), the Scheduling specialist and its diary read,
@@ -23,6 +24,7 @@ import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
 import { snapshot, type CaseFile } from './case-file';
 import { Desk, type DeskDeps } from './desk';
+import { closeStaleQuotes } from '../file-close';
 import type { DeskResult } from './desk-types';
 import { Gateway, notHandledReason, type SeedInput } from './gateway';
 import { CUSTOMER_TURN_QUIET_MS } from './turn-window';
@@ -235,9 +237,15 @@ export function createSandboxDoor(rawDeps: DoorDeps = {}): SandboxDoor {
                 respond(res, file, result, { trigger: req.body?.trigger ?? 'manual', live: true });
                 return;
             }
+            // The live tick closes a stale quote before it passes the clock over the files
+            // (channels/live-clock.ts), so the door does too: answer 95's 30-day close is only
+            // drivable here if this door runs it. The door is never the live desk, so it stands in
+            // for that read exactly as the tick does once it holds the gateway, and closes only the
+            // files on this door's own in-memory store. `staleClosed` names what it closed.
+            const stale = await closeStaleQuotes({ liveState: async () => ({ live: true }), gateway: async () => gateway, now, log: deps.log });
             const result = await gateway.clock(file.id);
             if (!result) { res.status(409).json({ error: 'no sandbox thread: start one first' }); return; }
-            respond(res, file, result, { trigger: req.body?.trigger ?? 'manual' });
+            respond(res, file, result, { trigger: req.body?.trigger ?? 'manual', staleClosed: stale.closed.map((c) => c.caseId) });
         } catch (error: any) {
             res.status(500).json({ error: error?.message ?? 'sandbox run failed' });
         }

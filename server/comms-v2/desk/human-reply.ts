@@ -35,6 +35,7 @@ import { clauseAsks, offersCall } from './lexicon';
 import { isHeldAckText } from './fixed-lines';
 import { chooseChannel, DESK_APPROVER, liveTemplateStatus, pickTemplate, render, send, shortenBriefFor, windowOf, type TemplateSend, type TemplateStatusSource, type WindowState } from './sender';
 import { humanApprover, type Approver } from '../../approver';
+import { acceptanceRecorded } from '../quoting/quote-record';
 import { HELD_DRAFT_CHANGED } from '@shared/ops-types';
 
 export interface HumanReplyInput {
@@ -193,11 +194,17 @@ export interface SendWindowTemplateInput {
  * records — never re-derived from the quote store and never re-guessed, because a link this
  * function invented could be stale or belong to a different quote. Null when no send on the file
  * ever carried the current job's quote link, which is also true of a quote that is still only a
- * draft: nothing has gone out for it yet.
+ * draft: nothing has gone out for it yet, and of one they have already accepted and paid for.
  */
 function sentQuoteLink(file: CaseFile): string | null {
     const slug = file.job.quoteRef;
     if (!slug) return null;
+    // A quote they have already accepted and paid the deposit on is not a quote that is "ready",
+    // and its page is not a booking they still have to make: `quote_ready_link`'s wording is false
+    // on that thread, so no link is offered from it (answer 58, a template only when its wording is
+    // true; answer 54 keeps quote_accepted_ack_v1 unused until the captain wires it). The acceptance
+    // is read off the file's own record of it, the same read the live Stripe path makes.
+    if (acceptanceRecorded(file, slug)) return null;
     const re = new RegExp(`https?://\\S+/quote/${slug}\\b`);
     for (let i = file.sends.length - 1; i >= 0; i--) {
         for (const b of file.sends[i].bubbles) {
@@ -218,13 +225,22 @@ function sentQuoteLink(file: CaseFile): string | null {
  * The desk's held acknowledgement ("Thanks, leave it with me and I'll come back to you.", or its
  * variant naming a photo or video) is not an answer: it only says one is coming (captain's answer
  * of 17 Sep 2026, "Yes, offer it"). The file records no fixed-line kind, so it is known by its
- * sender (the desk) and its exact wording (`isHeldAckText`). Any other outbound turn, a composed
- * reply, a person's own words, a template or a quote link, still answers the question.
+ * sender (the desk) and its exact wording (`isHeldAckText`).
+ *
+ * The desk's other holding line says the same thing through the composer: on a `no_source` hold the
+ * reply carries the fixed `no_source` line ("Let me check on that one and come straight back to
+ * you.") woven into a composed turn, so its wording is not fixed and cannot be matched. That hold is
+ * itself the desk's record that nothing on file answered what they asked, so while it stands the
+ * desk's own sends are holding lines rather than answers -- read from the recorded exception, never
+ * the words, the same way `heldOnQuestion` reads it. A person's own words, a template or a quote
+ * link still answer the question, as does any desk send once the hold has gone.
  */
 function unansweredQuestion(file: CaseFile, turn: Turn): boolean {
     const idx = file.turns.findIndex((t) => t.id === turn.id);
     if (idx === -1) return false;
-    if (file.turns.slice(idx + 1).some((t) => t.direction === 'outbound' && !(t.approver === DESK_APPROVER && isHeldAckText(t.body)))) return false;
+    const heldWithNoSource = file.hold?.exception === 'no_source';
+    const holdingLine = (t: Turn) => t.approver === DESK_APPROVER && (heldWithNoSource || isHeldAckText(t.body));
+    if (file.turns.slice(idx + 1).some((t) => t.direction === 'outbound' && !holdingLine(t))) return false;
     return turn.body.includes('?');
 }
 
@@ -298,7 +314,9 @@ function heldOnQuestion(file: CaseFile): boolean {
  * call): offer a template only when its wording is true for this thread, read off the case file
  * itself —
  *   - `quote_ready_link`, with the exact link the file already shows was sent, once a quote has
- *     gone out on the thread (`sentQuoteLink`);
+ *     gone out on the thread and while it is still theirs to accept (`sentQuoteLink`: a quote the
+ *     file records as accepted and paid offers no link, because "your quote is ready ... and the
+ *     booking" is not true of a customer who has already booked and paid the deposit);
  *   - `answer_ready_reopen_v1` only when the customer's latest message is a question nothing has
  *     answered since (`unansweredQuestion`; the desk's held acknowledgement alone is not an
  *     answer), and only when any standing hold is for a question (`heldOnQuestion`) — its wording ("you asked us about... and we have an

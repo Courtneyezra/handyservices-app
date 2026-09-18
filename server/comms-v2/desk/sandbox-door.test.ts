@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { noFixedLineSource } from './fixed-lines';
 import { FakeModelClient } from './models';
 import { plannedSendOfResponse, sendLanded } from './planned-send';
+import { setStage } from './case-file';
 import { createSandboxDoor } from './sandbox-door';
 import { emptyKb } from './scoping-tools';
 import { noTemplateApproved } from './sender';
@@ -21,6 +22,7 @@ import { MemoryQuoteStore } from '../quoting/quote-store';
 let server: import('node:http').Server;
 let base: string;
 let dir: string;
+let door: ReturnType<typeof createSandboxDoor>;
 
 beforeAll(async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'v2-door-'));
@@ -30,10 +32,10 @@ beforeAll(async () => {
         composer: ({ user }) => ({ reply: user.includes('thank for media: yes') ? 'Thanks for the photo, that helps.\n\nWhereabouts are you?' : 'Hi Sam, a leaking tap, got it.\n\nWhereabouts are you?\n\nHappy to give you a quick call if easier.', factIds: [], kbIds: [] }),
     });
     const store = new MemoryQuoteStore();
-    const { router } = createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir: dir, scoping: { describe: async () => ({ ok: true, description: 'a dripping tap', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier } });
+    door = createSandboxDoor({ quietMs: 0, client, fixedLines: noFixedLineSource, templates: noTemplateApproved, kb: emptyKb, mediaDir: dir, scoping: { describe: async () => ({ ok: true, description: 'a dripping tap', confidence: 'high', model: 'fake-vision', usage: null, durationMs: 1 }) }, quoting: { store, drafter: new FakeDrafter(store), notifier: recordingNotifier } });
     const app = express();
     app.use(express.json());
-    app.use('/api/comms-v2-sandbox', router);
+    app.use('/api/comms-v2-sandbox', door.router);
     server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
     const addr = server.address() as { port: number };
     base = `http://127.0.0.1:${addr.port}/api/comms-v2-sandbox`;
@@ -99,5 +101,49 @@ describe('the new desk\'s sandbox door', () => {
         expect((await post('/price', {})).status).toBe(409);
         expect((await post('/start', { door: 'portal', text: 'hi' })).status).toBe(400);
         expect((await post('/message', { text: 'hi', channel: 'portal' })).status).toBe(400);
+    });
+    /**
+     * The live tick closes a stale quote and then passes the clock (channels/live-clock.ts): the
+     * door's own pass does both, so answer 95's 30-day close is drivable here at all.
+     */
+    it('a clock pass closes a quoted file quiet for more than 30 days, and the next message opens a new file', async () => {
+        const started = await post('/start', { text: 'Hi, a leaking tap', name: 'Sam' });
+        const caseId = started.json.state.conversation.id as string;
+        const file = door.gateway.store.get(caseId)!;
+        file.job.type = 'leaking tap';
+        file.job.location = 'NG9 2AB';
+        expect(setStage(file, 'ready', 'test').ok).toBe(true);
+        expect(setStage(file, 'quoted', 'test').ok).toBe(true);
+        file.job.quoteRef = 'STALE1';
+        door.gateway.store.put(file);
+        // 31 days of quiet: the turns and the stage move back together, as they would have stood.
+        await post('/age', { hours: 720 });
+        await post('/age', { hours: 24 });
+
+        const run = await post('/run', {});
+        expect(run.status).toBe(200);
+        expect(run.json.staleClosed).toEqual([caseId]);
+        expect(run.json.run.caseFile.stage).toBe('done');
+        expect(door.gateway.store.get(caseId)!.stage).toBe('done');
+
+        // The customer's next message opens a new file, with no job, location or quote of its own.
+        const next = await post('/message', { text: 'Hi again, can you hang a door?' });
+        expect(next.status).toBe(200);
+        const newId = next.json.state.conversation.id as string;
+        expect(newId).not.toBe(caseId);
+        expect(door.gateway.store.get(newId)!.job.quoteRef).toBeNull();
+
+        // And 29 days of quiet is not 30: the same pass leaves that file where it stands.
+        const fresh = door.gateway.store.get(newId)!;
+        fresh.job.type = 'hang a door';
+        fresh.job.location = 'NG9 2AB';
+        expect(setStage(fresh, 'ready', 'test').ok).toBe(true);
+        expect(setStage(fresh, 'quoted', 'test').ok).toBe(true);
+        fresh.job.quoteRef = 'STALE2';
+        door.gateway.store.put(fresh);
+        await post('/age', { hours: 696 });
+        const second = await post('/run', {});
+        expect(second.json.staleClosed).toEqual([]);
+        expect(door.gateway.store.get(newId)!.stage).toBe('quoted');
     });
 });

@@ -43,6 +43,16 @@ export const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com';
 export const INLINE_LIMIT_BYTES = 20 * 1024 * 1024;
 export const DEFAULT_TIMEOUT_MS = 60_000;
 export const DEFAULT_RETRIES = 1;
+/**
+ * The ceiling Google counts THINKING against as well as the answer. Gemini 3 Flash thinks on every
+ * call and cannot be told not to (T14), and an ordinary customer photo costs it 650-1000 thinking
+ * tokens: at the old 1024 the JSON was cut mid-object on roughly half the calls, so `extractJson`
+ * threw "no JSON object in model reply" and the photo was never described (17 Sep 2026, driven on
+ * the sandbox door with a leaking-tap photo: 3 of 5 calls came back `MAX_TOKENS`). A description is
+ * ~250 tokens, so this is headroom for the thinking, not for a longer answer; billing is on what is
+ * used, not on the ceiling.
+ */
+export const MAX_OUTPUT_TOKENS = 4096;
 export const DESCRIPTIONS_DIR = path.join(process.cwd(), 'server', 'storage', 'media', '.descriptions');
 
 // ---------------------------------------------------------------- the fixed schema
@@ -228,7 +238,7 @@ export function classifyFailure(error: unknown, timeoutMs: number): Omit<Describ
         return { kind: permanent ? 'config' : 'transient', permanent, reason: e.message, status: e.status };
     }
     const message = String(e?.message ?? e ?? 'unknown');
-    if (/^(reply failed schema|gemini returned no text|no JSON object)/.test(message)) return { kind: 'reply', permanent: false, reason: message, status: null };
+    if (/^(reply failed schema|gemini returned no text|gemini reply was cut|no JSON object)/.test(message)) return { kind: 'reply', permanent: false, reason: message, status: null };
     return { kind: 'transient', permanent: false, reason: message, status: null };
 }
 
@@ -304,14 +314,18 @@ async function callGemini(
             contents: [{ role: 'user', parts: [mediaPart, { text: userPrompt }] }],
             // T14: no `temperature`. Google's Gemini 3 guide: keep the default (1.0); values below it can
             // loop or degrade. The JSON shape is held by responseMimeType and the zod schema, not by it.
-            generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1024 },
+            generationConfig: { responseMimeType: 'application/json', maxOutputTokens: MAX_OUTPUT_TOKENS },
         }),
     }, timeoutMs);
     if (!res.ok) throw await httpError('gemini', res);
     const json: any = await res.json();
     const parts: any[] = json?.candidates?.[0]?.content?.parts ?? [];
     const text = parts.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('');
-    if (!text.trim()) throw new Error(`gemini returned no text (finishReason ${json?.candidates?.[0]?.finishReason ?? 'unknown'})`);
+    const finishReason: string | undefined = json?.candidates?.[0]?.finishReason;
+    if (!text.trim()) throw new Error(`gemini returned no text (finishReason ${finishReason ?? 'unknown'})`);
+    // A reply cut at the ceiling is truncated JSON, whatever is in it: say so, rather than leaving
+    // `extractJson` to report "no JSON object in model reply" for an answer the model was writing.
+    if (finishReason === 'MAX_TOKENS') throw new Error(`gemini reply was cut at maxOutputTokens (${MAX_OUTPUT_TOKENS}); thinking tokens count against it`);
     const u: GeminiUsage = json?.usageMetadata ?? {};
     // T14: Gemini 3 Flash thinks on every call and cannot be told not to; Google bills thinking
     // tokens at the output rate ("output price includes thinking tokens"), so they are output here.

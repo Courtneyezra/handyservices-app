@@ -134,17 +134,21 @@ export function asksToChangeDetails(text: string): boolean {
 
 /**
  * A plain match for a customer asking whether we cover their area: "do you cover Nottingham",
- * "which areas do you cover", "how far do you travel". The desk runs the Service specialist on such
- * a turn even when the router did not list service, so the areas-covered answer in the knowledge
- * base is read; it raises no hold and does not stop Scoping running on the job half of a mixed turn.
+ * "which areas do you cover", "whereabouts do you cover", "how far do you travel". The desk runs
+ * the Service specialist on such a turn even when the router did not list service, so the
+ * areas-covered answer in the knowledge base is read; it raises no hold and does not stop Scoping running on the job half of a mixed turn.
  * It only adds to the router's reading. A carve-out in the router prompt (option A) can go on top
  * once the comms-v2 router has an eval to catch drift; it should not replace this.
  *
  * "cover" is a trap in this trade ("cover the hole", "does that cover the cost"), so a verb that
  * names a place is trusted only when a place follows it: a postcode, "my area", a capitalised word,
  * or a lone lowercase word that ends the question. Every new phrase wants a negative test beside it.
+ * "where"/"whereabouts" is the same trap the other way round ("whereabouts are you?" asks when we
+ * are coming, "whereabouts do you want the old radiator left?" asks about the job), so it counts
+ * only in front of a verb about where we work: "whereabouts do you cover", "where do you cover",
+ * "whereabouts are you based", "whereabouts can you come out to".
  */
-const RE_AREA_PHRASE = /\b(?:which|what)\s+(?:areas?|parts?|towns?|places?|postcodes?)\s+(?:do|does|can|will)\s+(?:you|u|ya)\b|\bareas?\s+(?:do\s+)?(?:you|u)\s+(?:cover|serve|work)\b|\bareas?\s+covered\b|\b(?:in|within|inside|outside|out\s+of|part\s+of)\s+your\s+(?:local\s+|service\s+|coverage\s+|working\s+)?(?:area|patch|radius|range)\b(?!\s+of\b)|\bhow\s+far\s+(?:out\s+)?(?:do|will|would|can|could)\s+(?:you|u)\s+(?:(?:guys|lot)\s+)?(?:travel|go|come|cover)\b|\btoo\s+far\s+(?:out\s+)?(?:for|from)\s+(?:you|u)\b|\bwhere\s+(?:are\s+you|r\s+u)\s+based\b|\byour\s+(?:area|patch|coverage|radius)\s+(?:includes?|covers?|reach(?:es)?|stretch(?:es)?|extends?)\b|\b(?:somewhere|anywhere)\s+(?:you|u)\s+(?:(?:guys|lot)\s+)?(?:cover|serve)\b|\bare\s+(?:you|u)\s+(?:local\s+to|based\s+(?:in|near|around))\b|\b(?:you|u)\s+(?:(?:guys|lot)\s+)?(?:cover|serve|come|travel|go)\s+(?:out\s+)?(?:that|this)\s+far\b(?!\s+as\b)/i;
+const RE_AREA_PHRASE = /\b(?:which|what)\s+(?:areas?|parts?|towns?|places?|postcodes?)\s+(?:do|does|can|will)\s+(?:you|u|ya)\b|\bareas?\s+(?:do\s+)?(?:you|u)\s+(?:cover|serve|work)\b|\bareas?\s+covered\b|\b(?:in|within|inside|outside|out\s+of|part\s+of)\s+your\s+(?:local\s+|service\s+|coverage\s+|working\s+)?(?:area|patch|radius|range)\b(?!\s+of\b)|\bhow\s+far\s+(?:out\s+)?(?:do|will|would|can|could)\s+(?:you|u)\s+(?:(?:guys|lot)\s+)?(?:travel|go|come|cover)\b|\btoo\s+far\s+(?:out\s+)?(?:for|from)\s+(?:you|u)\b|\bwhere(?:abouts)?\s+(?:are\s+you|r\s+u)\s+based\b|\bwhere(?:abouts)?\s+(?:do|does|can|could|will|would)\s+(?:you|u|ya)\s+(?:(?:guys|lot)\s+)?(?:cover|serve|service|work|travel|operate|(?:come|go)\s+out)\b|\byour\s+(?:area|patch|coverage|radius)\s+(?:includes?|covers?|reach(?:es)?|stretch(?:es)?|extends?)\b|\b(?:somewhere|anywhere)\s+(?:you|u)\s+(?:(?:guys|lot)\s+)?(?:cover|serve)\b|\bare\s+(?:you|u)\s+(?:local\s+to|based\s+(?:in|near|around))\b|\b(?:you|u)\s+(?:(?:guys|lot)\s+)?(?:cover|serve|come|travel|go)\s+(?:out\s+)?(?:that|this)\s+far\b(?!\s+as\b)/i;
 const RE_PLACE_VERB = /\b(?:(?:do|does|d'you)\s+(?:(?:you|u|ya)\s+(?:(?:guys|lot|still)\s+)?)?(?:cover|serve|service|work\s+(?:in|around|near)|operate\s+(?:in|around|near)|(?:go|come|travel)\s+(?:out\s+)?(?:to|as\s+far\s+as))|(?:are|r)\s+(?:you|u)\s+(?:(?:guys|lot|still)\s+)?(?:covering|anywhere\s+near)|(?:do|can|could|will|would)\s+(?:you|u)\s+(?:(?:guys|lot)\s+)?do\s+(?:jobs?|work)\s+(?:in|around|near)|(?:can|could|will|would)\s+(?:you|u)\s+(?:(?:guys|lot)\s+)?(?:be\s+able\s+to\s+)?(?:come|travel|go|get)\s+(?:out\s+)?(?:to|as\s+far\s+as)|are\s+(?:you|u)\s+able\s+to\s+(?:cover|(?:come|travel|go|get)\s+(?:out\s+)?(?:to|as\s+far\s+as)))\s+(?:all\s+of\s+|the\s+whole\s+of\s+|most\s+of\s+|out\s+towards?\s+|(?:north|south|east|west|central)\s+)?((?:the\s+)?[a-z][\w'-]*)([^\n]{0,12})/gi;
 const RE_POSTCODE = /^[a-z]{1,2}\d[a-z\d]?$/i;
 const RE_AREA_NOUN = /^(?:my|our|your|this|that|the)$/i;

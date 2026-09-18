@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { open, recordFact, type CaseFile } from '../desk/case-file';
 import { FakeModelClient } from '../desk/models';
 import { emptyKb } from '../desk/scoping-tools';
-import { serve, serviceOutputSchema } from './service-specialist';
+import { ASKED_LABEL_MAX, askedLabel, serve, serviceOutputSchema } from './service-specialist';
 import { convergence } from './service-tools';
 
 function fixture(text: string): CaseFile {
@@ -29,7 +29,13 @@ describe('the Service specialist', () => {
     it('never returns prose: the output schema has no field a sentence for the customer could ride in', () => {
         expect(serviceOutputSchema.safeParse({ answers: [], changeOfDetails: null, holdReason: null, reply: 'We are insured.' }).success).toBe(false);
         expect(serviceOutputSchema.safeParse({ answers: [{ asked: 'insured?', source: 'kb', id: 'kb-insured', text: 'We are insured.' }], changeOfDetails: null, holdReason: null }).success).toBe(false);
-        expect(serviceOutputSchema.safeParse({ answers: [{ asked: 'x'.repeat(61), source: 'none', id: null }], changeOfDetails: null, holdReason: null }).success).toBe(false);
+        expect(serviceOutputSchema.safeParse({ answers: [{ asked: 'x'.repeat(201), source: 'none', id: null }], changeOfDetails: null, holdReason: null }).success).toBe(false);
+        // A label over a label's length is taken, since the ceiling is not enforced as the answer is
+        // written, but only `ASKED_LABEL_MAX` characters of it are ever used, so no more prose rides
+        // in on it than a label would.
+        expect(serviceOutputSchema.safeParse({ answers: [{ asked: 'x'.repeat(200), source: 'none', id: null }], changeOfDetails: null, holdReason: null }).success).toBe(true);
+        expect(askedLabel('x'.repeat(200))).toHaveLength(ASKED_LABEL_MAX);
+        expect(askedLabel('receipt for last job')).toBe('receipt for last job');
     });
     it('answers from a reviewed row verbatim, cited by id, as a fact with a knowledge-base source; the brief carries the exact words and the id', async () => {
         const file = fixture('Are you insured?');
