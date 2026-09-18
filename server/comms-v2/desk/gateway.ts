@@ -106,7 +106,6 @@ export class Gateway {
      * it behind a later message; a failure is recorded rather than dropped. A text turn does not wait.
      */
     protected async keepLanded(file: CaseFile, landed: Turn, media: InboundTurn['media']): Promise<void> {
-        if (!media.length) return;
         this.store.put(file);
         const kept = await keepDurably(media, this.mirrorMedia, this.log);
         for (const m of landed.media) {
@@ -148,7 +147,7 @@ export class Gateway {
             const ch = partyOf(file, resolved.personId)!.channels.find((c) => c.kind === 'whatsapp');
             if (ch) ch.transport = turn.via;
         }
-        await this.keepLanded(file, landed, turn.media);
+        if (turn.media.length) await this.keepLanded(file, landed, turn.media);
         const { result, burst } = await this.handTurn(file, landed);
         return { kind: 'handled', file, turn: landed, result, burst };
     }

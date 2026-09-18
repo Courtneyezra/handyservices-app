@@ -131,7 +131,7 @@ export class ChannelGateway extends Gateway {
             if (!rec.ok) this.log(`intake fact ${f.key} refused: ${rec.reason}`);
         }
 
-        await this.keepLanded(file, landed, env.media);
+        if (env.media.length) await this.keepLanded(file, landed, env.media);
         const { result, burst } = await this.handTurn(file, landed);
         return { kind: 'handled', file, turn: landed, result, burst };
     }
