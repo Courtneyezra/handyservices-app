@@ -10,6 +10,10 @@
  * (client/src/lib/handy-desk-queue.ts `withReadyToPrice`), so this 15-second poll never touches the
  * quotes table.
  *
+ * The sales calls (sales-calls.ts) are not in it: a file whose calls the classifier marked as someone
+ * selling to us is listed on its own, with a close, and routes.ts passes those ids as `exclude`, so
+ * the column stays what only a person must step in for. They are still counted in `handledToday`.
+ *
  * Read only. Every action a held card takes goes through the board's own routes (routes.ts:
  * send-held-draft, answer, release), so the approver-slot check and the sender's refusals are the
  * same ones the board shows.
@@ -37,7 +41,7 @@ function ukDay(d: Date): string {
     return `${p.year}-${p.month}-${p.day}`;
 }
 
-export function queueOf(files: CaseFile[], filter: { mode?: BoardMode } = {}, assignments: ApproverAssignments = {}, now: Date = new Date()): DeskQueue {
+export function queueOf(files: CaseFile[], filter: { mode?: BoardMode; exclude?: ReadonlySet<string> } = {}, assignments: ApproverAssignments = {}, now: Date = new Date()): DeskQueue {
     const items: QueueItem[] = [];
     const today = ukDay(now);
     const handledRuns = new Set<string>();
@@ -47,7 +51,7 @@ export function queueOf(files: CaseFile[], filter: { mode?: BoardMode } = {}, as
         for (const t of file.turns) {
             if (t.direction === 'outbound' && t.runId && ukDay(new Date(t.at)) === today) handledRuns.add(`${file.id}:${t.runId}`);
         }
-        if (!file.hold) continue;
+        if (!file.hold || filter.exclude?.has(file.id)) continue;
         items.push({
             ...card,
             draft: file.hold.draft,
