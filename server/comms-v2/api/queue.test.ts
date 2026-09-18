@@ -2,6 +2,8 @@
  * Handy Desk T1 - the queue read over in-memory case files built with Contract 2's own calls, the
  * same fixture style board.test.ts uses: only held files, the held draft carried through, and the
  * order is the office working-hours wait, so a hold raised at the weekend waits behind a weekday one.
+ * The quotes waiting to be priced are not on this endpoint: the page merges them in
+ * (client/src/lib/handy-desk-queue.ts), so they are tested there.
  */
 import { describe, expect, it } from 'vitest';
 import { queueOf } from './queue';

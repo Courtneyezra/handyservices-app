@@ -14,7 +14,11 @@
  *                                    hostname check, failing towards hidden on any refusal reason
  * GET  /queue                     - Handy Desk's "Needs you" list (queue.ts): every held file, with
  *                                    its held draft and its office working-hours wait, longest first,
- *                                    with the same `viewer` as /board
+ *                                    with the same `viewer` as /board. Holds only, and an in-memory
+ *                                    read: the quotes waiting to be priced also show in Needs you, but
+ *                                    the page reads those from /api/spine/price-queue on its own
+ *                                    slower clock and merges them in below the holds, so this poll
+ *                                    never touches the quotes table
  * GET  /case-files/:id            - one file's turns and facts, read-only, with the channel and
  *                                    window a reply from the thread would use
  * GET  /case-files/:id/template-offer - a dry run of send-template (desk/human-reply.ts
@@ -126,7 +130,8 @@ export function createCommsV2ApiRouter(door: SandboxDoor = commsV2BoardDoor(), a
         const src = await source(res);
         if (!src) return;
         const assignments = await approvers();
-        res.json({ ...queueOf(src.store.all(), { mode }, assignments), sandboxAvailable: sandboxAvailable(), viewer: viewerOf(req, assignments) });
+        const queue = queueOf(src.store.all(), { mode }, assignments, new Date());
+        res.json({ ...queue, sandboxAvailable: sandboxAvailable(), viewer: viewerOf(req, assignments) });
     });
 
     router.get('/case-files/:id', async (req, res) => {

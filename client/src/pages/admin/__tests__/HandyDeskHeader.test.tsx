@@ -1,7 +1,8 @@
 /**
  * The Handy Desk's own header, now that the desk renders outside the admin shell: the Handy Services
  * logo, the shell's quick links (Handy Desk, Diary "Coming soon", Comms board) and the held-count
- * badge from the same queue the page reads, and a More menu of the sidebar's destinations and Log out.
+ * badge counted off the very queue read the page already made, and a More menu of the sidebar's
+ * destinations and Log out.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
@@ -16,7 +17,15 @@ afterEach(() => {
 
 function routes() {
     return mockFetch([
-        { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ id: 'a', customerName: 'Sam' }, { id: 'b', customerName: 'Rob' }, { id: 'c', customerName: 'Gemma' }].map((i) => ({ ...i, stage: 'scoping', mode: 'sandbox', held: true, holdReason: 'complaint', holdApproverAssigned: true, benToRequest: [], draft: null, waitingWorkingHours: 1 })), handledToday: 0 } }) },
+        // The badge now counts the page's own queue read, and that route is admin-only, so the stub
+        // refuses an unauthenticated read the way requireAdmin does rather than answering it.
+        {
+            url: '/api/comms-v2/queue',
+            reply: (call) => call.headers.Authorization
+                ? ({ json: { items: [{ id: 'a', customerName: 'Sam' }, { id: 'b', customerName: 'Rob' }, { id: 'c', customerName: 'Gemma' }].map((i) => ({ ...i, stage: 'scoping', mode: 'sandbox', held: true, holdReason: 'complaint', holdApproverAssigned: true, benToRequest: [], draft: null, waitingWorkingHours: 1 })), handledToday: 0 } })
+                : ({ status: 401, json: { error: 'admin only' } }),
+        },
+        { url: '/api/spine/price-queue', reply: () => ({ json: { count: 0, items: [], oldestWaitingMs: null, at: new Date().toISOString() } }) },
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
     ]);
 }

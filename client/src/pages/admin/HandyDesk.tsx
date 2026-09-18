@@ -10,6 +10,44 @@
  * refuses is shown on the card as it said it, and a shut WhatsApp window offers the template reply
  * the board offers.
  *
+ * A quote waiting to be priced (answer Q12) is a card below the holds, oldest draft first - a person
+ * waiting on a reply is never pushed down the list by a draft nobody has priced. Those come from the
+ * price queue's own cached query (`usePriceQueue`), not from /queue, so the 15-second hold poll never
+ * runs that database read; `withReadyToPrice` merges the two. It is not a
+ * hold, so it puts no conversation on the right: tapping the card - anywhere on it, or its one
+ * "Open & price" pill - opens Price and Send for that quote (/admin/price/:slug, PriceAndSendPage in
+ * client/src/App.tsx), which this page neither replaces nor changes.
+ *
+ * The column reads from two independent queries, so what it may say is decided once from both of
+ * their states (`needsYouView` in client/src/lib/handy-desk-queue.ts) rather than per element. React
+ * Query keeps the last good payload when a refetch fails, so each read has a distinct "failed with
+ * nothing" and "failed but the last payload is still on screen"; no cell below is unreachable,
+ * because the desk sits open all day and both loading rows happen on every cold tab:
+ *
+ *   holds        | quotes      | count  | listed                     | empty state      | alert
+ *   -------------|-------------|--------|----------------------------|------------------|------------------------
+ *   loading      | loading     | hidden | spinner                    | -                | -
+ *   loading      | ok          | hidden | spinner                    | -                | -
+ *   loading      | err, none   | hidden | spinner                    | -                | quotes unread
+ *   loading      | err, stale  | hidden | spinner                    | -                | quotes out of date
+ *   ok           | loading     | hidden | holds, quotes loading      | -                | -
+ *   ok           | ok          | SHOWN  | holds, then quotes         | "Nothing needs you." | -
+ *   ok           | err, none   | hidden | holds only                 | "No held replies..." | quotes unread
+ *   ok           | err, stale  | SHOWN  | holds, retained quotes     | "Nothing needs you." | quotes out of date
+ *   err, none    | loading     | hidden | queue error                | -                | -
+ *   err, none    | ok          | hidden | queue error, quotes below  | -                | -
+ *   err, none    | err, none   | hidden | queue error                | -                | quotes unread
+ *   err, none    | err, stale  | hidden | queue error, quotes below  | -                | quotes out of date
+ *   err, stale   | loading     | hidden | retained holds, quotes loading | -            | holds out of date
+ *   err, stale   | ok          | SHOWN  | retained holds, then quotes| "Nothing needs you." | holds out of date
+ *   err, stale   | err, none   | hidden | retained holds only        | -                | holds out of date; quotes unread
+ *   err, stale   | err, stale  | SHOWN  | both retained              | "Nothing needs you." | holds and quotes out of date
+ *
+ * The count appears only where both reads have a payload the desk can stand behind - a retained one
+ * counts, being at most one poll old and what is on the screen - and "Nothing needs you." only where
+ * both have a payload and both are empty. A read that failed with its last payload still listed is
+ * called out of date, never unread, so no alert ever contradicts the cards beneath it.
+ *
  * Selecting a card sets the selected conversation (`DeskSelection`): the answer surface shows its
  * thread while idle, and the ask bar takes it as context. The mapping from a held file to the
  * card's copy lives in client/src/lib/handy-desk-queue.ts.
@@ -35,11 +73,12 @@ import { SurfaceBody } from '@/components/handy-desk/AnswerSurface';
 import type { CaseFileDetail } from '@/pages/admin/CommsV2BoardPage';
 import { exchangeOfAnswered, latestAnswered, threadSurfaceOfDetail, type AnsweredAsk } from '@/lib/handy-desk-answer';
 import {
-    ACTION_ROUTE, isShutWindow, needsWords, queueCardCopy, queueQuery, refusalMessage, selectionOf,
-    type DeskQueue, type DeskSelection, type QueueAction, type QueueItem,
+    ACTION_ROUTE, QUEUE_KEY, isReadyToPrice, isShutWindow, needsWords, needsYouView, queueCardCopy, queueQuery, readStateOf, readyToPriceCardCopy, refusalMessage, selectionOf,
+    type DeskQueue, type DeskSelection, type QueueAction, type QueueItem, type ReadyToPriceItem,
 } from '@/lib/handy-desk-queue';
-import { useLocation } from 'wouter';
-import { QuickLinks, useHeldCount } from '@/components/layout/QuickLinks';
+import { usePriceQueue } from '@/hooks/usePriceQueue';
+import { Link, useLocation } from 'wouter';
+import { QuickLinks } from '@/components/layout/QuickLinks';
 import handyLogo from '@/assets/handy-logo.webp';
 
 const QUEUE_REFETCH_MS = 15_000;
@@ -109,10 +148,16 @@ function DeskMoreMenu() {
 
 // The desk renders full screen outside the admin shell (client/src/App.tsx), so this header carries
 // the Handy Services logo, the shell's quick links with their held-count badge, and a More menu of the
-// sidebar's destinations and Log out, itself.
-function DeskHeader({ sandbox, handled, deskLive }: { sandbox: boolean; handled: number | null; deskLive: boolean | null }) {
+// sidebar's destinations and Log out, itself. The badge is counted off the page's own queue read, not
+// a second one: `useHeldCount` is for the admin shell, which has no queue data of its own.
+function DeskHeader({ sandbox, handled, deskLive, heldCount, updatedAt }: {
+    sandbox: boolean;
+    handled: number | null;
+    deskLive: boolean | null;
+    heldCount: number | null;
+    updatedAt: number;
+}) {
     const [location] = useLocation();
-    const { heldCount, updatedAt } = useHeldCount(true);
     return (
         <header className="flex min-h-16 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-800 px-4 py-2 sm:px-6">
             <img data-testid="handy-desk-logo" src={handyLogo} alt="Handy Services" width={32} height={32} className="h-8 w-8 shrink-0 rounded-full object-cover" />
@@ -284,6 +329,38 @@ export function QueueCard({ item, active, showMode, onSelect, onHandled }: {
     );
 }
 
+// ---------------------------------------------------------------- ready-to-price card
+
+export function ReadyToPriceCard({ item }: { item: ReadyToPriceItem }) {
+    const copy = readyToPriceCardCopy(item);
+    const [, navigate] = useLocation();
+    // A held card's tap selects the conversation; this card has none, so the whole card goes where Ben
+    // can act on it - Price and Send for this quote (/admin/price/:slug), a big enough tap target on a
+    // phone. The pill is that same destination as a real link, the keyboard's way in, so it keeps its
+    // own click from firing the card's.
+    const open = () => navigate(copy.primary.href);
+    return (
+        <article
+            data-testid={`queue-card-${item.id}`}
+            onClick={open}
+            className="cursor-pointer rounded-3xl border border-slate-800 bg-[#111c33] p-4 transition-colors duration-200 ease-[var(--ease-out)] hover:border-amber-400 motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:duration-[240ms]"
+        >
+            <div className="flex w-full items-center gap-3 text-left">
+                <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-700 text-sm font-bold text-white">{copy.initials}</span>
+                <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[15px] font-bold text-white">{copy.name}</span>
+                    {copy.sub && <span className="block truncate text-xs text-slate-400">{copy.sub}</span>}
+                </span>
+            </div>
+            <p data-testid={`queue-card-badge-${item.id}`} className={cn(EYEBROW, 'mt-3 text-slate-300')}>{copy.badge}</p>
+            <p data-testid={`queue-card-body-${item.id}`} className="mt-2 text-[13px] text-slate-300">{copy.body}</p>
+            <div className="mt-4 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                <Link href={copy.primary.href} className={PILL_PRIMARY}>{copy.primary.label}</Link>
+            </div>
+        </article>
+    );
+}
+
 // ---------------------------------------------------------------- answer surface (idle: the selected thread)
 
 function SelectedThread({ selection }: { selection: DeskSelection }) {
@@ -347,8 +424,8 @@ export default function HandyDesk() {
     const [dismissed, setDismissed] = useState<ReadonlySet<string | typeof FIRST_LOAD>>(() => new Set());
     const dismiss = (id: string | typeof FIRST_LOAD) => setDismissed((d) => (d.has(id) ? d : new Set(d).add(id)));
 
-    const { data, isLoading, error } = useQuery<DeskQueue>({
-        queryKey: ['comms-v2-queue'],
+    const { data, isError, dataUpdatedAt } = useQuery<DeskQueue>({
+        queryKey: QUEUE_KEY,
         queryFn: async () => {
             const res = await fetch(queueQuery(), { headers: getAuthHeaders() });
             if (!res.ok) throw new Error(`Failed to load the queue (${res.status})`);
@@ -356,6 +433,9 @@ export default function HandyDesk() {
         },
         refetchInterval: QUEUE_REFETCH_MS,
     });
+    // The quotes to price come off the price queue's own cached query, on its slower clock: this
+    // page must not put that database read behind the 15-second hold poll.
+    const prices = usePriceQueue();
     const { data: oldComms } = useOldComms();
     const { data: latest } = useLatestAnswer();
     useEffect(() => {
@@ -367,12 +447,18 @@ export default function HandyDesk() {
     }, [dismissed, latest]);
     const answered = latest && !dismissed.has(FIRST_LOAD) && !dismissed.has(latest.id) ? latest : null;
 
-    const items = data?.items ?? [];
     const sandbox = data?.sandboxAvailable === true;
+    // Two reads answer at different speeds and fail independently, so everything the column says -
+    // the count, the cards, the empty sentence and every alert - is decided once from both of their
+    // states (handy-desk-queue.ts `needsYouView`). Nothing below re-reads the queries.
+    const view = needsYouView(
+        { state: readStateOf({ isError, data }), items: data?.items ?? [] },
+        { state: readStateOf(prices), payload: prices.data },
+    );
 
     const handleHandled = (note: string) => {
         setDone((d) => [{ key: Date.now(), note }, ...d].slice(0, 3));
-        queryClient.invalidateQueries({ queryKey: ['comms-v2-queue'] });
+        queryClient.invalidateQueries({ queryKey: QUEUE_KEY });
         queryClient.invalidateQueries({ queryKey: ['comms-v2-case-file'] });
     };
 
@@ -398,34 +484,59 @@ export default function HandyDesk() {
     // The desk is the whole screen (no admin shell around it), so the ask bar stays in view without scrolling.
     return (
         <div data-testid="handy-desk" className="flex h-dvh flex-col overflow-hidden bg-slate-900 font-sans">
-            <DeskHeader sandbox={sandbox} handled={data?.handledToday ?? null} deskLive={oldComms ? oldComms.retired : null} />
+            <DeskHeader
+                sandbox={sandbox}
+                handled={data?.handledToday ?? null}
+                deskLive={oldComms ? oldComms.retired : null}
+                heldCount={view.heldCount}
+                updatedAt={dataUpdatedAt}
+            />
 
             <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(300px,400px)_1fr] lg:overflow-hidden">
                 <section aria-label="Needs you" className="flex min-h-0 flex-col px-4 py-5 sm:px-6 lg:overflow-y-auto">
                     <p className={cn(EYEBROW, 'text-amber-400')}>Needs you</p>
-                    <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
-                        {isLoading ? '…' : `${items.length} ${items.length === 1 ? 'thing' : 'things'}`}
-                    </p>
-                    <p className="mt-1 text-[13px] text-slate-400">Held by the desk, longest wait in working hours first.</p>
+                    {view.countText && (
+                        <p data-testid="handy-desk-count" className="mt-1 text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-white">
+                            {view.countText}
+                        </p>
+                    )}
+                    <p className="mt-1 text-[13px] text-slate-400">Held replies first, longest wait in working hours; then the quotes to price, oldest first.</p>
+                    {view.alerts.map((alert) => (
+                        <p
+                            key={alert.id}
+                            role="alert"
+                            data-testid={`handy-desk-alert-${alert.id}`}
+                            className={cn('mt-2 text-xs', alert.tone === 'error' ? 'text-red-300' : 'text-amber-300')}
+                        >
+                            {alert.text}
+                        </p>
+                    ))}
 
                     <div className="mt-5 space-y-3">
-                        {error ? (
-                            <p role="alert" className="rounded-3xl border border-red-400/40 p-4 text-sm text-red-300">Could not load the queue - retrying automatically.</p>
-                        ) : isLoading ? (
-                            <div className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
-                        ) : items.length === 0 ? (
-                            <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">Nothing needs you.</p>
+                        {view.showSpinner && (
+                            <div data-testid="handy-desk-loading" className="flex justify-center py-10"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>
+                        )}
+                        {view.items.map((item) => isReadyToPrice(item) ? (
+                            <ReadyToPriceCard key={item.id} item={item} />
                         ) : (
-                            items.map((item) => (
-                                <QueueCard
-                                    key={item.id}
-                                    item={item}
-                                    active={item.id === selection?.caseFileId}
-                                    showMode={sandbox}
-                                    onSelect={() => select(item)}
-                                    onHandled={handleHandled}
-                                />
-                            ))
+                            <QueueCard
+                                key={item.id}
+                                item={item}
+                                active={item.id === selection?.caseFileId}
+                                showMode={sandbox}
+                                onSelect={() => select(item)}
+                                onHandled={handleHandled}
+                            />
+                        ))}
+                        {view.quotesLoading && (
+                            <p data-testid="handy-desk-quotes-loading" className="flex items-center justify-center gap-2 rounded-3xl border border-dashed border-slate-700 p-4 text-sm text-slate-400">
+                                <Loader2 className="h-4 w-4 animate-spin" /> Loading the quotes to price…
+                            </p>
+                        )}
+                        {view.emptyText && (
+                            <p data-testid="handy-desk-empty" className="rounded-3xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-400">
+                                {view.emptyText}
+                            </p>
                         )}
                         {done.map((d) => (
                             <p key={d.key} data-testid="handy-desk-done" className="flex items-center gap-2 rounded-3xl border border-slate-800 p-4 text-sm text-slate-300">

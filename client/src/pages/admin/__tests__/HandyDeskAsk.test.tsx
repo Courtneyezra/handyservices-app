@@ -32,6 +32,7 @@ function setup(opts: { messageReply?: () => { status?: number; json?: unknown };
     const fetch = mockFetch([
         ...(opts.listed ? [{ url: '/api/comms-v2/ask/sessions?limit=1', reply: () => ({ json: [SESSION] }) }] : []),
         { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [ROB] } }) },
+        { url: '/api/spine/price-queue', reply: () => ({ json: { count: 0, items: [], oldestWaitingMs: null, at: new Date().toISOString() } }) },
         { url: '/api/comms-v2/old-comms', reply: () => ({ json: { retired: false } }) },
         { url: /\/api\/comms-v2\/case-files\/case_rob$/, reply: () => ({ json: { id: 'case_rob', turns: [], speakerNames: {} } }) },
         { method: 'POST', url: '/api/comms-v2/ask/sessions/today', reply: () => ({ json: SESSION }) },
@@ -47,6 +48,8 @@ describe('HandyDesk ask bar', () => {
     afterEach(() => { vi.useRealTimers(); });
 
     it('asks about the selected card, shows the thinking card live, then the answer', async () => {
+        // The answer is dated AT, and an answer from an earlier London day offers no send: pin today to AT.
+        vi.useFakeTimers({ now: new Date(AT), toFake: ['Date'] });
         const { calls, setMessages } = setup();
         renderWithQuery(<HandyDesk />);
         await userEvent.click(within(await screen.findByTestId('queue-card-case_rob')).getByText('Rob Hale'));

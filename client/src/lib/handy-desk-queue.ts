@@ -2,9 +2,17 @@
  * Handy Desk T1 - how a held case file from the new desk (GET /api/comms-v2/queue,
  * server/comms-v2/api/queue.ts) reads as a "Needs you" card: its badge, its lines, and which of the
  * board's own human-send routes its buttons call. Pure, so the mapping is tested apart from the page.
+ *
+ * The quotes waiting to be priced join the same list (`kind: 'ready_to_price'`, answer Q12), whose
+ * only action is opening the price screen; `readyToPriceCardCopy` maps those. They are not on the
+ * queue endpoint: that read costs the quotes table, so the page takes them from the price queue's
+ * own cached query (`usePriceQueue`, 60s with a 30s staleTime) and `withReadyToPrice` merges the two
+ * below the holds, leaving the 15-second queue poll a pure in-memory read.
  */
+import { ageLabel, type PriceQueueItem, type PriceQueuePayload } from '@/hooks/usePriceQueue';
 import type { BoardCard } from '@/pages/admin/CommsV2BoardPage';
 
+/** A held case file exactly as GET /api/comms-v2/queue sends it. The wire carries no kind tag. */
 export interface QueueItem extends BoardCard {
     /** The reply the desk held back, exactly as it stands; null when the hold carries none. */
     draft: string | null;
@@ -12,6 +20,165 @@ export interface QueueItem extends BoardCard {
     waitingWorkingHours: number;
 }
 
+/** A Route A quote draft waiting for Ben to price it, as a Needs you card reads it. No money figure. */
+export interface ReadyToPriceItem {
+    kind: 'ready_to_price';
+    id: string;
+    slug: string;
+    quoteId: string;
+    customerName: string;
+    job: string;
+    postcode: string | null;
+    createdAt: string | null;
+    /** The true wall-clock wait, the only one this card carries; the office clock saturates. */
+    waitingMs: number;
+    /** The price screen, /admin/price/:slug. */
+    pricePath: string;
+    signals: { checkThis: number; unpriced: number; contradictions: number; lowConfidence: number; estimateStatus: string | null };
+}
+
+/** The same hold once `withReadyToPrice` has tagged it for the merged list. */
+export type HeldCard = QueueItem & { kind: 'held' };
+
+export type DeskQueueItem = HeldCard | ReadyToPriceItem;
+
+export function isReadyToPrice(item: DeskQueueItem): item is ReadyToPriceItem {
+    return item.kind === 'ready_to_price';
+}
+
+/** One price-queue row as a Needs you card: the wait it carries is the wall-clock one the row measured. */
+export function readyToPriceOf(item: PriceQueueItem): ReadyToPriceItem {
+    return {
+        kind: 'ready_to_price',
+        id: `price:${item.slug}`,
+        slug: item.slug,
+        quoteId: item.quoteId,
+        customerName: item.name,
+        job: item.job,
+        postcode: item.postcode,
+        createdAt: item.createdAt,
+        waitingMs: item.waitingMs,
+        pricePath: `/admin/price/${encodeURIComponent(item.slug)}`,
+        signals: item.signals,
+    };
+}
+
+/**
+ * The Needs you list: the holds as the desk ordered them, then the quotes waiting to be priced in the
+ * price queue's own order - oldest draft first, which `PriceQueuePayload.items` guarantees. A person
+ * waiting on a reply always outranks an unpriced draft, whatever the draft's age. With no price
+ * payload yet (still loading, or the read failed) the holds stand alone.
+ */
+export function withReadyToPrice(held: QueueItem[], prices?: Pick<PriceQueuePayload, 'items'>): DeskQueueItem[] {
+    const holds: DeskQueueItem[] = held.map((h) => ({ ...h, kind: 'held' }));
+    return prices ? [...holds, ...prices.items.map(readyToPriceOf)] : holds;
+}
+
+/**
+ * What one of the desk's two reads has to say. React Query keeps the last good payload when a
+ * refetch fails, so a failed read that still has something on screen is not the same as one that
+ * has nothing: the first is out of date, the second is unread, and the desk words them apart.
+ */
+export type ReadState = 'loading' | 'ok' | 'error_no_data' | 'error_stale';
+
+export function readStateOf(read: { isError: boolean; data: unknown }): ReadState {
+    if (read.isError) return read.data === undefined ? 'error_no_data' : 'error_stale';
+    return read.data === undefined ? 'loading' : 'ok';
+}
+
+const standsBehind = (state: ReadState) => state === 'ok' || state === 'error_stale';
+
+/**
+ * Which cell of the read grid the column is in: the hold read's state over the price read's. Every
+ * sentence the column shows is decided from this one value, so a state nobody thought of shows up
+ * as an unhandled cell in one table rather than as a wrong sentence on one element.
+ */
+export type DeskCell = `${ReadState}/${ReadState}`;
+
+export type AlertTone = 'error' | 'warn';
+
+export interface DeskAlert {
+    id: 'queue_unread' | 'queue_stale' | 'quotes_unread' | 'quotes_stale';
+    tone: AlertTone;
+    text: string;
+}
+
+/**
+ * Everything the "Needs you" column renders, decided once. No element re-reads the queries: the page
+ * renders this and nothing else, so the copy cannot drift from the state that produced it.
+ */
+export interface NeedsYouView {
+    cell: DeskCell;
+    /** The headline, already worded; null when the desk cannot stand behind a number. */
+    countText: string | null;
+    /** The cards to list, holds first then quotes; empty when nothing may be listed yet. */
+    items: DeskQueueItem[];
+    /** The held count for the header badge; null while the holds are unknown. */
+    heldCount: number | null;
+    /** The column is still waiting on its first holds, so nothing can be said yet. */
+    showSpinner: boolean;
+    /** The holds are listed and the quotes are still coming. */
+    quotesLoading: boolean;
+    /** Already worded; null unless the column is genuinely empty and knows it. */
+    emptyText: string | null;
+    /** Already worded, in the order they render. Each speaks only for its own read. */
+    alerts: DeskAlert[];
+}
+
+/**
+ * The one rule behind every cell: the desk never states what it cannot stand behind, and never
+ * contradicts what is on the screen. So the count needs a payload from both reads (a retained one
+ * counts - it is what Ben is looking at), "Nothing needs you." needs both to be genuinely empty, and
+ * a read that failed with its last payload still listed is called out of date, never unread.
+ *
+ * An alert speaks only for its own read: none of them says what the other read did, because it does
+ * not know. That is why "Held replies are still listed." is not in this file - the list below says
+ * what is listed.
+ */
+export function needsYouView(
+    holds: { state: ReadState; items: QueueItem[] },
+    quotes: { state: ReadState; payload?: Pick<PriceQueuePayload, 'items'> },
+): NeedsYouView {
+    const cell: DeskCell = `${holds.state}/${quotes.state}`;
+    const holdsKnown = standsBehind(holds.state);
+    const quotesKnown = standsBehind(quotes.state);
+    // A read the desk cannot stand behind contributes nothing to the list, so an unread hold never
+    // silently counts as zero holds. Quotes that WERE read still show once the hold read has settled
+    // - under the queue's own error, because unpriced work is real whether or not the holds could be
+    // fetched - but never before it, or they would render first and be reordered as the holds land.
+    const holdsSettled = holds.state !== 'loading';
+    const items = withReadyToPrice(
+        holdsKnown ? holds.items : [],
+        holdsSettled && quotesKnown ? quotes.payload : undefined,
+    );
+
+    const alerts: DeskAlert[] = [];
+    if (holds.state === 'error_stale') alerts.push({ id: 'queue_stale', tone: 'warn', text: 'The held replies may be out of date.' });
+    if (quotes.state === 'error_no_data') alerts.push({ id: 'quotes_unread', tone: 'error', text: 'Could not load the quotes waiting to be priced.' });
+    if (quotes.state === 'error_stale') alerts.push({ id: 'quotes_stale', tone: 'warn', text: 'The quotes to price may be out of date.' });
+    if (holds.state === 'error_no_data') alerts.unshift({ id: 'queue_unread', tone: 'error', text: 'Could not load the queue - retrying automatically.' });
+
+    const quotesLoading = holdsKnown && quotes.state === 'loading';
+    // "Nothing needs you." is a claim about both reads, so it needs both, and it waits for a pending
+    // price read rather than calling the desk clear while the quotes are still coming.
+    const emptyText = items.length > 0 || !holdsKnown || quotesLoading ? null
+        : quotes.state === 'error_no_data' ? 'No held replies. The quotes to price could not be read.'
+        : quotesKnown ? 'Nothing needs you.'
+        : null;
+
+    return {
+        cell,
+        countText: holdsKnown && quotesKnown ? `${items.length} ${items.length === 1 ? 'thing' : 'things'}` : null,
+        items,
+        heldCount: holdsKnown ? holds.items.length : null,
+        showSpinner: holds.state === 'loading',
+        quotesLoading,
+        emptyText,
+        alerts,
+    };
+}
+
+/** What GET /api/comms-v2/queue answers: the held files alone, longest working-hours wait first. */
 export interface DeskQueue {
     items: QueueItem[];
     /** Turns the new desk or a person answered since local midnight in London. */
@@ -101,6 +268,40 @@ export function queueCardCopy(item: QueueItem): QueueCardCopy {
     };
 }
 
+export interface ReadyToPriceCardCopy {
+    initials: string;
+    name: string;
+    /** The postcode, when known. */
+    sub: string;
+    badge: string;
+    /** The job, then what the price screen will ask of him. */
+    body: string;
+    /** "Open & price": a link to the price screen, never a send. */
+    primary: { label: string; href: string };
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** The card for a quote waiting to be priced, after the Price and Send export's queue card. */
+export function readyToPriceCardCopy(item: ReadyToPriceItem): ReadyToPriceCardCopy {
+    const name = item.customerName || 'Customer';
+    const s = item.signals;
+    const asks = [
+        s.unpriced > 0 ? `${plural(s.unpriced, 'line needs', 'lines need')} a price` : null,
+        s.checkThis > 0 ? `${plural(s.checkThis, 'line', 'lines')} to check` : null,
+        s.contradictions > 0 ? plural(s.contradictions, 'clash', 'clashes') + ' to resolve' : null,
+    ].filter(Boolean);
+    const job = item.job.charAt(0).toUpperCase() + item.job.slice(1);
+    return {
+        initials: initialsOf(name),
+        name,
+        sub: item.postcode ?? '',
+        badge: `Ready to price · ${ageLabel(item.waitingMs)}`,
+        body: `${job}.${asks.length ? ` ${asks.join(', ')}.` : ''} Nothing sent.`,
+        primary: { label: 'Open & price', href: item.pricePath },
+    };
+}
+
 /**
  * What Ben reads when a send or release is refused. A 403 means his session holds no approver
  * slot: a plain "you can't act here", not a retry. Anything else is the desk's own reason, as sent.
@@ -127,9 +328,13 @@ export function selectionOf(item: QueueItem): DeskSelection {
     return { caseFileId: item.id, address: item.customerAddress, name: displayName(item) };
 }
 
-export function queueQuery(mode: 'all' | 'sandbox' | 'live' = 'all'): string {
-    return mode === 'all' ? '/api/comms-v2/queue' : `/api/comms-v2/queue?mode=${mode}`;
+/** The queue's URL: the held files, optionally filtered to one case-file mode. */
+export function queueQuery(mode?: 'sandbox' | 'live'): string {
+    return mode ? `/api/comms-v2/queue?mode=${mode}` : '/api/comms-v2/queue';
 }
+
+/** One cached read behind the desk's list and the held-count badge alike. */
+export const QUEUE_KEY = ['comms-v2-queue'];
 
 /** "Updated 8s ago" for the top bar (B1), from the queue query's own `dataUpdatedAt`. */
 export function updatedAgoLabel(secondsAgo: number): string {

@@ -48,16 +48,21 @@ describe('SidebarLayout top bar (B1)', () => {
         expect(screen.queryByTestId('topbar-updated-desktop')).not.toBeInTheDocument();
     });
 
-    it('badges the held count from GET /api/comms-v2/queue (items.length) and labels how long ago it loaded', async () => {
+    it('badges the held count from GET /api/comms-v2/queue, and labels how long ago it loaded', async () => {
         localStorage.setItem('adminToken', 'test-token');
         vi.useFakeTimers({ shouldAdvanceTime: true });
-        mockFetch([
+        const { calls } = mockFetch([
             { url: '/api/contractor/inbox', reply: () => ({ json: [] }) },
             { url: '/api/comms-v2/queue', reply: () => ({ json: { items: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], handledToday: 0 } }) },
         ], { fallback: 'notFound' });
         renderWithQuery(withLayout(<div>content</div>));
 
         await waitFor(() => expect(screen.getByTestId('topbar-held-badge-desktop')).toHaveTextContent('3'));
+        // This poll runs every 15s on every admin page, so it stays the plain held-only read: the
+        // quotes to price are never asked for through the queue endpoint.
+        const queueReads = calls.filter((c) => c.url.startsWith('/api/comms-v2/queue'));
+        expect(queueReads).not.toHaveLength(0);
+        expect(queueReads.every((c) => c.url === '/api/comms-v2/queue')).toBe(true);
         expect(screen.getByTestId('topbar-held-badge-mobile')).toHaveTextContent('3');
         expect(screen.getByTestId('topbar-updated-desktop')).toHaveTextContent(/Updated (just now|\d+s ago)/);
 

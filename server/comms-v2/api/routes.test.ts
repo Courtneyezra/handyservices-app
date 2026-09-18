@@ -557,6 +557,23 @@ describe('one tap: send the held draft, and a template send on a shut window', (
         }
     });
 
+    it('/queue answers the holds alone, plain or filtered to one mode', async () => {
+        const { store, call, close } = await harness();
+        try {
+            const recent = fileWithDraftHold();
+            const stale = fileWithShutWindow();
+            store.put(recent);
+            store.put(stale);
+            for (const query of ['', '?mode=sandbox']) {
+                const queue = await call('GET', `/queue${query}`, 'Ben.Real@handyservices.app');
+                expect(queue.status).toBe(200);
+                expect(queue.json.items.map((i: any) => i.id)).toEqual([stale.id, recent.id]);
+            }
+        } finally {
+            await close();
+        }
+    });
+
     it('/case-files/:id carries the reply channel and window a send from the thread would use', async () => {
         const { store, call, close } = await harness();
         try {

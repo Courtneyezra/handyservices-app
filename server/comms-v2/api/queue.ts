@@ -5,7 +5,12 @@
  * card can offer "Send as is", and the hold's age on the office clock (server/working-hours.ts, the
  * same clock the old desk's `waitingWorkingHours` used), so the order and the badge agree.
  *
- * Read only. Every action a queue card takes goes through the board's own routes (routes.ts:
+ * Holds only. The quotes waiting to be priced also appear in Needs you (Q12), but they are read from
+ * /api/spine/price-queue on its own gentler clock and merged in by the page
+ * (client/src/lib/handy-desk-queue.ts `withReadyToPrice`), so this 15-second poll never touches the
+ * quotes table.
+ *
+ * Read only. Every action a held card takes goes through the board's own routes (routes.ts:
  * send-held-draft, answer, release), so the approver-slot check and the sender's refusals are the
  * same ones the board shows.
  */
