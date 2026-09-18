@@ -178,6 +178,31 @@ describe('<ThreadView>', () => {
         expect(screen.getByTestId('thread-line')).toHaveTextContent('Scoping · Kitchen tap · NG2');
     });
 
+    it('shows a photo or video that cannot be shown, or was not stored durably, as a failure rather than a blank placeholder', async () => {
+        mount([fileRoute(detail({
+            hold: null,
+            turns: [{
+                id: 't5', at: iso(26), channel: 'whatsapp', direction: 'inbound', kind: 'media', body: 'the leak', media: [
+                    { id: 'm1', kind: 'image', mime: 'image/jpeg', url: '/api/media/v2_a.jpg', stored: 'durable', description: null },
+                    { id: 'm2', kind: 'video', mime: 'video/mp4', url: '/api/media/v2_b.mp4', stored: 'local_only', description: null },
+                    { id: 'm3', kind: 'video', mime: 'video/mp4', url: '/api/media/v2_c.mp4', description: null },
+                    { id: 'm4', kind: 'image', mime: 'image/jpeg', url: null, description: null },
+                ],
+            }],
+        }))]);
+        await screen.findByTestId('media-image-m1');
+        expect(screen.queryByTestId('media-failure-m1')).toBeNull();
+        expect(screen.queryByTestId('media-not-durable-m1')).toBeNull();
+        // Mirrored nowhere on arrival: still playable now, and says it will not survive a deploy.
+        expect(screen.getByTestId('media-video-m2')).toBeInTheDocument();
+        expect(screen.getByTestId('media-not-durable-m2')).toHaveTextContent('this video will be lost on the next deploy');
+        // Its file is gone (a deploy wiped it): the load error turns into a failure, not a black box.
+        fireEvent.error(screen.getByTestId('media-video-m3'));
+        expect(await screen.findByTestId('media-failure-m3')).toHaveTextContent('This video could not be loaded; its stored copy is missing');
+        expect(screen.getByTestId('media-failure-m4')).toHaveTextContent('This photo has no stored copy to show');
+        expect(screen.getAllByRole('alert').length).toBeGreaterThanOrEqual(3);
+    });
+
     it('names each speaker without a raw approver, and shows media descriptions, system rules and call rows', async () => {
         mount([fileRoute(detail({
             hold: null,

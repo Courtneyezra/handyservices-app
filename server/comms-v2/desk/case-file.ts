@@ -95,6 +95,12 @@ export interface TurnMedia {
     url: string | null;
     /** Set once by describe_media. */
     description: MediaDescriptionRecord | null;
+    /**
+     * Whether the file was mirrored to durable storage on arrival (desk/media-durability.ts).
+     * `local_only` is lost on the next deploy and the thread shows it as a failure. Absent on
+     * media that landed before this was recorded, which was never mirrored.
+     */
+    stored?: 'durable' | 'local_only';
 }
 
 export interface MediaDescriptionRecord {

@@ -105,15 +105,34 @@ const TAIL_OUT = "rounded-tr-none before:absolute before:-right-2 before:top-0 b
 
 // ---------------------------------------------------------------- rows
 
+/**
+ * A photo or video, or a failure saying why it cannot be shown: never a blank placeholder, which is
+ * how media lost to a redeploy went unnoticed. Media the desk could not mirror to durable storage
+ * on arrival (`stored: 'local_only'`) says so while it can still be seen.
+ */
 function MediaThumb({ media }: { media: TurnMedia }) {
-    if (!media.url) {
-        return <div className="flex h-[90px] items-center justify-center rounded bg-slate-200 text-[11px] text-slate-500">{media.kind === 'video' ? 'video' : 'photo'}</div>;
-    }
-    if (media.kind === 'video') return <video src={media.url} controls preload="metadata" className="max-h-56 w-full rounded bg-black" />;
+    const [broken, setBroken] = useState(false);
+    const noun = media.kind === 'video' ? 'video' : 'photo';
+    const failure = !media.url ? `This ${noun} has no stored copy to show`
+        : broken ? `This ${noun} could not be loaded; its stored copy is missing`
+            : null;
     return (
-        <a href={media.url} target="_blank" rel="noreferrer">
-            <img src={media.url} alt="" loading="lazy" className="max-h-56 w-full rounded object-cover" />
-        </a>
+        <>
+            {failure
+                ? <div role="alert" data-testid={`media-failure-${media.id}`} className="flex min-h-[60px] items-center justify-center rounded bg-red-50 px-2 text-center text-[12px] text-red-700">{failure}</div>
+                : media.kind === 'video'
+                    ? <video data-testid={`media-video-${media.id}`} src={media.url!} controls preload="metadata" onError={() => setBroken(true)} className="max-h-56 w-full rounded bg-black" />
+                    : (
+                        <a href={media.url!} target="_blank" rel="noreferrer">
+                            <img data-testid={`media-image-${media.id}`} src={media.url!} alt="" loading="lazy" onError={() => setBroken(true)} className="max-h-56 w-full rounded object-cover" />
+                        </a>
+                    )}
+            {media.stored === 'local_only' && (
+                <span role="alert" data-testid={`media-not-durable-${media.id}`} className="text-[12px] text-red-700">
+                    Not saved to durable storage: this {noun} will be lost on the next deploy
+                </span>
+            )}
+        </>
     );
 }
 
