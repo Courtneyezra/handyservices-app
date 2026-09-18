@@ -84,4 +84,6 @@ export interface SpecialistReturn {
     brief?: string[];
     /** One line of evidence for the run summary. */
     note?: string | null;
+    /** Service only: everything the turn asked was the gas item, which the gas line going with this reply answers. */
+    onlyTheGasItem?: boolean;
 }

@@ -564,7 +564,7 @@ export class Desk implements DeskLike {
             if (scopingRan && !scoping) scoping = await runScoping();
             // An invoice or receipt question from a customer the CRM knows is Service's whatever the router read, and money the router handed it is its to answer or hold.
             const invoiceQuestion = !!turn.customerId && asksAboutInvoice(turn.body);
-            const service = await serve(file, turn, party, client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service') || asksToChangeDetails(turn.body) || asksAboutOurArea(turn.body) || invoiceQuestion || !!route.moneyToService, scopingRan, invoiceMoney: !!route.moneyToService });
+            const service = await serve(file, turn, party, client, { kb: this.deps.kb, ...this.deps.service, now: this.now, newId: this.deps.newId }, { routed: route.subjects.includes('service') || asksToChangeDetails(turn.body) || asksAboutOurArea(turn.body) || invoiceQuestion || !!route.moneyToService, scopingRan, invoiceMoney: !!route.moneyToService, gasLineGoes: !!regulatedRest });
             calls.push(...service.calls);
             serviceRead = service.calls.length > 0;
             specialists.push(service);
@@ -572,7 +572,15 @@ export class Desk implements DeskLike {
             // Scoping's and Service's holds, in the one vocabulary a fixed line answers; Quoting raises its own below. Gas beside work we do is raised below, answering the rest.
             const holds = specialists.flatMap((s) => (s.proposal.hold && isHoldException(s.proposal.hold.reason) && !(regulatedRest && s.proposal.hold.reason === 'regulated') ? [{ reason: s.proposal.hold.reason, match: s.proposal.hold.match }] : []));
             const fixedOnly = holds.find((h) => FIXED_LINE_ONLY.has(h.reason));
-            if (fixedOnly) {
+            if (regulatedRest && !scoping && service.onlyTheGasItem) {
+                // The turn asked only about the gas item: the reply is the gas line alone, with no promise to check on what it declines.
+                gasLine = await fixedLine('gas', this.deps.fixedLines ?? knowledgeBaseFixedLines);
+                if (gasLine.kbId) fixedLineKbIds.push(gasLine.kbId);
+                ctx.gasLine = gasLine.text;
+                holdFor('regulated', regulatedWithRestReason(regulatedRest.match, regulatedRest.rest));
+                fixedLineOnly = true;
+                reply = gasLine.text;
+            } else if (fixedOnly) {
                 fixedLineOnly = true;
                 const noLine = await fixedLineHold(fixedOnly.reason, fixedOnly.match);
                 if (noLine) return this.nothing(file, party.personId, runId, calls, noLine, 'hold');

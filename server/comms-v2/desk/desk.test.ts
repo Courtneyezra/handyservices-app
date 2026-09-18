@@ -352,7 +352,33 @@ describe('the desk', () => {
             expect(again.file.hold?.exception).toBe('regulated');
         });
 
-        it('the gas item added after the job: a job type Scoping reads again as the one on the file is still this message\'s work, so the ceiling is not frozen', async () => {
+        it('a follow-up asking only about the gas item gets the gas line alone: no promise to check on it or come back, and no no_source card', async () => {
+            const { client, gateway } = desk({
+                router: ({ n }) => (n === 1 ? routeScoping() : routeScoping({ subjects: ['service'], turnKind: 'question' })),
+                specialist: ({ system }) => (/Service specialist/.test(system)
+                    ? { answers: [{ asked: 'take the gas boiler out as well while you are here?', source: 'none', id: null }], changeOfDetails: null, holdReason: null }
+                    : specialistFacts([{ key: 'job_type', value: 'kitchen ceiling crack repair' }, { key: 'location', value: 'NG9 2AB' }], ['job'])),
+                composer: ({ n }) => ({ reply: n === 1 ? 'Hi Sam, happy to sort the crack in your kitchen ceiling.' : `Let me check on that one and come straight back to you.`, factIds: [], kbIds: [] }),
+            });
+            const first = await gateway.inbound(turn('Hi, I need the old gas boiler taken out and the ceiling in the kitchen repaired where it has cracked, NG9 2AB', '2026-09-11T10:00:00.000Z'));
+            if (first.kind !== 'handled') throw new Error(first.kind);
+            expect(first.result.bubbles.map((b) => b.text).join('\n\n')).toBe(`Hi Sam, happy to sort the crack in your kitchen ceiling.\n\n${gasLineText}`);
+            const again = await gateway.inbound(turn('Can you not just take the gas boiler out as well while you are here?', '2026-09-11T10:05:00.000Z'));
+            if (again.kind !== 'handled') throw new Error(again.kind);
+            expect(again.result.decision).toBe('send');
+            expect(again.result.delivered).toBe(true);
+            const sent = again.result.bubbles.map((b) => b.text).join('\n\n');
+            expect(sent).toBe(gasLineText);
+            expect(sent).not.toMatch(/check|come (straight )?back/i);
+            expect(client.calls.filter((c) => c.role === 'composer')).toHaveLength(1);
+            // The gas item is still Ben's, and the thread still answers the ceiling: no no_source card for the gas question.
+            expect(again.file.hold?.exception).toBe('regulated');
+            expect(again.file.hold?.reason).toMatch(/^regulated: .*the same message asks for work we do/);
+            expect(again.file.hold?.reason).not.toMatch(/no_source/);
+            expect(again.file.hold?.superseded.map((s) => s.from.reason).join(' ')).not.toMatch(/no_source/);
+        });
+
+        it('the gas item added after the job:a job type Scoping reads again as the one on the file is still this message\'s work, so the ceiling is not frozen', async () => {
             const { client, gateway } = desk({
                 router: ({ n }) => routeScoping({ turnKind: n === 1 ? 'enquiry' : 'answer' }),
                 specialist: () => specialistFacts([{ key: 'job_type', value: 'ceiling repair' }], ['job']),
