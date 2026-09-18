@@ -287,7 +287,10 @@ export class Desk implements DeskLike {
     private releaseConvergedHold(file: CaseFile): void {
         // Read as a thread being scoped, which it was when the card was raised, whatever this turn was routed to.
         if (!file.hold?.reason.includes(NOT_CONVERGING_CARD) || file.hold.reason.includes(CONVERGED) || !convergence(file, true).converging) return;
-        const why = isReady(file) ? 'the file now has the job type and the location' : file.stage !== 'first_contact' && file.stage !== 'scoping' ? `the thread has moved on to ${file.stage}` : 'the replies it counted no longer stand';
+        const why = isReady(file) ? 'the file now has the job type and the location'
+            : file.stage !== 'first_contact' && file.stage !== 'scoping' ? `the thread has moved on to ${file.stage}`
+            : file.job.type && file.hold.reason.includes('no job type') ? 'the job type has arrived; the file still has no location'
+            : 'the replies it counted no longer stand';
         const words = `${CONVERGED} on a later turn (${why}), so the not-converging card is done`;
         if (file.hold.exception === 'not_converging' && file.hold.reason.startsWith(NOT_CONVERGING_CARD) && !file.hold.notedOn) releaseHold(file, file.hold.approver, words, this.fileDeps());
         else noteOnHold(file, { reason: words, ownCard: NOT_CONVERGING_CARD });

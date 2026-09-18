@@ -527,6 +527,33 @@ describe('the Service specialist on the desk', () => {
         expect(answered.result.decision).toBe('send');
         expect(answered.result.bubbles.map((b) => b.text).join(' ')).not.toContain(NC);
     });
+    it('a card raised on the job asks clears with the job type named when it arrives, and says the location is still missing', async () => {
+        const NC = DEFAULT_FIXED_LINES.not_converging;
+        const { gateway } = desk({
+            router: () => route({ turnKind: 'answer' }),
+            specialist: ({ system, user }) => {
+                if (isService(system)) return serviceOut();
+                return />>.*leaking tap/.test(user)
+                    ? scopingOut([{ key: 'job_type', value: 'leaking tap' }])
+                    : { facts: [], jobUnknowns: ['what the job is'], answeredSubjects: ['job'] };
+            },
+            composer: ({ n, user }) => ({ reply: carries(user, NC) ? `Right. (${n}) ${NC}` : `What is the job, roughly? (${n})`, factIds: [], kbIds: [] }),
+        });
+        let last: Awaited<ReturnType<typeof gateway.inbound>> | null = null;
+        for (let i = 0; i < 7; i++) {
+            last = await gateway.inbound(turn('it is hard to say', `2026-09-11T10:0${i}:00.000Z`));
+            if (last.kind !== 'handled') throw new Error(last.kind);
+            if (last.file.hold) break;
+        }
+        if (!last || last.kind !== 'handled') throw new Error('not handled');
+        expect(last.file.hold?.reason).toMatch(/^not_converging: asked about the job \d+ times with no job type on the file$/);
+        const answered = await gateway.inbound(turn('a leaking tap', '2026-09-11T10:09:18.000Z'));
+        if (answered.kind !== 'handled') throw new Error(answered.kind);
+        expect(answered.file.job.type).toBe('leaking tap');
+        expect(answered.file.hold).toBeNull();
+        const rel = answered.file.releases[answered.file.releases.length - 1];
+        expect(rel.words).toMatch(/^scoping converged on a later turn \(the job type has arrived; the file still has no location\)/);
+    });
     it('a cooperative customer answering every question is not handed to Ben however fast the replies go', async () => {
         const answers = ['a leaking tap', 'kitchen', 'mixer tap', 'drips constantly', 'about a week', 'yes parking outside', 'weekday mornings', 'no pets'];
         const { gateway } = desk({

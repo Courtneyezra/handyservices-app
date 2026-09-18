@@ -246,7 +246,6 @@ describe('the Service specialist', () => {
     it('a complaint read on a thread that is not converging is the hold: the graver reason is never lost behind slow scoping', async () => {
         const file = fixture('This is taking forever and I am not happy');
         file.scopingFrom = 1; // scoping began at the first reply
-        file.scopingFrom = 1;
         for (let i = 0; i < 6; i++) file.turns.push({ ...file.turns[0], id: `o${i}`, direction: 'outbound', runId: `r${i}`, approver: 'agent.comms_v2' });
         const client = new FakeModelClient({ specialist: () => ({ answers: [], changeOfDetails: null, holdReason: 'complaint' }) });
         expect(convergence(file, true).converging).toBe(false);
