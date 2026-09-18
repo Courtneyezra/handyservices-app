@@ -3,8 +3,9 @@
  *
  *   once the refusal has cleared, the quote goes under the person who priced it, the delivery's own
  *   card clears in the desk's words, the quote leaves draft, and a later pass sends nothing more;
- *   a refusal that still applies is not driven into: the send gate, an opt-out on the ledger, an
- *   opt-out hold, a shut window with no approved template (whose card is rewritten to say so);
+ *   a refusal that still applies is not driven into: the send gate, an opt-out hold, a customer
+ *   message still waiting to be answered, a passed price lock and a shut window with no approved
+ *   template (whose cards are rewritten to say so);
  *   a customer who has opted out never receives a re-driven quote, through the live sender's own gate;
  *   a quote no person priced, and a card someone else has written on, are left alone;
  *   the attempts are spaced and capped, and the card then says the desk will not try again.
@@ -121,15 +122,30 @@ describe('the re-drive does not drive into a refusal that still applies', () => 
         expect((await t.store.read(t.slug))?.isDraft).toBe(true);
     });
 
-    it('sends nothing to a customer on the opt-out ledger, and the card says so', async () => {
+    it('sends nothing while a customer message is still waiting to be answered', async () => {
         const t = await refusedDelivery();
         t.wire.refusing = false;
-        t.store.optOuts.set('447700900942', 'all');
-        await deskFor(t, t.wire, () => NOW, { client: silent }).clockPass(t.file);
+        const waiting = appendTurn(t.file, { at: '2026-09-14T11:59:00.000Z', channel: 'whatsapp', kind: 'text', body: "actually I've found someone else, don't bother", media: [], partyId: 'p1', direction: 'inbound', runId: null, approver: null });
+        if (!waiting.ok) throw new Error(waiting.reason);
+        t.file.waits = [{ partyId: 'p1', channel: 'whatsapp', turnIds: [waiting.value.id], dueAt: '2026-09-14T12:01:30.000Z', holder: 'gw1', handedAt: null }];
+        const result = await deskFor(t, t.wire, () => NOW, { client: silent }).clockPass(t.file);
         expect(t.wire.calls).toHaveLength(0);
         expect(t.file.sends).toHaveLength(0);
-        expect(t.file.hold?.reason).toBe(`${priceHold(t.slug)} the customer has opted out (all), so the quote is not sent and stays a draft`);
+        expect(t.file.facts.filter((f) => f.key === REDRIVE_FACT)).toHaveLength(0);
+        expect(result.note).not.toContain('re-driven');
         expect((await t.store.read(t.slug))?.isDraft).toBe(true);
+    });
+
+    it('on a passed price lock tries nothing and rewrites the card to say it needs pricing again', async () => {
+        const t = await refusedDelivery();
+        t.wire.refusing = false;
+        const lapsed = '2026-09-14T11:00:00.000Z';
+        t.store.rows.get(t.slug)!.expiresAt = lapsed;
+        await deskFor(t, t.wire, () => NOW, { client: silent }).clockPass(t.file);
+        expect(t.wire.calls).toHaveLength(0);
+        expect(t.file.hold?.reason).toBe(`${priceHold(t.slug)} the price lock passed at ${lapsed}, so the quote is not sent: re-price it from the price screen`);
+        expect(t.file.hold?.notedOn).toBe(false);
+        expect(t.file.facts.filter((f) => f.key === REDRIVE_FACT)).toHaveLength(0);
     });
 
     it('leaves a thread held because the customer asked us to stop alone', async () => {

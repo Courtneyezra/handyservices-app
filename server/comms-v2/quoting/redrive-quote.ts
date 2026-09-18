@@ -13,9 +13,10 @@
  * delivery's own card, and only while nobody has written on that card since (`notedOn`), exactly the
  * card the landing is allowed to clear. Before it tries it asks whether each refusal still applies,
  * and tries nothing while one does:
- *   - the thread held because the customer asked us to stop (`optOutHeld`), never;
- *   - an opt-out on any number the customer wrote from, or a ledger that cannot say; the sender's own
- *     gate then asks again about every address, phone and email, as it does for a first send;
+ *   - the thread held because the customer asked us to stop (`optOutHeld`), never; the sender's own
+ *     gate asks the opt-out ledger about every address, phone and email, as it does for a first send;
+ *   - a customer message still waiting on the file (`waits`): the desk answers it first;
+ *   - a price lock that has passed: the card is rewritten to say it needs pricing again;
  *   - no channel to answer on, or a shut WhatsApp window with no approved `quote_ready_link`: the
  *     card is rewritten to say so, so it never goes on naming a refusal that has cleared;
  *   - live, the sender registry or a switch refusing the approver (sender.ts `liveSwitchRefusal`).
@@ -80,6 +81,8 @@ function restate(file: CaseFile, slug: string, reason: string): void {
 export async function redrivePricedQuote(file: CaseFile, deps: RedriveDeps): Promise<RedriveOutcome | null> {
     const slug = heldPricedSlug(file);
     if (!slug || optOutHeld(file)) return null;
+    const party = file.parties[0];
+    if ((file.waits ?? []).some((w) => w.partyId === party.personId)) return null;
     const now = deps.now();
     const quoting = { ...deps.desk.quoting, now: deps.now, newId: deps.desk.newId };
     const skip = (why: string): RedriveOutcome => ({ note: `quote ${slug} not re-driven: ${why}`, result: null });
@@ -100,21 +103,9 @@ export async function redrivePricedQuote(file: CaseFile, deps: RedriveDeps): Pro
     if (record.status !== 'draft') return skip(`the quote is ${record.status}, not a draft waiting to go`);
     if (!record.pricedBy) return skip('no person has confirmed its prices');
     if (!record.totalPence || record.totalPence <= 0 || !record.lines.length || record.lines.some((l) => l.pricePence === null)) return skip('the quote is not fully priced');
-    if (record.expiresAt && Date.parse(record.expiresAt) < now.getTime()) return skip(`its price lock passed at ${record.expiresAt}`);
-
-    // Someone who asked us to stop, on any number they wrote from, is not written to on the desk's own initiative.
-    const party = file.parties[0];
-    if (!store.optedOut) return skip('the opt-out ledger cannot be read here');
-    try {
-        for (const c of party.channels.filter((x) => x.kind === 'whatsapp' || x.kind === 'sms')) {
-            const scope = await store.optedOut(c.address);
-            if (scope) {
-                restate(file, slug, `${priceHold(slug)} the customer has opted out (${scope}), so the quote is not sent and stays a draft`);
-                return skip(`the customer has opted out (${scope})`);
-            }
-        }
-    } catch (e: any) {
-        return skip(`the opt-out ledger could not be read (${e?.message ?? e})`);
+    if (record.expiresAt && Date.parse(record.expiresAt) < now.getTime()) {
+        restate(file, slug, `${priceHold(slug)} the price lock passed at ${record.expiresAt}, so the quote is not sent: re-price it from the price screen`);
+        return skip(`its price lock passed at ${record.expiresAt}`);
     }
 
     const quoteUrl = quoteUrlFor(slug, quoting.baseUrl);
