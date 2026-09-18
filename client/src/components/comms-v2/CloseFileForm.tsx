@@ -1,7 +1,8 @@
 /**
- * Close a new-desk case file by hand (POST /api/comms-v2/case-files/:id/close), shown in the thread
- * view below the composer on any file not yet done: words (required on a held file, where they
- * release the hold), then a second tap to confirm. The file moves to Done under the session's name
+ * Close a new-desk case file by hand (POST /api/comms-v2/case-files/:id/close), opened from the
+ * thread's More menu above the message field on any file not yet done (`startConfirming`, with
+ * `onCancel` putting it away): words (required on a held file, where they release the hold), then a
+ * second tap to confirm. The file moves to Done under the session's name
  * and the customer's next message opens a new file. A refusal is shown as the desk worded it, with
  * the confirm kept open.
  */
@@ -15,8 +16,17 @@ const BTN_DARK = cn(BTN, 'bg-slate-900 text-white hover:bg-slate-800');
 const BTN_OUTLINE = cn(BTN, 'border border-slate-200 bg-white text-slate-900 hover:bg-slate-50');
 const BTN_GHOST = cn(BTN, 'text-slate-500 hover:bg-slate-100 hover:text-slate-900');
 
-export function CloseFileForm({ fileId, held, onClosed, layout = 'panel' }: { fileId: string; held: boolean; onClosed: () => void; layout?: 'panel' | 'sheet' }) {
-    const [confirming, setConfirming] = useState(false);
+export function CloseFileForm({ fileId, held, onClosed, layout = 'panel', startConfirming = false, onCancel }: {
+    fileId: string;
+    held: boolean;
+    onClosed: () => void;
+    layout?: 'panel' | 'sheet';
+    /** Open straight at the confirm step, as the thread's More menu does. */
+    startConfirming?: boolean;
+    /** Cancel from the confirm step; without it Cancel returns to the Close file button. */
+    onCancel?: () => void;
+}) {
+    const [confirming, setConfirming] = useState(startConfirming);
     const [words, setWords] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -68,7 +78,7 @@ export function CloseFileForm({ fileId, held, onClosed, layout = 'panel' }: { fi
                     {busy && <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />}
                     Close file
                 </button>
-                <button type="button" className={cn(BTN_GHOST, size)} disabled={busy} onClick={() => { setConfirming(false); setError(null); }}>Cancel</button>
+                <button type="button" className={cn(BTN_GHOST, size)} disabled={busy} onClick={() => { setConfirming(false); setError(null); onCancel?.(); }}>Cancel</button>
             </div>
         </div>
     );

@@ -273,6 +273,26 @@
   animation: board-card-flash 1.8s var(--ease-out) 1;
 }
 
+/* The comms board's docked thread (CommsV2BoardPage's `useSlidingPanel`): it slides in beside the
+ * board, narrowing it, and slides out again when the card is put down. 420px is PANEL_WIDTH there. */
+@keyframes thread-panel-in {
+  from { width: 0; }
+  to { width: 420px; }
+}
+
+@keyframes thread-panel-out {
+  from { width: 420px; }
+  to { width: 0; }
+}
+
+.thread-panel-in {
+  animation: thread-panel-in 200ms var(--ease-out) both;
+}
+
+.thread-panel-out {
+  animation: thread-panel-out 200ms var(--ease-out) both;
+}
+
 /* Respect the user's OS-level prefers-reduced-motion setting. Kills the
  * V2 feedback animations (success ring, cart bump, slide-ups) and the
  * generic Tailwind transitions so users with vestibular disorders or
@@ -285,6 +305,8 @@
   .animate-gradient-x,
   .animate-wiggle,
   .animate-board-flash,
+  .thread-panel-in,
+  .thread-panel-out,
   .date-card-shimmer {
     animation: none !important;
   }

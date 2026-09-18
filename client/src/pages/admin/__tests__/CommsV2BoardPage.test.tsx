@@ -78,7 +78,7 @@ function boardWithOneCardPerStage(): Board {
 }
 
 describe('<CommsV2BoardPage>', () => {
-    it('shows an automatic quote reissue on the card: the new figure, the old one, and when it went or why not', async () => {
+    it('keeps an automatic quote reissue off the card: the plain card is the name and the wait', async () => {
         const board = boardWithOneCardPerStage();
         board.columns.quoted = [
             card({ stage: 'quoted', id: 'case_reissued', customerName: 'Reissued Customer', quoteReissue: { amount: '£105.00', previous: '£100.00', automatic: true, sentAt: new Date(Date.now() - 5 * 60_000).toISOString(), notSent: null, at: new Date().toISOString() } }),
@@ -87,13 +87,12 @@ describe('<CommsV2BoardPage>', () => {
         mockFetch([{ url: '/api/comms-v2/board', reply: () => ({ json: board }) }]);
         stubViewport(true);
         renderWithQuery(<CommsV2BoardPage />);
-        await waitFor(() => expect(screen.getByTestId('board-card-reissue-case_reissued')).toBeTruthy());
-        expect(screen.getByTestId('board-card-reissue-case_reissued').textContent).toBe('Quote reissued automatically: £105.00 (was £100.00), sent 5m ago');
-        expect(screen.getByTestId('board-card-reissue-case_not_told').textContent).toBe('Quote reissued automatically: £126.00 (was £120.00), not sent: send refused');
-        expect(screen.queryByTestId('board-card-reissue-case_held')).toBeNull();
+        const reissued = await screen.findByTestId('board-card-case_reissued');
+        expect(reissued.textContent).not.toMatch(/reissued|£105|£100/);
+        expect(screen.getByTestId('board-card-case_not_told').textContent).not.toMatch(/reissued|not sent|£126/);
     });
 
-    it('renders one column per Contract 2 stage with its case file, and floats the held card with reason and approver', async () => {
+    it('renders one column per Contract 2 stage with its case file, and floats the held card with its reason', async () => {
         const board = boardWithOneCardPerStage();
         mockFetch([
             { url: '/api/comms-v2/board', reply: () => ({ json: board }) },
@@ -106,10 +105,9 @@ describe('<CommsV2BoardPage>', () => {
             await waitFor(() => expect(screen.getByTestId(`board-column-${stage}`)).toBeTruthy());
         }
         expect(screen.getByText('Held Customer')).toBeTruthy();
-        expect(screen.getByTestId('board-card-held-pill-case_held').textContent).toContain('Held');
         expect(screen.getByTestId('board-card-hold-case_held').textContent).toBe('a complaint');
-        expect(screen.getByTestId('board-card-no-slot-case_unassigned').textContent).toBe('Approver ben has no session slot');
-        expect(screen.queryByTestId('board-card-no-slot-case_held')).toBeNull();
+        // A missing approver slot is a setup fault, said once in the thread, not on every card.
+        expect(screen.getByTestId('board-card-case_unassigned').textContent).not.toContain('session slot');
         // Held cards float first in their column, as the API sorted them.
         expect(screen.getByTestId('board-column-first_contact').querySelectorAll('[data-testid^="board-card-case"]')[0].getAttribute('data-testid')).toBe('board-card-case_held');
         expect(screen.getByText('Customer scoping')).toBeTruthy();
@@ -195,6 +193,7 @@ describe('<CommsV2BoardPage>', () => {
         await user.click(screen.getByTestId('board-card-case_held'));
         await waitFor(() => expect(screen.getByText('Never mind, sorted it')).toBeTruthy());
 
+        await user.click(screen.getByRole('button', { name: 'More' }));
         await user.click(screen.getByTestId('close-file'));
         expect(calls.some((c) => c.url.endsWith('/close'))).toBe(false);
         await user.type(screen.getByLabelText('Your words, for the file (optional)'), 'Customer sorted it themselves');
@@ -202,12 +201,15 @@ describe('<CommsV2BoardPage>', () => {
         // The file is read again and is done, so neither the confirm nor the button comes back.
         await waitFor(() => expect(screen.queryByTestId('close-file')).toBeNull());
         expect(screen.queryByTestId('close-file-confirm')).toBeNull();
-        expect(screen.getByTestId('thread-line').textContent).toMatch(/^Done · sandbox\b/);
+        expect(screen.getByTestId('thread-line').textContent).toMatch(/^homeowner · Done · sandbox\b/);
+        // A done file has nothing left to close, so More no longer offers it.
+        await user.click(screen.getByRole('button', { name: 'More' }));
+        expect(screen.queryByRole('menuitem', { name: 'Close file' })).toBeNull();
         const close = calls.find((c) => c.method === 'POST' && c.url.endsWith('/close'));
         expect(close?.body).toEqual({ words: 'Customer sorted it themselves' });
     });
 
-    it('a refused close shows the reason and keeps the confirm open; cancel puts the button back', async () => {
+    it('a refused close shows the reason and keeps the confirm open; cancel puts it away, back in the More menu', async () => {
         const user = userEvent.setup();
         const board = boardWithOneCardPerStage();
         const detail: CaseFileDetail = {
@@ -225,12 +227,14 @@ describe('<CommsV2BoardPage>', () => {
         renderWithQuery(<CommsV2BoardPage />);
         await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
         await user.click(screen.getByTestId('board-card-case_held'));
-        await waitFor(() => expect(screen.getByTestId('close-file')).toBeTruthy());
+        await user.click(await screen.findByRole('button', { name: 'More' }));
         await user.click(screen.getByTestId('close-file'));
         await user.click(screen.getByTestId('close-file-yes'));
         await waitFor(() => expect(screen.getByTestId('close-file-error').textContent).toBe('only landlord may release this hold'));
         expect(screen.getByTestId('close-file-confirm')).toBeTruthy();
         await user.click(screen.getByRole('button', { name: 'Cancel' }));
+        expect(screen.queryByTestId('close-file-confirm')).toBeNull();
+        await user.click(screen.getByRole('button', { name: 'More' }));
         expect(screen.getByTestId('close-file')).toBeTruthy();
     });
 
@@ -252,7 +256,7 @@ describe('<CommsV2BoardPage>', () => {
         renderWithQuery(<CommsV2BoardPage />);
         await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
         await user.click(screen.getByTestId('board-card-case_held'));
-        await waitFor(() => expect(screen.getByTestId('close-file')).toBeTruthy());
+        await user.click(await screen.findByRole('button', { name: 'More' }));
         await user.click(screen.getByTestId('close-file'));
         expect(screen.getByLabelText('Your words, for the file (required to release the hold)')).toBeTruthy();
         expect(screen.queryByLabelText('Your words, for the file (optional)')).toBeNull();
@@ -304,7 +308,7 @@ describe('<CommsV2BoardPage>', () => {
         await waitFor(() => expect(calls.filter((c) => c.method === 'GET' && c.url.startsWith('/api/comms-v2/board')).length).toBeGreaterThanOrEqual(3));
     });
 
-    it('on a wide screen the thread docks in a permanent panel beside the board, and × or Esc closes it', async () => {
+    it('on a wide screen the thread docks beside the board only while a card is picked, and Close or Esc puts it away', async () => {
         stubViewport(true);
         const user = userEvent.setup();
         mockFetch([
@@ -315,24 +319,25 @@ describe('<CommsV2BoardPage>', () => {
         renderWithQuery(<CommsV2BoardPage />);
         await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
 
-        // Before a card is opened, the docked panel is already there with a placeholder.
-        expect(screen.getByTestId('docked-case-file-panel')).toBeTruthy();
-        expect(screen.getByText(/Select a card to open its thread/)).toBeTruthy();
+        // Before a card is picked there is no panel at all: the board has the whole width.
+        expect(screen.queryByTestId('docked-case-file-panel')).toBeNull();
+        expect(screen.queryByText(/Select a card to open its thread/)).toBeNull();
 
         await user.click(screen.getByTestId('board-card-case_held'));
         await waitFor(() => expect(screen.getByText('Can you do it for less?')).toBeTruthy());
 
-        // It docked, not overlaid: no sheet role, and the board columns are still in the document.
+        // It docked beside the board, not overlaid: no sheet role, and the board columns are still in the document.
+        expect(screen.getByTestId('docked-case-file-panel')).toBeTruthy();
         expect(screen.queryByRole('dialog')).toBeNull();
         expect(screen.getByTestId('board-column-first_contact')).toBeTruthy();
 
         await user.click(within(screen.getByTestId('docked-case-file-panel')).getByRole('button', { name: 'Close' }));
-        expect(screen.getByText(/Select a card to open its thread/)).toBeTruthy();
+        await waitFor(() => expect(screen.queryByTestId('docked-case-file-panel')).toBeNull());
 
         await user.click(screen.getByTestId('board-card-case_held'));
         await screen.findByText('Can you do it for less?');
         await user.keyboard('{Escape}');
-        await waitFor(() => expect(screen.getByText(/Select a card to open its thread/)).toBeTruthy());
+        await waitFor(() => expect(screen.queryByTestId('docked-case-file-panel')).toBeNull());
     });
 
     it('in production (the server reports the sandbox door cannot write here) hides every sandbox-only control and mode badge, and no visible text says "case file" or "sandbox"', async () => {
@@ -378,6 +383,6 @@ describe('<CommsV2BoardPage>', () => {
         await waitFor(() => expect(screen.getByText('Held Customer')).toBeTruthy());
         expect(screen.getByRole('heading', { name: 'Comms board' })).toBeTruthy();
         const total = Object.values(board.columns).reduce((n, c) => n + c.length, 0);
-        expect(screen.getByTestId('board-counts').textContent).toBe(`${total} open files · 2 held`);
+        expect(screen.getByTestId('board-counts').textContent).toBe(`${total} open · 2 held`);
     });
 });

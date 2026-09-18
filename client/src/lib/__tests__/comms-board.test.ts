@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-    allCards, boardCounts, defaultPhoneTab, heldLabel, holdAge, jobLine, phoneCards, shortName, STAGES,
+    allCards, boardCounts, cardWait, defaultPhoneTab, holdAge, holdChip, phoneCards, STAGES,
 } from '@/lib/comms-board';
 import type { Board, BoardCard } from '@/pages/admin/CommsV2BoardPage';
 
@@ -37,33 +37,40 @@ describe('holdAge', () => {
     });
 });
 
-describe('heldLabel', () => {
+describe('holdChip', () => {
     it('is null for a card that is not held', () => {
-        expect(heldLabel(card(), NOW)).toBeNull();
+        expect(holdChip(card())).toBeNull();
     });
 
-    it('names the age, then the exception that raised the hold in plain words', () => {
-        expect(heldLabel(card({ held: true, holdSince: ago(12), holdException: 'money' }), NOW)).toBe('Held 12m · money');
-        expect(heldLabel(card({ held: true, holdSince: ago(48), holdException: 'date_change' }), NOW)).toBe('Held 48m · date change');
-        expect(heldLabel(card({ held: true, holdSince: ago(5), holdException: null }), NOW)).toBe('Held 5m');
+    it('names the exception that raised the hold in plain words, else the hold reason', () => {
+        expect(holdChip(card({ held: true, holdReason: 'money: how much is it', holdException: 'money' }))).toBe('money');
+        expect(holdChip(card({ held: true, holdReason: 'x', holdException: 'date_change' }))).toBe('date change');
+        expect(holdChip(card({ held: true, holdReason: 'Guard: a duration', holdException: null }))).toBe('Guard: a duration');
+        expect(holdChip(card({ held: true, holdReason: null, holdException: null }))).toBe('held');
     });
 
     it('still reads an exception this client does not know yet', () => {
-        expect(heldLabel(card({ held: true, holdSince: ago(5), holdException: 'brand_new_reason' as any }), NOW)).toBe('Held 5m · brand new reason');
+        expect(holdChip(card({ held: true, holdException: 'brand_new_reason' as any }))).toBe('brand new reason');
     });
 });
 
-describe('jobLine and shortName', () => {
-    it('joins job, place and role, saying so when the job is not known', () => {
-        expect(jobLine(card({ jobType: 'Bath reseal', location: 'NG2', role: 'landlord' }))).toBe('Bath reseal · NG2 · landlord');
-        expect(jobLine(card())).toBe('job not yet known · homeowner');
+describe('cardWait', () => {
+    it("reads a held card by how long the hold has actually stood", () => {
+        expect(cardWait(card({ held: true, holdSince: ago(80) }), NOW)).toBe('1h 20m');
+        expect(cardWait(card({ held: true, holdSince: ago(600) }), NOW)).toBe('10h');
     });
 
-    it('shortens a full name to first name and last initial, and falls back to the address', () => {
-        expect(shortName(card({ customerName: 'Gemma  Hallam' }))).toBe('Gemma H.');
-        expect(shortName(card({ customerName: 'Priya' }))).toBe('Priya');
-        expect(shortName(card({ customerName: 'S. Kaur' }))).toBe('S. Kaur');
-        expect(shortName(card({ customerName: null }))).toBe('07700900942');
+    it('never reads a hold raised out of office hours as brand new', () => {
+        // Friday 18:30 in London, scanned Saturday 09:00: no office hours have passed, but the hold is 14 h old.
+        const saturday = Date.parse('2026-09-19T08:00:00.000Z');
+        const friday = card({ held: true, holdSince: '2026-09-18T17:30:00.000Z', waitingWorkingHours: 0 });
+        expect(cardWait(friday, saturday)).toBe('14h 30m');
+        expect(cardWait(friday, saturday)).not.toBe('just now');
+    });
+
+    it('reads an unheld card by when the customer last wrote, else when the file opened', () => {
+        expect(cardWait(card({ lastCustomerMessageAt: ago(3), openedAt: ago(30) }), NOW)).toBe('3m ago');
+        expect(cardWait(card({ lastCustomerMessageAt: null, openedAt: ago(120) }), NOW)).toBe('2h ago');
     });
 });
 

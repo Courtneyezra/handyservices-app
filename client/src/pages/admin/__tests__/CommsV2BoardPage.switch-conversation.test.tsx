@@ -1,5 +1,5 @@
 /**
- * Switching conversations on the docked panel must never carry one customer's reply, or its send
+ * Switching conversations on the wide-screen panel must never carry one customer's reply, or its send
  * state, into another. The leak needed the second conversation to be served from the react-query
  * cache: open A, open B, back to A, type, then tap the already-cached B.
  */
@@ -43,7 +43,7 @@ function detailFor(id: string, customerName: string): CaseFileDetail {
 }
 
 function mountBoard(extraRoutes: Parameters<typeof mockFetch>[0] = []) {
-    stubWideViewport(); // the docked panel stays mounted across cards, which is where the leak lived
+    stubWideViewport(); // the panel stays mounted across cards, which is where the leak lived
     const columns = Object.fromEntries(STAGES.map((s) => [s, [] as BoardCard[]])) as Board['columns'];
     columns.first_contact.push(heldCard('case_A', 'Customer A', 'first_contact'));
     columns.scoping.push(heldCard('case_B', 'Customer B', 'scoping'));

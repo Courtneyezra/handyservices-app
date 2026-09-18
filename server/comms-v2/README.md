@@ -624,27 +624,33 @@ the test step exercises; its recorded evidence goes in the PR. See docs/comms-v2
 
 ## Goal 2: Ben's desk as a kanban board (`api/`)
 
-`/admin/comms-v2` (client/src/pages/admin/CommsV2BoardPage.tsx, in the admin shell) over
+`/admin/comms-v2` (client/src/pages/admin/CommsV2BoardPage.tsx, full screen outside the admin shell) over
 `/api/comms-v2` (`api/routes.ts`, mounted behind `requireAdmin` in server/index.ts): a thin
-read-and-act layer over Contract 2's case file. The page is the Handy Desk comms board
-recreated from the Claude Design export (`Comms Board.dc.html` §2, in the Handy Desk mock-up's
-slate and amber, held in amber): a Kanban / Floor toggle over the same `GET /board` response
+read-and-act layer over Contract 2's case file. The page renders full screen: the route is outside
+`SidebarLayout` in `client/src/App.tsx` (`isFullScreenAdmin`, `client/src/lib/handy-desk-path.ts`),
+so neither the sidebar chunk nor the live-call socket loads on it, under a header of words
+(`client/src/components/layout/FullScreenHeader.tsx`: the logo, "Comms board", Handy Desk, Diary
+(soon), "N open · M held", Held only, and a More menu standing in for the sidebar). It is plain and
+minimal (captain, 18 Sep 2026): a Kanban only, the Floor view gone, over `GET /board`
 (`client/src/components/comms-board/BoardViews.tsx`, card and count mapping in
-`client/src/lib/comms-board.ts`), Held only, the Live / Sandbox switch, "N open files · M held",
-held cards in an amber ring and border with their hold age, `holdException` and a "Draft ready"
-pill from `hasDraft`, and the states: a skeleton on the first fetch only, an empty board, an empty
+`client/src/lib/comms-board.ts`), with the Live / Sandbox switch where the sandbox works. A card is
+a plain rectangle with no icons, pills or avatars: the name and the wait, the reply channel as a
+word before the wait only when it is not WhatsApp ("SMS · 40m"), and on a held card one amber line,
+`holdException` or else the hold reason, and "draft ready" from `hasDraft`, with a thin amber edge.
+The states are a skeleton on the first fetch only, an empty board, an empty
 held filter with "Show all files", a filter change that keeps the previous board dimmed and busy
 only until the new one arrives (a failed fetch for the new filter shows the error, never the old
 filter's cards), a failed poll that keeps the last good copy with "Retry now",
 and the read-only board when `viewer.canAct` is false. Below 1024px it is one stage at a time under
-a chip row with Held first, and there is no Floor on a phone. It still doubles as the window onto
+word tabs with Held first. It still doubles as the window onto
 the sandbox while the rest of the desk is built. Tapping a card opens that customer's thread (Handy
-Desk B4, `client/src/components/comms-v2/ThreadView.tsx`, a recreation of section 3 of the Claude
-Design export's `Comms Board.dc.html` in Handy Desk's slate and amber, with a hold in amber). The
-same component opens from a Handy Desk queue card. It is a panel beside the board at 1024px and up
-(`useIsWideBoard`, `client/src/hooks/useIsWideBoard.ts`), closed with × or Esc (Esc is ignored
-while focus is in any field on the page, such as the ask bar, or while one of the thread's own boxes
-holds words). Below that width it is full screen, with a back arrow ‹ Board (‹ Queue on the desk);
+Desk B4, `client/src/components/comms-v2/ThreadView.tsx`, drawn like a WhatsApp chat). The
+same component opens from a Handy Desk queue card. At 1024px and up (`useIsWideBoard`,
+`client/src/hooks/useIsWideBoard.ts`) it is a column beside the board rendered only while a card is
+picked: it slides in, narrowing the board rather than covering it, the picked card outlined and
+scrolled into view, and slides out again on Close, Esc or a second tap on the picked card, leaving
+the board full width; there is no empty panel at rest (Esc is ignored while focus is in any field
+on the page, such as the ask bar, or while one of the thread's own boxes holds words). Below that width it is full screen, with a back arrow ‹ Board (‹ Queue on the desk);
 Esc and a tap outside are ignored while one of the thread's own boxes (the reply, the close-file
 words) holds words. Which of the two shows
 follows the window as it is now, so narrowing it with a card selected brings that card's thread into
@@ -652,19 +658,28 @@ the sheet. On the Handy Desk leaving the sheet puts the card down with it, so th
 the ask bar's context and the answer surface agree at every width; "Ask about this" in its header is
 the one leaving that keeps the card, closing the sheet back onto the ask bar. An ask bar answer takes the
 right-hand side over the thread while it shows, and the composer's half-written reply is the page's,
-kept per case file, so it is still there when the thread comes back. It shows:
-- a header with the reply channel and its window (`replyChannel`, `replyWindow`);
-- customer and desk bubbles, a staff member's by name;
-- media with its description and confidence;
-- call rows with a "Transcribing…" state until the summary or transcript lands, and a transcript
-  toggle;
-- system turns as rules, and the facts behind a toggle;
-- the held draft block, with the hold's age and reason in plain words, and the draft.
+kept per case file, so it is still there when the thread comes back. It shows, in WhatsApp's own
+shape and colours:
+- a header of words: the name, a line with the role, stage, job and the reply channel and its
+  window (`replyChannel`, `replyWindow`), then Call (`tel:`), More (View customer
+  `/admin/clients/:clientKey`, Latest quote `/admin/price/:slug` when a quote is on file, and Close
+  file) and Close (`threadLinks`, `client/src/lib/comms-v2-thread.ts`);
+- the customer's bubbles in white on the left and ours in green on the right, the first of each run
+  with its tail and, on our side, a small "Desk" or staff name; the time inside each bubble, with
+  the channel as a word only when it is not WhatsApp; a day chip between days (`chatItems`);
+- media in its bubble with its description and confidence;
+- calls and system turns as centred notes, a call with a "Transcribing…" state until the summary or
+  transcript lands and a transcript toggle; the facts behind a toggle;
+- the held draft in the chat as a dashed bubble on our side marked "Draft · not sent", the hold's
+  age and reason in plain words under it, and Edit (the draft into the message field), Release
+  hold only and Send this;
+- a round message field with one send button. There are no read ticks: a turn carries no delivery
+  state.
 
 "Send this" posts send-held-draft with the draft on screen as `expectedDraft`. When the desk has
 replaced it since (409 "the held draft changed since you saw it"), the view re-reads the file, shows
-the new draft and asks again. One box feeds both "Send reply" (answer) and "Release hold only"
-(release). A reply shows as a sending bubble at once, then as sent from the response, until a read
+the new draft and asks again. One box feeds both "Send reply" (answer, the send button) and "Release hold only"
+(release, under the held draft). A reply shows as a sending bubble at once, then as sent from the response, until a read
 carries its turn.
 
 On a shut window, freeform sends are disabled, whether the file says the window is shut or a send is
@@ -673,8 +688,8 @@ wording, or its refusal, read when the card appears, again on any newer customer
 after a send or release, never on a clock of its own. "Send template" posts send-template. Every refusal is shown in the desk's
 own words, with the typed words kept. A session whose `viewer.canAct` is false sees the thread with
 every action hidden and one line where the composer would be: "Read only: no approver slot is
-assigned to your login." Below the composer, a file not yet done offers "Close file" (the close route
-below). A thread that fails to load offers Retry and a way back.
+assigned to your login." The More menu offers "Close file" on a file not yet done (the close route
+below), opening its confirm above the message field. A thread that fails to load offers Retry and a way back.
 
 Opening another file, even one already cached, remounts the thread. It starts with an empty reply
 box, its buttons disabled and no earlier send outcome shown, so one customer's words can never be
@@ -685,7 +700,7 @@ sent to another (`client/src/pages/admin/__tests__/CommsV2BoardPage.switch-conve
 | the board | `api/board.ts`, `api/routes.ts` | `GET /board`: one column per Contract 2 stage, exactly the seven; each card is one file (customer, job type and location once known, last customer message and when, reply channel, mode, and `benToRequest` - what the draft is missing, read off the file's internal `ben_to_request` fact through `quoting/ben-to-request.ts`, empty once nothing is outstanding). Held cards float to the top of their column with the hold reason and approver, `holdException` (the router exception that raised the hold, `Hold.exception`, else null) and `hasDraft` (the hold carries a held-back draft: the "Draft ready" pill; the ask agent's floor surface reads the same flag). Filters `?held=true` and `?mode=sandbox\|live`; a file is `live` once any send on it delivered, `sandbox` otherwise. The response also carries `sandboxAvailable` (`api/routes.ts`, from `live-database.ts`'s `commsV2DatabaseCheck`): true only where the sandbox door could write on this process's database, never production, never by hostname. `client/src/pages/admin/CommsV2BoardPage.tsx` reads it to hide the sandbox thread control, the sandbox/live filter and every mode badge in production, failing towards hidden on any refusal reason. It also carries `viewer: { approver, canAct }`: the slot this session occupies through the same `slotOf` lookup the write routes refuse on (403), and whether it holds one, so the page can show a read-only board before a write fails; holding a slot is not enough on its own, because each write still checks that the file answers to that slot. The page otherwise reads plainly as "Comms board", not the sandbox window it doubles as pre-cutover. `GET /case-files/:id` is the file's turns (with media; a call turn also carries `call`, its headline, summary and transcript, `callViewOf`, the last two null until they land, shown on the page as the summary and a show-transcript toggle) and facts, read-only, plus `replyChannel`, `replyWindow` and `replyRefusal`: the channel a reply from the thread would go out on and that channel's window, `{ state: 'open' \| 'shut', reason, closesAt }` (`closesAt` is when WhatsApp's 24-hour window shuts; null when shut and on SMS or email, which have no window), both read through `desk/human-reply.ts` `replyRouteOf`, the routing the answer and template sends use, so they can differ from the card's `replyChannel` (the last send's channel); with no reply to route, both are null and `replyRefusal` is the send's own reason. Then `speakerNames`: the `users` row's first and last name for every `human:<login>` approver on the file (`api/approvers.ts` `readStaffNames`, matched case-insensitively and keyed lowercase; a login with no match falls back to its own local part on the page). While a case file is open the page re-reads it every 15s so a message arriving mid-conversation appears without closing and reopening it. |
 | the Handy Desk queue | `api/queue.ts`, `api/routes.ts` | `GET /queue`: every held file as one flat "Needs you" list for `/admin/handy-desk` (`client/src/pages/admin/HandyDesk.tsx`, card copy in `client/src/lib/handy-desk-queue.ts`; the quick links' held-count badge on "Comms board", `useHeldCount` in `client/src/components/layout/QuickLinks.tsx`, polling every 15s on every admin page): the board card plus the hold's `draft` and `waitingWorkingHours`, office hours since the hold was raised (`server/working-hours.ts`), longest first. **Holds only, and an in-memory read** - this route never touches the quotes table, whatever the caller asks for. The quotes waiting to be priced also appear in Needs you (answer Q12), but the page reads those from `/api/spine/price-queue` on that query's own slower clock (`usePriceQueue`, 60s with a 30s staleTime) and merges them in client-side (`withReadyToPrice` in `client/src/lib/handy-desk-queue.ts`): **below every hold**, in the payload's own oldest-first order, as `kind: 'ready_to_price'` cards (the union tag is stamped on the client by `withReadyToPrice`; the wire carries none) (customer, job, postcode, `waitingMs` - the true wall-clock wait, since the office clock stops scanning after a fortnight and would read alike on every older draft - `pricePath` to `/admin/price/:slug`, no money figure; it has no conversation to select, so tapping it opens Price and Send for that quote: the page on a phone, and from 1024px the same screen embedded as the answer surface, which keeps Ben's unsent edits while he looks elsewhere (`client/src/pages/admin/HandyDesk.tsx`'s header)). A person waiting on a reply is never pushed below an unpriced draft. The two reads answer at different speeds and fail independently, so the page decides what it may say once from both of their states (`needsYouView`, tabulated in `client/src/pages/admin/HandyDesk.tsx`'s header): the headline count appears only when both reads have a payload it can stand behind, "Nothing needs you." only when both are empty, and a read that failed with its last payload still listed is called out of date rather than unread. Then `handledToday`: the turns answered since local midnight in Europe/London, one per outbound run whether the desk or a person sent it, which the page's header counter shows so it survives a reload. `?mode=sandbox\|live`, `sandboxAvailable` and `viewer` as on `/board`; each item carries the card's `holdException` and `hasDraft` too. Read only: a card's buttons are the send-held-draft, answer, release and send-template routes below, so the same approver-slot check and sender refusals apply. Tapping a card opens the same thread view as the board: on the right at 1024px and up, full screen below. It never reads the old `/api/desk`. The old desk's `assignment`, `sla_breach` and `call_task` items have no new-desk equivalent yet, so the queue has none. |
 | release | `api/routes.ts`, `api/approvers.ts` | `POST /case-files/:id/release { words }` calls the case file's own `release`, which enforces the approver-and-words invariant; the route only carries the words and names who is asking. The approver is the slot the signed-in session occupies, never the request body: the app_settings row keyed `comms_v2_approvers` maps slot to user ids (`{ "ben": ["<user id>"] }`, the insert SQL is in `approvers.ts`). A session no slot lists gets 403; with no row nobody can release. Fail closed: an unreadable row assigns nobody. |
-| close | `api/routes.ts`, `file-close.ts` | `POST /case-files/:id/close { words? }`: Ben closes the file as done by hand ("Closing a case file" above). Same session rules as release: 401 with no session, 403 with no slot, 404 on an unknown file; 409 on a file already done, a held file closed without words, or a hold another slot must release. Returns the card, the stage change and the release, if a hold was cleared. The thread view (`client/src/components/comms-v2/CloseFileForm.tsx`, below the composer) shows "Close file" on any file not done, and not to a session with no approver slot, with words (required on a held file, optional otherwise) and a second tap to confirm; a close re-reads the file and refreshes the board or queue. |
+| close | `api/routes.ts`, `file-close.ts` | `POST /case-files/:id/close { words? }`: Ben closes the file as done by hand ("Closing a case file" above). Same session rules as release: 401 with no session, 403 with no slot, 404 on an unknown file; 409 on a file already done, a held file closed without words, or a hold another slot must release. Returns the card, the stage change and the release, if a hold was cleared. The thread view (`client/src/components/comms-v2/CloseFileForm.tsx`, from the thread's More menu) offers "Close file" on any file not done, and not to a session with no approver slot, with words (required on a held file, optional otherwise) and a second tap to confirm; a close re-reads the file and refreshes the board or queue. |
 | answer | `api/routes.ts`, `desk/human-reply.ts` | `POST /case-files/:id/answer { words }` sends Ben's own reply through the one sender (`desk/human-reply.ts`), on any card, held or not. Same session rules as release: 401 with no session, 403 with no slot, 400 with no words, 404 on an unknown file; this is the only answer path, so no unlisted session can answer as him. A session whose slot is not the file's own approver is refused 409, held or not, so a slot minted for one thread cannot answer another. The guards do not run over his words (answer 43); a refusal from the sender, a shut window, a reply over the bubble ceiling or an SMS over two segments, is 409 with its reason and nothing is sent, and a send returns the card, the approver the send carried, the bubbles that went, and the release the words cleared. |
 | send held draft | `api/routes.ts`, `desk/human-reply.ts` (`sendHeldDraft`) | `POST /case-files/:id/send-held-draft`, optional body `{ expectedDraft }`: sends the desk's own held-back draft exactly as it stands, one tap, rendered as the desk's own replies are (bubbles of about 160 characters, the email greeting and sign-off); only a draft that still runs over the ceiling at 200 goes as typed words, split at blank lines only. Same pipeline and same session/approver rules as answer, with the draft as the words; refuses first when there is no held draft, then with 409 "the held draft changed since you saw it" (`HELD_DRAFT_CHANGED`, `shared/ops-types.ts`), sending nothing, when `expectedDraft` is given and the held draft differs. Without it, it sends whatever is held (the Handy Desk queue cards); the thread view and the Handy Desk answer surface always send it. |
 | send window template | `api/routes.ts`, `desk/human-reply.ts` (`sendWindowTemplate`) | `POST /case-files/:id/send-template`, no body, only once the WhatsApp window is shut (a freeform reply is refused there, not this). Offers a template only when its wording is true for the thread: `quote_ready_link` with the exact link the file's own sends show went out, once a quote has been sent on it; otherwise `answer_ready_reopen_v1` only when the customer's newest turn is unanswered and itself contains a literal `?`. The desk's held acknowledgement ("Thanks, leave it with me and I'll come back to you.", or its variant naming a photo or video) is not an answer: a question followed only by that line is still offered the template, known by the desk's approver and the line's exact wording (`isHeldAckText` in `desk/fixed-lines.ts`, since a send record keeps no fixed-line kind). Any other outbound turn after the question answers it. The reopen template is offered only when any standing hold is for a question (no exception, or `no_source`); a complaint, money or other exception hold is never offered it, so the reopen template never clears one (`quote_ready_link` takes no notice of the hold, as before). Its subject is the file's recorded job type, else the fixed words "your enquiry", never the customer's own text. Neither applies: refuses with "no template is true for this thread: the customer needs to write again before a reply can go", which is shown as the refusal instead of a retry. Where the button is offered is above: the thread's template card on a shut window, and a Handy Desk queue card under a shut-window refusal of its own send. `quote_accepted_ack_v1`, `enquiry_followup_optin_v1` and every marketing-category template are never reached from this button. `GET /case-files/:id/template-offer` is its dry run (`previewWindowTemplate`): the same session rules (401, 403, 404), then `{ ok: true, template, language, channel, body }`, the template the send would carry and its filled wording, or `{ ok: false, reason }` with the send's exact refusal, as a 200. It sends, records and releases nothing. Both run `planWindowTemplate`, so the preview cannot name a template or wording the send would not use; the one thing it does not run is the sender's own gate (the opt-out ledger and the sender switch), whose refusal the send still returns as `send refused: <reason>`. |
@@ -713,11 +728,10 @@ the board's own sandbox door under `/api/comms-v2/sandbox` seeding the thread:
    stores a guard result, so nothing claims a pass.
 6. A reply the sender will not carry, one over the bubble ceiling of three, is refused with the
    sender's own reason shown on the board and nothing sent: no turn on the thread, no hold cleared.
-7. The board's views: with the held card from 1 on the board, "Floor" re-renders the same files
-   as one token per file in seven bays, the held one in an amber ring with its hold age; a token
-   tap opens the same thread as a card tap. "Held only" leaves only held cards, and with nothing
-   held says "Nothing is waiting on you" with "Show all files". Below 1024px there is no Floor
-   toggle and the chip row starts with "Held".
+7. The board's views: the board is full width with no thread until a card is picked; the held card
+   from 1 opens its thread beside the board and a second tap on it closes it again. "Held only"
+   leaves only held cards, and with nothing held says "Nothing is waiting on you" with "Show all
+   files". Below 1024px the word tabs start with "Held" and a card opens its thread full screen.
 
 ## Handy Desk: the ask agent (`ask/`)
 

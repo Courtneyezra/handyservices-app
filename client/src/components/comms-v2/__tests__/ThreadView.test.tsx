@@ -55,13 +55,23 @@ const ready = async () => { await screen.findByTestId('thread-turns'); return wo
 const SHUT = 'the whatsapp window is shut (the customer last wrote 26 hours ago); a shut window never carries freeform words, so this reply cannot go until the customer writes again';
 
 describe('<ThreadView>', () => {
-    it('shows the header with the reply channel and window, and closes on × and on Esc', async () => {
+    it('shows the header in words with the reply channel and window, and closes on Close and on Esc', async () => {
         const { onClose } = mount([fileRoute(detail())]);
         await ready();
         expect(screen.getByTestId('thread-name')).toHaveTextContent('Priya Raval');
-        expect(screen.getByText('homeowner')).toBeInTheDocument();
-        expect(screen.getByText('Scoping')).toBeInTheDocument();
-        expect(screen.getByTestId('thread-line').textContent).toMatch(/^Kitchen tap · NG2 · 07700900123 · reply via WhatsApp · window open until \d\d:\d\d$/);
+        expect(screen.getByTestId('thread-line').textContent).toMatch(/^homeowner · Scoping · Kitchen tap · NG2 · 07700900123 · reply via WhatsApp · window open until \d\d:\d\d$/);
+        // Words, not icon buttons: Call rings the customer's number, More holds the rest.
+        expect(screen.getByTestId('thread-call')).toHaveAttribute('href', 'tel:+447700900123');
+        expect(screen.getByTestId('thread-call').textContent).toBe('Call');
+        expect(screen.getByTestId('thread-view').querySelector('[data-testid="thread-name"]')!.parentElement!.parentElement!.querySelectorAll('svg').length).toBe(0);
+        await userEvent.click(screen.getByRole('button', { name: 'More' }));
+        expect(screen.getByTestId('thread-view-customer')).toHaveAttribute('href', '/admin/clients/phone%3A07700900123');
+        expect(screen.queryByTestId('thread-latest-quote')).toBeNull();
+        expect(screen.getByRole('menuitem', { name: 'Close file' })).toBeInTheDocument();
+        // Esc puts the menu away and leaves the thread open.
+        fireEvent.keyDown(window, { key: 'Escape' });
+        expect(screen.queryByRole('menu')).toBeNull();
+        expect(onClose).not.toHaveBeenCalled();
 
         await userEvent.click(screen.getByRole('button', { name: 'Close' }));
         expect(onClose).toHaveBeenCalledTimes(1);
@@ -123,6 +133,7 @@ describe('<ThreadView>', () => {
         mockFetch([fileRoute(detail())]);
         renderWithQuery(<ThreadSheet fileId="case_p" onClose={onClose} onChanged={vi.fn()} viewerApprover="ben" />);
         await ready();
+        await userEvent.click(screen.getByRole('button', { name: 'More' }));
         await userEvent.click(screen.getByTestId('close-file'));
         const box = screen.getByLabelText(/Your words, for the file/) as HTMLTextAreaElement;
         await userEvent.type(box, 'customer sorted it themselves');
@@ -189,10 +200,17 @@ describe('<ThreadView>', () => {
         }))]);
 
         await screen.findByTestId('turn-meta-t1');
-        expect(screen.getByTestId('turn-meta-t1').textContent).toMatch(/^Priya Raval · WhatsApp · /);
-        expect(screen.getByTestId('turn-meta-t2').textContent).toMatch(/^Desk · WhatsApp · /);
-        expect(screen.getByTestId('turn-meta-t3').textContent).toMatch(/^Ben Real · /);
-        expect(screen.getByTestId('turn-meta-t4').textContent).toMatch(/^unknown-cover · /);
+        // WhatsApp style: the time inside the bubble, and WhatsApp itself goes unsaid.
+        expect(screen.getByTestId('turn-meta-t1').textContent).toMatch(/^\d\d:\d\d$/);
+        // Her bubble is white on the left, ours green on the right, each run named on its first bubble.
+        expect(screen.getByTestId('turn-bubble-t1').className).toContain('self-start');
+        expect(screen.getByTestId('turn-bubble-t1').className).toContain('bg-white');
+        expect(screen.getByTestId('turn-bubble-t2').className).toContain('self-end');
+        expect(screen.getByTestId('turn-bubble-t2').className).toContain('bg-[#d9fdd3]');
+        expect(screen.getByTestId('turn-bubble-t2').textContent).toMatch(/^DeskDesk words/);
+        expect(screen.getByTestId('turn-bubble-t3').textContent).toMatch(/^Ben RealBen words/);
+        expect(screen.getByTestId('turn-bubble-t4').textContent).toMatch(/^unknown-coverCover words/);
+        expect(screen.getByTestId('turn-bubble-t1').textContent).not.toContain('Priya Raval');
         expect(screen.getByTestId('thread-turns').textContent).not.toMatch(/agent\.comms_v2|human:/);
 
         expect(screen.getByTestId('media-description-m1')).toHaveTextContent('A chrome mixer tap dripping at the base · high confidence');
@@ -215,11 +233,20 @@ describe('<ThreadView>', () => {
     it('shows the held block in amber with its age, reason and draft, and none of the desk\'s own hold vocabulary', async () => {
         mount([fileRoute(detail({ hold: { ...detail().hold!, exception: 'date_change', notedOn: true } }))]);
         const block = await screen.findByTestId('held-block');
-        expect(block.className).toContain('amber');
         expect(block).toHaveTextContent('Held 1h 20m · for Ben');
+        // In the chat, where the next message would go, as a dashed bubble on our side that has not gone.
+        expect(within(screen.getByTestId('thread-turns')).getByTestId('held-block')).toBe(block);
+        expect(block).toHaveTextContent('Draft · not sent');
         expect(screen.getByTestId('held-reason')).toHaveTextContent('composer stated a duration');
         expect(screen.getByTestId('hold-draft')).toHaveTextContent('Usually around 2 hours for that, Priya.');
         expect(block).not.toHaveTextContent(/Failures:|Exception:|Noted on:/);
+    });
+
+    it('Edit puts the held draft in the message field to change before sending', async () => {
+        mount([fileRoute(detail())]);
+        await ready();
+        await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+        expect(words().value).toBe('Usually around 2 hours for that, Priya.');
     });
 
     it('Send this posts send-held-draft with the draft on screen as expectedDraft, and shows the sent reply', async () => {
