@@ -92,6 +92,30 @@ UPDATE comms_v2_inbound_emails SET status = 'pending', attempts = 0, next_attemp
 ```
 The next minute's retry pass takes it. Rows are never deleted by the app. A 401 from Resend's own delivery log means the secret on Railway is not that webhook's. To roll back, unset `COMMS_V2_EMAIL_INBOUND` or disable the webhook in Resend. Emails that arrive while it is off stay in Resend's received list.
 
+### Putting back new-desk media a deploy took (media backfill)
+**What it repairs and what it does not.** Office threads and quotes are repaired: new-desk case-file media items and `personalized_quotes.customer_photo_urls` and `customer_video_urls`. Contractor briefs (`job_dispatches.media_urls` and the per-task media in `job_dispatches.tasks`) and the old message records (`messages.media_url`) are NOT re-pointed. Both the plan and the apply response carry `notRepaired`: how many rows of each still point at a lost url, and a `statement` saying this in plain words. The counts cover every lost url the backfill knows of, the lost items still in scope and the old url each item already put back records in `restored.from`, so planning again after a run still counts them. Measured against live production (read-only replica, 18 Sep 2026 14:40Z) these counts are zero: 0 `job_dispatches` rows (`media_urls` and per-task media) and 0 `messages` rows carry a lost url, and no dispatch has been created since the new desk went live, so any non-zero figure in a test run comes from a seeded fixture, not real briefs. Follow-up: re-point contractor briefs and the old message records in a separate change.
+
+Until 18 Sep 2026 the new desk kept customers' photos and videos only on the app's local disk, and every deploy wiped them: the thread keeps `/api/media/v2_<uuid>.<ext>` and it answers 404 (the board now says "its stored copy is missing"). For a WhatsApp photo or video the same bytes survive in S3 under the old desk's name, because the same webhook reaches the old desk, which mirrors each message's first attachment. The backfill (`server/comms-v2/media-backfill.ts`, routes in `server/comms-v2/api/media-backfill-routes.ts`) copies that object inside the bucket to a new key, `chat-media/<media id>-restored.<ext>`, and points the item's `url` and `path`, and any quote row's `customer_photo_urls` and `customer_video_urls`, at the new file. It deletes, moves and overwrites nothing. It must run inside the deployed app, because the live desk holds case files in memory and would write over a table edit. Run it only on the owner's word, which states how many items it covers.
+
+Pairing: a turn that kept `providerMessageId` (every media turn since the mirror fix) pairs exactly on it. Older turns pair only when **isolated**: exactly one old-desk row from the same WhatsApp number, of the same kind, with the same text, received between 1 s after and 2 s before the new desk's copy (all 37 true pairs on 18 Sep were 62 to 593 ms apart), and no other photo or video of that kind from that customer on either desk within 10 s. A burst is never guessed. Its items come back as `needsPerson` with their candidates, and a person who has looked at them names one per item in `choices`.
+
+It needs an admin login whose user id the `comms_v2_approvers` row lists for a slot, run against the live app (`https://www.handyservices.app`):
+```bash
+H=https://www.handyservices.app
+TOKEN=$(curl -s -X POST $H/api/auth/login -H 'content-type: application/json' -d '{"email":"<admin email>","password":"<password>"}' | jq -r .token)
+# 1. Plan: reads only (the case files, the old desk's rows, S3 object sizes). Keep plan.json.
+curl -s -X POST $H/api/comms-v2/media-backfill/plan -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"arrivedBefore":"2026-09-18T12:35:43Z"}' > plan.json
+jq '{counts, notRepaired, needsPerson: [.needsPerson[] | {mediaId, why}], noTwin}' plan.json
+# 2. Stop unless counts.lost is the number the owner authorised (37 on 18 Sep) and outOfScope is 0.
+# 3. Apply exactly that plan. `expect` is the authorised number, never copied from the plan.
+curl -s -X POST $H/api/comms-v2/media-backfill/apply -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d "{\"arrivedBefore\":\"2026-09-18T12:35:43Z\",\"digest\":\"$(jq -r .digest plan.json)\",\"expect\":37}" | jq .result
+```
+Apply plans again first and writes nothing (409) unless the lost count equals `expect` and the plan's `digest` is unchanged. Its result counts `restored`, `copiesReused` (a copy an earlier run made, used as it is), `failed` with a reason each, `needsPerson`, `noTwin`, `quoteRowsUpdated`, `stillPointingAtLost` (how many case-file items, quote rows, dispatch rows by `media_urls` and by per-task media, and messages still carry a lost url once it is done) and `notRepaired`. Among case-file items and quote rows, only the items left for a person or without a twin should appear there; dispatch and message rows stay as `notRepaired` states. Running it again changes nothing: put-back items count as `alreadyRestored`, and the new name is fixed by the media id, so a second copy is never made. To put back items left for a person, plan again with `"choices": {"<media id>": "<candidate messageId>"}` after looking at each candidate's `url`, then apply with the same `choices`, the new digest and the new lost count.
+
+It cannot put back anything whose old-desk copy is missing (`noTwin`): a web-form or email photo (the old desk never had one), attachment 2 and later of a message that carried several (the old desk kept the first), anything that came through the Meta Cloud API path (the old desk kept only Meta's media id), or an old-desk object that is not in S3. Those are recoverable, if at all, only from the provider.
+
 ### Spine mode
 ```bash
 npx tsx scripts/_spine-mode.ts --status

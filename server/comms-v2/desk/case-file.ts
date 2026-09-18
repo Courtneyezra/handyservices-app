@@ -101,6 +101,12 @@ export interface TurnMedia {
      * media that landed before this was recorded, which was never mirrored.
      */
     stored?: 'durable' | 'local_only';
+    /**
+     * Set only when the file behind `url` was lost and put back from the old desk's copy of the same
+     * message under a new name (server/comms-v2/media-backfill.ts): the url it replaced, when, and
+     * how it was paired: by the turn's `providerMessageId`, by the isolated rule, or by a person.
+     */
+    restored?: { from: string; at: string; by: 'message_id' | 'isolated' | 'person' };
 }
 
 export interface MediaDescriptionRecord {
